@@ -33,7 +33,7 @@ afterEach(async () => {
 });
 
 async function isolated(): Promise<void> {
-  tempDir = await mkdtemp(join(tmpdir(), "omp-omniroute-config-"));
+  tempDir = await mkdtemp(join(tmpdir(), "cruxomni-omp-client-config-"));
   process.env.OMP_AGENT_DIR = tempDir;
   setAgentDirResolverForTests(() => process.env.OMP_AGENT_DIR ?? tempDir);
   delete process.env.OMP_OMNIROUTE_API_KEY;

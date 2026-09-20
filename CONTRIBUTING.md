@@ -9,7 +9,7 @@ production unless a separate explicit authorization changes that policy.
 The package owns its provider/setup/recovery implementation, typed transport,
 model projection, pricing inspection, administration registry/executor/UI,
 contracts, provenance, fixtures, scripts, and package documentation. It must
-remain exportable without a parent MyRig checkout or a runtime dependency on
+remain exportable as a standalone checkout without a runtime dependency on
 LocalSetup, Envman, a local database, or a private service.
 
 Preserve the public `CruxOmni-OMP-Client` identity and the protocol-facing
@@ -23,7 +23,7 @@ Do not add:
 - a second OMP runtime, an arbitrary HTTP/path administration tool, automatic
   server repair, credential guessing, provider rerouting, or silent retries of
   writes/inference;
-- an extension enablement change in the parent production configuration; or
+- an extension enablement change in a consuming installation's production configuration; or
 - a dependency whose install hook fetches mutable source.
 
 Original graphics in `assets/` are reserved Crux Experts LLC assets. Do not

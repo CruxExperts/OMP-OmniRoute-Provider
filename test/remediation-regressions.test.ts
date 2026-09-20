@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 async function isolatedProfile(): Promise<string> {
-  temporaryRoot = await mkdtemp(join(tmpdir(), "omp-omniroute-regression-"));
+  temporaryRoot = await mkdtemp(join(tmpdir(), "cruxomni-omp-client-regression-"));
   setAgentDirResolverForTests(() => temporaryRoot!);
   for (const name of Object.keys(process.env)) {
     if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];

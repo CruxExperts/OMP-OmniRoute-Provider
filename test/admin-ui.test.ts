@@ -115,7 +115,7 @@ test("apply command stays human-only when form is cancelled", async () => {
 });
 
 test("protected export refuses an existing destination", async () => {
-  const path = `/tmp/omp-omniroute-admin-ui-${process.pid}`;
+  const path = `/tmp/cruxomni-omp-client-admin-ui-${process.pid}`;
   await Bun.write(path, "existing");
   await expect(writeProtectedFile(path, new Uint8Array([1]))).rejects.toThrow();
   await unlink(path);
@@ -155,7 +155,7 @@ test("fresh enablement confirms the exact endpoint before persisting or binding"
 });
 
 test("multipart dispatch turns dedicated file entries into blobs, never path fields", async () => {
-  const path = `/tmp/omp-omniroute-admin-multipart-${process.pid}`;
+  const path = `/tmp/cruxomni-omp-client-admin-multipart-${process.pid}`;
   await Bun.write(path, "payload");
   const originalFetch = globalThis.fetch;
   let form: FormData | undefined;
