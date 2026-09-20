@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "profile": "universal-agent-repo",
+  "instructions": {
+    "shared": "AGENTS.md"
+  },
+  "docs": {
+    "index": "docs/INDEX.md",
+    "machine_index": "docs/index.yaml",
+    "reference": "docs/reference/agent-repo-shape.md"
+  },
+  "skills": {
+    "external_lock": "external_skills.lock.json",
+    "shared_repo_skills": ".agents/skills"
+  },
+  "private_state": [
+    ".agents/state/"
+  ]
+}

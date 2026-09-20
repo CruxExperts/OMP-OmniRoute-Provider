@@ -19,3 +19,12 @@ documents:
     last_updated: "2026-09-20"
     doc_type: reference
     tags: [troubleshooting, recovery, offline, administration]
+  - id: agent-repo-shape
+    path: docs/reference/agent-repo-shape.md
+    title: Agent Repo Shape
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-09-20"
+    doc_type: reference
+    tags: [agents, localsetup, repository-shape]
