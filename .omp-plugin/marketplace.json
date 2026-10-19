@@ -4,10 +4,10 @@
   "id": "cruxomni-omp-client",
   "name": "CruxOmni-OMP-Client",
   "package": "@cruxexperts/cruxomni-omp-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Crux Experts OmniRoute client for Oh My Pi with guided setup, live discovery, and verified administration.",
   "entrypoint": "./src/index.ts",
-  "compatibility": { "host": ">=18.2.3 <19", "tested": ["18.2.3", "18.2.6"] },
+  "compatibility": { "host": ">=18.12.2 <19", "tested": ["18.12.2", "18.12.3"] },
   "repository": {
     "url": "https://github.com/CruxExperts/CruxOmni-OMP-Client",
     "homepage": "https://github.com/CruxExperts/CruxOmni-OMP-Client#readme",

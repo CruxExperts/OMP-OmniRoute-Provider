@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, mkdir, open, readFile, rename, stat, lstat, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { getAgentDir } from "@oh-my-pi/pi-utils/dirs";
+import { getAgentDir } from "@oh-my-pi/pi-utils";
 
 export const PROVIDER_ID = "omniroute";
 export const CONFIG_VERSION = 2 as const;

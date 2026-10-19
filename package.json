@@ -1,11 +1,22 @@
 {
   "name": "@cruxexperts/cruxomni-omp-client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Crux Experts OmniRoute client for Oh My Pi with guided setup and verified administration",
-  "repository": { "type": "git", "url": "git+https://github.com/CruxExperts/CruxOmni-OMP-Client.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CruxExperts/CruxOmni-OMP-Client.git"
+  },
   "homepage": "https://github.com/CruxExperts/CruxOmni-OMP-Client#readme",
-  "bugs": { "url": "https://github.com/CruxExperts/CruxOmni-OMP-Client/issues" },
-  "keywords": ["omp", "oh-my-pi", "omniroute", "cruxexperts", "model-provider"],
+  "bugs": {
+    "url": "https://github.com/CruxExperts/CruxOmni-OMP-Client/issues"
+  },
+  "keywords": [
+    "omp",
+    "oh-my-pi",
+    "omniroute",
+    "cruxexperts",
+    "model-provider"
+  ],
   "license": "MIT",
   "author": "Crux Experts LLC",
   "copyright": "Copyright (c) 2026 Crux Experts LLC",
@@ -36,29 +47,43 @@
   "omp": {
     "name": "CruxOmni-OMP-Client",
     "settings": {
-      "showSetupInvitation": { "type": "boolean", "default": true, "description": "Offer guided setup once for an unconfigured interactive profile" },
-      "notifyTransitions": { "type": "boolean", "default": true, "description": "Show provider connection state transitions" }
+      "showSetupInvitation": {
+        "type": "boolean",
+        "default": true,
+        "description": "Offer guided setup once for an unconfigured interactive profile"
+      },
+      "notifyTransitions": {
+        "type": "boolean",
+        "default": true,
+        "description": "Show provider connection state transitions"
+      }
     },
-    "extensions": ["./src/index.ts"],
+    "extensions": [
+      "./src/index.ts"
+    ],
     "compatibility": {
-      "host": ">=18.2.3 <19",
-      "tested": ["18.2.3", "18.2.6"]
+      "host": ">=18.12.2 <19",
+      "tested": [
+        "18.12.2",
+        "18.12.3"
+      ]
     }
   },
   "packageManager": "bun@1.4.2",
   "engines": {
     "bun": ">=1.4.2"
   },
-  "dependencies": {
-    "@oh-my-pi/pi-ai": ">=18.2.3 <19",
-    "@oh-my-pi/pi-tui": ">=18.2.3 <19",
-    "@oh-my-pi/pi-utils": ">=18.2.3 <19"
-  },
   "peerDependencies": {
-    "@oh-my-pi/pi-coding-agent": ">=18.2.3 <19"
+    "@oh-my-pi/pi-ai": ">=18.12.2 <19",
+    "@oh-my-pi/pi-coding-agent": ">=18.12.2 <19",
+    "@oh-my-pi/pi-tui": ">=18.12.2 <19",
+    "@oh-my-pi/pi-utils": ">=18.12.2 <19"
   },
   "devDependencies": {
-    "@oh-my-pi/pi-coding-agent": "18.2.6",
+    "@oh-my-pi/pi-ai": "18.12.3",
+    "@oh-my-pi/pi-coding-agent": "18.12.3",
+    "@oh-my-pi/pi-tui": "18.12.3",
+    "@oh-my-pi/pi-utils": "18.12.3",
     "@types/bun": "1.4.2",
     "@types/node": "22.15.0",
     "typescript": "5.8.3"

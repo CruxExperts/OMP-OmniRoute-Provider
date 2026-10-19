@@ -30,14 +30,14 @@ That's the whole pitch: less setup, fewer surprises, more time using the models.
 
 ## Get started
 
-```bash
-git clone https://github.com/CruxExperts/CruxOmni-OMP-Client.git
-cd CruxOmni-OMP-Client
-bun install --frozen-lockfile --ignore-scripts
-omp plugin link "$PWD"
+For a qualified, published version, install the package through OMP's native
+installer:
+
+```text
+omp install @cruxexperts/cruxomni-omp-client@<qualified-version>
 ```
 
-Restart OMP, then open the wizard:
+After installation, restart OMP and open the setup wizard:
 
 ```text
 /cruxomni setup
@@ -73,11 +73,14 @@ Set both values together. For normal interactive use, the wizard is easier.
 
 ## Requirements
 
-- Oh My Pi `18.2.3` through `18.x`
-- Bun `1.4.2` or newer
+- Oh My Pi `>=18.12.2 <19`
+- Bun `>=1.4.2` for source development and package checks
 - An OmniRoute endpoint and runtime API key
 
-Every change is tested against OMP `18.2.3` and `18.2.6`.
+The compatibility floor is OMP `18.12.2`. Current release qualification
+targets `18.12.2` (minimum) and `18.12.3` (latest). The candidate has not been
+published; until a qualified release is available, use the local checkout
+instructions in the setup guide.
 
 ## More
 

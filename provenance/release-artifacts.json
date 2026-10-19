@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-20T00:00:00Z",
+  "generated_at": "2026-10-19T19:04:02Z",
   "policy": {
     "publication": "not_published",
     "verification_only": true,
@@ -33,7 +33,31 @@
       "status": "expected_and_recorded"
     },
     {
-      "id": "omniroute-source",
+      "id": "omp-linux-x64-18.12.2",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v18.12.2",
+      "peeled_commit": "1d5aff90b057ce7dbfe32ea557a527c1b3144b72",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.2/omp-linux-x64",
+      "sha256": "9513ef9f19d7991aac6ae0cb6077bcf16662092ddde861c002a91cedc6f47f9a",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.2/SHA256SUMS.txt",
+      "checksums_sha256": "08ebc014b1c0651fbc36a0bba32c28f883c9e115c05413defffdea7e916c56f4",
+      "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omp-linux-x64-18.12.3",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v18.12.3",
+      "peeled_commit": "53a0377db6845e0dae606146130766ec92d407fd",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.3/omp-linux-x64",
+      "sha256": "065b5079d65ff6b77d961c935ba808e8f0f569ca6a2cb7b5fb6a1e8da72d7dec",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.3/SHA256SUMS.txt",
+      "checksums_sha256": "7f54b00f19ee14ad71383fa32105b64abee1a99180265b44b7a6441220cb54b5",
+      "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omniroute-source-v3.8.50",
       "upstream": "omniroute",
       "kind": "source_archive",
       "release_tag": "v3.8.50",
@@ -42,6 +66,18 @@
       "sha256": "2bb4a3cbdf153266c9e998d6f5cb3a68da3085a8a8ea53cffef84fdf901a7dd1",
       "sha256_status": "verified",
       "git_tree_sha1": "b57cf75da22d11dccc937e4415bb0449be97c774",
+      "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omniroute-source-v3.8.51",
+      "upstream": "omniroute",
+      "kind": "source_archive",
+      "release_tag": "v3.8.51",
+      "peeled_commit": "c1e30b7676975feb298b49eff6ff58923c04b89e",
+      "url": "https://github.com/diegosouzapw/OmniRoute/archive/c1e30b7676975feb298b49eff6ff58923c04b89e.tar.gz",
+      "sha256": "5ed9dc3c038cc9c01b84303ff7afdcaf32b9b0c4e9f986c88dcf19ee07789624",
+      "sha256_status": "verified",
+      "git_tree_sha1": "0f58d8df20c0c2ae4336b432b3f39837119b6eed",
       "status": "verified_disposable_acquisition"
     }
   ]

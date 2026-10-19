@@ -11,13 +11,31 @@ const packagePrefix = "package/";
 const requiredDocs = ["README.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "ASSET_LICENSE.md", "THIRD_PARTY_NOTICES.md", "LICENSE"] as const;
 const allowedExact = new Set(["package.json", "VERSION", ...requiredDocs]);
 const allowedPrefixes = ["src/", "contracts/", "provenance/", "scripts/", "test/fixtures/", "assets/", "docs/", ".omp-plugin/"] as const;
-const supportedOmpRange = ">=18.2.3 <19";
-const rangeAllowedOmpPackages = new Set([
-  "@oh-my-pi/pi-ai",
-  "@oh-my-pi/pi-coding-agent",
-  "@oh-my-pi/pi-tui",
-  "@oh-my-pi/pi-utils",
-]);
+const hostProvidedOmpPackages: Record<string, true> = {
+  "@oh-my-pi/pi-ai": true,
+  "@oh-my-pi/pi-coding-agent": true,
+  "@oh-my-pi/pi-tui": true,
+  "@oh-my-pi/pi-utils": true,
+};
+function hostCompatibilityRange(manifest: PackageManifest): string {
+  const value = manifest.omp?.compatibility?.host;
+  if (typeof value !== "string" || !/^>=\d+\.\d+\.\d+ <\d+$/.test(value)) {
+    throw new Error("manifest.omp.compatibility.host must be a semver floor and major-version ceiling");
+  }
+  return value;
+}
+
+async function pinnedOmpVersion(): Promise<string> {
+  const provenance = JSON.parse(await readFile(join(packageRoot, "provenance/upstreams.json"), "utf8")) as unknown;
+  if (!recordValue(provenance) || !Array.isArray(provenance.upstreams)) throw new Error("provenance.upstreams must be an array");
+  const upstream = provenance.upstreams.find(value => recordValue(value) && value.id === "omp");
+  if (!recordValue(upstream) || !recordValue(upstream.release)) throw new Error("provenance has no pinned OMP release");
+  const version = upstream.release.version;
+  if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("provenance OMP release version must be exact semver");
+  return version;
+}
+
+const semverDependency = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 
 interface PackageManifest {
   name?: unknown;
@@ -27,7 +45,7 @@ interface PackageManifest {
   module?: unknown;
   exports?: unknown;
   files?: unknown;
-  omp?: { extensions?: unknown };
+  omp?: { extensions?: unknown; compatibility?: { host?: unknown; tested?: unknown } };
   dependencies?: Record<string, unknown>;
   devDependencies?: Record<string, unknown>;
   peerDependencies?: Record<string, unknown>;
@@ -190,15 +208,27 @@ async function readBunLock(manifest: PackageManifest): Promise<LockEvidence> {
       purl: packagePurl(name, version),
     });
   }
-  if (packages.length === 0) throw new Error("bun.lock must contain at least one exact transitive package");
   const names = new Set(packages.map(item => item.name));
   const declaredGroups = [manifest.dependencies, manifest.devDependencies, manifest.peerDependencies, manifest.optionalDependencies];
   const declared = declaredGroups.flatMap(group => Object.keys(group ?? {}));
+  const hostRange = hostCompatibilityRange(manifest);
+  const hostVersion = await pinnedOmpVersion();
   for (const group of declaredGroups) {
     for (const [name, spec] of Object.entries(group ?? {})) {
-      const exact = typeof spec === "string" && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(spec);
-      const supportedHostRange = rangeAllowedOmpPackages.has(name) && spec === supportedOmpRange;
-      if (!exact && !supportedHostRange) throw new Error(`manifest dependency ${name} must pin an exact semver or use the reviewed OMP compatibility range ${supportedOmpRange}`);
+      const exact = typeof spec === "string" && semverDependency.test(spec);
+      const supportedHostRange = Object.hasOwn(hostProvidedOmpPackages, name) && spec === hostRange;
+      if (!exact && !supportedHostRange) throw new Error(`manifest dependency ${name} must pin an exact semver or use the reviewed OMP compatibility range ${hostRange}`);
+    }
+  }
+  for (const name of Object.keys(hostProvidedOmpPackages)) {
+    if (manifest.dependencies?.[name] !== undefined || manifest.optionalDependencies?.[name] !== undefined) {
+      throw new Error(`${name} is host-provided and must not be installed as a package runtime dependency`);
+    }
+    if (manifest.peerDependencies?.[name] !== hostRange) throw new Error(`${name} must declare the package OMP compatibility range as a peer dependency`);
+    if (manifest.devDependencies?.[name] !== hostVersion) throw new Error(`${name} must use the exact pinned OMP release ${hostVersion} for development checks`);
+    const lockEntries = packages.filter(item => item.name === name);
+    if (lockEntries.length !== 1 || lockEntries[0]?.version !== hostVersion) {
+      throw new Error(`${name} must resolve exactly once to pinned OMP ${hostVersion}; duplicate host runtime copies are not allowed`);
     }
   }
   for (const name of declared) if (!names.has(name)) throw new Error(`bun.lock is missing the declared dependency ${name}`);

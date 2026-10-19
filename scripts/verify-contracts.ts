@@ -6,6 +6,7 @@ type AnyRecord = Record<string, unknown>;
 const packageRoot = resolve(import.meta.dir, "..");
 const manifestPath = resolve(packageRoot, "provenance/route-sources.json");
 const operationsPath = resolve(packageRoot, "contracts/operations.json");
+const upstreamsPath = resolve(packageRoot, "provenance/upstreams.json");
 const eligibilityPath = resolve(packageRoot, "contracts/release-eligibility.json");
 const METHODS = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"] as const;
 const ALLOWED_NON_INVOKABLE = [
@@ -40,14 +41,30 @@ function requireNumber(value: unknown, label: string): number {
   return value;
 }
 
-function verifyRelease(manifest: AnyRecord, operations: AnyRecord): void {
+type OmniRouteReleasePin = { repository: string; tag: string; commit: string; releaseId: number };
+
+function expectedOmniRouteRelease(): OmniRouteReleasePin {
+  const upstreams = requireArray(readJson(upstreamsPath).upstreams, "provenance.upstreams");
+  const upstream = upstreams.map((value) => requireObject(value, "provenance upstream")).find((value) => value.id === "omniroute");
+  if (!upstream) throw new Error("provenance has no OmniRoute upstream");
+  const release = requireObject(upstream.release, "provenance OmniRoute release");
+  return {
+    repository: requireString(upstream.repository, "provenance OmniRoute repository"),
+    tag: requireString(release.tag, "provenance OmniRoute release tag"),
+    commit: requireString(release.peeled_commit, "provenance OmniRoute peeled commit"),
+    releaseId: requireNumber(release.release_id, "provenance OmniRoute release ID"),
+  };
+}
+
+function verifyRelease(manifest: AnyRecord, operations: AnyRecord, expected: OmniRouteReleasePin): void {
   const release = requireObject(manifest.release, "manifest.release");
   const operationRelease = requireObject(operations.release, "operations.release");
-  const expected = { repository: "diegosouzapw/OmniRoute", tag: "v3.8.50", commit: "5458026c216f77a3da68ea49152dc33470cfe2cb" };
-  for (const [key, value] of Object.entries(expected)) {
+  for (const [key, value] of Object.entries({ repository: expected.repository, tag: expected.tag, commit: expected.commit })) {
     if (release[key] !== value || operationRelease[key] !== value) throw new Error(`release selector drift: ${key}`);
   }
-  if (release.selectorKind !== "github-latest-release" || release.latestRedirectTarget !== "v3.8.50" || release.readmeNpmBadgeIsNotSelector !== true) throw new Error("latest-release provenance selector is incomplete");
+  if (release.releaseId !== expected.releaseId || release.selectorKind !== "github-latest-release" || release.latestRedirectTarget !== expected.tag || release.readmeNpmBadgeIsNotSelector !== true) {
+    throw new Error("latest-release provenance selector is incomplete or differs from the pinned upstream");
+  }
 }
 
 function verifyManifest(manifest: AnyRecord): Map<string, AnyRecord> {
@@ -112,11 +129,11 @@ function verifyDescriptor(operation: AnyRecord, routeByKey: Map<string, AnyRecor
   if (path.includes("/openapi/try") && status !== "non-invokable") throw new Error("arbitrary OpenAPI executor must never be invokable");
 }
 
-function verifyEligibility(operations: AnyRecord): void {
+function verifyEligibility(operations: AnyRecord, expected: OmniRouteReleasePin): void {
   const eligibility = readJson(eligibilityPath);
   if (eligibility.schemaVersion !== 1 || eligibility.recordKind !== "omniroute-release-eligibility") throw new Error("invalid release eligibility identity");
   const release = requireObject(eligibility.release, "eligibility.release");
-  if (release.repository !== "diegosouzapw/OmniRoute" || release.tag !== "v3.8.50" || release.commit !== "5458026c216f77a3da68ea49152dc33470cfe2cb") throw new Error("eligibility release selector drift");
+  if (release.repository !== expected.repository || release.tag !== expected.tag || release.commit !== expected.commit) throw new Error("eligibility release selector drift");
   const fallback = requireObject(eligibility.default, "eligibility.default");
   if (fallback.status !== "unavailable" || typeof fallback.reason !== "string" || fallback.reason.length === 0) throw new Error("eligibility default must deny without evidence");
   const inventory = new Map<string, AnyRecord>();
@@ -162,8 +179,9 @@ function verifyEligibility(operations: AnyRecord): void {
 export function verifyContracts(): void {
   const manifest = readJson(manifestPath);
   const operations = readJson(operationsPath);
-  verifyRelease(manifest, operations);
-  verifyEligibility(operations);
+  const expectedRelease = expectedOmniRouteRelease();
+  verifyRelease(manifest, operations, expectedRelease);
+  verifyEligibility(operations, expectedRelease);
   const routeByKey = verifyManifest(manifest);
   const generated = generateContracts();
   const expected = readFileSync(operationsPath, "utf8");

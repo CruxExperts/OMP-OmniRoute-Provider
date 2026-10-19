@@ -1,16 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { loadConfig, updateConfig, type CredentialDomain, type CredentialReference } from "./config.ts";
+import type { AuthStorage, StoredAuthCredential } from "@oh-my-pi/pi-ai";
 
-export interface StoredCredential {
-  id: number;
-  provider: string;
-  credential: unknown;
-}
-export interface CredentialStore {
-  set(provider: string, credential: { type: "api_key"; key: string }): Promise<void>;
-  listStoredCredentials(provider?: string): StoredCredential[];
-  removeCredential(provider: string, id: number): Promise<boolean>;
-}
+export type CredentialStore = {
+  credentials: Pick<AuthStorage["credentials"], "set" | "list" | "removeById">;
+};
 export interface CredentialBinding { endpoint: string; generation: number }
 export interface OptionalCredential { value: string; kind: "apiKey" | "cookie" }
 
@@ -36,7 +30,7 @@ export class OptionalCredentials {
     if (session) return matches(session, binding) ? { value: session.value, kind: session.kind } : undefined;
     const ref = config.optionalCredentials?.[domain];
     if (!ref || ref.state !== "ready" || !matches(ref, binding)) return undefined;
-    const row = store.listStoredCredentials(ref.providerKey).find(row => row.provider === ref.providerKey && row.id === ref.rowId);
+    const row = store.credentials.list(ref.providerKey).find(row => row.provider === ref.providerKey && row.id === ref.rowId);
     const value = rawKey(row?.credential);
     return value ? { value, kind: ref.kind } : undefined;
   }
@@ -52,10 +46,10 @@ export class OptionalCredentials {
       if (!remember) { this.#session.set(domain, { ...credential, ...binding }); return; }
       const ref: CredentialReference = { domain, ...binding, kind: credential.kind, state: "pending", providerKey: `cruxomni-${domain}-${randomUUID()}` };
       const staged = await updateConfig(current => ({ ...current, optionalCredentials: { ...current.optionalCredentials, [domain]: ref } }), { expectedRevision: config.revision ?? null });
-      let row: StoredCredential | undefined;
+      let row: StoredAuthCredential | undefined;
       try {
-        await store.set(ref.providerKey, { type: "api_key", key: credential.value });
-        const rows = store.listStoredCredentials(ref.providerKey).filter(item => item.provider === ref.providerKey);
+        await store.credentials.set(ref.providerKey, { type: "api_key", key: credential.value });
+        const rows = store.credentials.list(ref.providerKey).filter(item => item.provider === ref.providerKey);
         if (rows.length !== 1 || rawKey(rows[0]!.credential) !== credential.value) throw new Error("credential readback failed");
         row = rows[0]!;
         await updateConfig(current => ({ ...current, optionalCredentials: { ...current.optionalCredentials, [domain]: { ...ref, rowId: row!.id, state: "ready" } } }), { expectedRevision: staged.revision ?? null });
@@ -64,11 +58,11 @@ export class OptionalCredentials {
         // Reconcile an uncertain persistence result by exact newly owned identity.
         // Retain the pending marker if storage or config cleanup cannot be proved.
         try {
-          const owned = store.listStoredCredentials(ref.providerKey).filter(item => item.provider === ref.providerKey);
+          const owned = store.credentials.list(ref.providerKey).filter(item => item.provider === ref.providerKey);
           for (const item of owned) {
-            if (!(await store.removeCredential(ref.providerKey, item.id))) throw new Error("credential cleanup incomplete");
+            if (!(await store.credentials.removeById(ref.providerKey, item.id))) throw new Error("credential cleanup incomplete");
           }
-          if (store.listStoredCredentials(ref.providerKey).length !== 0) throw new Error("credential cleanup uncertain");
+          if (store.credentials.list(ref.providerKey).length !== 0) throw new Error("credential cleanup uncertain");
           await updateConfig(current => {
             if (current.optionalCredentials?.[domain]?.providerKey !== ref.providerKey) throw new Error("credential ownership changed");
             const refs = { ...current.optionalCredentials }; delete refs[domain];
@@ -89,9 +83,9 @@ export class OptionalCredentials {
       const ref = config.optionalCredentials?.[domain];
       if (!ref) return;
       const revoked = await updateConfig(current => ({ ...current, optionalCredentials: { ...current.optionalCredentials, [domain]: { ...ref, state: "revoked" } } }), { expectedRevision: config.revision ?? null });
-      const rows = store.listStoredCredentials(ref.providerKey).filter(row => row.provider === ref.providerKey && (ref.rowId === undefined || row.id === ref.rowId));
-      for (const row of rows) if (!(await store.removeCredential(ref.providerKey, row.id))) throw new Error("credential removal incomplete");
-      if (store.listStoredCredentials(ref.providerKey).some(row => ref.rowId === undefined || row.id === ref.rowId)) throw new Error("credential removal uncertain");
+      const rows = store.credentials.list(ref.providerKey).filter(row => row.provider === ref.providerKey && (ref.rowId === undefined || row.id === ref.rowId));
+      for (const row of rows) if (!(await store.credentials.removeById(ref.providerKey, row.id))) throw new Error("credential removal incomplete");
+      if (store.credentials.list(ref.providerKey).some(row => ref.rowId === undefined || row.id === ref.rowId)) throw new Error("credential removal uncertain");
       await updateConfig(current => {
         const refs = { ...current.optionalCredentials }; delete refs[domain];
         return { ...current, optionalCredentials: refs };

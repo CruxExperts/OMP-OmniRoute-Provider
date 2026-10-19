@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        omp: ["18.2.3", "18.2.6"]
+        omp: ["18.12.2", "18.12.3"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }

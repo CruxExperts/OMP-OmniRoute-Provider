@@ -2,7 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OptionalCredentials, type CredentialStore, type StoredCredential } from "../src/credentials.ts";
+import { OptionalCredentials, type CredentialStore } from "../src/credentials.ts";
+import type { StoredAuthCredential } from "@oh-my-pi/pi-ai";
 import { getConfigPath, loadConfig, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
 import register from "../src/index.ts";
 
@@ -14,12 +15,23 @@ async function isolated() {
 }
 function storage() {
   let id = 0;
-  const rows: StoredCredential[] = [];
-  const store: CredentialStore = {
-    async set(provider, credential) { rows.push({ id: ++id, provider, credential }); },
-    listStoredCredentials(provider) { return rows.filter(row => !provider || row.provider === provider); },
-    async removeCredential(provider, id) { const index = rows.findIndex(row => row.provider === provider && row.id === id); if (index < 0) return false; rows.splice(index, 1); return true; },
+  const rows: StoredAuthCredential[] = [];
+  const credentials: CredentialStore["credentials"] = {
+    async set(provider, credential) {
+      for (let index = rows.length - 1; index >= 0; index--) {
+        if (rows[index]!.provider === provider) rows.splice(index, 1);
+      }
+      for (const value of Array.isArray(credential) ? credential : [credential]) {
+        rows.push({ id: ++id, provider, credential: value, disabledCause: null });
+      }
+    },
+    list(provider) {
+      const filtered = rows.filter(row => !provider || row.provider === provider);
+      return filtered;
+    },
+    async removeById(provider, id) { const index = rows.findIndex(row => row.provider === provider && row.id === id); if (index < 0) return false; rows.splice(index, 1); return true; },
   };
+  const store: CredentialStore = { credentials };
   return { rows, store };
 }
 const binding = { endpoint: "https://gateway.example", generation: 1 };
@@ -45,7 +57,7 @@ test("remembered credentials survive restart but reject endpoint or generation d
 
 test("forget removes only the selected owned record", async () => {
   await isolated(); const { store, rows } = storage(); const credentials = new OptionalCredentials();
-  await store.set("unrelated", { type: "api_key", key: "fixture-unrelated" });
+  await store.credentials.set("unrelated", { type: "api_key", key: "fixture-unrelated" });
   await credentials.save("admin", key, binding, true, store);
   await credentials.forget("admin", store);
   expect(rows.map(row => row.provider)).toEqual(["unrelated"]);
@@ -53,15 +65,15 @@ test("forget removes only the selected owned record", async () => {
 });
 
 test("failed remembered persistence never silently downgrades to a session credential", async () => {
-  await isolated(); const { store } = storage(); store.set = async () => { throw new Error("broker unavailable"); };
+  await isolated(); const { store } = storage(); store.credentials.set = async () => { throw new Error("broker unavailable"); };
   const credentials = new OptionalCredentials();
   await expect(credentials.save("admin", key, binding, true, store)).rejects.toThrow("not activated");
   expect(await credentials.resolve("admin", binding, store)).toBeUndefined();
 });
 
 test("configuration conflict after secret persistence leaves no usable credential", async () => {
-  await isolated(); const { store, rows } = storage(); const set = store.set;
-  store.set = async (provider, credential) => { await set(provider, credential); await updateConfig(config => ({ ...config, invitationDismissed: true })); };
+  await isolated(); const { store, rows } = storage(); const set = store.credentials.set;
+  store.credentials.set = async (provider, credential) => { await set(provider, credential); await updateConfig(config => ({ ...config, invitationDismissed: true })); };
   const credentials = new OptionalCredentials();
   await expect(credentials.save("metadata", key, binding, true, store)).rejects.toThrow("not activated");
   expect(rows).toHaveLength(0);

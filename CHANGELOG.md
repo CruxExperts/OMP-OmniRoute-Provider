@@ -2,6 +2,27 @@
 
 All notable changes to CruxOmni-OMP-Client are recorded here.
 
+## Unreleased
+
+- Align OMP compatibility, CI, and development SDK pins with current release
+  `18.12.3`, preserving the `18.12.2` floor; OMP runtime packages remain peers.
+- Use OMP's current native credential and login namespaces for guided setup
+  and remembered optional credentials, preserving exact-row removal.
+- Resolve profile directories through OMP's public utility root, which is
+  available to the compiled host's extension loader.
+- Pin release metadata to OmniRoute `3.8.51` and current OMP `18.12.3`, while
+  preserving the `18.12.2` floor, earlier artifact receipts, and exact ignored source archive.
+- Document native package installation separately from local checkout linking;
+  publication remains outside this candidate's scope.
+- Refresh only the OMP development SDK's transitive `sharp` and native/libvips
+  graph to `0.35.5` (`@huggingface/transformers@4.3.0` permits `^0.35.4`); no
+  direct dependency, override, or product runtime package was added. This
+  addresses [CVE-2026-96889 / GHSA-wq5f-xc86-pv6w](https://github.com/advisories/GHSA-wq5f-xc86-pv6w);
+  the maintainer advisory and OSV identify versions below `0.35.5` as affected,
+  deps.dev reports no advisory for `0.35.5`, NVD currently scores the CVE
+  `7.8`, and CISA's exploited-vulnerability catalog has no matching entry.
+  The patched npm release was published `2026-09-27`.
+
 ## 0.1.0 — 2026-09-20
 
 - Established `@cruxexperts/cruxomni-omp-client` as the initial public package

@@ -45,7 +45,7 @@ export async function setupConnection(context: ExtensionContext, services: Setup
   let insecureConsent = config.allowInsecureHttp;
   try {
     if (!(await context.ui.confirm("Save connection and continue", `Validate ${endpoint} and remember the runtime key using OMP's native credential store?`))) return;
-    await context.modelRegistry.authStorage.login("omniroute", {
+    await context.modelRegistry.authStorage.oauth.login("omniroute", {
       onAuth() {},
       onPrompt: async prompt => {
         if (prompt.secret) return key!;

@@ -2,26 +2,34 @@
 
 ## Requirements
 
-- Oh My Pi `>=18.2.3 <19`; the tested compatibility points are `18.2.3` and
-  `18.2.6`.
+- Oh My Pi `>=18.12.2 <19`; compatibility floor `18.12.2`, with current
+  release qualification targets `18.12.2` (minimum) and `18.12.3` (latest).
 - Bun `>=1.4.2` when installing from source or running package checks.
 - An OmniRoute-compatible HTTPS endpoint and a runtime API key.
 
 The package identity is `@cruxexperts/cruxomni-omp-client`. The provider ID
 remains `omniroute`, preserving native model and credential identity.
 
-## Install and link
+## Install a published package
 
-```bash
-bun add @cruxexperts/cruxomni-omp-client
-omp plugin link "$PWD/node_modules/@cruxexperts/cruxomni-omp-client"
+After a release is qualified and published, install its exact version through
+OMP's native package installer:
+
+```text
+omp install @cruxexperts/cruxomni-omp-client@<qualified-version>
 ```
 
-Restart OMP after changing a plugin link. For a local checkout, link its root:
+The current candidate is not published. Publication is separate from
+qualification; do not use a package version that has not been released.
+
+## Link a local checkout (development only)
 
 ```bash
-omp plugin link /path/to/CruxOmni-OMP-Client
+bun install --frozen-lockfile --ignore-scripts
+omp plugin link "$PWD"
 ```
+
+Restart OMP after changing a local plugin link.
 
 ## Guided setup
 

@@ -37,7 +37,7 @@ function context(values: string[], confirmations: boolean[], notices: string[], 
       async select() { return undefined; },
       notify(message: string) { notices.push(message); },
     },
-    modelRegistry: { authStorage: { login } },
+    modelRegistry: { authStorage: { oauth: { login } } },
   } as never;
 }
 
@@ -66,8 +66,10 @@ test("completed connection never serializes or announces the runtime key", async
   const endpoint = "https://gateway.example";
   const notices: string[] = [];
   let provider = "";
-  const ctx = context([endpoint, secret], [true], notices, async (name: string) => {
+  const ctx = context([endpoint, secret], [true], notices, async (name: string, callbacks: { onPrompt(prompt: { message: string; secret?: boolean }): Promise<string> }) => {
     provider = name;
+    expect(await callbacks.onPrompt({ message: "OmniRoute base URL" })).toBe(endpoint);
+    expect(await callbacks.onPrompt({ message: "OmniRoute API key", secret: true })).toBe(secret);
     await updateConfig(current => ({ ...current, active: { endpoint: validateEndpoint(endpoint), generation: 1 } }));
   });
   await setupConnection(ctx, services());

@@ -4,6 +4,7 @@ import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { stripVTControlCharacters } from "node:util";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
 
 type JsonObject = Record<string, unknown>;
@@ -36,10 +37,12 @@ function expectedOmpRecord(provenance: JsonObject): JsonObject {
 }
 
 type ExpectedHost = { version: string; commit: string; url: string; digest: string; checksumsUrl: string; checksumsDigest: string };
-function expectedAssets(provenance: JsonObject): ExpectedHost[] {
+type HostCompatibility = { range: string; tested: string[] };
+
+function expectedAssets(provenance: JsonObject, testedVersions: string[]): ExpectedHost[] {
   const artifacts = provenance.artifacts;
   if (!Array.isArray(artifacts)) throw new Error("release artifact manifest has no artifacts array");
-  return artifacts.map(value => objectValue(value, "release artifact"))
+  const candidates = artifacts.map(value => objectValue(value, "release artifact"))
     .filter(value => value.upstream === "omp" && value.kind === "release_asset")
     .map(value => {
       const tag = stringValue(value.release_tag, "OMP release tag");
@@ -47,7 +50,12 @@ function expectedAssets(provenance: JsonObject): ExpectedHost[] {
       const checksumsDigest = stringValue(value.checksums_sha256, "OMP checksums digest");
       if (!/^v\d+\.\d+\.\d+$/.test(tag) || !/^[0-9a-f]{64}$/.test(digest) || !/^[0-9a-f]{64}$/.test(checksumsDigest)) throw new Error("OMP release artifact has invalid immutable identity");
       return { version: tag.slice(1), commit: stringValue(value.peeled_commit, "OMP release commit"), url: stringValue(value.url, "OMP asset URL"), digest, checksumsUrl: stringValue(value.checksums_url, "OMP checksums URL"), checksumsDigest };
-    });
+    })
+    .filter(value => testedVersions.includes(value.version));
+  for (const version of testedVersions) {
+    if (candidates.filter(value => value.version === version).length !== 1) throw new Error(`tested OMP ${version} must have exactly one immutable release artifact`);
+  }
+  return candidates;
 }
 
 function isWithin(root: string, candidate: string): boolean {
@@ -61,14 +69,18 @@ async function sha256File(path: string): Promise<string> {
 
 type VerifiedHost = { path: string; mode: "release-asset" | "installed-cli"; version: string; digest: string };
 
-async function supportedHostRange(): Promise<string> {
+async function hostCompatibilityContract(): Promise<HostCompatibility> {
   const manifest = objectValue(JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")), "package manifest");
   const omp = objectValue(manifest.omp, "package manifest omp");
   const compatibility = objectValue(omp.compatibility, "package manifest omp.compatibility");
-  return stringValue(compatibility.host, "package manifest omp.compatibility.host");
+  const range = stringValue(compatibility.host, "package manifest omp.compatibility.host");
+  if (!Array.isArray(compatibility.tested) || compatibility.tested.length === 0) throw new Error("package compatibility must name at least one tested OMP release");
+  const tested = compatibility.tested.map((value, index) => stringValue(value, `package compatibility tested[${index}]`));
+  if (tested.some(value => !/^\d+\.\d+\.\d+$/.test(value)) || new Set(tested).size !== tested.length) throw new Error("package compatibility tested releases must be unique exact semantic versions");
+  return { range, tested };
 }
 
-async function verifiedBinary(assets: ExpectedHost[]): Promise<VerifiedHost & { expected: ExpectedHost }> {
+async function verifiedBinary(assets: ExpectedHost[], supportedRange: string): Promise<VerifiedHost & { expected: ExpectedHost }> {
   const configured = process.env.OMP_BINARY_PATH ?? process.env.OMP_VERIFIED_BINARY;
   if (!configured || !isAbsolute(configured)) throw new Error("smoke requires OMP_BINARY_PATH as an absolute verified release asset path");
   const info = await lstat(configured).catch(() => undefined);
@@ -90,8 +102,7 @@ async function verifiedBinary(assets: ExpectedHost[]): Promise<VerifiedHost & { 
     const cliManifestPath = resolve(resolved, "..", "..", "package.json");
     const cliManifest = objectValue(JSON.parse(await readFile(cliManifestPath, "utf8")), "installed OMP package manifest");
     if (cliManifest.name !== "@oh-my-pi/pi-coding-agent" || cliManifest.version !== observedVersion) throw new Error("installed OMP CLI identity does not match its version output");
-    const range = await supportedHostRange();
-    if (!Bun.semver.satisfies(observedVersion, range)) throw new Error(`installed OMP ${observedVersion} is outside supported range ${range}`);
+    if (!Bun.semver.satisfies(observedVersion, supportedRange)) throw new Error(`installed OMP ${observedVersion} is outside supported range ${supportedRange}`);
   }
   return { path: configured, mode, version: observedVersion, digest: observed, expected: expected ?? { version: observedVersion, commit: "installed-cli", url: "installed-cli", digest: observed, checksumsUrl: "installed-cli", checksumsDigest: "0".repeat(64) } };
 }
@@ -113,38 +124,41 @@ function cleanEnvironment(source: NodeJS.ProcessEnv, profileRoot?: string): Node
   return environment;
 }
 
-function runtimeDependencies(value: Record<string, unknown>, label: string): Record<string, string> {
+function runtimeDependencies(value: Record<string, unknown>, label: string, hostRange: string): Record<string, string> {
   const dependencies: Record<string, string> = {};
   for (const [name, version] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
-    if (typeof version !== "string" || (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version) && version !== ">=18.2.3 <19")) {
-      throw new Error(`${label}.${name} must use an exact semantic version or the reviewed OMP compatibility range`);
+    if (typeof version !== "string" || (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version) && version !== hostRange)) {
+      throw new Error(`${label}.${name} must use an exact semantic version or the package OMP compatibility range`);
     }
     dependencies[name] = version;
   }
   return dependencies;
 }
 
-function sameDependencyMap(left: Record<string, string>, right: Record<string, string>): boolean {
-  const leftEntries = Object.entries(left).sort(([nameA], [nameB]) => nameA.localeCompare(nameB));
-  const rightEntries = Object.entries(right).sort(([nameA], [nameB]) => nameA.localeCompare(nameB));
-  return JSON.stringify(leftEntries) === JSON.stringify(rightEntries);
-}
-
 async function materializeRuntimeDependencies(
   extractedRoot: string,
   profileRoot: string,
   packageEvidence: PackageVerificationResult,
+  hostRange: string,
 ): Promise<void> {
   const manifest = objectValue(JSON.parse(await readFile(join(extractedRoot, "package.json"), "utf8")), "extracted package manifest");
-  const manifestDependencies = runtimeDependencies(objectValue(manifest.dependencies, "extracted package dependencies"), "extracted package dependencies");
-  const verifiedDependencies = manifestDependencies;
-  if (!sameDependencyMap(manifestDependencies, verifiedDependencies)) {
-    throw new Error("extracted package dependencies differ from the verified package SBOM");
+  const manifestDependencies = {
+    ...runtimeDependencies(objectValue(manifest.dependencies ?? {}, "extracted package dependencies"), "extracted package dependencies", hostRange),
+    ...runtimeDependencies(objectValue(manifest.peerDependencies ?? {}, "extracted package peer dependencies"), "extracted package peer dependencies", hostRange),
+  };
+  const verifiedDependencies: Record<string, string> = {};
+  for (const [name, range] of Object.entries(manifestDependencies)) {
+    const matches = packageEvidence.lockfile.packages.filter(item => item.name === name);
+    if (matches.length !== 1 || !Bun.semver.satisfies(matches[0]!.version, range)) {
+      throw new Error(`${name} does not resolve exactly once to a version allowed by the extracted manifest and verified lock`);
+    }
+    verifiedDependencies[name] = matches[0]!.version;
   }
   if (Object.keys(verifiedDependencies).length === 0) return;
 
-  await writeFile(join(extractedRoot, "bun.lock"), await readFile(join(packageRoot, "bun.lock")));
-  const extractedLock = await readFile(join(extractedRoot, "bun.lock"));
+  const lockPath = join(extractedRoot, "bun.lock");
+  await writeFile(lockPath, await readFile(join(packageRoot, "bun.lock")));
+  const extractedLock = await readFile(lockPath);
   if (createHash("sha256").update(extractedLock).digest("hex") !== packageEvidence.lockfile.sha256) throw new Error("packed Bun lock differs from verified source lock");
   await mkdir(profileRoot, { recursive: true });
   const bunEnvironment: NodeJS.ProcessEnv = {
@@ -160,9 +174,9 @@ async function materializeRuntimeDependencies(
   for (const [name, version] of Object.entries(verifiedDependencies)) {
     const packagePath = `node_modules/${name}`;
     const installedInfo = await lstat(join(extractedRoot, packagePath)).catch(() => undefined);
-    if (!installedInfo?.isDirectory()) throw new Error(`runtime dependency ${name}@${version} was not materialized inside the extracted package`);
-    const receipt = objectValue(JSON.parse(await readFile(join(extractedRoot, packagePath, "package.json"), "utf8")), `installed runtime dependency ${name}`);
-    if (typeof receipt.version !== "string" || !Bun.semver.satisfies(receipt.version, version)) throw new Error(`installed runtime dependency ${name} does not match the frozen lock selection`);
+    if (!installedInfo?.isDirectory()) throw new Error(`host runtime dependency ${name}@${version} was not materialized inside the extracted package`);
+    const receipt = objectValue(JSON.parse(await readFile(join(extractedRoot, packagePath, "package.json"), "utf8")), `installed host runtime dependency ${name}`);
+    if (typeof receipt.version !== "string" || receipt.version !== version) throw new Error(`installed host runtime dependency ${name} does not match the verified lock selection`);
   }
 }
 
@@ -207,7 +221,7 @@ async function startFixtureServer(): Promise<{ url: string; close: () => Promise
         }
       }
       if (path === "/health" || path === "/api/health") {
-        fixtureResponse(response, 200, { status: "ok", server: "fixture-omniroute-v3.8.50" });
+        fixtureResponse(response, 200, { status: "ok", server: "fixture-omniroute" });
         return;
       }
       if (path === "/v1/models") {
@@ -280,8 +294,9 @@ async function runCommand(command: string, args: string[], options: CommandOptio
       const dialogue = options.dialogue;
       if (!dialogue || dialogueCompleted >= dialogue.length) return;
       dialogueBuffer = `${dialogueBuffer}${chunk}`.slice(-32_768);
+      const visibleBuffer = stripVTControlCharacters(dialogueBuffer);
       const step = dialogue[dialogueCompleted]!;
-      if (!step.when.test(dialogueBuffer)) return;
+      if (!step.when.test(visibleBuffer)) return;
       dialogueCompleted++;
       dialogueBuffer = "";
       const delay = step.afterMs ?? 100;
@@ -346,8 +361,9 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
       const dialogue = options.dialogue;
       if (!dialogue || dialogueCompleted >= dialogue.length) return;
       dialogueBuffer = `${dialogueBuffer}${text}`.slice(-32_768);
+      const visibleBuffer = stripVTControlCharacters(dialogueBuffer);
       const step = dialogue[dialogueCompleted]!;
-      if (!step.when.test(dialogueBuffer)) return;
+      if (!step.when.test(visibleBuffer)) return;
       dialogueCompleted++;
       dialogueBuffer = "";
       setTimeout(() => {
@@ -422,16 +438,16 @@ function requireJsonText(text: string, label: string): JsonObject {
 
 async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /Welcome back!|for commands/i, text: "/login\n", afterMs: 4_000 },
-    { when: /ChatGPT Plus\/Pro/i, text: "omniroute\n", afterMs: 250 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login\n", afterMs: 4_000 },
+    { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
     { when: /OmniRoute base URL/i, text: "\u001b", afterMs: 250 },
-    { when: /Welcome back!|for commands/i, text: "__SIGTERM__", afterMs: 250 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 30_000, dialogue });
-  const output = `${result.stdout}\n${result.stderr}`;
+  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   const prompted = /OmniRoute base URL/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;
-  if (!prompted || !cancelled || (result.code !== 0 && result.signal !== "SIGTERM")) {
+  if (!prompted || !cancelled || (result.code !== 0 && result.code !== 143 && result.signal !== "SIGTERM")) {
     throw new Error(`native setup did not expose a provider prompt and explicit cancellation (dialogue ${result.dialogueCompleted}/${dialogue.length}): ${output.replaceAll(runtimeKey, "[redacted]").replaceAll(adminKey, "[redacted]").slice(-2000)}`);
   }
   return { prompted, cancelled };
@@ -439,19 +455,18 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
 
 async function nativeWizardCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ rendered: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /Welcome back!|for commands/i, text: "/cruxomni setup\n", afterMs: 4_000 },
-    { when: /CruxOmni-OMP-Client.*Setup/is, text: "\u001b", afterMs: 500 },
-    { when: /Welcome back!|for commands/i, text: "__SIGTERM__", afterMs: 250 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/cruxomni setup\n", afterMs: 4_000 },
+    { when: /CruxOmni-OMP-Client\s+—\s+Setup/i, text: "\u001b", afterMs: 500 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 35_000, dialogue });
-  const output = `${result.stdout}\n${result.stderr}`;
-  const rendered = /CruxOmni-OMP-Client.*Setup/is.test(output) && /Connection/i.test(output) && /Administration \(optional\)/i.test(output);
+  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  const rendered = /CruxOmni-OMP-Client\s+—\s+Setup/i.test(output) && /Connection/i.test(output) && /Administration \(optional\)/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;
-  if (!rendered || !cancelled || (result.code !== 0 && result.signal !== "SIGTERM")) throw new Error(`guided wizard did not render and cancel cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length})`);
+  if (!rendered || !cancelled || (result.code !== 0 && result.code !== 143 && result.signal !== "SIGTERM")) throw new Error(`guided wizard did not render and cancel cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length})`);
   const transcriptPath = process.env.OMP_SMOKE_TRANSCRIPT_PATH;
   if (transcriptPath) {
     const sanitized = output
-      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
       .replaceAll(runtimeKey, "[redacted]").replaceAll(adminKey, "[redacted]")
       .replace(/https?:\/\/127\.0\.0\.1:\d+/g, "http://127.0.0.1:[fixture-port]")
       .replace(/\/(?:home|tmp)\/[^\s]*/g, "[redacted-path]");
@@ -465,8 +480,8 @@ async function nativePromptSetup(binary: string, cwd: string, environment: NodeJ
   const dialogue = scriptedInput
     ? undefined
     : [
-        { when: /Welcome back!|for commands/i, text: "/login\n", afterMs: 4_000 },
-        { when: /ChatGPT Plus\/Pro/i, text: "omniroute\n", afterMs: 250 },
+        { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login\n", afterMs: 4_000 },
+        { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
         { when: /OmniRoute base URL/i, text: `${fixtureUrl}\n`, afterMs: 250 },
         { when: /OmniRoute API key/i, text: `${runtimeKey}\n`, afterMs: 250 },
         { when: /Successfully logged in to omniroute/i, text: "__REFRESH_AND_STOP__", afterMs: 1_500 },
@@ -484,7 +499,7 @@ async function nativePromptSetup(binary: string, cwd: string, environment: NodeJ
         timeoutMs: 75_000,
         dialogue: dialogue!,
       });
-  const output = `${result.stdout}\n${result.stderr}`;
+  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   if (result.stdout.includes(runtimeKey) || result.stderr.includes(runtimeKey)) throw new Error("native provider setup leaked fixture credentials");
   const controlledStop = result.signal === "SIGTERM" || (result.code === 143 && (!dialogue || result.dialogueCompleted === dialogue.length));
   if (result.code !== 0 && !controlledStop) throw new Error(`native provider setup failed with exit ${result.code ?? "unknown"}`);
@@ -550,9 +565,12 @@ export interface SmokeResult {
 
 export async function runSmoke(): Promise<SmokeResult> {
   const provenance = objectValue(JSON.parse(await readFile(resolve(packageRoot, "provenance/upstreams.json"), "utf8")), "provenance");
-  expectedOmpRecord(provenance); // Keep latest-selector provenance structurally required.
+  const latestOmpRelease = objectValue(expectedOmpRecord(provenance).release, "provenance OMP release");
+  const latestOmpVersion = stringValue(latestOmpRelease.version, "provenance OMP release version");
+  const compatibility = await hostCompatibilityContract();
+  if (!compatibility.tested.includes(latestOmpVersion)) throw new Error(`pinned latest OMP ${latestOmpVersion} must be included in the tested host matrix`);
   const releaseArtifacts = objectValue(JSON.parse(await readFile(resolve(packageRoot, "provenance/release-artifacts.json"), "utf8")), "release artifacts");
-  const host = await verifiedBinary(expectedAssets(releaseArtifacts));
+  const host = await verifiedBinary(expectedAssets(releaseArtifacts, compatibility.tested), compatibility.range);
   const binary = host.path;
   const root = await mkdtemp(join(tmpdir(), "cruxomni-smoke-"));
   const workspace = join(root, "workspace");
@@ -565,7 +583,7 @@ export async function runSmoke(): Promise<SmokeResult> {
     const packageRootInfo = resolve(packageRoot);
     packageEvidence = await verifyPackage({ keepTemporary: true });
     if (isWithin(packageRootInfo, packageEvidence.extractedRoot)) throw new Error("package extraction is inside the source repository");
-    await materializeRuntimeDependencies(packageEvidence.extractedRoot, profile, packageEvidence);
+    await materializeRuntimeDependencies(packageEvidence.extractedRoot, profile, packageEvidence, compatibility.range);
     const linked = await runCommand(binary, ["plugin", "link", packageEvidence.extractedRoot], { cwd: workspace, env: { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey } });
     requireSuccess(linked, "plugin link");
     await checkPluginState(binary, workspace, { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey }, "present");
@@ -593,7 +611,7 @@ export async function runSmoke(): Promise<SmokeResult> {
     if (fixture.requests.some(request => request.authorization && request.authorization !== `Bearer ${runtimeKey}` && request.authorization !== `Bearer ${adminKey}`)) throw new Error("fixture server observed a non-fixture credential");
     return {
       status: "verified",
-      host: { mode: host.mode, version: host.version, digest: host.digest, supportedRange: await supportedHostRange() },
+      host: { mode: host.mode, version: host.version, digest: host.digest, supportedRange: compatibility.range },
       upstream: { version: host.expected.version, commit: host.expected.commit, asset: host.expected.url, digest: host.expected.digest },
       fixture: { baseUrl: fixture.url, requests: fixture.requests.length, loopbackOnly: true },
       native: { prompt: cancelled.prompted, cancellation: cancelled.cancelled, wizardRendered: wizard.rendered, wizardCancellation: wizard.cancelled, maskedPrompt: nativeSetup.masked, persisted: true },
