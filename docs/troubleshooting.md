@@ -43,6 +43,25 @@ to repair the connection. Sign in or correct the endpoint, then refresh.
 Optional metadata or pricing failures do not make an otherwise valid live
 connection offline. Check their separate diagnostics instead.
 
+## An optional catalog is unavailable or its fields are missing
+
+Check **Catalogs (optional)** in setup and inspect `/cruxomni` or **Summary**.
+`unavailable` means there is no usable snapshot; `stale` means the previous
+snapshot expired. A successful download does not make catalog-only models
+runnable. Exact owner/ID mismatches, conflicting external fields, and unsupported
+modalities remain diagnostics rather than guessed matches.
+
+Run `/cruxomni refresh` to revalidate an expired or failed source. Source failures
+do not make an otherwise healthy gateway offline. Do not add a runtime/admin key
+or raise the size/depth limits to make a public source work. Review the
+[source conditions](installation.md#optional-metadata-catalogs) if OpenRouter
+rejects anonymous access.
+
+An explicit live `supportsTools: false` wins over optional metadata. Unknown
+support is omitted with `tools_unverified`; the host may infer a default, so do
+not treat an omitted flag as tested tool support. Missing context/output limits
+also carry diagnostics instead of a claim that the fallback is the real limit.
+
 ## Administration says an operation is unavailable
 
 Enable administration in the optional setup section and bind a separate

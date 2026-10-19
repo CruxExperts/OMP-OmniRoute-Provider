@@ -44,11 +44,13 @@ The wizard has independent sections:
 1. **Connection** asks for a gateway URL and runtime API key. The key is
    entered in a masked prompt and handed to OMP's native credential store.
 2. **Metadata (optional)** stores a separate API key or keeps it session-only.
-3. **Administration (optional)** stores a separate API key or cookie, then
+3. **Catalogs (optional)** opts into Models.dev or OpenRouter metadata without
+   sharing a runtime, metadata, or administration credential.
+4. **Administration (optional)** stores a separate API key or cookie, then
    explicitly enables the verified administration boundary for the exact active
    endpoint.
-4. **Pricing (optional)** selects a local source-backed JSON projection.
-5. **Summary** reports state without revealing secrets.
+5. **Pricing (optional)** selects a local source-backed JSON projection.
+6. **Summary** reports state without revealing secrets.
 
 Save and activation are transactional. A cancelled section does not discard
 earlier saved sections. An offline or malformed endpoint cannot be reported as
@@ -75,6 +77,46 @@ Startup waits up to 10 seconds for live discovery, including resolution of
 the remembered native credential. Only discovered chat models become selectable;
 metadata and pricing do not delay that publication or the first streamed reply.
 Their optional enrichment is cancelled when the connection changes.
+
+## Optional metadata catalogs
+
+Open **Catalogs (optional)** in `/cruxomni setup`, then choose **Enable
+models.dev** or **Enable OpenRouter**. Both are disabled by default. A change
+refreshes the client, publishing live models before optional enrichment finishes.
+Only the selected source IDs are saved in the version-2 `catalogSources` field;
+these sources do not use the separate OmniRoute metadata credential.
+
+The client requests only these documented HTTPS endpoints:
+
+- [Models.dev's complete catalog](https://models.dev/api.json?type=all).
+- [OpenRouter's complete modality catalog](https://openrouter.ai/api/v1/models?output_modalities=all),
+  described by its [model-list API](https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties).
+
+Requests omit credentials and cookies, reject redirects, and have a five-second
+deadline, an 8-MiB body ceiling, and a JSON depth limit of 24. Successful snapshots
+are shared in memory for 24 hours and revalidated on demand, never by a heartbeat.
+Expired snapshots cannot enrich a new projection until revalidation succeeds.
+`/cruxomni` and the setup summary show each enabled source's age, usable/stale/
+unavailable state, and bounded error code without starting another request.
+
+Only `/v1/models` supplies runnable identities. Metadata must match the exact
+serving owner and ID: explicit live fields take precedence over OmniRoute
+metadata, followed by non-conflicting external fields. Explicit `false` remains
+false. OpenRouter's raw source ID keeps its vendor segment; only the pinned
+server's `openrouter/` qualification is applied when matching its live ID.
+Missing limits use conservative defaults with diagnostics. Unknown tool support
+is omitted with a warning because OMP may infer a host default; it is not a
+verified capability. Specialty-only models remain diagnostic, not chat selections.
+External prices never replace the existing source-backed seller-pricing policy.
+No source downloads model weights.
+
+Models.dev publishes its data under MIT terms; retained fixtures include its
+attribution. OpenRouter's [terms](https://openrouter.ai/terms/) contain automated
+copying restrictions, and its API documentation is not a catalog-data
+redistribution license. Enable it only for use permitted by those terms. Its
+published schema declares API-key security: if an anonymous request is rejected,
+the source stays unavailable rather than borrowing another credential. The
+package retains synthetic parser fixtures, not redistributed catalog rows.
 
 ## Environment-managed mode
 

@@ -60,6 +60,14 @@ optional, so the wizard can stay as simple as you need it to be.
 | `/cruxomni-pricing` | Shows pricing information |
 | `/cruxomni-admin` | Opens guarded administration tools |
 
+## Optional metadata catalogs
+
+The setup wizard's **Catalogs (optional)** section can enrich live models from
+Models.dev or OpenRouter. Both are off by default. They cannot add runnable
+models, change trusted prices, or download model weights. See the
+[catalog setup and source conditions](docs/installation.md#optional-metadata-catalogs)
+before enabling a source.
+
 ## Prefer environment variables?
 
 They are still available for automation and read-only environments:

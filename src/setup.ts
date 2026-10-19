@@ -4,6 +4,7 @@ import { DISPLAY_NAME } from "./identity.ts";
 import { loadConfig, updateConfig, resolveEnvironmentBinding, validateEndpoint, type CredentialDomain } from "./config.ts";
 import { OptionalCredentials, type CredentialBinding, type OptionalCredential } from "./credentials.ts";
 import { readSellerPricing } from "./pricing.ts";
+import { CATALOG_SOURCE_IDS, getCatalogSourceStatus, type CatalogSourceId } from "./catalog-sources.ts";
 
 export interface SetupServices {
   credentials: OptionalCredentials;
@@ -148,6 +149,45 @@ async function pricingSection(context: ExtensionContext, services: SetupServices
   info(context, "Pricing reference saved. Individual rates may still be unknown or stale.");
 }
 
+async function catalogSourcesSection(context: ExtensionContext, services: SetupServices): Promise<void> {
+  const config = await loadConfig();
+  const enabled = new Set(config.catalogSources ?? []);
+  const actions: Record<CatalogSourceId, string> = {
+    "models.dev": `${enabled.has("models.dev") ? "Disable" : "Enable"} models.dev`,
+    openrouter: `${enabled.has("openrouter") ? "Disable" : "Enable"} OpenRouter`,
+  };
+  const selection = await context.ui.select(
+    `Optional metadata only (${[...enabled].join(", ") || "none enabled"})`,
+    [...CATALOG_SOURCE_IDS.map(source => actions[source]), ...(enabled.size > 0 ? ["Disable all"] : []), "Back"],
+  );
+  if (!selection || selection === "Back") return;
+  if (selection === "Disable all") {
+    await updateConfig(current => { const next = { ...current }; delete next.catalogSources; return next; });
+    await services.refresh(context);
+    info(context, "Optional catalog metadata disabled. No model IDs, costs, or credentials were changed.");
+    return;
+  }
+  const source = CATALOG_SOURCE_IDS.find(candidate => actions[candidate] === selection);
+  if (!source) return;
+  const nextSources = new Set(enabled);
+  if (nextSources.has(source)) nextSources.delete(source);
+  else nextSources.add(source);
+  const catalogSources = CATALOG_SOURCE_IDS.filter(candidate => nextSources.has(candidate));
+  await updateConfig(current => ({ ...current, catalogSources }));
+  await services.refresh(context);
+  info(context, `${source} metadata ${catalogSources.includes(source) ? "enabled" : "disabled"}; this setting does not enable models or alter costs.`);
+}
+
+function catalogSourceSummary(sources: readonly CatalogSourceId[]): string {
+  if (sources.length === 0) return "none enabled";
+  return sources.map(source => {
+    const status = getCatalogSourceStatus(source);
+    const age = status.fetchedAt === undefined ? "" : ` age=${Math.max(0, Math.floor((Date.now() - status.fetchedAt) / 60_000))}m`;
+    const error = status.errorCode ? ` error=${status.errorCode}` : "";
+    return `${source}:${status.state}${age}${error}`;
+  }).join(", ");
+}
+
 export function createSetupWizard(services: SetupServices): (context: ExtensionContext) => Promise<void> {
   let busy = false;
   return async context => {
@@ -157,16 +197,17 @@ export function createSetupWizard(services: SetupServices): (context: ExtensionC
     try {
       await loadConfig();
       for (;;) {
-        const selected = await context.ui.select(`${DISPLAY_NAME} — Setup`, ["Connection", "Metadata (optional)", "Administration (optional)", "Pricing (optional)", "Summary", "Finish"]);
+        const selected = await context.ui.select(`${DISPLAY_NAME} — Setup`, ["Connection", "Metadata (optional)", "Catalogs (optional)", "Administration (optional)", "Pricing (optional)", "Summary", "Finish"]);
         if (!selected || selected === "Finish") return;
         try {
           if (selected === "Connection") await setupConnection(context, services);
           else if (selected === "Metadata (optional)") await credentialSection(context, services, "metadata");
+          else if (selected === "Catalogs (optional)") await catalogSourcesSection(context, services);
           else if (selected === "Administration (optional)") await credentialSection(context, services, "admin");
           else if (selected === "Pricing (optional)") await pricingSection(context, services);
           else {
             const config = await loadConfig();
-            info(context, `${services.status()}; administration=${config.adminEnabled ? "enabled" : "disabled"}; metadata=${config.optionalCredentials?.metadata?.state ?? "session-only or unset"}; admin credential=${config.optionalCredentials?.admin?.state ?? "session-only or unset"}; pricing=${config.pricingFile ? "saved" : "unset"}. Native runtime credentials are managed by OMP.`);
+            info(context, `${services.status()}; administration=${config.adminEnabled ? "enabled" : "disabled"}; metadata=${config.optionalCredentials?.metadata?.state ?? "session-only or unset"}; catalogs=${catalogSourceSummary(config.catalogSources ?? [])}; admin credential=${config.optionalCredentials?.admin?.state ?? "session-only or unset"}; pricing=${config.pricingFile ? "saved" : "unset"}. Native runtime credentials are managed by OMP.`);
           }
         } catch (error) { info(context, `Section not completed (${errorCode(error)}). Check configuration or credential recovery and try again.`, true); }
       }

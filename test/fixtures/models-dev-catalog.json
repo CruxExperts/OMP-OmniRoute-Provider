@@ -1,0 +1,58 @@
+{
+  "provenance": {
+    "sourceUrl": "https://models.dev/api.json?type=all",
+    "accessedAt": "2026-10-19T20:33:35Z",
+    "sourceResponseSha256": "2f2f0777b09c85996c76680a6a4879cf1243e805b8efcdaf8bd5fc5039798994",
+    "fieldMappings": {
+      "provider key and provider.id": "exact source owner; only pinned OmniRoute provider IDs are mapped",
+      "models key and model.id": "exact source model ID is preserved; OpenRouter IDs receive only OmniRoute's pinned live-ID prefix rule",
+      "name": "display name only",
+      "limit.context": "context_length",
+      "limit.output": "max_output_tokens",
+      "modalities.input/output": "input_modalities/output_modalities",
+      "reasoning": "reasoning capability when explicitly boolean",
+      "reasoning_options[type=effort].values": "ordered host effort capability",
+      "tool_call": "supportsTools when explicitly boolean"
+    },
+    "attribution": "Models.dev source data is MIT licensed; Copyright (c) 2025 models.dev. This fixture payload is synthetic and is not copied source catalog data."
+  },
+  "synthetic": true,
+  "payload": {
+    "openai": {
+      "id": "openai",
+      "models": {
+        "crux-fixture-chat": {
+          "id": "crux-fixture-chat",
+          "name": "Synthetic Fixture Chat",
+          "limit": { "context": 8192, "output": 2048 },
+          "modalities": { "input": ["text", "image"], "output": ["text"] },
+          "reasoning": true,
+          "reasoning_options": [{ "type": "effort", "values": ["low", "medium", "high"] }],
+          "tool_call": true
+        },
+        "crux-fixture-conservative": {
+          "id": "crux-fixture-conservative",
+          "name": "Synthetic Conservative Fixture",
+          "reasoning": false,
+          "reasoning_options": [{ "type": "effort", "values": ["low", "high"] }],
+          "tool_call": false
+        }
+      }
+    },
+    "openrouter": {
+      "id": "openrouter",
+      "models": {
+        "fixture-vendor/synthetic-chat": {
+          "id": "fixture-vendor/synthetic-chat",
+          "name": "Synthetic OpenRouter fixture"
+        }
+      }
+    },
+    "unmapped-vendor": {
+      "id": "unmapped-vendor",
+      "models": {
+        "unmatched/model": { "id": "unmatched/model", "name": "Synthetic Unmapped Provider Model" }
+      }
+    }
+  }
+}

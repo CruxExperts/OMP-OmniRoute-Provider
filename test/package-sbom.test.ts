@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { buildSbom, verifyPackage } from "../scripts/verify-package.ts";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildSbom, scanText, verifyPackage } from "../scripts/verify-package.ts";
 
 function dependencyMap(sbom: { dependencies: Array<{ ref: string; dependsOn: string[] }> }) {
   return new Map(sbom.dependencies.map(edge => [edge.ref, edge.dependsOn]));
@@ -37,4 +40,30 @@ test("SBOM resolver prefers a synthetic parent-specific nested lock key", () => 
   };
   const sbom = buildSbom({ name: "root", version: "1.0.0", packageManager: "bun@1.4.2", dependencies: { parent: "1.0.0" } }, lockfile);
   expect(dependencyMap(sbom).get(purl("parent", "1.0.0"))).toEqual([purl("child", "1.0.0")]);
+});
+
+test("package secret scanning distinguishes provenance names from secret-bearing JSON keys and values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-scan-"));
+  const file = "catalog.json";
+  const issues: Parameters<typeof scanText>[2] = [];
+  const fixtureOpaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+  try {
+    await writeFile(join(root, file), JSON.stringify({ provenance: { sourceResponseSha256: "f".repeat(64) } }));
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+
+    await writeFile(join(root, file), JSON.stringify({
+      provenance: { sourceResponseSha256: "f".repeat(64) },
+      credentialValue: fixtureOpaque,
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+
+    issues.length = 0;
+    await writeFile(join(root, file), JSON.stringify({ [fixtureOpaque]: "metadata" }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

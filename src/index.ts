@@ -7,6 +7,7 @@ import { createSetupWizard } from "./setup.ts";
 import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
 import { type PluginConfig, loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
+import { loadCatalogMetadata, getCatalogSourceStatus, type CatalogMetadataSnapshot } from "./catalog-sources.ts";
 import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./health.ts";
 import { readSellerPricing, PRICING_WARNING, type SellerPricing } from "./pricing.ts";
 import { requestJson, TransportError } from "./transport.ts";
@@ -227,6 +228,16 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			// numeric totals while the current file is unavailable.
 		}
 	};
+	const catalogStatus = (): string => {
+		const sources = config.catalogSources ?? [];
+		if (sources.length === 0) return "disabled";
+		const now = Date.now();
+		return sources.map(source => {
+			const status = getCatalogSourceStatus(source);
+			const age = status.fetchedAt === undefined ? "" : `; age=${Math.max(0, Math.floor((now - status.fetchedAt) / 1_000))}s`;
+			return `${source}=${status.state}${age}${status.errorCode ? `; detail=${status.errorCode}` : ""}`;
+		}).join(", ");
+	};
 	const discover = async (binding: DiscoveryBinding, signal: AbortSignal) => {
 		const source = runtimeEnvironment ? resolveEnvironmentBinding(config) : config.pending ?? config.active;
 		const metadataBinding = source?.endpoint === binding.endpoint
@@ -241,12 +252,15 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		const retry = { maxRetries: 1, safeRead: true, retryStatuses: [429, 502, 503, 504] as const };
 		const live = await requestJson(modelsUrl(binding.endpoint), binding.credential, limits, requestSignal, retry);
 		const projection = projectCatalog(live);
-		if (!pricingFile && !environmentMetadataKey && !rememberedMetadata && !sessionMetadata) return { projection };
+		const catalogSources = config.catalogSources ?? [];
+		if (!pricingFile && !environmentMetadataKey && !rememberedMetadata && !sessionMetadata && catalogSources.length === 0) return { projection };
 		const enrichment = (async (): Promise<CatalogProjection> => {
 			const optionalSignal = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
 			let pricingError = false;
 			let metadataError: string | undefined;
 			let availability = "not configured";
+			const catalogsPromise = Promise.all(catalogSources.map(source =>
+				loadCatalogMetadata(source, optionalSignal).catch(() => undefined)));
 			const pricingPromise = pricingFile
 				? readSellerPricing(pricingFile).catch(() => { pricingError = true; return undefined; })
 				: Promise.resolve(undefined);
@@ -274,10 +288,16 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					return undefined;
 				}
 			})();
-			const [loadedPricing, metadata] = await Promise.all([pricingPromise, metadataPromise]);
+			const [loadedPricing, metadata, catalogs] = await Promise.all([pricingPromise, metadataPromise, catalogsPromise]);
+			const enabledCatalogSources = catalogSources.length === 0
+				? catalogSources
+				: (await loadConfig()).catalogSources ?? [];
 			if (signal.aborted) throw new TransportError("aborted", "enrichment binding cancelled");
+			const externalMetadata = catalogs.filter((snapshot): snapshot is CatalogMetadataSnapshot =>
+				snapshot !== undefined && enabledCatalogSources.includes(snapshot.source));
 			const options: CatalogOptions = {
 				pricingCurrent: loadedPricing !== undefined,
+				externalMetadata,
 				...(loadedPricing === undefined ? {} : { pricing: loadedPricing }),
 			};
 			let enriched: CatalogProjection;
@@ -289,6 +309,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				enriched = projectCatalog(live, options);
 			}
 			const diagnostics = [...enriched.diagnostics];
+			for (let index = 0; index < catalogSources.length; index++) {
+				const source = catalogSources[index]!;
+				if (enabledCatalogSources.includes(source) && !catalogs[index]) {
+					diagnostics.push({ code: "external_catalog_unavailable", detail: source });
+				}
+			}
 			if (pricingError) diagnostics.push({ code: "pricing_unavailable" });
 			if (metadataError) diagnostics.push({ code: metadataError });
 			if (manager.currentBinding?.generation === binding.generation && manager.currentResult?.projection === projection) {
@@ -665,7 +691,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const setup = createSetupWizard({
 		credentials: optionalCredentials,
 		refresh: ctx => refresh(ctx, true),
-		status: () => `${manager.status.state}; models=${manager.status.modelCount}; metadata=${metadataState}`,
+		status: () => `${manager.status.state}; models=${manager.status.modelCount}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
 		synchronizeAdmin: async ctx => {
 			setContext(ctx);
 			const current = await loadConfig();
@@ -695,7 +721,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				else notify(ctx, `omniroute pricing: ${pricingCurrent ? "current file" : "unavailable"}; ${PRICING_WARNING}`);
 			} else {
 				const status: HealthSnapshot = manager.status;
-				notify(ctx, `omniroute: ${status.state}; models=${status.modelCount}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}`);
+				notify(ctx, `omniroute: ${status.state}; models=${status.modelCount}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}; catalogs=${catalogStatus()}`);
 			}
 		},
 	});

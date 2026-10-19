@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { chmod, mkdir, open, readFile, rename, stat, lstat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
+import type { CatalogSourceId } from "./catalog-sources.ts";
 
 export const PROVIDER_ID = "omniroute";
 export const CONFIG_VERSION = 2 as const;
@@ -43,6 +44,7 @@ export interface PluginConfig {
   allowInsecureHttp: boolean;
   adminEnabled: boolean;
   pricingFile?: string;
+  catalogSources?: readonly CatalogSourceId[];
   invitationDismissed?: boolean;
   setupDraft?: string;
   optionalCredentials?: Partial<Record<CredentialDomain, CredentialReference>>;
@@ -140,6 +142,20 @@ function validateBinding(value: unknown, field: string, allowInsecureHttp: boole
   }
   return status === undefined ? { endpoint, generation } : { endpoint, generation, status };
 }
+const CATALOG_SOURCE_NAMES: Record<string, true> = { "models.dev": true, openrouter: true };
+
+function validateCatalogSources(value: unknown, errorCode: "corrupt-config" | "invalid-config" = "corrupt-config"): CatalogSourceId[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new ConfigError(errorCode, "catalogSources must be an array");
+  const sources: CatalogSourceId[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== "string" || !CATALOG_SOURCE_NAMES[candidate]) throw new ConfigError(errorCode, "catalogSources contains an unknown source");
+    if (candidate === "models.dev" && !sources.includes(candidate)) sources.push(candidate);
+    else if (candidate === "openrouter" && !sources.includes(candidate)) sources.push(candidate);
+  }
+  return sources;
+}
+
 
 function parseConfig(value: unknown): PersistedConfig {
   if (!isRecord(value) || value.version !== CONFIG_VERSION) throw new ConfigError("corrupt-config", "unsupported or missing config version");
@@ -153,11 +169,13 @@ function parseConfig(value: unknown): PersistedConfig {
     throw new ConfigError("corrupt-config", "pending generation must be newer than active generation");
   }
   const pricingFile = cleanString(value.pricingFile, "pricingFile");
+  const catalogSources = validateCatalogSources(value.catalogSources);
   const result: PersistedConfig = {
     version: CONFIG_VERSION,
     allowInsecureHttp,
     adminEnabled: value.adminEnabled,
   };
+  if (catalogSources.length > 0) result.catalogSources = catalogSources;
   if (active) result.active = active;
   if (pending) result.pending = pending;
   if (pricingFile !== undefined) result.pricingFile = pricingFile;
@@ -255,11 +273,13 @@ export async function loadConfig(): Promise<PluginConfig> {
 }
 
 function persisted(config: PluginConfig): PersistedConfig {
+  const catalogSources = validateCatalogSources(config.catalogSources, "invalid-config");
   const result: PersistedConfig = {
     version: CONFIG_VERSION,
     allowInsecureHttp: config.allowInsecureHttp,
     adminEnabled: config.adminEnabled,
   };
+  if (catalogSources.length > 0) result.catalogSources = catalogSources;
   if (config.active) result.active = { ...config.active };
   if (config.pending) result.pending = { ...config.pending };
   if (config.pricingFile !== undefined) result.pricingFile = config.pricingFile;

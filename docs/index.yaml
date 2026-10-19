@@ -9,7 +9,7 @@ documents:
     status: active
     last_updated: "2026-10-19"
     doc_type: how_to
-    tags: [install, setup, omp, credentials]
+    tags: [install, setup, omp, credentials, catalogs, metadata]
   - id: troubleshooting
     path: docs/troubleshooting.md
     title: Troubleshooting and Recovery
@@ -18,7 +18,7 @@ documents:
     status: active
     last_updated: "2026-10-19"
     doc_type: reference
-    tags: [troubleshooting, recovery, offline, administration]
+    tags: [troubleshooting, recovery, offline, administration, catalogs, capabilities]
   - id: agent-repo-shape
     path: docs/reference/agent-repo-shape.md
     title: Agent Repo Shape

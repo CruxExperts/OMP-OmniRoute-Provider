@@ -12,6 +12,7 @@ import {
   savePendingConfig,
   setAdminEnabledConfig,
   setAgentDirResolverForTests,
+  updateConfig,
   validateEndpoint,
 } from "../src/config.ts";
 import type { ConfigError } from "../src/config.ts";
@@ -101,4 +102,18 @@ test("administration enablement does not alter runtime binding transactions", as
   const disabled = await setAdminEnabledConfig(false, enabled.revision === undefined ? undefined : { expectedRevision: enabled.revision });
   expect(disabled.adminEnabled).toBe(false);
   expect(disabled.pending).toEqual(staged.pending);
+});
+
+test("catalog source configuration defaults empty, deduplicates, and rejects unknown IDs", async () => {
+  await isolated();
+  expect((await loadConfig()).catalogSources ?? []).toEqual([]);
+  await updateConfig(current => ({ ...current, adminEnabled: true }));
+  expect((await loadConfig()).catalogSources ?? []).toEqual([]);
+  await updateConfig(current => ({ ...current, catalogSources: ["openrouter", "models.dev", "openrouter"] }));
+  const path = getConfigPath();
+  const persisted: unknown = JSON.parse(await readFile(path, "utf8"));
+  if (persisted === null || typeof persisted !== "object" || !("catalogSources" in persisted)) throw new Error("persisted config has no catalogSources");
+  expect(persisted.catalogSources).toEqual(["openrouter", "models.dev"]);
+  await writeFile(path, JSON.stringify({ version: 2, allowInsecureHttp: false, adminEnabled: false, catalogSources: ["unknown"] }), { mode: 0o600 });
+  await expectCode(loadConfig(), "corrupt-config");
 });

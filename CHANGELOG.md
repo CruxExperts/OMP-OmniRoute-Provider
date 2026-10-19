@@ -4,6 +4,17 @@ All notable changes to CruxOmni-OMP-Client are recorded here.
 
 ## Unreleased
 
+- Add opt-in, credential-free Models.dev and OpenRouter metadata adapters with
+  bounded reads, shared 24-hour memory snapshots, source status, exact pinned
+  identity mappings, synthetic parser fixtures, and source-term caveats.
+- Merge capabilities field by field with explicit live `false` precedence and
+  conflict diagnostics. Preserve evidenced tool, image, kind, limit, reasoning,
+  and thinking metadata without creating runnable IDs or trusting catalog prices.
+- Apply catalog selections through the existing refresh flow and reject late
+  enrichment from a source disabled while its request was in flight.
+- Recognize structured provenance field names during package secret scanning
+  without exempting unrelated secret-bearing JSON keys or values.
+
 - Unify startup, setup and explicit refresh around generation-bound live
   discovery, single-flight requests and a 30-second automatic freshness window.
   Publish explicit guarded models instead of host-cached native API rows.

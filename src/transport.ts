@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 export type TransportErrorCode =
   | "network"
   | "timeout"
@@ -33,9 +34,11 @@ export type TransportCredential =
 export interface RequestTarget {
   endpoint: string;
   path?: string;
+  query?: string;
   method?: string;
   body?: BodyInit | null;
   headers?: HeadersInit;
+  credentials?: RequestCredentials;
 }
 
 export interface RequestLimits {
@@ -65,6 +68,7 @@ interface NormalizedTarget {
   method: string;
   body: BodyInit | null | undefined;
   headers: HeadersInit | undefined;
+  credentials: RequestCredentials | undefined;
 }
 
 function validPositive(value: number | undefined, fallback: number): number {
@@ -83,7 +87,11 @@ function normalizeTarget(target: string | RequestTarget): NormalizedTarget {
     const prefix = url.pathname.replace(/\/+$/, "");
     url.pathname = `${prefix}${source.path}` || "/";
   }
-  return { url: url.toString(), method: (source.method ?? "GET").toUpperCase(), body: source.body, headers: source.headers };
+  if (source.query !== undefined) {
+    if (!/^[A-Za-z0-9_.~=-]+(?:&[A-Za-z0-9_.~=-]+)*$/.test(source.query)) throw new TransportError("invalid-endpoint", "request query is invalid");
+    url.search = source.query;
+  }
+  return { url: url.toString(), method: (source.method ?? "GET").toUpperCase(), body: source.body, headers: source.headers, credentials: source.credentials };
 }
 
 function credentialHeaders(credential: TransportCredential | undefined): Headers {
@@ -266,6 +274,7 @@ async function attempt(target: NormalizedTarget, credential: TransportCredential
       redirect: "manual",
       signal: controller.signal,
     };
+    if (target.credentials !== undefined) init.credentials = target.credentials;
     if (target.body !== undefined) init.body = target.body;
     const response = await fetch(target.url, init);
     return { response, limits, controller, timedOut: () => timedOut, cleanup: () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); } };
@@ -333,6 +342,22 @@ async function execute(targetInput: string | RequestTarget, credential: Transpor
   }
 }
 
+async function readJsonResponse(
+  endpoint: string | RequestTarget,
+  credential: TransportCredential | undefined,
+  limits: RequestLimits | undefined,
+  signal: AbortSignal | undefined,
+  retryPolicy: RetryPolicy | undefined,
+): Promise<{ value: unknown; bytes: Uint8Array }> {
+  const result = await execute(endpoint, credential, limits, signal, retryPolicy);
+  try {
+    const bytes = await readBody(result.response, result.limits.maxBytes, result.controller.signal, result.timedOut);
+    return { value: parseJson(bytes, result.limits.maxDepth), bytes };
+  } finally {
+    result.cleanup();
+  }
+}
+
 export async function requestJson(
   endpoint: string | RequestTarget,
   credential?: TransportCredential,
@@ -340,13 +365,18 @@ export async function requestJson(
   signal?: AbortSignal,
   retryPolicy?: RetryPolicy,
 ): Promise<unknown> {
-  const result = await execute(endpoint, credential, limits, signal, retryPolicy);
-  try {
-    const bytes = await readBody(result.response, result.limits.maxBytes, result.controller.signal, result.timedOut);
-    return parseJson(bytes, result.limits.maxDepth);
-  } finally {
-    result.cleanup();
-  }
+  return (await readJsonResponse(endpoint, credential, limits, signal, retryPolicy)).value;
+}
+
+export async function requestJsonWithDigest(
+  endpoint: string | RequestTarget,
+  credential?: TransportCredential,
+  limits?: RequestLimits,
+  signal?: AbortSignal,
+  retryPolicy?: RetryPolicy,
+): Promise<{ value: unknown; sha256: string }> {
+  const result = await readJsonResponse(endpoint, credential, limits, signal, retryPolicy);
+  return { value: result.value, sha256: createHash("sha256").update(result.bytes).digest("hex") };
 }
 
 export async function requestStream(

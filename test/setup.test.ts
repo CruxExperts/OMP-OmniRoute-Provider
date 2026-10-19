@@ -23,20 +23,31 @@ async function isolated(): Promise<void> {
   for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
 }
 
-function context(values: string[], confirmations: boolean[], notices: string[], login: (...args: any[]) => Promise<unknown>) {
+function context<TLogin>(
+  values: string[],
+  confirmations: boolean[],
+  notices: string[],
+  login: TLogin,
+  selections: string[] = [],
+) {
   return {
     mode: "tui", hasUI: true, cwd: "/fixture/project",
     ui: {
-      custom(factory: (...args: any[]) => any) {
-        return new Promise(resolve => {
-          const component = factory(undefined, undefined, undefined, resolve);
-          const value = values.shift() ?? "";
-          component.setValue(value);
-          component.onSubmit(value);
-        });
+      custom(factory: (
+        tui: unknown,
+        theme: unknown,
+        keys: unknown,
+        done: (value: string | undefined) => void,
+      ) => { setValue(value: string): void; onSubmit(value: string): void }) {
+        const deferred = Promise.withResolvers<string | undefined>();
+        const component = factory(undefined, undefined, undefined, deferred.resolve);
+        const value = values.shift() ?? "";
+        component.setValue(value);
+        component.onSubmit(value);
+        return deferred.promise;
       },
       async confirm() { return confirmations.shift() ?? false; },
-      async select() { return undefined; },
+      async select() { return selections.shift(); },
       notify(message: string) { notices.push(message); },
     },
     modelRegistry: { authStorage: { oauth: { login } } },
@@ -97,6 +108,21 @@ test("non-TUI setup refuses without prompts, storage or mutation", async () => {
   expect(interactions).toBe(0);
   expect(notices.join(" ")).toContain("interactive OMP terminal");
   expect((await loadConfig()).revision).toBeUndefined();
+});
+
+test("catalog metadata sources require explicit opt-in and appear in the read-only setup summary", async () => {
+  await isolated();
+  const notices: string[] = [];
+  const selections = [
+    "Catalogs (optional)", "Enable models.dev",
+    "Catalogs (optional)", "Enable OpenRouter",
+    "Summary", "Finish",
+  ];
+  await createSetupWizard(services())(context([], [], notices, async () => undefined, selections));
+  expect((await loadConfig()).catalogSources).toEqual(["models.dev", "openrouter"]);
+  const summary = notices.at(-1) ?? "";
+  expect(summary).toContain("catalogs=models.dev:");
+  expect(summary).toContain("openrouter:");
 });
 
 test("startup cancellation closes a native storage handle that arrives after abort", async () => {

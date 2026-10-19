@@ -385,7 +385,7 @@ async function scanImports(root: string, files: string[], issues: ScanIssue[]): 
   }
 }
 
-async function scanText(root: string, files: string[], issues: ScanIssue[]): Promise<Record<string, string>> {
+export async function scanText(root: string, files: string[], issues: ScanIssue[]): Promise<Record<string, string>> {
   interface JsonStringLiteral {
     start: number;
     end: number;
@@ -441,6 +441,7 @@ async function scanText(root: string, files: string[], issues: ScanIssue[]): Pro
         }
         while (cursor < text.length) {
           const key = parseString();
+          literals.push({ ...key, fieldPath: [...fieldPath, key.value] });
           skipWhitespace();
           if (text[cursor] !== ":") throw new Error("expected JSON object colon");
           cursor += 1;

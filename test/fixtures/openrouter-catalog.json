@@ -1,0 +1,39 @@
+{
+  "provenance": {
+    "sourceUrl": "https://openrouter.ai/api/v1/models?output_modalities=all",
+    "accessedAt": "2026-10-19T20:33:35Z",
+    "sourceResponseSha256": "82b3acbc5877f2c639ec78106a5fef07b841b693795d6932447b3d1962bf7e3c",
+    "fieldMappings": {
+      "data[].id": "exact source model ID, including any vendor prefix; sourceId stays byte-for-byte intact and the live ID applies pinned qualifyOpenRouterModelId (prefix openrouter/ unless already present); live owner maps only to pinned OmniRoute openrouter provider",
+      "data[].name": "display name only",
+      "data[].context_length": "context_length",
+      "data[].top_provider.max_completion_tokens": "max_output_tokens",
+      "data[].architecture.input_modalities/output_modalities": "input_modalities/output_modalities",
+      "data[].supported_parameters includes tools": "supportsTools=true only when explicitly listed",
+      "data[].reasoning.supported_efforts/default_effort": "ordered host effort capability",
+      "pricing and all other unlisted fields": "ignored"
+    },
+    "termsCaveat": "OpenRouter Terms https://openrouter.ai/terms/ (updated 2026-08-31) §7(5) restricts automated scraping/copying. The official model-list API documentation https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties documents GET /models but exposes a top-level API-key security declaration and no observed catalog-data license or reuse exception. The adapter uses only the documented fixed GET with credentials omitted; this provenance records no redistribution permission."
+  },
+  "synthetic": true,
+  "payload": {
+    "data": [
+      {
+        "id": "fixture-vendor/synthetic-chat",
+        "name": "Synthetic OpenRouter Fixture",
+        "context_length": 32768,
+        "architecture": {
+          "input_modalities": ["text", "image", "audio"],
+          "output_modalities": ["text"]
+        },
+        "top_provider": { "max_completion_tokens": 4096 },
+        "pricing": { "prompt": "0.001", "completion": "0.002" },
+        "supported_parameters": ["tools", "reasoning_effort"],
+        "reasoning": {
+          "supported_efforts": ["low", "medium", "high"],
+          "default_effort": "medium"
+        }
+      }
+    ]
+  }
+}
