@@ -75,12 +75,14 @@
   },
   "peerDependencies": {
     "@oh-my-pi/pi-ai": ">=18.12.2 <19",
+    "@oh-my-pi/pi-catalog": ">=18.12.2 <19",
     "@oh-my-pi/pi-coding-agent": ">=18.12.2 <19",
     "@oh-my-pi/pi-tui": ">=18.12.2 <19",
     "@oh-my-pi/pi-utils": ">=18.12.2 <19"
   },
   "devDependencies": {
     "@oh-my-pi/pi-ai": "18.12.3",
+    "@oh-my-pi/pi-catalog": "18.12.3",
     "@oh-my-pi/pi-coding-agent": "18.12.3",
     "@oh-my-pi/pi-tui": "18.12.3",
     "@oh-my-pi/pi-utils": "18.12.3",

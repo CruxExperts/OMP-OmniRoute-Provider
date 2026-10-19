@@ -53,8 +53,28 @@ The wizard has independent sections:
 Save and activation are transactional. A cancelled section does not discard
 earlier saved sections. An offline or malformed endpoint cannot be reported as
 success; a URL-only draft may be saved without a runtime key for later setup.
-After a successful native login, use `/cruxomni refresh` to activate and read
-back the exact endpoint in the current process.
+Native login activates a connection only after the key is persisted and live
+validation succeeds. An interrupted pending login remains auth-only and needs
+a fresh sign-in; `/cruxomni refresh` forces rediscovery of an active connection.
+Automatic refreshes share one request and reuse a successful snapshot for
+30 seconds. Explicit refresh bypasses that freshness window but joins an
+already-running request.
+
+## Select a live model
+
+```text
+omp models --json
+omp --model omniroute/<live-model-id>
+```
+
+Use the full model selector returned by the model list. On OMP `18.12.2`,
+an explicit `--provider omniroute` can be rejected before extension loading;
+the full `--model` selector supports deferred extension-model resolution.
+
+Startup waits up to 10 seconds for live discovery, including resolution of
+the remembered native credential. Only discovered chat models become selectable;
+metadata and pricing do not delay that publication or the first streamed reply.
+Their optional enrichment is cancelled when the connection changes.
 
 ## Environment-managed mode
 

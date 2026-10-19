@@ -56,7 +56,7 @@ optional, so the wizard can stay as simple as you need it to be.
 | --- | --- |
 | `/cruxomni setup` | Opens the guided setup wizard |
 | `/cruxomni` | Shows connection and configuration status |
-| `/cruxomni refresh` | Refreshes the model catalog |
+| `/cruxomni refresh` | Forces live model rediscovery |
 | `/cruxomni-pricing` | Shows pricing information |
 | `/cruxomni-admin` | Opens guarded administration tools |
 

@@ -4,7 +4,7 @@ import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugi
 import { DISPLAY_NAME, PACKAGE_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
-import { registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential } from "./auth.ts";
+import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
 import { type PluginConfig, loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
 import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./health.ts";
@@ -95,21 +95,18 @@ function baseApi(endpoint: string): string {
 function providerConfig(
 	oauth: NonNullable<ProviderConfig["oauth"]>,
 	endpoint?: string,
-	models?: CatalogProjection["models"],
-	fetchDynamicModels?: ProviderConfig["fetchDynamicModels"],
+	models: NonNullable<ProviderConfig["models"]> = [],
 	apiKeyEnvironment?: string,
 	streamSimple?: ProviderConfig["streamSimple"],
 ): ProviderConfig {
-	const result: ProviderConfig = { oauth };
+	const result: ProviderConfig = { oauth, models };
 	if (endpoint) {
 		result.baseUrl = baseApi(endpoint);
-		result.api = streamSimple ? OMNIROUTE_GUARDED_API : "openai-responses";
+		result.api = OMNIROUTE_GUARDED_API;
 		result.authHeader = true;
 		if (apiKeyEnvironment) result.apiKey = apiKeyEnvironment;
 		if (streamSimple) result.streamSimple = streamSimple;
 	}
-	if (models) result.models = [...models];
-	if (fetchDynamicModels) result.fetchDynamicModels = fetchDynamicModels;
 	return result;
 }
 
@@ -150,21 +147,54 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let transitionNotifications = true;
 	let pendingCandidateKey: string | undefined;
 	let pendingCandidateEndpoint: string | undefined;
-	const replaceProvider = (next: ProviderConfig): void => {
-		pi.unregisterProvider(PROVIDER_ID);
+	let runtimeEndpoint: string | undefined;
+	let runtimeEnvironment = false;
+	let providerRegistered = false;
+	let publishedProjection: CatalogProjection | undefined;
+	let publishedGeneration = -1;
+	let publishedEndpoint: string | undefined;
+	let startupSignal: AbortSignal | undefined;
+	let startupAborter: AbortController | undefined;
+	let bindingSyncFlight: Promise<{ pendingValidated: boolean }> | undefined;
+	let credentialRevision = 0;
+	let observedAuthStorage: ContextLike["modelRegistry"]["authStorage"] | undefined;
+	let observedNativeKey: string | undefined;
+	let unsubscribeCredentials: (() => void) | undefined;
+	let lastNotifiedState: HealthSnapshot["state"] | undefined;
+	const contextWaiters = new Set<(value: ContextLike | undefined) => void>();
+	const setContext = (value: ContextLike | undefined): void => {
+		context = value;
+		for (const receive of contextWaiters) receive(value);
+		contextWaiters.clear();
+	};
+	const metadataContext = (signal: AbortSignal): Promise<ContextLike | undefined> => {
+		if (signal.aborted || context) return Promise.resolve(signal.aborted ? undefined : context);
+		const { promise, resolve } = Promise.withResolvers<ContextLike | undefined>();
+		const receive = (value: ContextLike | undefined): void => {
+			signal.removeEventListener("abort", abort);
+			contextWaiters.delete(receive);
+			resolve(value);
+		};
+		const abort = (): void => receive(undefined);
+		contextWaiters.add(receive);
+		signal.addEventListener("abort", abort, { once: true });
+		if (signal.aborted) abort();
+		return promise;
+	};
+	const replaceProvider = (next: ProviderConfig, invalidate = false): void => {
+		if (!providerRegistered || invalidate) pi.unregisterProvider(PROVIDER_ID);
 		pi.registerProvider(PROVIDER_ID, next);
+		providerRegistered = true;
 	};
 
 	const onSetupComplete = async (endpoint: string, candidateKey: string): Promise<void> => {
 		if (stopped) return;
-		// Native AuthStorage has not necessarily persisted the returned key yet.
-		// Keep the provider auth-only; manual refresh performs the pending
-		// endpoint/key comparison after persistence.
+		// Activation still requires the native store to contain this candidate;
+		// the shared refresh leaves an unpersisted candidate auth-only.
 		pendingCandidateEndpoint = endpoint;
 		pendingCandidateKey = candidateKey;
 		manager.reset();
-		latestProjection = undefined;
-		replaceProvider(providerConfig(oauth));
+		await refresh(context, false);
 	};
 	const nativeLogin = registerNativeLogin({ onSetupComplete });
 	const oauth: NonNullable<ProviderConfig["oauth"]> = {
@@ -198,77 +228,106 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		}
 	};
 	const discover = async (binding: DiscoveryBinding, signal: AbortSignal) => {
-		await loadPricing(config.pricingFile ?? process.env[PRICING_ENV]?.trim());
-		const limits = { timeoutMs: 10_000, maxBytes: MAX_BODY_BYTES, maxDepth: MAX_JSON_DEPTH };
+		const source = runtimeEnvironment ? resolveEnvironmentBinding(config) : config.pending ?? config.active;
+		const metadataBinding = source?.endpoint === binding.endpoint
+			? { endpoint: binding.endpoint, generation: source.generation }
+			: undefined;
+		const pricingFile = config.pricingFile ?? process.env[PRICING_ENV]?.trim();
+		const environmentMetadataKey = process.env[METADATA_ENV]?.trim();
+		const rememberedMetadata = config.optionalCredentials?.metadata?.state === "ready";
+		const sessionMetadata = metadataBinding !== undefined && optionalCredentials.hasSession("metadata", metadataBinding);
+		const requestSignal = startupSignal ? AbortSignal.any([signal, startupSignal]) : signal;
+		const limits = { totalBudgetMs: 10_000, maxBytes: MAX_BODY_BYTES, maxDepth: MAX_JSON_DEPTH };
 		const retry = { maxRetries: 1, safeRead: true, retryStatuses: [429, 502, 503, 504] as const };
-		const livePromise = requestJson(modelsUrl(binding.endpoint), binding.credential, limits, signal, retry);
-		const metadataKey = process.env[METADATA_ENV]?.trim() ?? (context ? await optionalCredentials.resolve("metadata", binding, context.modelRegistry.authStorage) : undefined)?.value;
-		metadataState = metadataKey ? "checking" : "not configured";
-		const metadataPromise = metadataKey
-			? requestJson(`${endpointRoot(binding.endpoint)}/api/models/catalog`, metadataKey, { ...limits, timeoutMs: 5_000, totalBudgetMs: 5_000 }, signal, retry)
-				.then(value => { metadataState = "available"; return value; }).catch(() => { metadataState = "unavailable"; return undefined; })
-			: Promise.resolve(undefined);
-		const [live, metadata] = await Promise.all([livePromise, metadataPromise]);
-		const catalogOptions: CatalogOptions = {
-			pricingCurrent,
-			stale: false,
-			...(metadata === undefined ? {} : { metadata }),
-			...(pricing === undefined ? {} : { pricing }),
-		};
-		return { projection: projectCatalog(live, catalogOptions) };
+		const live = await requestJson(modelsUrl(binding.endpoint), binding.credential, limits, requestSignal, retry);
+		const projection = projectCatalog(live);
+		if (!pricingFile && !environmentMetadataKey && !rememberedMetadata && !sessionMetadata) return { projection };
+		const enrichment = (async (): Promise<CatalogProjection> => {
+			const optionalSignal = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+			let pricingError = false;
+			let metadataError: string | undefined;
+			let availability = "not configured";
+			const pricingPromise = pricingFile
+				? readSellerPricing(pricingFile).catch(() => { pricingError = true; return undefined; })
+				: Promise.resolve(undefined);
+			const metadataPromise = (async (): Promise<unknown> => {
+				if (!environmentMetadataKey && !rememberedMetadata && !sessionMetadata) return undefined;
+				availability = "checking";
+				if (manager.currentBinding?.generation === binding.generation) metadataState = availability;
+				try {
+					const owner = environmentMetadataKey ? undefined : await metadataContext(optionalSignal);
+					const key = environmentMetadataKey ?? (owner && metadataBinding
+						? await optionalCredentials.resolve("metadata", metadataBinding, owner.modelRegistry.authStorage)
+						: undefined)?.value;
+					if (!key) {
+						metadataError = "metadata_credentials_unavailable";
+						availability = "unavailable";
+						return undefined;
+					}
+					const value = await requestJson(`${endpointRoot(binding.endpoint)}/api/models/catalog`, key,
+						{ ...limits, totalBudgetMs: 5_000 }, optionalSignal, retry);
+					availability = "available";
+					return value;
+				} catch {
+					metadataError = "metadata_unavailable";
+					availability = "unavailable";
+					return undefined;
+				}
+			})();
+			const [loadedPricing, metadata] = await Promise.all([pricingPromise, metadataPromise]);
+			if (signal.aborted) throw new TransportError("aborted", "enrichment binding cancelled");
+			const options: CatalogOptions = {
+				pricingCurrent: loadedPricing !== undefined,
+				...(loadedPricing === undefined ? {} : { pricing: loadedPricing }),
+			};
+			let enriched: CatalogProjection;
+			try {
+				enriched = projectCatalog(live, { ...options, ...(metadata === undefined ? {} : { metadata }) });
+			} catch {
+				metadataError = "metadata_invalid";
+				availability = "unavailable";
+				enriched = projectCatalog(live, options);
+			}
+			const diagnostics = [...enriched.diagnostics];
+			if (pricingError) diagnostics.push({ code: "pricing_unavailable" });
+			if (metadataError) diagnostics.push({ code: metadataError });
+			if (manager.currentBinding?.generation === binding.generation && manager.currentResult?.projection === projection) {
+				if (loadedPricing) pricing = loadedPricing;
+				pricingCurrent = loadedPricing !== undefined;
+				metadataState = availability;
+			}
+			return { ...enriched, diagnostics };
+		})();
+		return { projection, enrichment };
 	};
 
 	const manager = new DiscoveryManager(discover, [snapshot => {
-		if (!transitionNotifications || stopped || snapshot.state === "unconfigured") return;
+		publishCurrent();
+		const changed = snapshot.state !== lastNotifiedState;
+		lastNotifiedState = snapshot.state;
+		if (!changed || !transitionNotifications || stopped || snapshot.state === "unconfigured") return;
 		const kind = snapshot.state === "ready" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
 		notify(context, `omniroute: state ${snapshot.state}; models=${snapshot.modelCount}${snapshot.lastError ? `; detail=${snapshot.lastError}` : ""}`, kind);
 	}]);
 	const runtimeProviderConfig = (
 		endpoint?: string,
 		models?: CatalogProjection["models"],
-	): ProviderConfig => {
-		const environment = endpoint ? envBinding(config.allowInsecureHttp) : undefined;
-		const modelApis = new Map((models ?? []).map(model => [model.id, model.api === "openai-completions" ? "openai-completions" as const : "openai-responses" as const]));
-		const guardedModels = models?.map(model => ({ ...model, api: OMNIROUTE_GUARDED_API }));
-		const expectedGeneration = manager.currentBinding?.generation ?? environment?.generation ?? config.active?.generation ?? 0;
-		return providerConfig(
-			oauth,
-			endpoint,
-			guardedModels,
-			endpoint
-				? async apiKey => {
-					const credential = environment?.credential ?? apiKey;
-					if (!credential) return [];
-					const effectiveEndpoint = environment?.endpoint ?? endpoint;
-					const generation = environment?.generation ?? config.pending?.generation ?? config.active?.generation ?? 0;
-					const result = await discover(
-						{ endpoint: effectiveEndpoint, credential, generation },
-						AbortSignal.timeout(10_000),
-					);
-					latestProjection = result.projection;
-					return result.projection.models;
-				}
-				: undefined,
-			environment ? RUNTIME_ENV : undefined,
-			endpoint && guardedModels ? createBoundInferenceStream({
-				expectedEndpoint: endpoint,
-				expectedGeneration,
-				modelApis,
-				currentBinding: () => manager.currentBinding,
-				stopped: () => stopped,
-			}) : undefined,
-		);
-	};
-	let initialEndpoint: string | undefined;
-	try {
-		initialEndpoint = envBinding(config.allowInsecureHttp)?.endpoint
-			?? (config.pending ? undefined : config.active?.endpoint);
-	} catch {
-		// Invalid environment bindings remain fail-closed and auth-only.
-	}
-	// Register dynamic discovery before OMP resolves a requested model. Waiting
-	// for session_start is too late: model selection precedes session creation.
-	replaceProvider(runtimeProviderConfig(initialEndpoint));
+	): ProviderConfig => providerConfig(
+		oauth,
+		endpoint,
+		models?.map(model => ({ ...model, api: OMNIROUTE_GUARDED_API })),
+		runtimeEnvironment ? RUNTIME_ENV : undefined,
+		endpoint ? createBoundInferenceStream({
+			expectedEndpoint: endpoint,
+			expectedGeneration: manager.currentBinding?.generation ?? manager.status.generation,
+			currentBinding: () => manager.currentBinding,
+			currentModelApi: id => manager.getModelApi(id),
+			currentSignal: () => manager.bindingSignal,
+			stopped: () => stopped,
+		}) : undefined,
+	);
+	// Cut over any previous package registration before startup discovery.
+	replaceProvider(providerConfig(oauth));
 	const readAdapterFor = (operation: OperationDescriptor): OperationAdapter | undefined => {
 		return listOperations({ method: "GET", sideEffect: "read", authDomain: operation.auth.domain })
 			.find(adapter => adapter.descriptor.pathTemplate === operation.pathTemplate);
@@ -434,90 +493,168 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	};
 	registerAdminCommand(pi, adminUiOptions);
 	registerAdminTools(pi, { executor: adminExecutor, ui: adminUiOptions, syncBinding: synchronizeAdministration });
-	const applyProjection = (projection: CatalogProjection): void => {
-		const binding = manager.currentBinding;
-		if (!binding || stopped) return;
-		// Re-registering the source-owned model set is the only mutation path;
-		latestProjection = projection;
-		replaceProvider(runtimeProviderConfig(binding.endpoint, projection.models));
-	};
-
-	async function refresh(ctx: ContextLike, manual: boolean): Promise<void> {
+	function publishCurrent(): void {
 		if (stopped) return;
+		const binding = manager.currentBinding;
+		const pending = !runtimeEnvironment && config.pending;
+		const projection = pending || !binding ? undefined : manager.currentResult?.projection;
+		const endpoint = pending ? undefined : binding?.endpoint ?? runtimeEndpoint;
+		const generation = manager.status.generation;
+		latestProjection = projection;
+		if (projection === publishedProjection && endpoint === publishedEndpoint && generation === publishedGeneration) return;
+		publishedProjection = projection;
+		publishedEndpoint = endpoint;
+		publishedGeneration = generation;
+		replaceProvider(runtimeProviderConfig(endpoint, projection?.models), !projection?.models.length);
+	}
+
+	function observeCredentials(ctx: ContextLike): void {
+		const storage = ctx.modelRegistry.authStorage;
+		if (storage === observedAuthStorage) return;
+		unsubscribeCredentials?.();
+		observedAuthStorage = storage;
+		const nativeKey = (): string | undefined => {
+			const saved = storage.credentials.get(PROVIDER_ID);
+			return saved?.type === "api_key" ? saved.key : undefined;
+		};
+		observedNativeKey = nativeKey();
+		unsubscribeCredentials = storage.credentials.onGeneration(() => {
+			const next = nativeKey();
+			if (next === observedNativeKey) return;
+			observedNativeKey = next;
+			if (stopped || runtimeEnvironment) return;
+			credentialRevision++;
+			manager.reset();
+			// A replacement cancels streams immediately. Resolve the new native
+			// credential only after an older binding synchronization has settled.
+			const settled = bindingSyncFlight ?? Promise.resolve();
+			void settled.then(() => refresh(context, false), () => refresh(context, false));
+		});
+	}
+
+	async function synchronizeBinding(ctx: ContextLike | undefined): Promise<{ pendingValidated: boolean }> {
+		const revision = credentialRevision;
+		let validConfiguration = false;
 		try {
 			const previousAdminEndpoint = adminUiOptions.endpoint;
 			const previousAdminGeneration = adminUiOptions.credentialGeneration;
 			const previousAdminEnabled = config.adminEnabled;
-			config = await loadConfig();
+			const previousActiveGeneration = config.active?.generation;
+			const loaded = await loadConfig();
+			config = loaded;
 			syncAdminUiBinding(config);
 			if ((previousAdminEnabled && !config.adminEnabled) || previousAdminEndpoint !== adminUiOptions.endpoint || previousAdminGeneration !== adminUiOptions.credentialGeneration) {
 				adminExecutor.disable();
 			}
-		} catch {
-			manager.reset();
-			latestProjection = undefined;
-			adminExecutor.disable();
-			replaceProvider(providerConfig(oauth));
-			if (manual) notify(ctx, "omniroute: configuration unavailable", "warning");
-			return;
-		}
-		let environment: { endpoint: string; credential: string; generation: number } | undefined;
-		try {
-			environment = envBinding(config.allowInsecureHttp);
-		} catch {
-			// An incomplete/conflicting environment binding is never allowed to
-			// fall back to a profile endpoint or send a credential.
-			latestProjection = undefined;
-			manager.reset();
-			replaceProvider(providerConfig(oauth));
-			if (manual) notify(ctx, "omniroute: invalid environment binding", "warning");
-			return;
-		}
-		const credential = environment?.credential ?? await resolveRuntimeCredential(ctx.modelRegistry);
-		if (!environment && config.pending) {
-			const candidateKey = pendingCandidateKey;
-			if (candidateKey === undefined || credential === undefined || credential !== candidateKey || pendingCandidateEndpoint !== config.pending.endpoint) {
+			const environment = envBinding(config.allowInsecureHttp);
+			const pending = environment ? undefined : config.pending;
+			const active = environment ?? config.active;
+			runtimeEnvironment = environment !== undefined;
+			runtimeEndpoint = pending ? undefined : active?.endpoint;
+			validConfiguration = true;
+			if (environment) {
+				if (manager.setBinding(environment.endpoint, environment.credential, environment.generation)) {
+					metadataState = "not configured";
+					pricingCurrent = false;
+				}
+			} else if (pending || manager.currentBinding?.endpoint !== active?.endpoint || previousActiveGeneration !== active?.generation) {
 				manager.reset();
-				latestProjection = undefined;
-				replaceProvider(providerConfig(oauth));
-				if (manual) notify(ctx, "cruxomni: setup recovery required; sign in again, then /cruxomni refresh", "warning");
-				return;
+				metadataState = "not configured";
+				pricingCurrent = false;
 			}
-			manager.setBinding(config.pending.endpoint, candidateKey, config.pending.generation);
-			try {
-				const validation = await manager.refresh();
-				if (!validation || validation.stale) throw new Error("pending validation did not return a live catalog");
-				await recoverPendingAfterPersistence(ctx.modelRegistry, candidateKey);
+			publishCurrent();
+			if ((!active && !pending) || (pending && (!pendingCandidateKey || pendingCandidateEndpoint !== pending.endpoint))) {
+				manager.setBinding(undefined, undefined);
+				publishCurrent();
+				return { pendingValidated: false };
+			}
+			const credential = environment?.credential ?? (ctx
+				? await resolveRuntimeCredential(ctx.modelRegistry)
+				: await resolveStartupRuntimeCredential(
+					() => pi.pi.discoverAuthStorage(),
+					startupSignal ?? AbortSignal.timeout(10_000),
+				));
+			const confirmed = await loadConfig();
+			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
+				validConfiguration = false;
+				throw Object.assign(new Error("binding changed during credential resolution"), { code: "binding_changed" });
+			}
+			config = confirmed;
+			if (pending) {
+				const candidateKey = pendingCandidateKey;
+				if (!candidateKey || credential !== candidateKey || pendingCandidateEndpoint !== pending.endpoint) {
+					manager.reset();
+					publishCurrent();
+					return { pendingValidated: false };
+				}
+				manager.setBinding(pending.endpoint, credential, pending.generation);
+				const validation = await manager.refresh({ force: true });
+				if (!validation || validation.stale || revision !== credentialRevision) {
+					throw Object.assign(new Error("pending validation did not return a current live catalog"), { code: "pending_validation_failed" });
+				}
+				await recoverPendingAfterPersistence(ctx?.modelRegistry ?? { getApiKeyForProvider: () => credential }, candidateKey);
 				config = await loadConfig();
+				if (config.pending || !config.active || config.active.endpoint !== manager.currentBinding?.endpoint || revision !== credentialRevision) {
+					throw Object.assign(new Error("pending binding changed during validation"), { code: "binding_changed" });
+				}
 				pendingCandidateKey = undefined;
 				pendingCandidateEndpoint = undefined;
-				if (config.pending || config.active?.endpoint !== manager.currentBinding?.endpoint) throw new Error("pending binding changed during validation");
-				applyProjection(validation.projection);
-				if (manual) notify(ctx, `omniroute: refreshed ${validation.projection.models.length} live models`);
-				return;
-			} catch {
-				manager.reset();
-				latestProjection = undefined;
-				replaceProvider(providerConfig(oauth));
+				runtimeEndpoint = config.active.endpoint;
+				publishCurrent();
+				return { pendingValidated: true };
 			}
-			if (manual) notify(ctx, "cruxomni: setup validation failed; sign in again, then /cruxomni refresh", "warning");
+			const changed = manager.setBinding(active?.endpoint, credential, active?.generation);
+			if (changed) {
+				metadataState = "not configured";
+				pricingCurrent = false;
+			}
+			publishCurrent();
+			return { pendingValidated: false };
+		} catch (error) {
+			if (!stopped && revision === credentialRevision) {
+				if (!validConfiguration) {
+					runtimeEndpoint = undefined;
+					runtimeEnvironment = false;
+				}
+				metadataState = "unavailable";
+				pricingCurrent = false;
+				manager.reset();
+				adminExecutor.disable();
+				publishCurrent();
+			}
+			throw error;
+		}
+	}
+
+	async function refresh(ctx: ContextLike | undefined, manual: boolean): Promise<void> {
+		if (stopped) return;
+		if (ctx) {
+			setContext(ctx);
+			observeCredentials(ctx);
+		}
+		let synchronized: { pendingValidated: boolean };
+		try {
+			if (!bindingSyncFlight) {
+				const flight = synchronizeBinding(ctx);
+				bindingSyncFlight = flight;
+				const clear = (): void => { if (bindingSyncFlight === flight) bindingSyncFlight = undefined; };
+				void flight.then(clear, clear);
+			}
+			synchronized = await bindingSyncFlight;
+		} catch (error) {
+			if (manual) notify(ctx, `omniroute: binding unavailable (${safeDetail(error)})`, "warning");
 			return;
 		}
-		const active = environment ?? config.active;
-		const previous = manager.currentBinding;
-		const bindingChanged = previous?.endpoint !== active?.endpoint || previous?.credential !== credential || previous?.generation !== active?.generation;
-		manager.setBinding(active?.endpoint, credential, active?.generation);
-		if (bindingChanged) {
-			latestProjection = undefined;
-			replaceProvider(runtimeProviderConfig(active?.endpoint));
-		}
-		if (!active || !credential) {
-			if (manual) notify(ctx, "cruxomni: setup required; use native sign-in, then /cruxomni refresh", "info");
+		if (stopped) return;
+		if (!manager.currentBinding) {
+			if (manual) notify(ctx, config.pending
+				? "cruxomni: setup is pending native persistence; sign in again if the previous process was interrupted, then /cruxomni refresh"
+				: "cruxomni: setup required; use native sign-in, then /cruxomni refresh", "info");
 			return;
 		}
 		try {
-			const result = await manager.refresh();
-			if (result) applyProjection(result.projection);
+			if (!synchronized.pendingValidated) await manager.refresh({ force: manual });
+			const result = manager.currentResult;
 			if (manual && result) notify(ctx, `omniroute: refreshed ${result.projection.models.length} live models${result.stale ? " (stale same-generation rows)" : ""}`, result.stale ? "warning" : "info");
 		} catch (error) {
 			if (manual) notify(ctx, `omniroute: refresh failed; no new catalog accepted (${safeDetail(error)})`, "warning");
@@ -530,7 +667,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		refresh: ctx => refresh(ctx, true),
 		status: () => `${manager.status.state}; models=${manager.status.modelCount}; metadata=${metadataState}`,
 		synchronizeAdmin: async ctx => {
-			context = ctx;
+			setContext(ctx);
 			const current = await loadConfig();
 			const active = resolveEnvironmentBinding(current) ?? current.active;
 			adminExecutor.disable();
@@ -541,6 +678,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	pi.registerCommand("cruxomni", {
 		description: "Refresh or inspect OmniRoute provider state",
 		handler: async (args, ctx) => {
+			setContext(ctx);
+			observeCredentials(ctx);
 			const commandParts = args.trim().split(/\s+/);
 			const command = commandParts[0] ?? "status";
 			const typed = ctx;
@@ -574,11 +713,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		context = ctx;
+		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
 		stopped = false;
+		setContext(ctx);
 		transitionNotifications = false;
 		manager.resume();
-		await refresh(context, false);
+		await refresh(ctx, false);
 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
 		transitionNotifications = settings.notifyTransitions !== false;
 		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config.allowInsecureHttp)) {
@@ -587,16 +727,39 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		}
 	});
 	pi.on("session_shutdown", () => {
+		stopped = true;
+		credentialRevision++;
+		startupAborter?.abort();
+		unsubscribeCredentials?.();
+		unsubscribeCredentials = undefined;
+		observedAuthStorage = undefined;
+		observedNativeKey = undefined;
 		latestProjection = undefined;
+		publishedProjection = undefined;
+		publishedEndpoint = undefined;
+		publishedGeneration = -1;
 		pendingCandidateKey = undefined;
 		pendingCandidateEndpoint = undefined;
-		stopped = true;
+		clearPendingCandidate();
 		transitionNotifications = false;
-		context = undefined;
+		setContext(undefined);
 		manager.shutdown();
 		adminExecutor.shutdown();
 		optionalCredentials.clear();
+		pi.unregisterProvider(PROVIDER_ID);
+		providerRegistered = false;
 	});
+	const controller = new AbortController();
+	startupAborter = controller;
+	startupSignal = controller.signal;
+	const deadline = setTimeout(() => controller.abort(), 10_000);
+	try {
+		await refresh(undefined, false);
+	} finally {
+		clearTimeout(deadline);
+		startupAborter = undefined;
+		startupSignal = undefined;
+	}
 }
 
 export { registerOmniRouteProvider };

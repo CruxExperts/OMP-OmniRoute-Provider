@@ -16,7 +16,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-09-20"
+    last_updated: "2026-10-19"
     doc_type: reference
     tags: [troubleshooting, recovery, offline, administration]
   - id: agent-repo-shape

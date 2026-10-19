@@ -2,13 +2,20 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discoverAuthStorage, z } from "@oh-my-pi/pi-coding-agent";
 import { OptionalCredentials, type CredentialStore } from "../src/credentials.ts";
-import type { StoredAuthCredential } from "@oh-my-pi/pi-ai";
-import { getConfigPath, loadConfig, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
+import type { AuthStorage, StoredAuthCredential } from "@oh-my-pi/pi-ai";
+import { getConfigPath, loadConfig, resolveEnvironmentBinding, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
 import register from "../src/index.ts";
 
 let directory: string | undefined;
-afterEach(async () => { setAgentDirResolverForTests(undefined); if (directory) await rm(directory, { recursive: true, force: true }); directory = undefined; });
+let cleanupIntegration: (() => void) | undefined;
+afterEach(async () => {
+  cleanupIntegration?.();
+  setAgentDirResolverForTests(undefined);
+  if (directory) await rm(directory, { recursive: true, force: true });
+  directory = undefined;
+});
 async function isolated() {
   directory = await mkdtemp(join(tmpdir(), "cruxomni-credentials-"));
   setAgentDirResolverForTests(() => directory!);
@@ -36,6 +43,63 @@ function storage() {
 }
 const binding = { endpoint: "https://gateway.example", generation: 1 };
 const key = { kind: "apiKey" as const, value: "fixture-optional-secret" };
+const RUNTIME_KEY = "fixture-runtime-key";
+const METADATA_KEY = "fixture-metadata-key";
+
+interface IntegrationFixture {
+  server: { stop(closeActiveConnections?: boolean): void };
+  requests: Array<{ path: string; authorization: string | null }>;
+  metadataRequest: Promise<{ path: string; authorization: string | null }>;
+  endpoint: string;
+}
+
+function integrationFixture(): IntegrationFixture {
+  const requests: Array<{ path: string; authorization: string | null }> = [];
+  const metadataRequest = Promise.withResolvers<{ path: string; authorization: string | null }>();
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const url = new URL(request.url);
+      const observed = { path: url.pathname, authorization: request.headers.get("authorization") };
+      requests.push(observed);
+      if (url.pathname === "/v1/models") return Response.json({ data: [{ id: "fixture-model", owned_by: "fixture-owner" }] });
+      if (url.pathname === "/api/models/catalog") {
+        metadataRequest.resolve(observed);
+        return Response.json({ catalog: { "fixture-owner": { models: [{ id: "fixture-model", context_length: 64000 }] } } });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+  return {
+    server,
+    requests,
+    metadataRequest: metadataRequest.promise,
+    endpoint: `http://127.0.0.1:${server.port}`,
+  };
+}
+
+
+function extensionHost(storage: AuthStorage) {
+  const commands = new Map<string, { handler: (args: string, context: never) => Promise<void> }>();
+  const events = new Map<string, (...args: never[]) => unknown>();
+  const api = {
+    zod: z,
+    pi: { discoverAuthStorage: () => discoverAuthStorage(directory!, { cwd: directory! }) },
+    registerCommand(name: string, command: { handler: (args: string, context: never) => Promise<void> }) { commands.set(name, command); },
+    registerTool() {},
+    registerProvider() {},
+    unregisterProvider() {},
+    on(name: string, callback: (...args: never[]) => unknown) { events.set(name, callback); },
+  };
+  const context = (ui: Record<string, unknown> = {}) => ({
+    mode: "tui",
+    hasUI: true,
+    cwd: directory,
+    ui: { notify() {}, ...ui },
+    modelRegistry: { authStorage: storage },
+  }) as never;
+  return { api, commands, events, context };
+}
 
 test("session-only secrets vanish on restart and never enter profile files", async () => {
   await isolated(); const { store, rows } = storage(); const credentials = new OptionalCredentials();
@@ -127,4 +191,106 @@ test("explicit absent-file expectation rejects a concurrent first writer", async
   const current = await loadConfig();
   expect(current.invitationDismissed).toBe(true);
   expect(current.adminEnabled).toBe(false);
+});
+
+test("remembered metadata enrichment uses the persisted source binding through the registered provider", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  cleanupIntegration = () => {
+    shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+    cleanupIntegration = undefined;
+  };
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_") || name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+    }
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, invitationDismissed: true }));
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    const sourceBinding = resolveEnvironmentBinding(await loadConfig());
+    expect(sourceBinding).toBeDefined();
+    await new OptionalCredentials().save("metadata", { kind: "apiKey", value: METADATA_KEY },
+      { endpoint: sourceBinding!.endpoint, generation: sourceBinding!.generation }, true, nativeStorage);
+    expect((await loadConfig()).optionalCredentials?.metadata?.generation).toBe(sourceBinding!.generation);
+    expect(nativeStorage.credentials.list().some(row => row.credential.type === "api_key" && row.credential.key === METADATA_KEY)).toBe(true);
+
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
+    shutdown = host.events.get("session_shutdown");
+    await host.commands.get("cruxomni")!.handler("status", host.context() as never);
+
+    const metadata = await fixture.metadataRequest;
+    expect(metadata).toEqual({ path: "/api/models/catalog", authorization: `Bearer ${METADATA_KEY}` });
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
+    expect(fixture.requests.filter(request => request.path === "/api/models/catalog")).toHaveLength(1);
+    expect(fixture.requests.some(request => request.authorization === `Bearer ${RUNTIME_KEY}` && request.path === "/api/models/catalog")).toBe(false);
+    expect(fixture.requests.some(request => request.authorization === `Bearer ${METADATA_KEY}` && request.path === "/v1/models")).toBe(false);
+  } finally {
+    cleanupIntegration?.();
+  }
+});
+
+test("session-only metadata saved through the registered wizard authorizes explicit refresh without persistence", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  cleanupIntegration = () => {
+    shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+    cleanupIntegration = undefined;
+  };
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_") || name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+    }
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, invitationDismissed: true }));
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    shutdown = host.events.get("session_shutdown");
+    const choices = ["Metadata (optional)", "Set credential", "This session only", "Finish"];
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
+    const ui = {
+      async select() { return choices.shift(); },
+      async confirm() { return true; },
+      async custom(factory: (...args: never[]) => { onSubmit(value: string): void }) {
+        const { promise, resolve } = Promise.withResolvers<string | undefined>();
+        const input = factory(undefined as never, undefined as never, undefined as never, resolve as never);
+        input.onSubmit(METADATA_KEY);
+        return promise;
+      },
+    };
+    await host.commands.get("cruxomni")!.handler("setup", host.context(ui) as never);
+
+    const metadata = await fixture.metadataRequest;
+    expect(metadata).toEqual({ path: "/api/models/catalog", authorization: `Bearer ${METADATA_KEY}` });
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
+    expect(fixture.requests.filter(request => request.path === "/api/models/catalog")).toHaveLength(1);
+    expect(fixture.requests.some(request => request.authorization === `Bearer ${RUNTIME_KEY}` && request.path === "/api/models/catalog")).toBe(false);
+    expect(fixture.requests.some(request => request.authorization === `Bearer ${METADATA_KEY}` && request.path === "/v1/models")).toBe(false);
+
+    const current = await loadConfig();
+    expect(current.optionalCredentials?.metadata).toBeUndefined();
+    expect(await readFile(getConfigPath(), "utf8")).not.toContain(METADATA_KEY);
+    expect(nativeStorage.credentials.list().some(row =>
+      row.credential.type === "api_key" && row.credential.key === METADATA_KEY,
+    )).toBe(false);
+  } finally {
+    cleanupIntegration?.();
+  }
 });

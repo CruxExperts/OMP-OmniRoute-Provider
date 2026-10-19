@@ -23,6 +23,11 @@ export class OptionalCredentials {
 
   clear(): void { this.#session.clear(); }
 
+  hasSession(domain: CredentialDomain, binding: CredentialBinding): boolean {
+    const credential = this.#session.get(domain);
+    return credential !== undefined && matches(credential, binding);
+  }
+
   async resolve(domain: CredentialDomain, binding: CredentialBinding, store: CredentialStore): Promise<OptionalCredential | undefined> {
     const config = await loadConfig();
     if (config.pending) return undefined;

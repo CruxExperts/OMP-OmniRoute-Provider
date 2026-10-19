@@ -27,12 +27,21 @@ is deliberately fail-closed and requires fresh sign-in.
 
 ## Models are stale or missing
 
-Run `/cruxomni refresh`. A valid empty live catalog removes the extension-owned
-rows for that cycle; a failed or malformed response is not treated as an empty
-success. Endpoint or credential-generation changes cancel in-flight discovery
-and prevent stale rows from making a request. OMP 18.2.x may retain its own
-provider-name selector rows until the host refreshes them; this extension
-cannot disable that host cache.
+Run `/cruxomni refresh`. A valid empty live catalog removes all package-owned
+models. Malformed-only catalogs and conflicting identities are rejected;
+mixed valid/malformed catalogs retain valid rows with diagnostics.
+HTTP 401/403 removes runnable models and marks the connection unauthorized.
+Same-connection network, rate-limit or server failures can retain last-known
+models, explicitly marked stale.
+
+Changing endpoints, replacing or removing the runtime credential, disabling
+the package, or ending the session cancels in-flight work. Cached model objects
+cannot authorize a request for an earlier connection. Old native dynamic-model
+cache rows are not an availability fallback; do not delete or edit OMP's cache
+to repair the connection. Sign in or correct the endpoint, then refresh.
+
+Optional metadata or pricing failures do not make an otherwise valid live
+connection offline. Check their separate diagnostics instead.
 
 ## Administration says an operation is unavailable
 

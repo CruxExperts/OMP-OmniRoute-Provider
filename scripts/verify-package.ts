@@ -13,6 +13,7 @@ const allowedExact = new Set(["package.json", "VERSION", ...requiredDocs]);
 const allowedPrefixes = ["src/", "contracts/", "provenance/", "scripts/", "test/fixtures/", "assets/", "docs/", ".omp-plugin/"] as const;
 const hostProvidedOmpPackages: Record<string, true> = {
   "@oh-my-pi/pi-ai": true,
+  "@oh-my-pi/pi-catalog": true,
   "@oh-my-pi/pi-coding-agent": true,
   "@oh-my-pi/pi-tui": true,
   "@oh-my-pi/pi-utils": true,

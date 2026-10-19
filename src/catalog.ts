@@ -205,6 +205,7 @@ export function projectCatalog(payload: unknown, options: CatalogOptions = {}): 
 		rows.set(raw.id, raw);
 		if (!endpoint.explicit) diagnostics.push({ code: "endpoint_unverified_default", modelId: raw.id });
 	}
+	if (payload.data.length > 0 && malformed === payload.data.length) throw new CatalogError("invalid_live_data");
 	if (malformed) diagnostics.push({ code: "malformed_rows", detail: String(malformed) });
 	if (duplicates) diagnostics.push({ code: "duplicate_rows", detail: String(duplicates) });
 	return { rows, models, pricing, diagnostics, counts };

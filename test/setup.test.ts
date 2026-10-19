@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { discoverAuthStorage } from "@oh-my-pi/pi-coding-agent";
+import { resolveStartupRuntimeCredential } from "../src/auth.ts";
 import { getConfigPath, loadConfig, setAgentDirResolverForTests, updateConfig, validateEndpoint } from "../src/config.ts";
 import { OptionalCredentials } from "../src/credentials.ts";
 import { createSetupWizard, setupConnection, type SetupServices } from "../src/setup.ts";
@@ -95,4 +97,29 @@ test("non-TUI setup refuses without prompts, storage or mutation", async () => {
   expect(interactions).toBe(0);
   expect(notices.join(" ")).toContain("interactive OMP terminal");
   expect((await loadConfig()).revision).toBeUndefined();
+});
+
+test("startup cancellation closes a native storage handle that arrives after abort", async () => {
+  await isolated();
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+  }
+  const storage = await discoverAuthStorage(root!, { cwd: root! });
+  let closed = false;
+  try {
+    await storage.credentials.set("omniroute", { type: "api_key", key: "fixture-native-key", source: "login" });
+    const opening = Promise.withResolvers<typeof storage>();
+    const controller = new AbortController();
+    const lookup = resolveStartupRuntimeCredential(() => {
+      controller.abort();
+      return opening.promise;
+    }, controller.signal);
+    await expect(lookup).rejects.toMatchObject({ code: "cancelled" });
+    opening.resolve(storage);
+    await Promise.resolve();
+    await expect(storage.credentials.reload()).rejects.toThrow();
+    closed = true;
+  } finally {
+    if (!closed) storage.close();
+  }
 });

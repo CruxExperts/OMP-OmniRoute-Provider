@@ -1,3 +1,4 @@
+import type { AuthStorage } from "@oh-my-pi/pi-ai";
 import {
   ConfigError,
   commitPendingConfig,
@@ -55,6 +56,89 @@ export interface NativeLoginProvider {
 
 export interface ModelRegistryCredentialReader {
   getApiKeyForProvider(name: string): Promise<string | undefined> | string | undefined;
+}
+
+type StartupAuthStorage = {
+  keys: Pick<AuthStorage["keys"], "peek">;
+  close(): void;
+};
+
+function awaitWithSignal<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  onLateValue?: (value: T) => void,
+): Promise<T> {
+  const { promise, resolve, reject } = Promise.withResolvers<T>();
+  let settled = false;
+  const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+  const onAbort = (): void => {
+    if (settled) return;
+    settled = true;
+    cleanup();
+    reject(new AuthError("cancelled", "native credential lookup cancelled"));
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  operation.then(
+    value => {
+      if (settled) {
+        onLateValue?.(value);
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(value);
+    },
+    error => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    },
+  );
+  return promise;
+}
+
+/** Read the already-persisted native API key without refreshing or rotating it. */
+export async function resolveStartupRuntimeCredential(
+  discover: () => Promise<StartupAuthStorage>,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
+
+  let storage: StartupAuthStorage | undefined;
+  let closed = false;
+  const close = (opened: StartupAuthStorage): void => {
+    if (closed) return;
+    closed = true;
+    opened.close();
+  };
+
+  try {
+    storage = await awaitWithSignal(discover(), signal, lateStorage => {
+      try {
+        close(lateStorage);
+      } catch {
+        // The cancelled caller has already settled; late close failures are contained.
+      }
+    });
+    if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
+    const value = await awaitWithSignal(storage.keys.peek(PROVIDER_ID), signal);
+    if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
+    return typeof value === "string" && value.trim() !== "" ? value : undefined;
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
+    throw new AuthError("persistence-failed", "unable to read native OmniRoute credentials");
+  } finally {
+    if (storage) {
+      try {
+        close(storage);
+      } catch {
+        if (!signal.aborted) throw new AuthError("persistence-failed", "unable to close native credential storage");
+      }
+    }
+  }
 }
 
 interface PendingCandidate {

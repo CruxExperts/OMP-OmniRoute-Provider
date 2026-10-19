@@ -1,78 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { z } from "@oh-my-pi/pi-coding-agent";
-import registerOmniRouteProvider from "../src/index.ts";
+import { expect, test } from "bun:test";
+import type { Context, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
+import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { createAdminExecutor } from "../src/admin/executor.ts";
-import { commitPendingConfig, savePendingConfig, setAgentDirResolverForTests } from "../src/config.ts";
 import { createBoundInferenceStream, createSingleDispatchFetch, OMNIROUTE_GUARDED_API } from "../src/inference.ts";
 import { OperationRegistry, operationRegistry } from "../src/admin/registry.ts";
 import { invokeBinaryAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeWebSocketAdapter } from "../src/admin/adapters.ts";
-
-const savedEnvironment = { ...process.env };
-let temporaryRoot: string | undefined;
-
-afterEach(async () => {
-  process.env = { ...savedEnvironment };
-  setAgentDirResolverForTests(undefined);
-  if (temporaryRoot) await rm(temporaryRoot, { recursive: true, force: true });
-  temporaryRoot = undefined;
-});
-
-async function isolatedProfile(): Promise<string> {
-  temporaryRoot = await mkdtemp(join(tmpdir(), "cruxomni-omp-client-regression-"));
-  setAgentDirResolverForTests(() => temporaryRoot!);
-  for (const name of Object.keys(process.env)) {
-    if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
-  }
-  return temporaryRoot;
-}
-
-function capturedExtension() {
-  const providers: Array<{ name: string; config: Record<string, unknown> }> = [];
-  const events = new Map<string, (...args: any[]) => unknown>();
-  let unregisters = 0;
-  const pi = {
-    zod: z,
-    registerProvider(name: string, config: Record<string, unknown>) { providers.push({ name, config }); },
-    unregisterProvider() { unregisters += 1; },
-    registerCommand() {},
-    registerTool() {},
-    on(name: string, handler: (...args: any[]) => unknown) { events.set(name, handler); },
-  };
-  return { pi, providers, events, unregisters: () => unregisters };
-}
-
-test("pending native replacement never registers the old active endpoint", async () => {
-  await isolatedProfile();
-  const oldPending = await savePendingConfig("https://old.example");
-  const active = await commitPendingConfig(oldPending.pending, oldPending.revision === undefined ? undefined : { expectedRevision: oldPending.revision });
-  await savePendingConfig({ ...active, pending: { endpoint: "https://new.example", generation: 2, status: "validated" } }, active.revision === undefined ? undefined : { expectedRevision: active.revision });
-  const extension = capturedExtension();
-  await registerOmniRouteProvider(extension.pi as never);
-  const initial = extension.providers.at(-1)?.config;
-  expect(initial?.baseUrl).toBeUndefined();
-  expect(initial?.fetchDynamicModels).toBeUndefined();
-});
-
-test("authoritative empty discovery unregisters source-owned provider state", async () => {
-  await isolatedProfile();
-  const server = Bun.serve({ port: 0, fetch: () => Response.json({ data: [] }) });
-  try {
-    process.env.OMP_OMNIROUTE_BASE_URL = `http://127.0.0.1:${server.port}`;
-    process.env.OMP_OMNIROUTE_API_KEY = "fixture-runtime-key";
-    const extension = capturedExtension();
-    await registerOmniRouteProvider(extension.pi as never);
-    const sessionStart = extension.events.get("session_start");
-    if (!sessionStart) throw new Error("session_start handler was not registered");
-    await sessionStart({}, { hasUI: false, modelRegistry: {}, ui: { notify() {} } });
-    expect(extension.unregisters()).toBeGreaterThan(0);
-    expect(extension.providers.at(-1)?.config.models).toEqual([]);
-  } finally {
-    server.stop();
-  }
-});
 
 function adminHarness(readTarget: () => Promise<string> = async () => "target") {
   let dispatches = 0;
@@ -145,29 +77,226 @@ test("logout blocks automatic credential rebinding until explicit human enable",
   expect(harness.executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" }).enabled).toBe(true);
 });
 
-test("inference fetch rejects redirects and a second network dispatch", async () => {
+test("inference dispatch pins the selected protocol, rejects redirects, and suppresses replay", async () => {
   let calls = 0;
   const baseFetch: typeof fetch = Object.assign(async () => {
     calls += 1;
     return new Response(null, { status: 302, headers: { location: "https://other.example/v1/responses" } });
   }, { preconnect: globalThis.fetch.preconnect });
-  const guarded = createSingleDispatchFetch("https://gateway.example", baseFetch);
+  const guarded = createSingleDispatchFetch("https://gateway.example", "openai-responses", baseFetch);
+  expect(guarded.preconnect).toBe(baseFetch.preconnect);
   await expect(guarded("https://gateway.example/v1/responses", { method: "POST" })).rejects.toMatchObject({ code: "inference-redirect" });
   await expect(guarded("https://gateway.example/v1/responses", { method: "POST" })).rejects.toMatchObject({ code: "inference-replay-suppressed" });
   expect(calls).toBe(1);
 });
 
-test("cached or superseded models fail before inference I/O", () => {
-  let binding = { endpoint: "https://gateway.example", credential: "fixture-runtime-key", generation: 2 };
+test("inference target guard rejects every non-exact route before network dispatch", async () => {
+  let calls = 0;
+  const baseFetch: typeof fetch = Object.assign(async () => {
+    calls += 1;
+    return new Response(null, { status: 200 });
+  }, { preconnect: globalThis.fetch.preconnect });
+  const invalidTargets = [
+    ["openai-responses", "https://gateway.example/v1/responses/extra", "POST"],
+    ["openai-responses", "https://gateway.example/v1/responses?query=1", "POST"],
+    ["openai-responses", "https://user@gateway.example/v1/responses", "POST"],
+    ["openai-responses", "https://@gateway.example/v1/responses", "POST"],
+    ["openai-responses", "http://gateway.example/v1/responses", "POST"],
+    ["openai-responses", "https://other.example/v1/responses", "POST"],
+    ["openai-responses", "https://gateway.example/v1/chat/completions", "POST"],
+    ["openai-responses", "https://gateway.example/v1/responses", "GET"],
+    ["openai-responses", "https://gateway.example/v1/responses?", "POST"],
+    ["openai-responses", "https://gateway.example/v1/responses#", "POST"],
+    ["openai-completions", "https://gateway.example/v1/chat/completions/extra", "POST"],
+    ["openai-completions", "https://gateway.example/v1/chat/completions#fragment", "POST"],
+    ["openai-completions", "https://gateway.example/v1/responses", "POST"],
+  ] as const;
+  for (const [api, target, method] of invalidTargets) {
+    const guarded = createSingleDispatchFetch("https://gateway.example", api, baseFetch);
+    await expect(guarded(target, { method })).rejects.toMatchObject({ code: "inference-target-mismatch" });
+  }
+  expect(() => createSingleDispatchFetch("https://gateway.example/proxy?", "openai-responses", baseFetch)).toThrow("inference endpoint contains forbidden URL components");
+  expect(() => createSingleDispatchFetch("https://gateway.example/proxy#", "openai-responses", baseFetch)).toThrow("inference endpoint contains forbidden URL components");
+  const disabled = createSingleDispatchFetch("https://gateway.example", "openai-responses", baseFetch, () => false);
+  await expect(disabled("https://gateway.example/v1/responses", { method: "POST" })).rejects.toMatchObject({ code: "inference-binding-invalid" });
+  expect(calls).toBe(0);
+});
+
+test("selected Responses and Chat Completions targets reach a loopback fixture with a configured prefix", async () => {
+  const received: string[] = [];
+  const server = Bun.serve({
+    port: 0,
+    fetch(request) {
+      received.push(`${request.method} ${new URL(request.url).pathname}`);
+      return Response.json({ ok: true });
+    },
+  });
+  try {
+    const origin = `http://127.0.0.1:${server.port}`;
+    const responses = createSingleDispatchFetch(`${origin}/proxy`, "openai-responses");
+    const completions = createSingleDispatchFetch(`${origin}/proxy`, "openai-completions");
+    await responses(`${origin}/proxy/v1/responses`, { method: "POST" });
+    await completions(`${origin}/proxy/v1/chat/completions`, { method: "POST" });
+    expect(received).toEqual([
+      "POST /proxy/v1/responses",
+      "POST /proxy/v1/chat/completions",
+    ]);
+  } finally {
+    server.stop();
+  }
+});
+
+test("inference rejects native API rows, missing current mappings, and aborted generations before streaming", () => {
+  const binding = { endpoint: "https://gateway.example", credential: "fixture-runtime-key", generation: 2 };
+  const generation = new AbortController();
+  let api: "openai-responses" | "openai-completions" | undefined = "openai-responses";
   const stream = createBoundInferenceStream({
     expectedEndpoint: binding.endpoint,
     expectedGeneration: binding.generation,
-    modelApis: new Map([["live-model", "openai-responses"]]),
     currentBinding: () => binding,
+    currentModelApi: id => id === "live-model" ? api : undefined,
+    currentSignal: () => generation.signal,
     stopped: () => false,
   });
-  binding = { ...binding, generation: 3 };
-  expect(() => stream({ id: "live-model", api: OMNIROUTE_GUARDED_API } as never, { messages: [], tools: [] } as never)).toThrow();
+  const guardedModel = { id: "live-model", api: OMNIROUTE_GUARDED_API } as never;
+  const nativeModel = { id: "live-model", api: "openai-responses" } as never;
+  expect(() => stream(nativeModel, { messages: [], tools: [] } as never)).toThrow();
+  api = undefined;
+  expect(() => stream(guardedModel, { messages: [], tools: [] } as never)).toThrow();
+  api = "openai-responses";
+  generation.abort();
+  expect(() => stream(guardedModel, { messages: [], tools: [] } as never)).toThrow();
+});
+
+test("bound native streaming sends one prefixed request and reports caller or binding cancellation", async () => {
+  for (const api of ["openai-responses", "openai-completions"] as const) {
+    let requests = 0;
+    const requestSeen = Promise.withResolvers<{
+      path: string;
+      model: string | undefined;
+      authorization: string | null;
+      temperature: number | undefined;
+      outputLimit: number | undefined;
+      optionHeader: string | null;
+    }>();
+    const server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        requests++;
+        const body = await request.json() as {
+          model?: string;
+          temperature?: number;
+          max_tokens?: number;
+          max_completion_tokens?: number;
+          max_output_tokens?: number;
+        };
+        requestSeen.resolve({
+          path: new URL(request.url).pathname,
+          model: body.model,
+          authorization: request.headers.get("authorization"),
+          temperature: body.temperature,
+          outputLimit: body.max_tokens ?? body.max_completion_tokens ?? body.max_output_tokens,
+          optionHeader: request.headers.get("x-fixture-option"),
+        });
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(": fixture stream ready\n\n"));
+          },
+        }), {
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    const endpoint = `http://127.0.0.1:${server.port}/proxy`;
+    const binding = { endpoint, credential: "fixture-runtime-key", generation: 12 };
+    const generation = new AbortController();
+    const caller = new AbortController();
+    try {
+      const stream = createBoundInferenceStream({
+        expectedEndpoint: endpoint,
+        expectedGeneration: binding.generation,
+        currentBinding: () => binding,
+        currentModelApi: id => id === "live-model" ? api : undefined,
+        currentSignal: () => generation.signal,
+        stopped: () => false,
+      });
+      const model = buildModel({
+        id: "live-model",
+        name: "live-model",
+        api: OMNIROUTE_GUARDED_API,
+        provider: "omniroute",
+        baseUrl: `${endpoint}/v1`,
+        reasoning: false,
+        preferWebsockets: true,
+        input: ["text"],
+        contextWindow: 4096,
+        maxTokens: 512,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        headers: { Authorization: "Bearer model-override" },
+      });
+      expect(model.compat).toBeUndefined();
+      const context: Context = {
+        messages: [{ role: "user", content: [{ type: "text", text: "fixture request" }], timestamp: Date.now() }],
+        tools: [],
+      };
+      const responseReceived = Promise.withResolvers<void>();
+      const baseFetch: typeof fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const response = await globalThis.fetch(input, init);
+        responseReceived.resolve();
+        return response;
+      }, { preconnect: globalThis.fetch.preconnect });
+      const streamOptions: SimpleStreamOptions = {
+        temperature: 0.25,
+        signal: caller.signal,
+        maxTokens: 64,
+        headers: { Authorization: "Bearer caller-override", "x-fixture-option": "preserved" },
+        fetch: baseFetch,
+        preferWebsockets: true,
+      };
+      const active = stream(model, context, streamOptions);
+      const terminal = active.result().then(
+        message => ({ kind: "terminal" as const, message }),
+        error => ({ kind: "rejected" as const, error }),
+      );
+      const first = await Promise.race([
+        requestSeen.promise.then(value => ({ kind: "request" as const, value })),
+        terminal,
+      ]);
+      if (first.kind !== "request") {
+        throw new Error(first.kind === "terminal"
+          ? `stream terminated before dispatch: ${first.message.stopReason}/${first.message.errorMessage ?? ""}`
+          : `stream rejected before dispatch: ${String(first.error)}`);
+      }
+      const received = first.value;
+      expect(received.path).toBe(`/proxy/v1/${api === "openai-responses" ? "responses" : "chat/completions"}`);
+      expect(received.model).toBe("live-model");
+      expect(received.authorization).toBe("Bearer fixture-runtime-key");
+      if (api === "openai-completions") {
+        expect(received.temperature).toBe(0.25);
+        expect(received.outputLimit).toBe(64);
+      }
+      expect(received.optionHeader).toBe("preserved");
+      expect(requests).toBe(1);
+      const response = await Promise.race([
+        responseReceived.promise.then(() => ({ kind: "response" as const })),
+        terminal,
+      ]);
+      if (response.kind !== "response") {
+        throw new Error(response.kind === "terminal"
+          ? `stream terminated before response headers: ${response.message.stopReason}/${response.message.errorMessage ?? ""}`
+          : `stream rejected before response headers: ${String(response.error)}`);
+      }
+      if (api === "openai-responses") caller.abort();
+      else generation.abort();
+      const final = await terminal;
+      if (final.kind !== "terminal") throw new Error(`stream rejected after cancellation: ${String(final.error)}`);
+      expect(final.message.stopReason).toBe("aborted");
+      expect(requests).toBe(1);
+    } finally {
+      generation.abort();
+      server.stop();
+    }
+  }
 });
 
 test("disablement while final target observation is pending prevents dispatch", async () => {

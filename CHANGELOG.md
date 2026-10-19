@@ -4,6 +4,18 @@ All notable changes to CruxOmni-OMP-Client are recorded here.
 
 ## Unreleased
 
+- Unify startup, setup and explicit refresh around generation-bound live
+  discovery, single-flight requests and a 30-second automatic freshness window.
+  Publish explicit guarded models instead of host-cached native API rows.
+- Materialize native protocol compatibility through the public host catalog
+  builder and stream through the host's public API. Bind active streams to
+  credential/endpoint cancellation and allow exactly one POST to the selected
+  protocol endpoint, without replay or fallback.
+- Clear runnable authority on authentication failure or an empty catalog.
+  Publish live models before optional metadata/pricing, keep enrichment bound
+  to its source connection, and preserve remembered and session-only metadata
+  credentials through their existing native owner.
+
 - Align OMP compatibility, CI, and development SDK pins with current release
   `18.12.3`, preserving the `18.12.2` floor; OMP runtime packages remain peers.
 - Use OMP's current native credential and login namespaces for guided setup

@@ -9,11 +9,50 @@ import { verifyPackage, type PackageVerificationResult } from "./verify-package.
 
 type JsonObject = Record<string, unknown>;
 type CommandResult = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string; dialogueCompleted: number };
+type FixtureRequest = {
+  method: string;
+  path: string;
+  authorization: string | undefined;
+  startedAt: number;
+  body?: JsonObject;
+  status?: number;
+  completedAt?: number;
+  closedAt?: number;
+  firstTokenAt?: number;
+  stalled?: boolean;
+};
+type FixtureServer = {
+  url: string;
+  requests: FixtureRequest[];
+  setModelsStatus(status: 200 | 503): void;
+  stallMetadata(): void;
+  releaseMetadata(): void;
+  close(): Promise<void>;
+};
+type InferenceProtocol = "responses" | "chat-completions";
+type InferenceEvidence = {
+  modelId: string;
+  api: "openai-responses" | "openai-completions";
+  path: string;
+  postCount: 1;
+  streamedText: true;
+  usageObserved: true;
+  metadataStalledThroughFirstToken?: true;
+};
+type LegacyCacheEvidence = { seeded: true; seederUninstalled: true; modelId: string; api: "openai-responses"; liveDiscoveryStatus: 503; selectable: false; inferencePosts: 0 };
 
 const packageRoot = resolve(import.meta.dir, "..");
 const packageName = "@cruxexperts/cruxomni-omp-client";
 const runtimeKey = "fixture-only-runtime-key";
 const adminKey = "fixture-only-admin-key";
+const metadataKey = "fixture-only-metadata-key";
+const providerId = "omniroute";
+const responsesModelId = "fixture-responses-model";
+const chatModelId = "fixture-chat-model";
+const legacyNativeModelId = "fixture-legacy-native-model";
+const responsesReplyText = "Fixture streamed Responses reply.";
+const chatReplyText = "Fixture streamed Chat Completions reply.";
+const legacyCacheSeederName = "@fixture/omp-legacy-dynamic-cache-seeder";
 const commandTimeoutMs = 45_000;
 const sensitiveEnvironment = /(api[_-]?key|access[_-]?token|secret|password|credential|authorization|private[_-]?key|openai|anthropic|gemini|aws_|azure_)/i;
 const installedCliMode = "installed-cli";
@@ -200,8 +239,121 @@ async function requestBody(request: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function startFixtureServer(): Promise<{ url: string; close: () => Promise<void>; requests: Array<{ method: string; path: string; authorization: string | undefined }> }> {
-  const requests: Array<{ method: string; path: string; authorization: string | undefined }> = [];
+function fixtureSseHeaders(response: ServerResponse): void {
+  response.statusCode = 200;
+  response.setHeader("content-type", "text/event-stream; charset=utf-8");
+  response.setHeader("cache-control", "no-cache");
+  response.flushHeaders();
+}
+
+function fixtureSseData(response: ServerResponse, payload: unknown): void {
+  response.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function fixtureSseEvent(response: ServerResponse, event: string, payload: JsonObject): void {
+  response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+function fixtureResponsesStream(response: ServerResponse, record: FixtureRequest, modelId: string): void {
+  const responseId = "resp_fixture_stream";
+  const itemId = "msg_fixture_stream";
+  const text = responsesReplyText;
+  const contentPart = { type: "output_text", text, annotations: [] };
+  const outputItem = { id: itemId, type: "message", role: "assistant", status: "completed", content: [contentPart] };
+  fixtureSseHeaders(response);
+  fixtureSseEvent(response, "response.created", {
+    type: "response.created",
+    response: { id: responseId, object: "response", status: "in_progress", model: modelId, output: [] },
+  });
+  fixtureSseEvent(response, "response.output_item.added", {
+    type: "response.output_item.added",
+    output_index: 0,
+    item: { id: itemId, type: "message", role: "assistant", status: "in_progress", content: [] },
+  });
+  fixtureSseEvent(response, "response.content_part.added", {
+    type: "response.content_part.added",
+    item_id: itemId,
+    output_index: 0,
+    content_index: 0,
+    part: { type: "output_text", text: "", annotations: [] },
+  });
+  record.firstTokenAt = Date.now();
+  fixtureSseEvent(response, "response.output_text.delta", {
+    type: "response.output_text.delta",
+    item_id: itemId,
+    output_index: 0,
+    content_index: 0,
+    delta: text,
+  });
+  fixtureSseEvent(response, "response.output_text.done", {
+    type: "response.output_text.done",
+    item_id: itemId,
+    output_index: 0,
+    content_index: 0,
+    text,
+  });
+  fixtureSseEvent(response, "response.content_part.done", {
+    type: "response.content_part.done",
+    item_id: itemId,
+    output_index: 0,
+    content_index: 0,
+    part: contentPart,
+  });
+  fixtureSseEvent(response, "response.output_item.done", { type: "response.output_item.done", output_index: 0, item: outputItem });
+  fixtureSseEvent(response, "response.completed", {
+    type: "response.completed",
+    response: {
+      id: responseId,
+      object: "response",
+      status: "completed",
+      model: modelId,
+      output: [outputItem],
+      usage: { input_tokens: 3, output_tokens: 5, total_tokens: 8 },
+    },
+  });
+  response.end();
+}
+
+function fixtureChatCompletionStream(response: ServerResponse, record: FixtureRequest, modelId: string): void {
+  const id = "chatcmpl_fixture_stream";
+  const created = 1_760_000_000;
+  const text = chatReplyText;
+  fixtureSseHeaders(response);
+  fixtureSseData(response, {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model: modelId,
+    choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+  });
+  record.firstTokenAt = Date.now();
+  fixtureSseData(response, {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model: modelId,
+    choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+  });
+  fixtureSseData(response, {
+    id,
+    object: "chat.completion.chunk",
+    created,
+    model: modelId,
+    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+    usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 },
+  });
+  response.end("data: [DONE]\n\n");
+}
+
+async function startFixtureServer(): Promise<FixtureServer> {
+  const requests: FixtureRequest[] = [];
+  const metadataWaiters = new Set<() => void>();
+  let modelsStatus: 200 | 503 = 200;
+  let metadataStalled = false;
+  const releaseMetadata = (): void => {
+    metadataStalled = false;
+    for (const release of [...metadataWaiters]) release();
+  };
   const server = createServer(async (request, response) => {
     const host = request.socket.remoteAddress?.replace(/^::ffff:/, "");
     if (host !== "127.0.0.1" && host !== "::1") {
@@ -209,12 +361,28 @@ async function startFixtureServer(): Promise<{ url: string; close: () => Promise
       return;
     }
     const path = request.url?.split("?", 1)[0] ?? "/";
-    requests.push({ method: request.method ?? "", path, authorization: request.headers.authorization });
+    const record: FixtureRequest = {
+      method: request.method ?? "",
+      path,
+      authorization: request.headers.authorization,
+      startedAt: Date.now(),
+    };
+    requests.push(record);
+    response.once("finish", () => {
+      record.status = response.statusCode;
+      record.completedAt = Date.now();
+    });
+    response.once("close", () => {
+      record.status = response.statusCode;
+      record.closedAt = Date.now();
+    });
     try {
       const body = await requestBody(request);
+      let requestJson: JsonObject | undefined;
       if (body.length > 0) {
         try {
-          JSON.parse(body);
+          requestJson = objectValue(JSON.parse(body), "fixture request body");
+          record.body = requestJson;
         } catch {
           fixtureResponse(response, 400, { error: "invalid_json" });
           return;
@@ -225,23 +393,53 @@ async function startFixtureServer(): Promise<{ url: string; close: () => Promise
         return;
       }
       if (path === "/v1/models") {
-        fixtureResponse(response, 200, { object: "list", data: [{ id: "fixture-model", object: "model", owned_by: "fixture", supported_endpoints: ["chat", "responses"] }] });
+        if (modelsStatus !== 200) {
+          fixtureResponse(response, modelsStatus, { error: "fixture_model_discovery_unavailable" });
+          return;
+        }
+        fixtureResponse(response, 200, {
+          object: "list",
+          data: [
+            { id: responsesModelId, object: "model", owned_by: "fixture", supported_endpoints: ["responses"] },
+            { id: chatModelId, object: "model", owned_by: "fixture", supported_endpoints: ["chat-completions"] },
+          ],
+        });
         return;
       }
-      if (path === "/v1/chat/completions") {
-        fixtureResponse(response, 200, { id: "fixture-chat", object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: "fixture response" }, finish_reason: "stop" }] });
-        return;
-      }
-      if (path === "/v1/responses") {
-        fixtureResponse(response, 200, { id: "fixture-response", object: "response", output: [{ type: "message", content: [{ type: "output_text", text: "fixture response" }] }] });
+      if (path === "/v1/responses" || path === "/v1/chat/completions") {
+        const expectedModel = path === "/v1/responses" ? responsesModelId : chatModelId;
+        if (request.method !== "POST" || requestJson?.stream !== true || requestJson.model !== expectedModel) {
+          fixtureResponse(response, 400, { error: "unexpected_inference_request" });
+          return;
+        }
+        if (path === "/v1/responses") fixtureResponsesStream(response, record, expectedModel);
+        else fixtureChatCompletionStream(response, record, expectedModel);
         return;
       }
       if (path === "/api/models/catalog") {
-        fixtureResponse(response, 200, { catalog: { fixture: { models: [{ id: "fixture-model", context_length: 4096 }] } } });
+        if (request.headers.authorization !== `Bearer ${metadataKey}`) {
+          fixtureResponse(response, 401, { error: "metadata_unauthorized" });
+          return;
+        }
+        if (metadataStalled) {
+          record.stalled = true;
+          await new Promise<void>(resolvePromise => {
+            let release!: () => void;
+            release = () => {
+              metadataWaiters.delete(release);
+              resolvePromise();
+            };
+            metadataWaiters.add(release);
+          });
+        }
+        if (response.destroyed) return;
+        fixtureResponse(response, 200, {
+          catalog: { fixture: { models: [{ id: responsesModelId, context_length: 4096 }, { id: chatModelId, context_length: 4096 }] } },
+        });
         return;
       }
       if (path.startsWith("/api/")) {
-        if (request.headers.authorization !== `Bearer ${adminKey}` && request.headers.authorization !== `Bearer ${runtimeKey}`) {
+        if (request.headers.authorization !== `Bearer ${adminKey}` && request.headers.authorization !== `Bearer ${runtimeKey}` && request.headers.authorization !== `Bearer ${metadataKey}`) {
           fixtureResponse(response, 401, { error: "unauthorized" });
           return;
         }
@@ -262,9 +460,16 @@ async function startFixtureServer(): Promise<{ url: string; close: () => Promise
   return {
     url: `http://127.0.0.1:${address.port}`,
     requests,
-    close: () => new Promise<void>((resolvePromise, reject) => server.close(error => error ? reject(error) : resolvePromise())),
+    setModelsStatus: status => { modelsStatus = status; },
+    stallMetadata: () => { metadataStalled = true; },
+    releaseMetadata,
+    close: async () => {
+      releaseMetadata();
+      await new Promise<void>((resolvePromise, reject) => server.close(error => error ? reject(error) : resolvePromise()));
+    },
   };
 }
+
 
 type CommandOptions = {
   cwd: string;
@@ -416,7 +621,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
 
 function requireSuccess(result: CommandResult, label: string): string {
   if (result.code !== 0) throw new Error(`${label} failed with exit ${result.code ?? "unknown"}: ${result.stderr.slice(0, 2000)}`);
-  if (result.stdout.includes(runtimeKey) || result.stdout.includes(adminKey) || result.stderr.includes(runtimeKey) || result.stderr.includes(adminKey)) throw new Error(`${label} leaked fixture credentials`);
+  if ([runtimeKey, adminKey, metadataKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error(`${label} leaked fixture credentials`);
   return `${result.stdout}\n${result.stderr}`;
 }
 
@@ -513,22 +718,204 @@ async function nativePromptSetup(binary: string, cwd: string, environment: NodeJ
   return { masked };
 }
 
-async function nativeProviderModelCheck(binary: string, cwd: string, environment: NodeJS.ProcessEnv, label: string): Promise<string> {
-  // Dynamic provider discovery runs before model selection; this command proves
-  // the released CLI can resolve and invoke the discovered provider model.
+async function nativeProviderInference(
+  binary: string,
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  label: string,
+  fixture: FixtureServer,
+  protocol: InferenceProtocol,
+  modelId: string,
+  expectedText: string,
+  stallMetadata = false,
+): Promise<InferenceEvidence> {
+  const requestStart = fixture.requests.length;
+  if (stallMetadata) fixture.stallMetadata();
+  try {
+    const result = await runCommand(binary, [
+      "--profile=omniroute-smoke",
+      "--no-session",
+      "--print",
+      "--mode=json",
+      "--model",
+      `${providerId}/${modelId}`,
+      "Return a short reply for this isolated protocol check.",
+    ], { cwd, env: environment, timeoutMs: 20_000 });
+    requireSuccess(result, label);
+    let assistant: JsonObject | undefined;
+    for (const line of result.stdout.split(/\r?\n/)) {
+      let event: JsonObject;
+      try { event = objectValue(JSON.parse(line), "native event"); } catch { continue; }
+      if (event.type !== "message_end") continue;
+      const message = objectValue(event.message, "completed native message");
+      if (message.role === "assistant") assistant = message;
+    }
+    if (!assistant || assistant.stopReason !== "stop" || !Array.isArray(assistant.content)) {
+      throw new Error(`${label} did not complete a successful assistant message`);
+    }
+    const text = assistant.content.map(part => objectValue(part, "assistant content"))
+      .filter(part => part.type === "text").map(part => stringValue(part.text, "assistant text")).join("");
+    if (text !== expectedText) throw new Error(`${label} did not assemble the streamed fixture response`);
+    const usage = objectValue(assistant.usage, "assistant usage");
+    if (usage.input !== 3 || usage.output !== 5) throw new Error(`${label} did not preserve the reported input/output token usage`);
+
+    const requests = fixture.requests.slice(requestStart);
+    const inferencePath = protocol === "responses" ? "/v1/responses" : "/v1/chat/completions";
+    const api = protocol === "responses" ? "openai-responses" : "openai-completions";
+    const posts = requests.filter(request => request.method === "POST");
+    if (posts.length !== 1 || posts[0]!.path !== inferencePath) throw new Error(`${label} did not make exactly one ${inferencePath} POST`);
+    const post = posts[0]!;
+    const postBody = post.body;
+    if (!postBody || postBody.model !== modelId || postBody.stream !== true) throw new Error(`${label} did not send the exact model ID as a streaming request`);
+    const discovery = requests.find(request => request.method === "GET" && request.path === "/v1/models");
+    if (!discovery || discovery.status !== 200 || discovery.startedAt > post.startedAt) {
+      throw new Error(`${label} did not discover live models before its first inference POST`);
+    }
+
+    if (stallMetadata) {
+      const metadata = requests.find(request => request.path === "/api/models/catalog" && request.authorization === `Bearer ${metadataKey}`);
+      if (!metadata?.stalled || metadata.completedAt !== undefined || metadata.startedAt > post.startedAt) {
+        throw new Error(`${label} did not keep optional metadata pending alongside inference`);
+      }
+      if (post.firstTokenAt === undefined || post.firstTokenAt < metadata.startedAt || post.firstTokenAt - metadata.startedAt >= 5_000) {
+        throw new Error(`${label} waited for the five-second optional-metadata deadline before its first streamed token`);
+      }
+    }
+    return {
+      modelId,
+      api,
+      path: inferencePath,
+      postCount: 1,
+      streamedText: true,
+      usageObserved: true,
+      ...(stallMetadata ? { metadataStalledThroughFirstToken: true as const } : {}),
+    };
+  } finally {
+    if (stallMetadata) fixture.releaseMetadata();
+  }
+}
+
+async function seedLegacyNativeCache(binary: string, cwd: string, environment: NodeJS.ProcessEnv, fixture: FixtureServer): Promise<void> {
+  const seederRoot = join(cwd, "legacy-dynamic-cache-seeder");
+  const cacheProbePath = join(seederRoot, "dynamic-model-fetches");
+  const seederEnvironment = {
+    ...environment,
+    OMP_OMNIROUTE_BASE_URL: fixture.url,
+    OMP_OMNIROUTE_API_KEY: runtimeKey,
+    OMP_LEGACY_CACHE_PROBE: cacheProbePath,
+  };
+  await mkdir(seederRoot, { recursive: true });
+  await writeFile(join(seederRoot, "package.json"), `${JSON.stringify({
+    name: legacyCacheSeederName,
+    version: "0.0.0",
+    type: "module",
+    omp: { name: "Legacy Dynamic Cache Seeder", extensions: ["./index.js"] },
+  }, null, 2)}\n`, "utf8");
+  // Seed an adversarial native-API row that survives cross-process cache restoration.
+  // authHeader would add an unrestorable header resolver and force another discovery.
+  await writeFile(join(seederRoot, "index.js"), `import { appendFile } from "node:fs/promises";
+export default function (pi) {
+  pi.registerProvider("${providerId}", {
+    baseUrl: process.env.OMP_OMNIROUTE_BASE_URL + "/v1",
+    api: "openai-responses",
+    apiKey: "OMP_OMNIROUTE_API_KEY",
+    fetchDynamicModels: async () => {
+      await appendFile(process.env.OMP_LEGACY_CACHE_PROBE, "x");
+      return [{
+        id: "${legacyNativeModelId}",
+        name: "Legacy native cache fixture",
+        api: "openai-responses",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 4096,
+        maxTokens: 1024
+      }];
+    }
+  });
+}
+`, "utf8");
+
+  let linked = false;
+  try {
+    const linkedSeeder = await runCommand(binary, ["plugin", "link", seederRoot], { cwd, env: seederEnvironment });
+    requireSuccess(linkedSeeder, "legacy cache seeder link");
+    linked = true;
+    await checkPluginState(binary, cwd, seederEnvironment, "present", legacyCacheSeederName);
+    const refreshed = await runCommand(binary, ["--profile=omniroute-smoke", "models", "refresh", "--json"], { cwd, env: seederEnvironment });
+    const rows = requireModelList(requireJsonText(requireSuccess(refreshed, "legacy cache seeder refresh"), "legacy cache seeder refresh"), "legacy cache seeder refresh");
+    requireListedChatModel(rows, legacyNativeModelId, "legacy cache seeder refresh");
+    const initialFetches = await readFile(cacheProbePath, "utf8");
+    if (initialFetches.length === 0) throw new Error("legacy cache seeder did not invoke its public dynamic-model callback");
+    const cachedList = await runCommand(binary, ["--profile=omniroute-smoke", "models", "--json"], { cwd, env: seederEnvironment });
+    const cachedRows = requireModelList(requireJsonText(requireSuccess(cachedList, "legacy cache-aware model list"), "legacy cache-aware model list"), "legacy cache-aware model list");
+    requireListedChatModel(cachedRows, legacyNativeModelId, "legacy cache-aware model list");
+    if (await readFile(cacheProbePath, "utf8") !== initialFetches) {
+      throw new Error("legacy cache-aware model list fetched dynamic models again instead of reusing the refreshed cache");
+    }
+    const uninstalledSeeder = await runCommand(binary, ["plugin", "uninstall", legacyCacheSeederName], { cwd, env: seederEnvironment });
+    requireSuccess(uninstalledSeeder, "legacy cache seeder uninstall");
+    linked = false;
+    await checkPluginState(binary, cwd, seederEnvironment, "absent", legacyCacheSeederName);
+  } finally {
+    if (linked) await runCommand(binary, ["plugin", "uninstall", legacyCacheSeederName], { cwd, env: seederEnvironment }).catch(() => undefined);
+    await rm(seederRoot, { recursive: true, force: true });
+  }
+}
+
+async function rejectLegacyNativeCacheModel(binary: string, cwd: string, environment: NodeJS.ProcessEnv, fixture: FixtureServer): Promise<LegacyCacheEvidence> {
+  const requestStart = fixture.requests.length;
+  const listed = await runCommand(binary, ["--profile=omniroute-smoke", "models", "--json"], { cwd, env: environment });
+  const rows = requireModelList(requireJsonText(requireSuccess(listed, "failed-discovery model list"), "failed-discovery model list"), "failed-discovery model list");
+  if (rows.some(model => model.id === legacyNativeModelId)) throw new Error("failed live discovery exposed a selectable legacy native API model");
+  const refreshed = await runCommand(binary, ["--profile=omniroute-smoke", "models", "refresh", "--json"], { cwd, env: environment });
+  const refreshedRows = requireModelList(requireJsonText(requireSuccess(refreshed, "failed-discovery forced refresh"), "failed-discovery forced refresh"), "failed-discovery forced refresh");
+  if (refreshedRows.some(model => model.id === legacyNativeModelId)) throw new Error("failed forced refresh exposed a selectable legacy native API model");
+  const inferenceRequestStart = fixture.requests.length;
   const result = await runCommand(binary, [
     "--profile=omniroute-smoke",
     "--no-session",
     "--print",
     "--mode=json",
-    "--model=omniroute/fixture-model",
-    "/cruxomni pricing fixture-model",
-  ], { cwd, env: environment, timeoutMs: 30_000 });
-  const output = requireSuccess(result, label);
-  if (!output.includes("fixture-model") || /model_not_in_live_catalog/i.test(output)) {
-    throw new Error(`${label} did not expose the fixture model identity`);
+    "--model",
+    `${providerId}/${legacyNativeModelId}`,
+    "Reply with the text that was cached by the old native provider.",
+  ], { cwd, env: environment, timeoutMs: 20_000 });
+  const output = `${result.stdout}\n${result.stderr}`;
+  if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("legacy cache rejection leaked fixture credentials");
+  if (result.code === 0 || result.code === null || result.signal !== null || (!output.includes(legacyNativeModelId) && !/model_not_in_live_catalog/i.test(output))) {
+    throw new Error(`legacy native-cache model was not rejected as an unavailable model after live discovery failed: ${output.replaceAll(runtimeKey, "[redacted]").replaceAll(adminKey, "[redacted]").replaceAll(metadataKey, "[redacted]").slice(-2_000)}`);
   }
-  return output;
+  const requests = fixture.requests.slice(requestStart);
+  if (!fixture.requests.slice(inferenceRequestStart).some(request => request.method === "GET" && request.path === "/v1/models" && request.status === 503)) {
+    throw new Error("legacy cache rejection did not exercise failed live model discovery");
+  }
+  const inferencePosts = requests.filter(request => request.method === "POST");
+  if (inferencePosts.length !== 0) throw new Error("legacy native-cache model dispatched inference after live discovery failed");
+  return { seeded: true, seederUninstalled: true, modelId: legacyNativeModelId, api: "openai-responses", liveDiscoveryStatus: 503, selectable: false, inferencePosts: 0 };
+}
+
+function requireListedChatModel(models: JsonObject[], modelId: string, label: string): void {
+  // OMP's public models JSON omits Model.api; provider, selector, and kind are its serialized identity.
+  const matches = models.filter(model => model.id === modelId);
+  const model = matches[0];
+  if (
+    matches.length !== 1 ||
+    model?.provider !== providerId ||
+    model.selector !== `${providerId}/${modelId}` ||
+    model.kind !== "chat"
+  ) {
+    throw new Error(`${label} did not expose exactly one selectable ${providerId} chat model for ${modelId}`);
+  }
+}
+
+function requireGuardedModels(models: JsonObject[], label: string): void {
+  for (const id of [responsesModelId, chatModelId]) {
+    requireListedChatModel(models, id, label);
+  }
+  if (models.some(model => model.id === legacyNativeModelId)) {
+    throw new Error(`${label} exposed the pre-upgrade native API cache row`);
+  }
 }
 
 function requireModelList(parsed: JsonObject, label: string): JsonObject[] {
@@ -536,21 +923,27 @@ function requireModelList(parsed: JsonObject, label: string): JsonObject[] {
   return parsed.models.map((model, index) => objectValue(model, `${label} model ${index}`));
 }
 
-function pluginIsEnabled(value: unknown): boolean {
-  if (Array.isArray(value)) return value.some(item => pluginIsEnabled(item));
+function pluginIsEnabled(value: unknown, expectedName = packageName): boolean {
+  if (Array.isArray(value)) return value.some(item => pluginIsEnabled(item, expectedName));
   if (!value || typeof value !== "object") return false;
   const entry = value as Record<string, unknown>;
-  const identity = [entry.name, entry.id, entry.package, entry.packageName].find(item => item === packageName);
-  if (identity === packageName) return entry.enabled !== false;
-  return Object.values(entry).some(item => pluginIsEnabled(item));
+  const identity = [entry.name, entry.id, entry.package, entry.packageName].find(item => item === expectedName);
+  if (identity === expectedName) return entry.enabled !== false;
+  return Object.values(entry).some(item => pluginIsEnabled(item, expectedName));
 }
 
-async function checkPluginState(binary: string, cwd: string, environment: NodeJS.ProcessEnv, expected: "present" | "absent"): Promise<JsonObject> {
+async function checkPluginState(
+  binary: string,
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  expected: "present" | "absent",
+  expectedName = packageName,
+): Promise<JsonObject> {
   const result = await runCommand(binary, ["plugin", "list", "--json"], { cwd, env: environment });
   const output = requireSuccess(result, "plugin list");
   const parsed = requireJsonText(output, "plugin list");
-  const present = pluginIsEnabled(parsed);
-  if ((expected === "present" && !present) || (expected === "absent" && present)) throw new Error(`plugin list state mismatch: expected ${expected}`);
+  const present = pluginIsEnabled(parsed, expectedName);
+  if ((expected === "present" && !present) || (expected === "absent" && present)) throw new Error(`plugin list state mismatch for ${expectedName}: expected ${expected}`);
   return parsed;
 }
 
@@ -558,8 +951,30 @@ export interface SmokeResult {
   status: "verified";
   host: { mode: "release-asset" | "installed-cli"; version: string; digest: string; supportedRange: string };
   upstream: { version: string; commit: string; asset: string; digest: string };
-  fixture: { baseUrl: string; requests: number; loopbackOnly: true };
-  native: { prompt: boolean; cancellation: boolean; wizardRendered: boolean; wizardCancellation: boolean; maskedPrompt: boolean; persisted: boolean };
+  fixture: {
+    baseUrl: string;
+    requests: number;
+    modelDiscoveryGets: number;
+    failedDiscoveryGets: number;
+    responsesPosts: number;
+    chatCompletionsPosts: number;
+    metadataCatalogRequests: number;
+    loopbackOnly: true;
+  };
+  native: {
+    prompt: boolean;
+    cancellation: boolean;
+    wizardRendered: boolean;
+    wizardCancellation: boolean;
+    maskedPrompt: boolean;
+    persisted: true;
+    inference: {
+      startupResponses: InferenceEvidence;
+      startupChatCompletions: InferenceEvidence;
+      persistedChatCompletions: InferenceEvidence;
+    };
+    legacyCache: LegacyCacheEvidence;
+  };
   pluginLifecycle: { linked: true; disabled: true; enabled: true; uninstalled: true };
 }
 
@@ -584,37 +999,108 @@ export async function runSmoke(): Promise<SmokeResult> {
     packageEvidence = await verifyPackage({ keepTemporary: true });
     if (isWithin(packageRootInfo, packageEvidence.extractedRoot)) throw new Error("package extraction is inside the source repository");
     await materializeRuntimeDependencies(packageEvidence.extractedRoot, profile, packageEvidence, compatibility.range);
-    const linked = await runCommand(binary, ["plugin", "link", packageEvidence.extractedRoot], { cwd: workspace, env: { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey } });
+
+    await seedLegacyNativeCache(binary, workspace, environment, fixture);
+    fixture.setModelsStatus(503);
+    const bindingEnvironment = {
+      ...environment,
+      OMP_OMNIROUTE_BASE_URL: fixture.url,
+      OMP_OMNIROUTE_API_KEY: runtimeKey,
+    };
+    const linked = await runCommand(binary, ["plugin", "link", packageEvidence.extractedRoot], {
+      cwd: workspace,
+      env: { ...bindingEnvironment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey },
+    });
     requireSuccess(linked, "plugin link");
-    await checkPluginState(binary, workspace, { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey }, "present");
-    const refreshed = await runCommand(binary, ["models", "refresh", "--json"], { cwd: workspace, env: { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey } });
-    const refreshText = requireSuccess(refreshed, "models refresh");
-    const refreshJson = requireJsonText(refreshText, "models refresh");
-    requireModelList(refreshJson, "models refresh");
-    await nativeProviderModelCheck(binary, workspace, { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey }, "environment-bound native refresh");
+    await checkPluginState(binary, workspace, bindingEnvironment, "present");
+    const legacyCache = await rejectLegacyNativeCacheModel(binary, workspace, bindingEnvironment, fixture);
+    fixture.setModelsStatus(200);
+
+    const startupResponses = await nativeProviderInference(
+      binary,
+      workspace,
+      { ...bindingEnvironment, OMP_OMNIROUTE_METADATA_API_KEY: metadataKey },
+      "startup Responses inference",
+      fixture,
+      "responses",
+      responsesModelId,
+      responsesReplyText,
+      true,
+    );
+    const startupChatCompletions = await nativeProviderInference(
+      binary,
+      workspace,
+      bindingEnvironment,
+      "startup Chat Completions inference",
+      fixture,
+      "chat-completions",
+      chatModelId,
+      chatReplyText,
+    );
+    const refreshed = await runCommand(binary, ["models", "refresh", "--json"], { cwd: workspace, env: bindingEnvironment });
+    const refreshJson = requireJsonText(requireSuccess(refreshed, "models refresh"), "models refresh");
+    requireGuardedModels(requireModelList(refreshJson, "models refresh"), "models refresh");
+
     const nativeEnvironment = cleanEnvironment(process.env, profile);
     const setupVersion = await runCommand(binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: nativeEnvironment });
     requireSuccess(setupVersion, "setup version initialization");
     const cancelled = await nativePromptCancel(binary, workspace, nativeEnvironment);
     const wizard = await nativeWizardCancel(binary, workspace, nativeEnvironment);
     const nativeSetup = await nativePromptSetup(binary, workspace, nativeEnvironment, fixture.url);
-    await nativeProviderModelCheck(binary, workspace, nativeEnvironment, "persisted native refresh");
+    const persistedChatCompletions = await nativeProviderInference(
+      binary,
+      workspace,
+      nativeEnvironment,
+      "persisted Chat Completions inference",
+      fixture,
+      "chat-completions",
+      chatModelId,
+      chatReplyText,
+    );
+
     const disabled = await runCommand(binary, ["plugin", "disable", packageName], { cwd: workspace, env: environment });
     requireSuccess(disabled, "plugin disable");
     await checkPluginState(binary, workspace, environment, "absent");
     const enabled = await runCommand(binary, ["plugin", "enable", packageName], { cwd: workspace, env: environment });
     requireSuccess(enabled, "plugin enable");
-    await checkPluginState(binary, workspace, { ...environment, OMP_OMNIROUTE_BASE_URL: fixture.url, OMP_OMNIROUTE_API_KEY: runtimeKey }, "present");
+    await checkPluginState(binary, workspace, bindingEnvironment, "present");
     const uninstalled = await runCommand(binary, ["plugin", "uninstall", packageName], { cwd: workspace, env: environment });
     requireSuccess(uninstalled, "plugin uninstall");
     await checkPluginState(binary, workspace, environment, "absent");
-    if (fixture.requests.some(request => request.authorization && request.authorization !== `Bearer ${runtimeKey}` && request.authorization !== `Bearer ${adminKey}`)) throw new Error("fixture server observed a non-fixture credential");
+
+    const allowedAuthorization = new Set([`Bearer ${runtimeKey}`, `Bearer ${adminKey}`, `Bearer ${metadataKey}`]);
+    if (fixture.requests.some(request => request.authorization && !allowedAuthorization.has(request.authorization))) {
+      throw new Error("fixture server observed a non-fixture credential");
+    }
+    const modelDiscoveryGets = fixture.requests.filter(request => request.method === "GET" && request.path === "/v1/models").length;
+    const failedDiscoveryGets = fixture.requests.filter(request => request.method === "GET" && request.path === "/v1/models" && request.status === 503).length;
+    const responsesPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/v1/responses").length;
+    const chatCompletionsPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/v1/chat/completions").length;
+    const metadataCatalogRequests = fixture.requests.filter(request => request.method === "GET" && request.path === "/api/models/catalog").length;
     return {
       status: "verified",
       host: { mode: host.mode, version: host.version, digest: host.digest, supportedRange: compatibility.range },
       upstream: { version: host.expected.version, commit: host.expected.commit, asset: host.expected.url, digest: host.expected.digest },
-      fixture: { baseUrl: fixture.url, requests: fixture.requests.length, loopbackOnly: true },
-      native: { prompt: cancelled.prompted, cancellation: cancelled.cancelled, wizardRendered: wizard.rendered, wizardCancellation: wizard.cancelled, maskedPrompt: nativeSetup.masked, persisted: true },
+      fixture: {
+        baseUrl: fixture.url,
+        requests: fixture.requests.length,
+        modelDiscoveryGets,
+        failedDiscoveryGets,
+        responsesPosts,
+        chatCompletionsPosts,
+        metadataCatalogRequests,
+        loopbackOnly: true,
+      },
+      native: {
+        prompt: cancelled.prompted,
+        cancellation: cancelled.cancelled,
+        wizardRendered: wizard.rendered,
+        wizardCancellation: wizard.cancelled,
+        maskedPrompt: nativeSetup.masked,
+        persisted: true,
+        inference: { startupResponses, startupChatCompletions, persistedChatCompletions },
+        legacyCache,
+      },
       pluginLifecycle: { linked: true, disabled: true, enabled: true, uninstalled: true },
     };
   } finally {

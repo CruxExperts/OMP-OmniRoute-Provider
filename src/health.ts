@@ -1,11 +1,11 @@
-import type { CatalogProjection } from "./catalog.ts";
+import type { CatalogProjection, EndpointApi } from "./catalog.ts";
 
 export type HealthState = "unconfigured" | "ready" | "degraded" | "offline" | "unauthorized";
 
 export interface DiscoveryBinding {
-	endpoint: string;
-	credential: string;
-	generation: number;
+	readonly endpoint: string;
+	readonly credential: string;
+	readonly generation: number;
 }
 
 export interface HealthSnapshot {
@@ -19,10 +19,15 @@ export interface HealthSnapshot {
 export interface DiscoveryResult {
 	projection: CatalogProjection;
 	stale?: boolean;
+	enrichment?: Promise<CatalogProjection>;
 }
 
 export type DiscoverFn = (binding: DiscoveryBinding, signal: AbortSignal) => Promise<DiscoveryResult>;
 export type HealthListener = (snapshot: HealthSnapshot) => void;
+
+export interface RefreshOptions {
+	force?: boolean;
+}
 
 interface ClassifiedError {
 	state: Exclude<HealthState, "unconfigured" | "ready">;
@@ -43,7 +48,7 @@ function classify(error: unknown): ClassifiedError {
 	const status = error && typeof error === "object" && typeof (error as { status?: unknown }).status === "number"
 		? (error as { status: number }).status : undefined;
 	if (status === 401 || status === 403 || code === "http_401" || code === "http_403" || code === "unauthorized") return { state: "unauthorized", code };
-	if ([408, 429, 502, 503, 504].includes(status ?? -1) || ["request_timeout", "request_aborted", "network_error", "connection_refused", "offline", "http_408", "http_429", "http_502", "http_503", "http_504", "timeout", "aborted", "network", "body-read", "budget-exhausted"].includes(code)) return { state: "offline", code };
+	if ((status !== undefined && status >= 500 && status < 600) || [408, 429].includes(status ?? -1) || /^http_5\d\d$/.test(code) || ["request_timeout", "network_error", "connection_refused", "offline", "http_408", "http_429", "timeout", "network", "body-read", "budget-exhausted"].includes(code)) return { state: "offline", code };
 	return { state: "degraded", code };
 }
 function staleProjection(projection: CatalogProjection): CatalogProjection {
@@ -65,8 +70,11 @@ export class DiscoveryManager {
 	private generation = 0;
 	private stopped = false;
 	private flight: Promise<DiscoveryResult | undefined> | undefined;
-	private aborter: AbortController | undefined;
+	private generationController: AbortController | undefined;
 	private lastGood: DiscoveryResult | undefined;
+	private current: DiscoveryResult | undefined;
+	private readonly modelApis = new Map<string, EndpointApi>();
+	private lastSuccessAt: number | undefined;
 	private snapshot: HealthSnapshot = { state: "unconfigured", generation: 0, modelCount: 0, stale: false };
 	private readonly listeners = new Set<HealthListener>();
 
@@ -84,100 +92,221 @@ export class DiscoveryManager {
 	}
 
 	get currentBinding(): DiscoveryBinding | undefined {
-		return this.binding && { ...this.binding };
+		return this.binding;
 	}
 
-	/** Start a new auth/endpoint generation and cancel all old network work. */
-	setBinding(endpoint: string | undefined, credential: string | undefined, generation?: number): void {
+	get currentResult(): DiscoveryResult | undefined {
+		return this.current;
+	}
+
+	get bindingSignal(): AbortSignal | undefined {
+		return this.generationController?.signal;
+	}
+
+	getModelApi(id: string): EndpointApi | undefined {
+		return this.modelApis.get(id);
+	}
+
+	/**
+	 * Replace the endpoint/auth source generation. The return value reports a
+	 * real source-binding invalidation, not a comparison with our private epoch.
+	 */
+	setBinding(endpoint: string | undefined, credential: string | undefined, generation?: number): boolean {
 		const normalizedEndpoint = endpoint?.trim();
 		const normalizedCredential = credential?.trim();
 		const changed = normalizedEndpoint !== this.binding?.endpoint || normalizedCredential !== this.binding?.credential;
-		const generationChanged = generation !== undefined && generation !== this.sourceGeneration;
-		if (!changed && !generationChanged) return;
-		this.aborter?.abort();
-		this.aborter = undefined;
-		this.flight = undefined;
+		const sourceGenerationChanged = generation !== this.sourceGeneration;
+		if (!changed && !sourceGenerationChanged) return false;
+
+		this.invalidateGeneration();
 		this.sourceGeneration = generation;
-		this.generation = generation === undefined ? this.generation + 1 : Math.max(this.generation + 1, generation);
+		this.generation++;
+		this.lastGood = undefined;
+		this.setCurrentResult(undefined);
+		this.lastSuccessAt = undefined;
+
 		if (!normalizedEndpoint || !normalizedCredential) {
 			this.binding = undefined;
-			this.lastGood = undefined;
-			this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false });
-			return;
+			this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false }, true);
+			return true;
 		}
-		this.binding = { endpoint: normalizedEndpoint, credential: normalizedCredential, generation: this.generation };
-		if (changed || generationChanged) {
-			this.lastGood = undefined;
-			this.setSnapshot({ state: "degraded", generation: this.generation, modelCount: 0, stale: false });
-		}
+
+		this.binding = Object.freeze({ endpoint: normalizedEndpoint, credential: normalizedCredential, generation: this.generation });
+		if (!this.stopped) this.generationController = new AbortController();
+		this.setSnapshot({ state: "degraded", generation: this.generation, modelCount: 0, stale: false }, true);
+		return true;
 	}
 
-	/** Clear the binding and all source-owned rows on shutdown/reconfiguration. */
+	/** Clear the binding and all source-owned rows on reset/reconfiguration. */
 	reset(): void {
-		this.aborter?.abort();
-		this.aborter = undefined;
+		this.invalidateGeneration();
 		this.sourceGeneration = undefined;
 		this.binding = undefined;
 		this.lastGood = undefined;
+		this.setCurrentResult(undefined);
+		this.lastSuccessAt = undefined;
 		this.generation++;
-		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false });
+		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false }, true);
 	}
 
-	async refresh(): Promise<DiscoveryResult | undefined> {
+	async refresh(options: RefreshOptions = {}): Promise<DiscoveryResult | undefined> {
 		if (this.stopped) return undefined;
+		if (this.flight) return this.flight;
 		const binding = this.binding;
-		if (!binding) {
-			this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false });
+		const generation = this.generation;
+		const signal = this.generationController?.signal;
+		if (!binding || !signal || signal.aborted) {
+			this.setSnapshot({ state: "unconfigured", generation, modelCount: 0, stale: false });
 			return undefined;
 		}
-		if (this.flight) return this.flight;
-		const generation = this.generation;
-		const controller = new AbortController();
-		this.aborter = controller;
-		const request = this.discover(binding, controller.signal).then(result => {
-			if (this.stopped || generation !== this.generation || this.binding?.generation !== generation) return undefined;
-			this.lastGood = { projection: result.projection, stale: false };
-			const count = result.projection.models.length;
-			this.setSnapshot({ state: "ready", generation, modelCount: count, stale: false });
-			return { projection: result.projection, stale: false };
+
+		if (
+			!options.force &&
+			this.current &&
+			!this.current.stale &&
+			this.lastSuccessAt !== undefined &&
+			Date.now() - this.lastSuccessAt < 30_000
+		) return this.current;
+
+		let discovery: Promise<DiscoveryResult>;
+		try {
+			discovery = this.discover(binding, signal);
+		} catch (error) {
+			discovery = Promise.reject(error);
+		}
+		const request = discovery.then(result => {
+			if (!this.isCurrentGeneration(generation, binding, signal)) return undefined;
+			const accepted: DiscoveryResult = { ...result, stale: false };
+			this.setCurrentResult(accepted);
+			this.lastGood = accepted;
+			this.lastSuccessAt = Date.now();
+			this.setSnapshot({ state: "ready", generation, modelCount: accepted.projection.models.length, stale: false }, true);
+			if (accepted.enrichment) this.trackEnrichment(generation, binding, signal, accepted.projection, accepted.enrichment);
+			return accepted;
 		}).catch(error => {
+			if (!this.isCurrentGeneration(generation, binding, signal)) return undefined;
 			const failure = classify(error);
-			// A cancelled or superseded request is not a discovery failure for
-			// the active generation; discard its late result quietly.
-			if (this.stopped || generation !== this.generation || this.binding?.generation !== generation) return undefined;
-			const retained = this.lastGood;
-			if (retained) {
-				const projection = staleProjection(retained.projection);
-				this.setSnapshot({ state: failure.state, generation, modelCount: projection.models.length, stale: true, lastError: failure.code });
-				return { projection, stale: true };
+			if (failure.state === "unauthorized") {
+				this.setCurrentResult(undefined);
+				this.lastGood = undefined;
+				this.lastSuccessAt = undefined;
+				this.setSnapshot({ state: "unauthorized", generation, modelCount: 0, stale: false, lastError: failure.code }, true);
+				throw error;
 			}
-			this.setSnapshot({ state: failure.state, generation, modelCount: 0, stale: false, lastError: failure.code });
+
+			if (failure.state === "offline" && this.lastGood) {
+				const retained: DiscoveryResult = { ...this.lastGood, projection: staleProjection(this.lastGood.projection), stale: true };
+				this.setCurrentResult(retained);
+				this.setSnapshot({ state: failure.state, generation, modelCount: retained.projection.models.length, stale: true, lastError: failure.code }, true);
+				return retained;
+			}
+
+			this.setCurrentResult(undefined);
+			this.lastGood = undefined;
+			this.lastSuccessAt = undefined;
+			this.setSnapshot({ state: failure.state, generation, modelCount: 0, stale: false, lastError: failure.code }, true);
 			throw error;
 		}).finally(() => {
 			if (this.flight === request) this.flight = undefined;
-			if (this.aborter === controller) this.aborter = undefined;
 		});
 		this.flight = request;
 		return request;
 	}
 
 	shutdown(): void {
+		if (this.stopped && !this.binding && !this.current && !this.flight) return;
 		this.stopped = true;
-		this.aborter?.abort();
-		this.aborter = undefined;
-		this.flight = undefined;
+		this.invalidateGeneration();
+		this.sourceGeneration = undefined;
 		this.binding = undefined;
 		this.lastGood = undefined;
+		this.setCurrentResult(undefined);
+		this.lastSuccessAt = undefined;
+		this.generation++;
+		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false }, true);
 	}
 
 	resume(): void {
+		if (!this.stopped) return;
 		this.stopped = false;
+		if (this.binding) this.generationController = new AbortController();
 	}
 
-	private setSnapshot(snapshot: HealthSnapshot): void {
+	private invalidateGeneration(): void {
+		this.generationController?.abort();
+		this.generationController = undefined;
+		this.flight = undefined;
+	}
+
+	private setCurrentResult(result: DiscoveryResult | undefined): void {
+		this.current = result;
+		this.modelApis.clear();
+		if (!result) return;
+		for (const model of result.projection.models) {
+			const api = model.api === "openai-responses" ? "openai-responses"
+				: model.api === "openai-completions" ? "openai-completions" : undefined;
+			if (api) this.modelApis.set(model.id, api);
+		}
+	}
+
+	private isCurrentGeneration(generation: number, binding: DiscoveryBinding, signal: AbortSignal): boolean {
+		const current = this.binding;
+		return !this.stopped &&
+			!signal.aborted &&
+			generation === this.generation &&
+			current !== undefined &&
+			current.generation === generation &&
+			current.endpoint === binding.endpoint &&
+			current.credential === binding.credential;
+	}
+
+	private trackEnrichment(
+		generation: number,
+		binding: DiscoveryBinding,
+		signal: AbortSignal,
+		sourceProjection: CatalogProjection,
+		enrichment: Promise<CatalogProjection>,
+	): void {
+		void enrichment.then(projection => {
+			const current = this.current;
+			if (
+				!this.isCurrentGeneration(generation, binding, signal) ||
+				!current ||
+				current.projection !== sourceProjection ||
+				current.stale
+			) return;
+			const enriched: DiscoveryResult = { ...current, projection };
+			this.setCurrentResult(enriched);
+			this.lastGood = enriched;
+			this.setSnapshot({ ...this.snapshot, modelCount: projection.models.length }, true);
+		}, () => {
+			const current = this.current;
+			if (
+				!this.isCurrentGeneration(generation, binding, signal) ||
+				!current ||
+				current.projection !== sourceProjection ||
+				current.stale
+			) return;
+			const diagnosticProjection: CatalogProjection = {
+				...sourceProjection,
+				diagnostics: [...sourceProjection.diagnostics.slice(0, 63), { code: "optional_enrichment_failed" }],
+			};
+			const diagnosticResult: DiscoveryResult = { ...current, projection: diagnosticProjection };
+			this.setCurrentResult(diagnosticResult);
+			this.lastGood = diagnosticResult;
+			this.setSnapshot({ ...this.snapshot, modelCount: diagnosticProjection.models.length }, true);
+		});
+	}
+
+	private setSnapshot(snapshot: HealthSnapshot, authorityChanged = false): void {
 		const previous = this.snapshot;
+		const changed = previous.state !== snapshot.state ||
+			previous.generation !== snapshot.generation ||
+			previous.modelCount !== snapshot.modelCount ||
+			previous.stale !== snapshot.stale ||
+			previous.lastError !== snapshot.lastError;
 		this.snapshot = snapshot;
-		if (previous.state === snapshot.state) return;
+		if (!changed && !authorityChanged) return;
 		for (const listener of this.listeners) {
 			try { listener({ ...snapshot }); } catch { /* diagnostics must not break discovery */ }
 		}
