@@ -17,6 +17,37 @@ const jsonDescriptor = {
   auth: { domain: "management" },
 };
 
+let sourceReadDescriptor: Promise<OperationDescriptor> | undefined;
+async function publicReadDescriptor(operationId: string, pathTemplate: string, qualified = true): Promise<OperationDescriptor> {
+  sourceReadDescriptor ??= Bun.file(new URL("../contracts/operations.json", import.meta.url)).json().then((document: { operations: OperationDescriptor[] }) => {
+    const source = document.operations.find(operation => operation.operationId === "GET /api/health");
+    if (!source) throw new Error("read fixture source is missing");
+    return source;
+  });
+  const source = await sourceReadDescriptor;
+  return {
+    ...source,
+    operationId,
+    method: "GET",
+    pathTemplate,
+    auth: {
+      ...source.auth,
+      domain: "public",
+      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.52", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
+    },
+    request: { ...source.request, body: null },
+    response: { ...source.response, schema: {
+      type: "object", properties: { status: { type: "string" } }, required: ["status"], additionalProperties: false,
+    } },
+    sideEffect: "read",
+    confirmation: { required: false, reason: "Synthetic ordinary read." },
+    coverage: qualified
+      ? { status: "invokable", adapterId: `typed.fixture.${operationId.toLowerCase().replace(/[^a-z0-9]+/g, ".")}`, reason: null }
+      : { status: "unqualified", adapterId: null, reason: "Fixture is intentionally unqualified." },
+    reconciliation: null,
+  };
+}
+
 test("loopback validation is explicit and rejects endpoint credentials", () => {
   expect(isLoopbackHostname("127.0.0.1")).toBe(true);
   expect(isLoopbackHostname("remote.example")).toBe(false);
@@ -116,28 +147,7 @@ test("apply command remains human-only when the confirmation form is cancelled",
 });
 
 test("browse executes only ordinary reads and displays the executor-projected response", async () => {
-  const contract = await Bun.file(new URL("../contracts/operations.json", import.meta.url)).json() as { operations: OperationDescriptor[] };
-  const source = contract.operations.find(operation => operation.operationId === "GET /api/health");
-  if (!source) throw new Error("read fixture source is missing");
-  const descriptor: OperationDescriptor = {
-    ...source,
-    operationId: "GET /fixture/admin-ui-read",
-    method: "GET",
-    pathTemplate: "/fixture/admin-ui-read",
-    auth: {
-      ...source.auth,
-      domain: "public",
-      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.52", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
-    },
-    request: { ...source.request, body: null },
-    response: { ...source.response, schema: {
-      type: "object", properties: { status: { type: "string" } }, required: ["status"], additionalProperties: false,
-    } },
-    sideEffect: "read",
-    confirmation: { required: false, reason: "Synthetic ordinary read." },
-    coverage: { status: "invokable", adapterId: "typed.fixture.admin.ui.read", reason: null },
-    reconciliation: null,
-  };
+  const descriptor = await publicReadDescriptor("GET /fixture/admin-ui-read", "/fixture/admin-ui-read");
   const registry = fixtureRegistry([descriptor]);
   let dispatchCalls = 0;
   const executor = createAdminExecutor({
@@ -148,7 +158,7 @@ test("browse executes only ordinary reads and displays the executor-projected re
     },
   });
   executor.setAdminBinding({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128" });
-  const answers = [descriptor.operationId, "{}"];
+  const answers = ["{}"];
   const notifications: string[] = [];
   let confirmations = 0;
   const handler = createAdminCommandHandler({
@@ -172,6 +182,158 @@ test("browse executes only ordinary reads and displays the executor-projected re
   expect(notifications.at(-1)).toContain('"status": "ready"');
   expect(notifications.at(-1)).not.toContain("withheld by response projection");
   expect(notifications.at(-1)).not.toContain("apiKey");
+});
+
+test("search selects a matching category and operation through the native chooser", async () => {
+  const descriptor = await publicReadDescriptor("GET /api/combos/summary", "/api/combos/summary");
+  const registry = fixtureRegistry([descriptor]);
+  let dispatchCalls = 0;
+  const executor = createAdminExecutor({ registry, dispatch: async () => { dispatchCalls += 1; return { status: "ok" }; } });
+  executor.setAdminBinding({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128" });
+  const chooserCalls: { title: string; options: Array<string | { label: string; description?: string }> }[] = [];
+  const customAnswers = ["{}"];
+  const handler = createAdminCommandHandler({ executor, registry });
+
+  await handler("/api/combos", {
+    hasUI: true,
+    ui: {
+      select: async (title: string, options: Array<string | { label: string; description?: string }>) => {
+        chooserCalls.push({ title, options });
+        return typeof options[0] === "string" ? options[0] : options[0]?.label;
+      },
+      custom: async () => customAnswers.shift(),
+      notify: () => undefined,
+    },
+  } as never);
+
+  expect(chooserCalls).toHaveLength(2);
+  expect(chooserCalls[0]?.title).toBe("Administration category");
+  expect(chooserCalls[0]?.options.map(option => typeof option === "string" ? option : option.label)).toContain("api/combos");
+  expect(chooserCalls[1]?.options.map(option => typeof option === "string" ? option : option.label)).toContain(descriptor.operationId);
+  expect(dispatchCalls).toBe(1);
+});
+
+test("native operation chooser exposes the complete matching category beyond 40 items", async () => {
+  const descriptors = await Promise.all(Array.from({ length: 41 }, (_, index) => {
+    const suffix = String(index).padStart(2, "0");
+    return publicReadDescriptor(`GET /api/combos/operation-${suffix}`, `/api/combos/operation-${suffix}`);
+  }));
+  const registry = fixtureRegistry(descriptors);
+  let dispatchCalls = 0;
+  const executor = createAdminExecutor({ registry, dispatch: async () => { dispatchCalls += 1; return { status: "ok" }; } });
+  executor.setAdminBinding({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128" });
+  let operationLabels: string[] = [];
+  const handler = createAdminCommandHandler({ executor, registry });
+
+  await handler("", {
+    hasUI: true,
+    ui: {
+      select: async (title: string, options: Array<string | { label: string; description?: string }>) => {
+        const labels = options.map(option => typeof option === "string" ? option : option.label);
+        if (title.startsWith("Operations in ")) {
+          operationLabels = labels;
+          return labels.at(-1);
+        }
+        return labels[0];
+      },
+      custom: async () => "{}",
+      notify: () => undefined,
+    },
+  } as never);
+
+  expect(operationLabels).toHaveLength(41);
+  expect(operationLabels.at(-1)).toBe("GET /api/combos/operation-40");
+  expect(dispatchCalls).toBe(1);
+});
+
+test("search cancellation stops before input collection or dispatch", async () => {
+  const descriptor = await publicReadDescriptor("GET /api/combos/summary", "/api/combos/summary");
+  const registry = fixtureRegistry([descriptor]);
+  let inputPrompts = 0;
+  let dispatchCalls = 0;
+  const executor = createAdminExecutor({ registry, dispatch: async () => { dispatchCalls += 1; return { status: "ok" }; } });
+  const handler = createAdminCommandHandler({ executor, registry });
+
+  await handler("/api/combos", {
+    hasUI: true,
+    ui: {
+      select: async () => undefined,
+      custom: async () => { inputPrompts += 1; return "{}"; },
+      notify: () => undefined,
+    },
+  } as never);
+
+  expect(inputPrompts).toBe(0);
+  expect(dispatchCalls).toBe(0);
+});
+
+test("exact unqualified operation IDs remain blocked without prompting", async () => {
+  const descriptor = await publicReadDescriptor("GET /api/combos/unqualified", "/api/combos/unqualified", false);
+  const registry = fixtureRegistry([descriptor]);
+  let inputPrompts = 0;
+  let dispatchCalls = 0;
+  const executor = createAdminExecutor({ registry, dispatch: async () => { dispatchCalls += 1; return { status: "ok" }; } });
+  const notifications: string[] = [];
+  const handler = createAdminCommandHandler({ executor, registry });
+
+  await handler(descriptor.operationId, {
+    hasUI: true,
+    ui: {
+      select: async () => { throw new Error("exact operation ID must not open a chooser"); },
+      custom: async () => { inputPrompts += 1; return "{}"; },
+      notify: (message: string) => notifications.push(message),
+    },
+  } as never);
+
+  expect(inputPrompts).toBe(0);
+  expect(dispatchCalls).toBe(0);
+  expect(notifications.some(message => message.includes("non-invokable"))).toBe(true);
+});
+
+test("search rejects control characters before opening a chooser", async () => {
+  const descriptor = await publicReadDescriptor("GET /api/combos/summary", "/api/combos/summary");
+  const registry = fixtureRegistry([descriptor]);
+  let selectorCalls = 0;
+  const notifications: string[] = [];
+  const handler = createAdminCommandHandler({ executor: createAdminExecutor({ registry, dispatch: async () => ({ status: "ok" }) }), registry });
+
+  await handler("/api/combos\u001b[31m", {
+    hasUI: true,
+    ui: {
+      select: async () => { selectorCalls += 1; return undefined; },
+      custom: async () => "{}",
+      notify: (message: string) => notifications.push(message),
+    },
+  } as never);
+
+  expect(selectorCalls).toBe(0);
+  expect(notifications.some(message => message.includes("control characters"))).toBe(true);
+  expect(notifications.join(" ")).not.toContain("\u001b");
+});
+
+test("chooser descriptions render descriptor control characters as visible escapes", async () => {
+  const descriptor = await publicReadDescriptor("GET /api/combos/terminal", "/api/combos/\u001b[31m");
+  const registry = fixtureRegistry([descriptor]);
+  const optionDescriptions: string[] = [];
+  const handler = createAdminCommandHandler({ executor: createAdminExecutor({ registry, dispatch: async () => ({ status: "ok" }) }), registry });
+
+  await handler("/api/combos", {
+    hasUI: true,
+    ui: {
+      select: async (title: string, options: Array<string | { label: string; description?: string }>) => {
+        if (title !== "Administration category") {
+          optionDescriptions.push(...options.flatMap(option => typeof option === "string" || !option.description ? [] : [option.description]));
+        }
+        return title === "Administration category" ? "api/combos" : undefined;
+      },
+      custom: async () => { throw new Error("cancelled chooser must not prompt for operation input"); },
+      notify: () => undefined,
+    },
+  } as never);
+
+  expect(optionDescriptions).toHaveLength(1);
+  expect(optionDescriptions[0]).toContain("\\u001b");
+  expect(optionDescriptions[0]).not.toContain("\u001b");
 });
 
 test("protected export refuses an existing destination", async () => {

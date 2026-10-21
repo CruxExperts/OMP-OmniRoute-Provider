@@ -1,7 +1,7 @@
 import { Input } from "@oh-my-pi/pi-tui";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { getOperationRegistry, type OperationAdapter, type OperationRegistry } from "./registry.ts";
-import type { AdminCredentialInput, AdminPlanHandle, AdminPreview } from "./types.ts";
+import { escapeControls, type AdminCredentialInput, type AdminPlanHandle, type AdminPreview } from "./types.ts";
 import type { AdminExecutor } from "./executor.ts";
 import { isLoopbackHostname } from "./adapters.ts";
 
@@ -203,23 +203,90 @@ async function applyPlan(options: AdminUiOptions, context: AdminContext, planId:
 
 async function browse(options: AdminUiOptions, context: AdminContext, search: string): Promise<void> {
   const registry = operationRegistry(options);
-  const categories = registry.listCategories().filter(category => category.toLowerCase().includes(search.toLowerCase()));
-  const normalizedSearch = search.toLowerCase();
-  const operations = registry.descriptors()
-    .filter(descriptor => `${descriptor.operationId} ${descriptor.pathTemplate}`.toLowerCase().includes(normalizedSearch))
-    .sort((left, right) => left.operationId.localeCompare(right.operationId))
-    .slice(0, 40);
-  const categoryText = categories.slice(0, 20).join(", ") || "none";
-  const operationText = operations.map(descriptor => {
+  if (/[\u0000-\u001f\u007f]/.test(search)) {
+    notify(context, "search cannot contain control characters; no request was sent", "warning");
+    return;
+  }
+  const exactDescriptor = registry.getOperation(search);
+  if (exactDescriptor) {
+    await runOperationById(options, context, search);
+    return;
+  }
+
+  const normalizedSearch = search.trim().toLowerCase();
+  if (!hasInteractiveUi(context) || typeof context.ui.select !== "function") {
+    const matches = registry.descriptors()
+      .filter(descriptor => normalizedSearch === "" || `${descriptor.operationId} ${descriptor.pathTemplate}`.toLowerCase().includes(normalizedSearch))
+      .slice(0, 40);
+    const summary = matches.length === 0
+      ? "No matching administration operations."
+      : `Found ${matches.length} matching operation${matches.length === 1 ? "" : "s"}; use an exact operation ID in an interactive session to select one.`;
+    notify(context, summary, matches.length === 0 ? "warning" : "info");
+    return;
+  }
+
+  const descriptors = [...registry.descriptors()].sort((left, right) => left.operationId.localeCompare(right.operationId));
+  const matchesSearch = (operationId: string, pathTemplate: string): boolean =>
+    normalizedSearch === "" || `${operationId} ${pathTemplate}`.toLowerCase().includes(normalizedSearch);
+  const displayCategoryFor = (operationId: string): string => registry.lookup(operationId)?.category ?? "unavailable";
+  const allCategories = registry.listCategories();
+  const matchedCategories = new Set<string>();
+  for (const category of allCategories) {
+    if (normalizedSearch === "" || category.toLowerCase().includes(normalizedSearch)
+      || registry.listOperations({ category, search: normalizedSearch }).length > 0) {
+      matchedCategories.add(category);
+    }
+  }
+  const unavailableMatch = descriptors.some(descriptor => !registry.lookup(descriptor.operationId)
+    && matchesSearch(descriptor.operationId, descriptor.pathTemplate));
+  if (unavailableMatch) matchedCategories.add("unavailable");
+
+  const categoryOptions = [...matchedCategories].sort((left, right) => left.localeCompare(right)).map(category => {
+    const hasOperationMatches = descriptors.some(descriptor => displayCategoryFor(descriptor.operationId) === category
+      && matchesSearch(descriptor.operationId, descriptor.pathTemplate));
+    const count = descriptors.filter(descriptor => displayCategoryFor(descriptor.operationId) === category
+      && (normalizedSearch === "" || !hasOperationMatches || matchesSearch(descriptor.operationId, descriptor.pathTemplate))).length;
+    return { label: escapeControls(category), description: `${count} operation${count === 1 ? "" : "s"}` };
+  });
+  if (categoryOptions.length === 0) {
+    notify(context, "No matching administration categories or operations.", "warning");
+    return;
+  }
+  const selectedCategoryLabel = await context.ui.select("Administration category", categoryOptions);
+  if (selectedCategoryLabel === undefined) return;
+  const selectedCategory = [...matchedCategories].find(category => escapeControls(category) === selectedCategoryLabel);
+  if (!selectedCategory) return;
+
+  const categoryDescriptors = descriptors.filter(descriptor => displayCategoryFor(descriptor.operationId) === selectedCategory);
+  const matchingOperations = categoryDescriptors.filter(descriptor => matchesSearch(descriptor.operationId, descriptor.pathTemplate));
+  const selectedDescriptors = normalizedSearch !== "" && matchingOperations.length > 0
+    ? matchingOperations
+    : categoryDescriptors;
+  const operationOptions = selectedDescriptors.map(descriptor => {
     const adapter = registry.lookup(descriptor.operationId);
-    if (!adapter) return `${descriptor.operationId} [unavailable: non-invokable closed descriptor]`;
-    return adapter.eligibility.status === "verified"
-      ? `${descriptor.operationId} [available]`
-      : `${descriptor.operationId} [unavailable: ${adapter.eligibility.reason}]`;
-  }).join("\n") || "none";
-  notify(context, `categories: ${categoryText}\noperations:\n${operationText}`);
-  const operationId = await askText(context, "Operation ID (Esc cancels)");
-  if (!operationId) return;
+    const status = !adapter
+      ? `unavailable: ${descriptor.coverage.reason ?? "no executable adapter"}`
+      : adapter.eligibility.status === "verified"
+        ? "available"
+        : `unavailable: ${adapter.eligibility.reason}`;
+    return {
+      label: escapeControls(descriptor.operationId),
+      description: escapeControls(`${descriptor.method} ${descriptor.pathTemplate} · ${status}`),
+    };
+  });
+  if (operationOptions.length === 0) {
+    notify(context, "No operations are listed in this category.", "warning");
+    return;
+  }
+  const selectedOperationLabel = await context.ui.select(`Operations in ${escapeControls(selectedCategory)}`, operationOptions);
+  if (selectedOperationLabel === undefined) return;
+  const selectedDescriptor = selectedDescriptors.find(descriptor => escapeControls(descriptor.operationId) === selectedOperationLabel);
+  if (!selectedDescriptor) return;
+  await runOperationById(options, context, selectedDescriptor.operationId);
+}
+
+async function runOperationById(options: AdminUiOptions, context: AdminContext, operationId: string): Promise<void> {
+  const registry = operationRegistry(options);
   const adapter: OperationAdapter | undefined = registry.lookup(operationId);
   if (!adapter) {
     notify(context, "unknown or non-invokable operation; no request was sent", "warning");
@@ -239,7 +306,7 @@ async function browse(options: AdminUiOptions, context: AdminContext, search: st
     notify(context, "this operation requires a source-qualified management credential; no request was sent", "warning");
     return;
   }
-  const raw = await askText(context, `Validated JSON input for ${operationId} ({} if empty)`, adapter.descriptor.secrets.inputFields.length > 0);
+  const raw = await askText(context, `Validated JSON input for ${escapeControls(operationId)} ({} if empty)`, adapter.descriptor.secrets.inputFields.length > 0);
   if (!raw) return;
 
   let input: unknown;

@@ -2645,6 +2645,532 @@
       ]
     },
     {
+      "operationId": "DELETE /api/providers/{id}/interception-rules",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/interception-rules/route.ts",
+        "sha256": "f90e17db56ac7af8dabf94ad854094b58b41a85ab1185aaa6bf809b1a6412dee",
+        "gitBlobSha": "0c12336e9214d4705ed4f41e6cb474f96b976511"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!__proto__(?![\\s\\S]))[^\\s](?:[\\s\\S]*[^\\s])?$"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "admin"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "success"
+                    ],
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Deletes only this provider's configuration row. The matching GET returns defaults for both an absent row and a persisted empty row, so deletion cannot be reconciled from the public response; one human-approved attempt is allowed, and an ambiguous result remains unknown without replay."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null
+      },
+      "binding": {
+        "requestSchemaSha256": "b1777f9dc37649894b1027bbf8f70c2afdf58c22a248a6060568f1a8a03c4065",
+        "authSha256": "a3e8d94484789ed4a33ab81f00f4a600fdcc860fef58905756c4df31c63d73cf",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "f720d720fb8a8f42c8a0e996f4b89c8ce65a552fd9afbb7b4ae35cef8703106d",
+        "operationSemanticsSha256": "69471c678c90fc5ac673c185f1412ffaca3d93075c763e948f22a6d923781929",
+        "routeImportsSha256": "fe1ddef71372dee08784e70aa1988fe4b55ffd5256651cf624e2ca02ab8fe26c",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-configuration.test.ts",
+        "observedOutcome": "provenance/qualification/dbcaaed9dceaa7b7341bc46d46940964a2bc1a95d2deb50e0d424d795f1795fe.json",
+        "caseSha256": "c7949037cdfaf53451b5e960b9b43d37f593420f39d5e697c00367bc08ee89ad",
+        "outcomeSha256": "60581f12596f76b999060d7d606a6b6505d7d6d90c7c7cc8822dd0a0dfb56ab8"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider interception-rule and parameter-filter handlers, source validation, management authorization and real SQLite key_value domain persistence execute after source receipt verification. Assertions exercise provider isolation, defaults, replacement, normalization, target drift, invalid inputs, backend faults and uncertain single-dispatch outcomes."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not qualify live or external database backends, session cryptography, IP filtering, body limits or native platform behavior. Upstream provides no atomic conditional write; another server client can race between target preflight and persistence."
+        }
+      ]
+    },
+    {
+      "operationId": "DELETE /api/providers/{id}/param-filters",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/param-filters/route.ts",
+        "sha256": "87f4cf01c5fc5a1aa6fefef2590a5378b4ce9cf47b5f3fe5eddcd9e2ecccb1f0",
+        "gitBlobSha": "35ae1ed69d543fa3a5de453f66c50146a71b779f"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!__proto__(?![\\s\\S]))[\\s\\S]+$"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "admin"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "success"
+                    ],
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Deletes only this provider's configuration row. The matching GET returns defaults for both an absent row and a persisted empty row, so deletion cannot be reconciled from the public response; one human-approved attempt is allowed, and an ambiguous result remains unknown without replay."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null
+      },
+      "binding": {
+        "requestSchemaSha256": "36a6625a77be1185e92868a5a7ca4ed8c9c483fa60bdd1c80973cbe7ac9401b2",
+        "authSha256": "a3e8d94484789ed4a33ab81f00f4a600fdcc860fef58905756c4df31c63d73cf",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "07ffeeae550414c991aeac130d265514d92e6ebf74f85c506eead7309570db8b",
+        "operationSemanticsSha256": "4acb99c3fe6dbbe82db17f4bc1f07b334ec9592078bd20f02947952c12a4ae66",
+        "routeImportsSha256": "5ca857092663d703fdee6ed1a36cb3e516f62c4ffbecb075313b39ae9a9bf362",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-configuration.test.ts",
+        "observedOutcome": "provenance/qualification/549915537ed5069cc1e5f8242998bb829a5d4edbc2d39a61cd72324c08f28b5e.json",
+        "caseSha256": "c7949037cdfaf53451b5e960b9b43d37f593420f39d5e697c00367bc08ee89ad",
+        "outcomeSha256": "95f8ecb15a9c5a99d3beae9ed6582d4892d749cbcb5256ec31871b950189885b"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider interception-rule and parameter-filter handlers, source validation, management authorization and real SQLite key_value domain persistence execute after source receipt verification. Assertions exercise provider isolation, defaults, replacement, normalization, target drift, invalid inputs, backend faults and uncertain single-dispatch outcomes."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not qualify live or external database backends, session cryptography, IP filtering, body limits or native platform behavior. Upstream provides no atomic conditional write; another server client can race between target preflight and persistence."
+        }
+      ]
+    },
+    {
       "operationId": "GET /api/combos",
       "status": "verified",
       "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
@@ -16205,6 +16731,710 @@
         {
           "kind": "qualification-boundary",
           "detail": "Does not establish live database or catalog-cache behavior, session cryptography, IP filtering, body limits or native platform qualification. Upstream offers no atomic conditional alias write; external writers can race after the client preflight GET. The non-observable __proto__ model target is rejected."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/providers/{id}/interception-rules",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/interception-rules/route.ts",
+        "sha256": "f90e17db56ac7af8dabf94ad854094b58b41a85ab1185aaa6bf809b1a6412dee",
+        "gitBlobSha": "0c12336e9214d4705ed4f41e6cb474f96b976511"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!__proto__(?![\\s\\S]))[^\\s](?:[\\s\\S]*[^\\s])?$"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "interceptSearch": {
+                "type": "boolean"
+              },
+              "interceptFetch": {
+                "type": "boolean"
+              },
+              "fetchBackend": {
+                "type": "string",
+                "enum": [
+                  "firecrawl",
+                  "jina",
+                  "tavily"
+                ]
+              },
+              "fetchProxyUrl": {
+                "type": "string",
+                "format": "uri",
+                "maxLength": 2000
+              },
+              "models": {
+                "type": "object",
+                "x-key-role": "identifier",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "interceptSearch": {
+                      "type": "boolean"
+                    },
+                    "interceptFetch": {
+                      "type": "boolean"
+                    },
+                    "fetchBackend": {
+                      "type": "string",
+                      "enum": [
+                        "firecrawl",
+                        "jina",
+                        "tavily"
+                      ]
+                    },
+                    "fetchProxyUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "maxLength": 2000
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "interceptSearch": {
+                        "type": "boolean"
+                      },
+                      "interceptFetch": {
+                        "type": "boolean"
+                      },
+                      "fetchBackend": {
+                        "type": "string",
+                        "enum": [
+                          "firecrawl",
+                          "jina",
+                          "tavily"
+                        ]
+                      },
+                      "fetchProxyUrl": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2000
+                      },
+                      "models": {
+                        "type": "object",
+                        "x-key-role": "identifier",
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "interceptSearch": {
+                              "type": "boolean"
+                            },
+                            "interceptFetch": {
+                              "type": "boolean"
+                            },
+                            "fetchBackend": {
+                              "type": "string",
+                              "enum": [
+                                "firecrawl",
+                                "jina",
+                                "tavily"
+                              ]
+                            },
+                            "fetchProxyUrl": {
+                              "type": "string",
+                              "format": "uri",
+                              "maxLength": 2000
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": [
+            "fetchProxyUrl"
+          ]
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Source-defined provider configuration read; management authentication is required."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null
+      },
+      "binding": {
+        "requestSchemaSha256": "b1777f9dc37649894b1027bbf8f70c2afdf58c22a248a6060568f1a8a03c4065",
+        "authSha256": "3807761d01c79ce863e69aa24fe86c8c5014b495ad53b4b0552d61b99990c040",
+        "sideEffect": "read",
+        "responseProjectionSha256": "d666edec17df7c3b3daf82c84cffab8cacfb17d44075c6ce7cf42b3049fbd016",
+        "operationSemanticsSha256": "e723cb8d84749097cec54e8ac81bdc08718f494e9f4f61970a5c7ad45d22984d",
+        "routeImportsSha256": "fe1ddef71372dee08784e70aa1988fe4b55ffd5256651cf624e2ca02ab8fe26c",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-configuration.test.ts",
+        "observedOutcome": "provenance/qualification/586ef7cc485695ed687592ea60945f086f5248491d8f8fcb33f4184a2d36dc58.json",
+        "caseSha256": "c7949037cdfaf53451b5e960b9b43d37f593420f39d5e697c00367bc08ee89ad",
+        "outcomeSha256": "0154ae64f1f17233c168e3c0e92a225d07c709ef4c0121f5f0efef36a03b5e7c"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider interception-rule and parameter-filter handlers, source validation, management authorization and real SQLite key_value domain persistence execute after source receipt verification. Assertions exercise provider isolation, defaults, replacement, normalization, target drift, invalid inputs, backend faults and uncertain single-dispatch outcomes."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not qualify live or external database backends, session cryptography, IP filtering, body limits or native platform behavior. Upstream provides no atomic conditional write; another server client can race between target preflight and persistence."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/providers/{id}/param-filters",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/param-filters/route.ts",
+        "sha256": "87f4cf01c5fc5a1aa6fefef2590a5378b4ce9cf47b5f3fe5eddcd9e2ecccb1f0",
+        "gitBlobSha": "35ae1ed69d543fa3a5de453f66c50146a71b779f"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!__proto__(?![\\s\\S]))[\\s\\S]+$"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "block",
+              "allow",
+              "autoLearn"
+            ],
+            "properties": {
+              "block": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 500
+              },
+              "allow": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 500
+              },
+              "models": {
+                "type": "object",
+                "x-key-role": "identifier",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "block": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 500
+                    },
+                    "allow": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 500
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "autoLearn": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "block",
+                      "allow",
+                      "autoLearn"
+                    ],
+                    "properties": {
+                      "block": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "maxItems": 500
+                      },
+                      "allow": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "maxItems": 500
+                      },
+                      "models": {
+                        "type": "object",
+                        "x-key-role": "identifier",
+                        "additionalProperties": {
+                          "type": "object",
+                          "properties": {
+                            "block": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "maxItems": 500
+                            },
+                            "allow": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "maxItems": 500
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "autoLearn": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Source-defined provider configuration read; management authentication is required."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null
+      },
+      "binding": {
+        "requestSchemaSha256": "36a6625a77be1185e92868a5a7ca4ed8c9c483fa60bdd1c80973cbe7ac9401b2",
+        "authSha256": "3807761d01c79ce863e69aa24fe86c8c5014b495ad53b4b0552d61b99990c040",
+        "sideEffect": "read",
+        "responseProjectionSha256": "fea0317808e8bb9d9744d316f1d98cef27254fd6e7c0de25c15d4b8039d7e9e5",
+        "operationSemanticsSha256": "2b620661e54eef8cf3755873f581372fdd141fd37939acce6d4fb20a7f69ea16",
+        "routeImportsSha256": "5ca857092663d703fdee6ed1a36cb3e516f62c4ffbecb075313b39ae9a9bf362",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-configuration.test.ts",
+        "observedOutcome": "provenance/qualification/f42944d89125af4d44a558551f3dcb1f47336259d28c84a815ed8fc30e5ee0c0.json",
+        "caseSha256": "c7949037cdfaf53451b5e960b9b43d37f593420f39d5e697c00367bc08ee89ad",
+        "outcomeSha256": "31e114922c376536bdefa69966f5c9dd6ecb5c6c9ad4cc85f8bb68c664e1b5f7"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider interception-rule and parameter-filter handlers, source validation, management authorization and real SQLite key_value domain persistence execute after source receipt verification. Assertions exercise provider isolation, defaults, replacement, normalization, target drift, invalid inputs, backend faults and uncertain single-dispatch outcomes."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not qualify live or external database backends, session cryptography, IP filtering, body limits or native platform behavior. Upstream provides no atomic conditional write; another server client can race between target preflight and persistence."
         }
       ]
     },
@@ -44812,6 +46042,922 @@
         {
           "kind": "qualification-boundary",
           "detail": "Does not establish live database or catalog-cache behavior, session cryptography, IP filtering, body limits or native platform qualification. Upstream offers no atomic conditional alias write; external writers can race after the client preflight GET. The non-observable __proto__ model target is rejected."
+        }
+      ]
+    },
+    {
+      "operationId": "PUT /api/providers/{id}/interception-rules",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/interception-rules/route.ts",
+        "sha256": "f90e17db56ac7af8dabf94ad854094b58b41a85ab1185aaa6bf809b1a6412dee",
+        "gitBlobSha": "0c12336e9214d4705ed4f41e6cb474f96b976511"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!__proto__(?![\\s\\S]))[^\\s](?:[\\s\\S]*[^\\s])?$"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": {
+            "required": true,
+            "mediaType": "application/json",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "interceptSearch": {
+                  "type": "boolean"
+                },
+                "interceptFetch": {
+                  "type": "boolean"
+                },
+                "fetchBackend": {
+                  "type": "string",
+                  "enum": [
+                    "firecrawl",
+                    "jina",
+                    "tavily"
+                  ]
+                },
+                "fetchProxyUrl": {
+                  "type": "string",
+                  "format": "uri",
+                  "maxLength": 2000
+                },
+                "models": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "interceptSearch": {
+                        "type": "boolean"
+                      },
+                      "interceptFetch": {
+                        "type": "boolean"
+                      },
+                      "fetchBackend": {
+                        "type": "string",
+                        "enum": [
+                          "firecrawl",
+                          "jina",
+                          "tavily"
+                        ]
+                      },
+                      "fetchProxyUrl": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2000
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "contentVariants": [
+              {
+                "mediaType": "application/json",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "interceptSearch": {
+                      "type": "boolean"
+                    },
+                    "interceptFetch": {
+                      "type": "boolean"
+                    },
+                    "fetchBackend": {
+                      "type": "string",
+                      "enum": [
+                        "firecrawl",
+                        "jina",
+                        "tavily"
+                      ]
+                    },
+                    "fetchProxyUrl": {
+                      "type": "string",
+                      "format": "uri",
+                      "maxLength": 2000
+                    },
+                    "models": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "interceptSearch": {
+                            "type": "boolean"
+                          },
+                          "interceptFetch": {
+                            "type": "boolean"
+                          },
+                          "fetchBackend": {
+                            "type": "string",
+                            "enum": [
+                              "firecrawl",
+                              "jina",
+                              "tavily"
+                            ]
+                          },
+                          "fetchProxyUrl": {
+                            "type": "string",
+                            "format": "uri",
+                            "maxLength": 2000
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "specificationDocumented": true,
+          "sourceNormalizer": "omniroute-v3.8.52.provider-interception-rules"
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "admin"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "400",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "success"
+                    ],
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/interception-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/interception-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [
+            "fetchProxyUrl"
+          ],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Upserts this provider's complete configuration row after source validation; apply requires human confirmation and target-state revalidation."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": {
+          "targetRead": {
+            "operationId": "GET /api/providers/{id}/interception-rules",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "snapshot": {
+              "kind": "resource",
+              "identity": [],
+              "state": [
+                {
+                  "name": "config",
+                  "path": [],
+                  "sourceView": "omniroute-v3.8.52.provider-interception-rules"
+                }
+              ]
+            }
+          },
+          "reconcile": {
+            "operationId": "GET /api/providers/{id}/interception-rules",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "outcome": {
+              "kind": "matches",
+              "identityFields": [],
+              "stateFields": [
+                "config"
+              ],
+              "expectedFromInput": [
+                {
+                  "name": "config",
+                  "source": {
+                    "section": "body",
+                    "path": []
+                  },
+                  "sourceView": "omniroute-v3.8.52.provider-interception-rules"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "13e88517c8e027c621c6820aed33d10b088bb6d079669e745cfb8c5621692e13",
+        "authSha256": "a3e8d94484789ed4a33ab81f00f4a600fdcc860fef58905756c4df31c63d73cf",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "c25ea4e836207cce6d0f778695f295e61019a35d337b7c75508d0577907de6fa",
+        "operationSemanticsSha256": "bbbcb79bc66ce6a3dd6dfbdccac3b2c3e24a6e567be01eea36dacacc9e45b9de",
+        "routeImportsSha256": "fe1ddef71372dee08784e70aa1988fe4b55ffd5256651cf624e2ca02ab8fe26c",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-configuration.test.ts",
+        "observedOutcome": "provenance/qualification/15faeb2f5f993e2a46523c7053f6194c028a51f2ef470c89d667ce73773c3204.json",
+        "caseSha256": "c7949037cdfaf53451b5e960b9b43d37f593420f39d5e697c00367bc08ee89ad",
+        "outcomeSha256": "97ef6353cdcbb5abce564c5a7fdb4739b00e37237f3ba20a08018049bb7f6939"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider interception-rule and parameter-filter handlers, source validation, management authorization and real SQLite key_value domain persistence execute after source receipt verification. Assertions exercise provider isolation, defaults, replacement, normalization, target drift, invalid inputs, backend faults and uncertain single-dispatch outcomes."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not qualify live or external database backends, session cryptography, IP filtering, body limits or native platform behavior. Upstream provides no atomic conditional write; another server client can race between target preflight and persistence."
+        }
+      ]
+    },
+    {
+      "operationId": "PUT /api/providers/{id}/param-filters",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/param-filters/route.ts",
+        "sha256": "87f4cf01c5fc5a1aa6fefef2590a5378b4ce9cf47b5f3fe5eddcd9e2ecccb1f0",
+        "gitBlobSha": "35ae1ed69d543fa3a5de453f66c50146a71b779f"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!__proto__(?![\\s\\S]))[\\s\\S]+$"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": {
+            "required": true,
+            "mediaType": "application/json",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "block": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "maxItems": 500
+                },
+                "allow": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "maxItems": 500
+                },
+                "models": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "block": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "maxItems": 500
+                      },
+                      "allow": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "maxItems": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "autoLearn": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "contentVariants": [
+              {
+                "mediaType": "application/json",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "block": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 500
+                    },
+                    "allow": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
+                      "maxItems": 500
+                    },
+                    "models": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                          "block": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 500
+                          },
+                          "allow": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "maxItems": 500
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "autoLearn": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            ]
+          },
+          "specificationDocumented": true,
+          "sourceNormalizer": "omniroute-v3.8.52.provider-param-filters"
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "admin"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "400",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "success"
+                    ],
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/param-filters/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/param-filters/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Upserts this provider's complete configuration row after source validation; apply requires human confirmation and target-state revalidation."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": {
+          "targetRead": {
+            "operationId": "GET /api/providers/{id}/param-filters",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "snapshot": {
+              "kind": "resource",
+              "identity": [],
+              "state": [
+                {
+                  "name": "config",
+                  "path": [],
+                  "sourceView": "omniroute-v3.8.52.provider-param-filters"
+                }
+              ]
+            }
+          },
+          "reconcile": {
+            "operationId": "GET /api/providers/{id}/param-filters",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "outcome": {
+              "kind": "matches",
+              "identityFields": [],
+              "stateFields": [
+                "config"
+              ],
+              "expectedFromInput": [
+                {
+                  "name": "config",
+                  "source": {
+                    "section": "body",
+                    "path": []
+                  },
+                  "sourceView": "omniroute-v3.8.52.provider-param-filters"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "2e2fcaf9c1d160ffd0fe7e7f7e240786a10efb198964ef3e1f55ab961534bde5",
+        "authSha256": "a3e8d94484789ed4a33ab81f00f4a600fdcc860fef58905756c4df31c63d73cf",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "8c0beffe7fbd9fcffa32f050a9a7a770bf5986fbc99885eee90a98372a689f71",
+        "operationSemanticsSha256": "34be2f5d20a2b4059849cebf85111bb6c5a612ce3dc838744a62d5c76239a076",
+        "routeImportsSha256": "5ca857092663d703fdee6ed1a36cb3e516f62c4ffbecb075313b39ae9a9bf362",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-configuration.test.ts",
+        "observedOutcome": "provenance/qualification/b01bca40acfbe76209b0b389c42670a72eb43387f9bf2af17ac84a59ecf9d0e6.json",
+        "caseSha256": "c7949037cdfaf53451b5e960b9b43d37f593420f39d5e697c00367bc08ee89ad",
+        "outcomeSha256": "fa3f91fcc36b8993e00ef1cce6ed4c772dfa7dd769b462bdbf6e56392af88750"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider interception-rule and parameter-filter handlers, source validation, management authorization and real SQLite key_value domain persistence execute after source receipt verification. Assertions exercise provider isolation, defaults, replacement, normalization, target drift, invalid inputs, backend faults and uncertain single-dispatch outcomes."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not qualify live or external database backends, session cryptography, IP filtering, body limits or native platform behavior. Upstream provides no atomic conditional write; another server client can race between target preflight and persistence."
         }
       ]
     }

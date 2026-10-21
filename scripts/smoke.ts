@@ -709,8 +709,88 @@ type CommandOptions = {
   timeoutMs?: number;
   input?: string;
   inputSteps?: Array<{ afterMs: number; text: string }>;
-  dialogue?: Array<{ when: RegExp; text: string; afterMs?: number }>;
+  dialogue?: DialogueStep[];
 };
+
+export type DialogueStep = { when: RegExp; text: string; afterMs?: number };
+
+/**
+ * Drives prompt-based input without treating a prompt redraw as a new prompt
+ * while the previous response is still waiting to be written.
+ */
+export function createDialogueScheduler(
+  steps: readonly DialogueStep[],
+  dispatch: (step: DialogueStep, index: number) => Promise<void>,
+  onError: (error: unknown) => void = () => undefined,
+): { observe(chunk: string): boolean; cancel(): void; readonly completed: number } {
+  let completed = 0;
+  let pending = false;
+  let failed = false;
+  let cancelled = false;
+  let buffer = "";
+  let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const observe = (chunk: string): boolean => {
+    if (pending || failed || cancelled || completed >= steps.length) return false;
+    buffer = `${buffer}${chunk}`.slice(-32_768);
+    const step = steps[completed]!;
+    step.when.lastIndex = 0;
+    if (!step.when.test(stripVTControlCharacters(buffer).replace(/\r\n?/g, "\n"))) return false;
+
+    pending = true;
+    buffer = "";
+    const index = completed;
+    pendingTimer = setTimeout(() => {
+      pendingTimer = undefined;
+      void Promise.resolve().then(() => dispatch(step, index)).then(() => {
+        if (!cancelled) completed = index + 1;
+      }).catch(error => {
+        if (cancelled) return;
+        failed = true;
+        onError(error);
+      }).finally(() => {
+        if (!cancelled) {
+          pending = false;
+          buffer = "";
+        }
+      });
+    }, step.afterMs ?? 100);
+    return true;
+  };
+
+  return {
+    observe,
+    cancel() {
+      cancelled = true;
+      if (pendingTimer !== undefined) clearTimeout(pendingTimer);
+    },
+    get completed() { return completed; },
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function availableOperationDescriptionPattern(operationId: string): RegExp {
+  return new RegExp(`(?:^|[\\r\\n])[ \\t]*(?:│[ \\t]*)?${escapeRegExp(operationId)}[ \\t]*·[ \\t]*available[ \\t]*(?:│[ \\t]*)?(?=\\r*$)`, "im");
+}
+
+export function availableOperationMenuPattern(category: string, operationId: string): RegExp {
+  const description = availableOperationDescriptionPattern(operationId);
+  return new RegExp(`Operations in ${escapeRegExp(category)}[\\s\\S]{0,4000}${description.source}`, description.flags);
+}
+
+export function nativePtyDialogueText(text: string): string {
+  return text === "__ESC__" ? "\u001b" : text;
+}
+
+export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
+
+export function hasNativeAvailableOperationDescription(output: string, operationId: string): boolean {
+  const visible = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
+  return availableOperationDescriptionPattern(operationId).test(visible);
+}
 
 async function runCommand(command: string, args: string[], options: CommandOptions): Promise<CommandResult> {
   const timeout = options.timeoutMs ?? commandTimeoutMs;
@@ -719,27 +799,34 @@ async function runCommand(command: string, args: string[], options: CommandOptio
     let stdout = "";
     let stderr = "";
     let settled = false;
-    let dialogueCompleted = 0;
-    let dialogueBuffer = "";
+    let dialogueScheduler: ReturnType<typeof createDialogueScheduler> | undefined;
     const finish = (result: Omit<CommandResult, "dialogueCompleted">): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolvePromise({ ...result, dialogueCompleted });
+      dialogueScheduler?.cancel();
+      resolvePromise({ ...result, dialogueCompleted: dialogueScheduler?.completed ?? 0 });
     };
     const advanceDialogue = (chunk: string): void => {
       const dialogue = options.dialogue;
-      if (!dialogue || dialogueCompleted >= dialogue.length) return;
-      dialogueBuffer = `${dialogueBuffer}${chunk}`.slice(-32_768);
-      const visibleBuffer = stripVTControlCharacters(dialogueBuffer);
-      const step = dialogue[dialogueCompleted]!;
-      if (!step.when.test(visibleBuffer)) return;
-      dialogueCompleted++;
-      dialogueBuffer = "";
-      const delay = step.afterMs ?? 100;
-      setTimeout(() => child.stdin.write(step.text), delay).unref();
-      if (dialogueCompleted === dialogue.length) setTimeout(() => child.stdin.end(), delay + 250).unref();
+      if (!dialogue || !dialogueScheduler) return;
+      dialogueScheduler.observe(chunk);
     };
+    if (options.dialogue) {
+      dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, index) => {
+        await new Promise<void>((resolveWrite, rejectWrite) => {
+          if (child.stdin.destroyed || child.stdin.writableEnded) {
+            rejectWrite(new Error("command input closed before dialogue input was written"));
+            return;
+          }
+          child.stdin.write(_step.text, error => error ? rejectWrite(error) : resolveWrite());
+        });
+        if (index === options.dialogue!.length - 1) {
+          await new Promise<void>(resolveEnd => setTimeout(resolveEnd, 250));
+          child.stdin.end();
+        }
+      }, () => child.kill("SIGTERM"));
+    }
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 2_000).unref();
@@ -755,7 +842,10 @@ async function runCommand(command: string, args: string[], options: CommandOptio
       stderr += text;
       advanceDialogue(text);
     });
-    child.once("error", reject);
+    child.once("error", error => {
+      dialogueScheduler?.cancel();
+      reject(error);
+    });
     child.stdin.on("error", () => {});
     child.once("exit", (code, signal) => finish({ code, signal, stdout, stderr }));
     if (options.inputSteps && options.inputSteps.length > 0) {
@@ -774,21 +864,31 @@ async function runCommand(command: string, args: string[], options: CommandOptio
 
 async function runPtyCommand(binary: string, options: CommandOptions): Promise<CommandResult> {
   let stdout = "";
-  let dialogueCompleted = 0;
-  let dialogueBuffer = "";
   let timedOut = false;
   const decoder = new TextDecoder();
-  const writeInput = (term: Bun.Terminal, text: string): void => {
+  const writeInput = async (term: Bun.Terminal, text: string): Promise<void> => {
     if (!text.endsWith("\n")) {
       term.write(text);
       return;
     }
     term.write(text.slice(0, -1));
-    setTimeout(() => {
-      if (!term.closed) term.write("\r");
-    }, 150).unref();
+    await new Promise<void>((resolveWrite, rejectWrite) => {
+      setTimeout(() => {
+        if (term.closed) {
+          rejectWrite(new Error("terminal closed before dialogue input was written"));
+          return;
+        }
+        try {
+          term.write("\r");
+          resolveWrite();
+        } catch (error) {
+          rejectWrite(error);
+        }
+      }, 150).unref();
+    });
   };
   let child: Bun.Subprocess | undefined;
+  let dialogueScheduler: ReturnType<typeof createDialogueScheduler> | undefined;
   const terminal = new Bun.Terminal({
     cols: 160,
     rows: 50,
@@ -802,28 +902,25 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
           child?.kill("SIGTERM");
         }
       }
-      const dialogue = options.dialogue;
-      if (!dialogue || dialogueCompleted >= dialogue.length) return;
-      dialogueBuffer = `${dialogueBuffer}${text}`.slice(-32_768);
-      const visibleBuffer = stripVTControlCharacters(dialogueBuffer);
-      const step = dialogue[dialogueCompleted]!;
-      if (!step.when.test(visibleBuffer)) return;
-      dialogueCompleted++;
-      dialogueBuffer = "";
-      setTimeout(() => {
-        if (step.text === "__SIGTERM__") {
-          child?.kill("SIGTERM");
-        } else if (step.text === "__REFRESH_AND_STOP__") {
-          if (!term.closed) {
-            writeInput(term, "/cruxomni refresh\n");
-            setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
-          }
-        } else if (!term.closed) {
-          writeInput(term, step.text);
-        }
-      }, step.afterMs ?? 100).unref();
+      dialogueScheduler?.observe(text);
     },
   });
+  if (options.dialogue) {
+    dialogueScheduler = createDialogueScheduler(options.dialogue, async step => {
+      if (step.text === "__SIGTERM__") {
+        child?.kill("SIGTERM");
+        return;
+      }
+      if (step.text === "__REFRESH_AND_STOP__") {
+        if (terminal.closed) throw new Error("terminal closed before refresh dialogue input was written");
+        await writeInput(terminal, "/cruxomni refresh\n");
+        setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
+        return;
+      }
+      if (terminal.closed) throw new Error("terminal closed before dialogue input was written");
+      await writeInput(terminal, nativePtyDialogueText(step.text));
+    }, () => child?.kill("SIGTERM"));
+  }
   child = Bun.spawn([binary], {
     cwd: options.cwd,
     env: options.env,
@@ -837,11 +934,13 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
         if (step.text === "__SIGTERM__") child?.kill("SIGTERM");
         else if (step.text === "__ESC__") {
           if (!terminal.closed) terminal.write("\u001b");
-        } else if (!terminal.closed) writeInput(terminal, step.text);
+        } else if (!terminal.closed) {
+          void writeInput(terminal, step.text).catch(() => child?.kill("SIGTERM"));
+        }
       }, elapsed).unref();
     }
   } else if (!options.dialogue && options.input) {
-    writeInput(terminal, options.input);
+    void writeInput(terminal, options.input).catch(() => child?.kill("SIGTERM"));
   }
   const timeout = setTimeout(() => {
     timedOut = true;
@@ -850,13 +949,14 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
   }, options.timeoutMs ?? commandTimeoutMs);
   const code = await child.exited;
   clearTimeout(timeout);
+  dialogueScheduler?.cancel();
   if (!terminal.closed) terminal.close();
   return {
     code: timedOut ? null : code,
     signal: timedOut ? "SIGTERM" : child.signalCode,
     stdout,
     stderr: timedOut ? "command timeout" : "",
-    dialogueCompleted,
+    dialogueCompleted: dialogueScheduler?.completed ?? 0,
   };
 }
 
@@ -961,17 +1061,20 @@ async function nativePromptSetup(binary: string, cwd: string, environment: NodeJ
 }
 
 async function nativeAdminWalkthrough(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<void> {
-  const inputSteps = [
-    { afterMs: 6_000, text: "/cruxomni-admin status\n" },
-    { afterMs: 1_500, text: "/cruxomni-admin enable\n" },
-    { afterMs: 2_500, text: "y\n" },
-    { afterMs: 4_000, text: "/cruxomni-admin fallback/chains\n" },
-    { afterMs: 2_500, text: "__ESC__" },
-    { afterMs: 1_000, text: "/cruxomni-admin model-capability-overrides\n" },
-    { afterMs: 2_500, text: "__ESC__" },
-    { afterMs: 750, text: "__SIGTERM__" },
+  const prompt = nativeAdminPromptPattern;
+  const dialogue = [
+    { when: prompt, text: "/cruxomni-admin status\n", afterMs: 6_000 },
+    { when: prompt, text: "/cruxomni-admin enable\n", afterMs: 500 },
+    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
+    { when: prompt, text: "/cruxomni-admin fallback/chains\n", afterMs: 500 },
+    { when: /Administration category[\s\S]{0,1000}api\/fallback/i, text: "\n", afterMs: 250 },
+    { when: availableOperationMenuPattern("api/fallback", "GET /api/fallback/chains"), text: "__ESC__", afterMs: 500 },
+    { when: prompt, text: "/cruxomni-admin model-capability-overrides\n", afterMs: 500 },
+    { when: /Administration category[\s\S]{0,1000}api\/model-capability-overrides/i, text: "\n", afterMs: 250 },
+    { when: availableOperationMenuPattern("api/model-capability-overrides", "GET /api/model-capability-overrides"), text: "__ESC__", afterMs: 500 },
+    { when: prompt, text: "__SIGTERM__", afterMs: 250 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 35_000, inputSteps });
+  const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 45_000, dialogue });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   const requiredOperations = [
     "GET /api/fallback/chains",
@@ -981,15 +1084,15 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
     "PATCH /api/model-capability-overrides",
     "DELETE /api/model-capability-overrides",
   ];
-  if (result.signal !== "SIGTERM" && result.code !== 143) {
-    throw new Error(`native administration walkthrough did not stop after browser cancellation (exit ${result.code ?? "unknown"})`);
+  if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
+    throw new Error(`native administration walkthrough did not select both categories, cancel operation menus, and stop cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length}, exit ${result.code ?? "unknown"})`);
   }
   for (const operationId of requiredOperations) {
-    if (!output.includes(`${operationId} [available]`)) {
+    if (!hasNativeAvailableOperationDescription(output, operationId)) {
       throw new Error(`native administration browse did not show the source-qualified operation as available: ${operationId}`);
     }
   }
-  if (/operation failed|read result for|administration plan applied/i.test(output)) {
+  if (/operation failed|read result for|plan [a-z0-9-]+ created|administration plan applied/i.test(output)) {
     throw new Error("native administration walkthrough progressed beyond the operation browser");
   }
 }

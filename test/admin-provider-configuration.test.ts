@@ -39,10 +39,10 @@ const DELETE_PARAM_FILTERS = "DELETE /api/providers/{id}/param-filters";
 
 const REQUIRED_CASES: Readonly<Record<ProviderConfigurationOperationId, readonly string[]>> = {
   [GET_INTERCEPTION]: ["provider-scope-and-empty-default", "management-auth-guard", "storage-error"],
-  [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "management-auth-guard", "source-validation", "storage-error", "private-only-target-drift"],
+  [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "private-only-target-drift"],
   [DELETE_INTERCEPTION]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error"],
   [GET_PARAM_FILTERS]: ["source-defaults-and-provider-scope", "management-auth-guard", "storage-error"],
-  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "management-auth-guard", "source-validation", "storage-error"],
+  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error"],
   [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error"],
 };
 
@@ -222,6 +222,19 @@ async function directRequest(
   });
 }
 
+async function malformedJsonRequest(
+  fixture: ProviderConfigurationFixture,
+  operationId: ProviderConfigurationOperationId,
+  providerId: string,
+): Promise<Response> {
+  const family = operationId.includes("interception-rules") ? "interception-rules" : "param-filters";
+  return fetch(`${fixture.endpoint}/api/providers/${encodeURIComponent(providerId)}/${family}`, {
+    method: "PUT",
+    headers: { authorization: ["Bearer", MANAGEMENT_KEY].join(" "), "content-type": "application/json" },
+    body: "{",
+  });
+}
+
 async function confirmedApply(executor: AdminExecutor, planId: string, signal?: AbortSignal) {
   return executor.apply(planId, {
     confirmed: true,
@@ -302,6 +315,91 @@ describe("pinned provider configuration management semantics", () => {
       const body = operationId.startsWith("PUT ") ? {} : undefined;
       expect((await directRequest(fixture, operationId, "anonymous-provider", undefined, body)).status).toBe(401);
     }
+  });
+
+  test("interception routes reject padded client IDs while upstream reads stay raw and writes canonicalize", async () => {
+    const fixture = new ProviderConfigurationFixture({
+      interception: { "provider-a": { interceptSearch: true } },
+    });
+    const harness = setup(fixture);
+
+    const paddedRead = await directRequest(fixture, GET_INTERCEPTION, " provider-a ", "Bearer fixture-management-key");
+    expect(paddedRead.status).toBe(200);
+    expect(await paddedRead.json()).toEqual({});
+    const paddedPut = await directRequest(fixture, PUT_INTERCEPTION, " provider-a ", "Bearer fixture-management-key", {
+      interceptSearch: false,
+    });
+    expect(paddedPut.status).toBe(200);
+    expect(fixture.hasStoredConfiguration("interception-rules", "provider-a")).toBe(true);
+    expect(fixture.hasStoredConfiguration("interception-rules", " provider-a ")).toBe(false);
+    expect(fixture.interception("provider-a")).toEqual({ interceptSearch: false });
+
+    const countsBeforeClientRejection = PROVIDER_CONFIGURATION_OPERATION_IDS.map(operationId => fixture.count(operationId));
+    await expect(harness.executor.read(GET_INTERCEPTION, { path: { id: " provider-a " } }))
+      .rejects.toMatchObject({ code: "invalid-input" });
+    await expect(harness.executor.plan(PUT_INTERCEPTION, {
+      path: { id: " provider-a " },
+      body: { interceptSearch: true },
+    })).rejects.toMatchObject({ code: "invalid-input" });
+    await expect(harness.executor.plan(DELETE_INTERCEPTION, { path: { id: " provider-a " } }))
+      .rejects.toMatchObject({ code: "invalid-input" });
+    expect(PROVIDER_CONFIGURATION_OPERATION_IDS.map(operationId => fixture.count(operationId)))
+      .toEqual(countsBeforeClientRejection);
+    expect(harness.responses.size).toBe(0);
+  });
+
+  test("both upstream readers hide persisted __proto__ rows and every client operation rejects that identifier", async () => {
+    const interceptionSeed = JSON.parse('{"__proto__":{"interceptSearch":true}}') as Record<string, JsonValue>;
+    const paramFilterSeed = JSON.parse('{"__proto__":{"block":["temperature"],"allow":[],"autoLearn":true}}') as Record<string, JsonValue>;
+    const fixture = new ProviderConfigurationFixture({
+      interception: interceptionSeed,
+      paramFilters: paramFilterSeed,
+    });
+    const harness = setup(fixture);
+
+    expect(fixture.hasStoredConfiguration("interception-rules", "__proto__")).toBe(true);
+    expect(fixture.hasStoredConfiguration("param-filters", "__proto__")).toBe(true);
+    const interception = await directRequest(fixture, GET_INTERCEPTION, "__proto__", "Bearer fixture-management-key");
+    expect(interception.status).toBe(200);
+    expect(await interception.json()).toEqual({});
+    const paramFilters = await directRequest(fixture, GET_PARAM_FILTERS, "__proto__", "Bearer fixture-management-key");
+    expect(paramFilters.status).toBe(200);
+    expect(await paramFilters.json()).toEqual({ block: [], allow: [], autoLearn: false });
+
+    const countsBeforeClientRejection = PROVIDER_CONFIGURATION_OPERATION_IDS.map(operationId => fixture.count(operationId));
+    for (const operationId of PROVIDER_CONFIGURATION_OPERATION_IDS) {
+      const method = operationId.slice(0, operationId.indexOf(" "));
+      const input = {
+        path: { id: "__proto__" },
+        ...(method === "PUT" ? { body: operationId.includes("interception-rules") ? { interceptSearch: true } : { block: ["temperature"] } } : {}),
+      };
+      if (method === "GET") {
+        await expect(harness.executor.read(operationId, input)).rejects.toMatchObject({ code: "invalid-input" });
+      } else {
+        await expect(harness.executor.plan(operationId, input)).rejects.toMatchObject({ code: "invalid-input" });
+      }
+    }
+    expect(PROVIDER_CONFIGURATION_OPERATION_IDS.map(operationId => fixture.count(operationId)))
+      .toEqual(countsBeforeClientRejection);
+    expect(harness.responses.size).toBe(0);
+  });
+
+  test("param-filter provider identifiers retain upstream raw whitespace semantics", async () => {
+    const fixture = new ProviderConfigurationFixture();
+    const harness = setup(fixture);
+    const rawId = " provider-a ";
+
+    const stored = await directRequest(fixture, PUT_PARAM_FILTERS, rawId, "Bearer fixture-management-key", {
+      block: ["temperature"],
+    });
+    expect(stored.status).toBe(200);
+    expect(fixture.hasStoredConfiguration("param-filters", rawId)).toBe(true);
+    expect(fixture.hasStoredConfiguration("param-filters", "provider-a")).toBe(false);
+    const read = await harness.executor.read(GET_PARAM_FILTERS, { path: { id: rawId } });
+    expect(read.output).toEqual({ block: ["temperature"], allow: [], autoLearn: false });
+    const canonicalRead = await directRequest(fixture, GET_PARAM_FILTERS, "provider-a", "Bearer fixture-management-key");
+    expect(canonicalRead.status).toBe(200);
+    expect(await canonicalRead.json()).toEqual({ block: [], allow: [], autoLearn: false });
   });
 
   test("GET interception rules preserves provider-local settings and the absent-row empty response", async () => {
@@ -402,12 +500,39 @@ describe("pinned provider configuration management semantics", () => {
     expect(fixture.interception("provider-b")).toEqual({ interceptSearch: true });
     expect(fixture.count(PUT_INTERCEPTION)).toBe(1);
 
+    const malformed = await malformedJsonRequest(fixture, PUT_INTERCEPTION, "provider-a");
+    expect(malformed.status).toBe(400);
+    expect(fixture.interception("provider-a")).toEqual({
+      interceptSearch: true,
+      fetchBackend: "firecrawl",
+      fetchProxyUrl: "https://proxy.example/new-route",
+      models: { "model/one": { interceptSearch: false } },
+    });
+    mark(PUT_INTERCEPTION, "malformed-json");
+
+    const sourceNormalized = await directRequest(fixture, PUT_INTERCEPTION, "provider-source", "Bearer fixture-management-key", {
+      fetchProxyUrl: " https://proxy.example/source-trimmed ",
+      models: {
+        " model/source ": { interceptFetch: false, ignoredRuleField: "stripped" },
+        "model/source": { interceptSearch: true },
+        empty: {},
+      },
+      ignoredTopLevelField: "stripped",
+    });
+    expect(sourceNormalized.status).toBe(200);
+    expect(fixture.interception("provider-source")).toEqual({
+      fetchProxyUrl: "https://proxy.example/source-trimmed",
+      models: { "model/source": { interceptSearch: true } },
+    });
+    mark(PUT_INTERCEPTION, "pinned-source-normalization");
+
     const invalid = await directRequest(fixture, PUT_INTERCEPTION, "provider-a", "Bearer fixture-management-key", { fetchBackend: "unknown" });
     expect(invalid.status).toBe(400);
     const afterApply = safeInterceptionState(fixture.interception("provider-a"));
     fixture.failNextWrite();
     const failedStorage = await directRequest(fixture, PUT_INTERCEPTION, "provider-a", "Bearer fixture-management-key", {});
     expect(failedStorage.status).toBe(500);
+    expect(await failedStorage.text()).not.toContain("access_token=fixture");
     expect(safeInterceptionState(fixture.interception("provider-a"))).toEqual(afterApply);
     const after = {
       providerA: safeInterceptionState(fixture.interception("provider-a")),
@@ -433,8 +558,20 @@ describe("pinned provider configuration management semantics", () => {
     const path = { id: "provider-a" };
     const before = await harness.executor.read(GET_INTERCEPTION, { path });
     const plan = await harness.executor.plan(PUT_INTERCEPTION, { path, body: { interceptSearch: false } });
+    const sourceStrip = await directRequest(fixture, PUT_INTERCEPTION, "provider-a", "Bearer fixture-management-key", {
+      interceptSearch: true,
+      fetchProxyUrl: "https://proxy.example/original",
+      ignoredUpstreamField: "must be stripped",
+      models: { "empty-after-strip": { ignoredRuleField: "must also be stripped" } },
+    });
+    expect(sourceStrip.status).toBe(200);
+    expect(fixture.interception("provider-a")).toEqual({
+      interceptSearch: true,
+      fetchProxyUrl: "https://proxy.example/original",
+    });
     const external = await directRequest(fixture, PUT_INTERCEPTION, "provider-a", "Bearer fixture-management-key", {
-      interceptSearch: true, fetchProxyUrl: "https://proxy.example/replaced",
+      interceptSearch: true,
+      fetchProxyUrl: "https://proxy.example/replaced",
     });
     expect(external.status).toBe(200);
     const after = await harness.executor.read(GET_INTERCEPTION, { path });
@@ -444,7 +581,8 @@ describe("pinned provider configuration management semantics", () => {
     await expect(confirmedApply(harness.executor, plan.planId)).rejects.toMatchObject({ code: "target-drift" });
     expect(fixture.count(PUT_INTERCEPTION)).toBe(writesBeforeApply);
     expect(fixture.interception("provider-a")).toEqual({
-      interceptSearch: true, fetchProxyUrl: "https://proxy.example/replaced",
+      interceptSearch: true,
+      fetchProxyUrl: "https://proxy.example/replaced",
     });
     mark(PUT_INTERCEPTION, "private-only-target-drift");
   });
@@ -464,6 +602,7 @@ describe("pinned provider configuration management semantics", () => {
     fixture.failNextWrite();
     const failedStorage = await directRequest(fixture, DELETE_INTERCEPTION, "provider-a", "Bearer fixture-management-key");
     expect(failedStorage.status).toBe(500);
+    expect(await failedStorage.text()).not.toContain("access_token=fixture");
     expect(safeInterceptionState(fixture.interception("provider-a"))).toEqual(before.providerA);
     mark(DELETE_INTERCEPTION, "storage-error");
 
@@ -525,6 +664,7 @@ describe("pinned provider configuration management semantics", () => {
     fixture.failNextRead();
     const failed = await directRequest(fixture, GET_PARAM_FILTERS, "provider-a", "Bearer fixture-management-key");
     expect(failed.status).toBe(500);
+    expect(await failed.text()).not.toContain("fixture_saved_key_value");
     const after = {
       providerA: safeParamState(fixture.paramFilters("provider-a")),
       providerB: safeParamState(fixture.paramFilters("provider-b")),
@@ -573,12 +713,42 @@ describe("pinned provider configuration management semantics", () => {
     });
     expect(fixture.paramFilters("provider-b")).toEqual(before.providerB);
     expect(fixture.count(PUT_PARAM_FILTERS)).toBe(1);
+
+    const malformed = await malformedJsonRequest(fixture, PUT_PARAM_FILTERS, "provider-a");
+    expect(malformed.status).toBe(400);
+    expect(fixture.paramFilters("provider-a")).toEqual({
+      block: ["temperature", "top_p", "temperature"],
+      allow: [],
+      autoLearn: false,
+      models: { "model/one": { allow: ["stop"] } },
+    });
+    mark(PUT_PARAM_FILTERS, "malformed-json");
+
+    const sourceNormalized = await directRequest(fixture, PUT_PARAM_FILTERS, "provider-source", "Bearer fixture-management-key", {
+      block: [" source_name ", "top_p", "source_name "],
+      models: {
+        " model/source ": { block: ["temperature"], ignoredRuleField: "stripped" },
+        "model/source": { allow: [" stop "] },
+        empty: {},
+      },
+      ignoredTopLevelField: "stripped",
+    });
+    expect(sourceNormalized.status).toBe(200);
+    expect(fixture.paramFilters("provider-source")).toEqual({
+      block: ["source_name", "top_p", "source_name"],
+      allow: [],
+      autoLearn: false,
+      models: { "model/source": { allow: ["stop"] } },
+    });
+    mark(PUT_PARAM_FILTERS, "pinned-source-normalization");
+
     const invalid = await directRequest(fixture, PUT_PARAM_FILTERS, "provider-a", "Bearer fixture-management-key", { block: ["  "] });
     expect(invalid.status).toBe(400);
     const afterApply = safeParamState(fixture.paramFilters("provider-a"));
     fixture.failNextWrite();
     const failedStorage = await directRequest(fixture, PUT_PARAM_FILTERS, "provider-a", "Bearer fixture-management-key", {});
     expect(failedStorage.status).toBe(500);
+    expect(await failedStorage.text()).not.toContain("access_token=fixture");
     expect(safeParamState(fixture.paramFilters("provider-a"))).toEqual(afterApply);
     const after = {
       providerA: safeParamState(fixture.paramFilters("provider-a")),
@@ -611,6 +781,7 @@ describe("pinned provider configuration management semantics", () => {
     fixture.failNextWrite();
     const failedStorage = await directRequest(fixture, DELETE_PARAM_FILTERS, "provider-a", "Bearer fixture-management-key");
     expect(failedStorage.status).toBe(500);
+    expect(await failedStorage.text()).not.toContain("access_token=fixture");
     expect(safeParamState(fixture.paramFilters("provider-a"))).toEqual(before.providerA);
     mark(DELETE_PARAM_FILTERS, "storage-error");
 

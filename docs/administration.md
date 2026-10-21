@@ -12,6 +12,11 @@ administration is enabled. Enable it with `/cruxomni-admin enable`. Use
 needed and uses separate management credentials; the runtime key used for chat
 does not automatically authorize server changes.
 
+Search opens a category selector followed by an operation selector. Each
+operation shows whether it is available. Use the arrow keys and Enter to
+select; long lists also support typing to filter. Press Escape to cancel before
+selecting an operation. You can also supply an exact operation ID directly.
+
 Use the [generated operation inventory](reference/generated.md#operation-inventory)
 to distinguish qualified operations, unfinished operations, and source-justified
 exceptions. A route appearing in that inventory does not make it callable. The
@@ -47,6 +52,29 @@ retains fields you leave out. The client checks the selected mapping before
 writing and uses the expected persisted state to reconcile a lost response
 without repeating the request. External writers can still race between that
 check and the write because these routes provide no atomic conditional update.
+
+## Configure one provider
+
+Search for `interception-rules` or `param-filters` to inspect a provider's
+interception rules or parameter filters. Each family supports reading, replacing,
+and deleting that provider's configuration. An absent interception configuration
+reads as an empty object; absent parameter filters use empty allow/block lists
+and disabled automatic learning.
+
+For interception rules, use the provider ID without leading or trailing
+whitespace. Both configuration families reject the reserved provider ID
+`__proto__`: the server can store it but cannot return its current state, so the
+client cannot safely preview a change. Parameter-filter IDs otherwise retain
+the server's exact spelling, including whitespace.
+
+A replacement supplies the complete configuration rather than merging it with
+the current value. Inspect the preview carefully, including model-specific
+rules. Target checks include private fields hidden from the displayed preview.
+Deleting the configuration restores the server's default read result. A lost
+delete response stays unknown: a read cannot distinguish a deleted row from a
+stored empty configuration. The client never repeats that delete automatically.
+These operations share the same confirmation and client write queue as other
+administration changes.
 
 ## Review changes before applying
 
