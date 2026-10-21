@@ -1,6 +1,6 @@
 # Third-party notices
 
-OhMyPie OmniRoute Plugin interoperates with Oh My Pi and OmniRoute. Their names and
+OMP OmniRoute Provider interoperates with Oh My Pi and OmniRoute. Their names and
 trademarks belong to their respective owners. No upstream artwork is included
 in this repository's original visual asset pack.
 

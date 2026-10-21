@@ -1,7 +1,7 @@
 {
   "name": "@cruxexperts/cruxomni-omp-client",
   "version": "0.1.1",
-  "description": "OhMyPie OmniRoute Plugin for Oh My Pi with guided setup, live discovery, and verified administration",
+  "description": "OMP OmniRoute Provider for Oh My Pi with guided setup, live discovery, and verified administration",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/CruxExperts/OMP-OmniRoute-Provider.git"
@@ -46,7 +46,7 @@
     "SUPPORT.md"
   ],
   "omp": {
-    "name": "OhMyPie OmniRoute Plugin",
+    "name": "OMP OmniRoute Provider",
     "settings": {
       "showSetupInvitation": {
         "type": "boolean",

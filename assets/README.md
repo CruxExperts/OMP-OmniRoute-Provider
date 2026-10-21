@@ -1,9 +1,10 @@
 # Media sources and exports
 
-The `brand/` collection uses the current public display name **OhMyPie OmniRoute
-Plugin** for an OMP client. The bracket mark represents the client boundary; the
-teal connection represents a route through the gateway. The navy and teal palette
-keeps terminal-oriented artwork readable.
+The `brand/` collection uses the current public display name **OMP OmniRoute
+Provider**. Its wordmarks lead with “OMP” and “OmniRoute Provider,” with “OH MY PI
+PROVIDER” identifying the client context. The bracket mark represents the client
+boundary; the teal connection represents a route through the gateway. The navy
+and teal palette keeps terminal-oriented artwork readable.
 
 Run `python3 scripts/export-media.py` with Python 3, Pillow, and DejaVu Sans
 available to reproduce both the editable SVG sources and PNG exports. The manifest

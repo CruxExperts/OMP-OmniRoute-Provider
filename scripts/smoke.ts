@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual, stripVTControlCharacters } from "node:util";
+import { DISPLAY_NAME } from "../src/identity.ts";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
 
 type JsonObject = Record<string, unknown>;
@@ -1049,12 +1050,12 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
 async function nativeWizardCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ rendered: boolean; cancelled: boolean }> {
   const dialogue = [
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/cruxomni setup\n", afterMs: 4_000 },
-    { when: /OhMyPie OmniRoute Plugin\s+—\s+Setup/i, text: "\u001b", afterMs: 500 },
+    { when: new RegExp(`${DISPLAY_NAME}\\s+—\\s+Setup`, "i"), text: "\u001b", afterMs: 500 },
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 35_000, dialogue });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
-  const rendered = /OhMyPie OmniRoute Plugin\s+—\s+Setup/i.test(output) && /Connection/i.test(output) && /Administration \(optional\)/i.test(output);
+  const rendered = new RegExp(`${DISPLAY_NAME}\\s+—\\s+Setup`, "i").test(output) && /Connection/i.test(output) && /Administration \(optional\)/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;
   if (!rendered || !cancelled || (result.code !== 0 && result.code !== 143 && result.signal !== "SIGTERM")) throw new Error(`guided wizard did not render and cancel cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length})`);
   const transcriptPath = process.env.OMP_SMOKE_TRANSCRIPT_PATH;

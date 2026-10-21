@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "productName": "OhMyPie OmniRoute Plugin",
-  "providerName": "OMP Provider",
+  "productName": "OMP OmniRoute Provider",
+  "providerName": "Oh My Pi provider",
   "repositoryName": "OMP-OmniRoute-Provider",
   "sourceVersion": "0.1.1",
   "copyright": "Copyright \u00a9 2026 Crux Experts LLC",
@@ -20,59 +20,59 @@
   "files": [
     {
       "path": "assets/brand/banner.png",
-      "sha256": "33aa2efd36306505434bd619b4936f76663f6f0ebb698a43e08b5b25cea75172"
+      "sha256": "05bd6c7135580e1053e7ededc1b1da719a459160890b328dabe96806436c6044"
     },
     {
       "path": "assets/brand/banner.svg",
-      "sha256": "aa388fe4c1db835ac65f7ab96e615fa1a8ec7d670fddb839d316bc6ac5b060bf"
+      "sha256": "19b07eeb098c469ceef29f6557bcfadd587105e980fa9743e5aeaa30536f16d5"
     },
     {
       "path": "assets/brand/icon-dark.png",
-      "sha256": "c529d09964b04ccf59311468d05a0deb3ca4a6eee8c4a40e70649415696432f8"
+      "sha256": "f133a8ab6f738b4857ce1544e36aca0b68d05afcab7d6749eb3001d22d27ba42"
     },
     {
       "path": "assets/brand/icon-dark.svg",
-      "sha256": "bdfa431d9ce2a31df5f2f8f7f94fb9f8bc51213d78d4ef203e313206c73ebffe"
+      "sha256": "9bcf7e9e79e243ed47391b0931b42ac09f19f797d6ae6dce96041cfefad55ed4"
     },
     {
       "path": "assets/brand/icon-light.png",
-      "sha256": "2f26656f2d8d7e1e6ff0e2a48d790198c3cee39f2e80d990f739a0f02927ca36"
+      "sha256": "cb2156733bab7b0486c563b8d6ba796f725b8d5c20aa153a512082664f0a80ff"
     },
     {
       "path": "assets/brand/icon-light.svg",
-      "sha256": "3698cc70a4e379cd1485edce47b09215b86dfe226b003b96a684e87e09bbd0b0"
+      "sha256": "32aaaefcc43935a25559c07303e2c0213e1ebd7945635a0538ccf3ca188f8938"
     },
     {
       "path": "assets/brand/social.png",
-      "sha256": "ff3a2fd9dbfa8e6bc75a284c93367a78f82498321757f6e1b4d2bc0f0b288171"
+      "sha256": "2720339dd6569fbb0d74cb4c6fd01bcffdf147c97b564a61a558c188aef4f3da"
     },
     {
       "path": "assets/brand/social.svg",
-      "sha256": "ec88eefa2325e66589398c15698588c2716b0c684fcf05110913cf74df39ebaf"
+      "sha256": "4ffbc4713f6d0b09069c79f80bba66074182bba658100c918c24a987997b50fb"
     },
     {
       "path": "assets/brand/square.png",
-      "sha256": "7f90277411bac0d18f0887b691d0f504cf47333ada487da807b72ad5d063dfa4"
+      "sha256": "4e9305f2da294b200ef4c76706eef0bc5f036596b5c76acc872576edca21a506"
     },
     {
       "path": "assets/brand/square.svg",
-      "sha256": "44564f47b91621d0f577fd468d35b7b7ad52fb35e3c06755eee8f6c58e2f1bcc"
+      "sha256": "a29a653b95294fa542e780d512a202652a35ae1130bfcac9534d2e2d195b2f9d"
     },
     {
       "path": "assets/brand/wordmark-dark.png",
-      "sha256": "db777c9adbf758de8428563bcf6ee7ad161144c9d3f4790828de926d287cb3cf"
+      "sha256": "7252b8dd7903d6144f8bae2b3c25962d50abc07ff9a10941f85c1f0e3fa773d7"
     },
     {
       "path": "assets/brand/wordmark-dark.svg",
-      "sha256": "c34284e61277b3c56095ba0ee35fa24869151f421ffc2105bac68adf8f0d43b7"
+      "sha256": "6d3a7d2a97679c5894bf9beecaa5e96697844c7309bdc69ea37c0e1cce7b9775"
     },
     {
       "path": "assets/brand/wordmark-light.png",
-      "sha256": "9d80872b38d094f97a1d431f275ed660c9ffb7f81e235de7bca0c86321e454b0"
+      "sha256": "d9ae18b88cbecc3ade219092fc3be3296bc8e434e07bc301059fa285d69afc34"
     },
     {
       "path": "assets/brand/wordmark-light.svg",
-      "sha256": "1582a722474de9af660778f714aff32f6647e9cf76ff4747591cb93378be072e"
+      "sha256": "fa06ecd8fe2eb5ea7e9e4e6dda0294affcc3c52223e6db6b767011e9dd6b018f"
     }
   ]
 }

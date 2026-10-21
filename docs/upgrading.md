@@ -13,7 +13,7 @@ Restart OMP, run `/cruxomni`, and refresh discovery. The package identity and
 OmniRoute server. Existing environment variable names and native runtime
 credential storage remain the configuration owners.
 
-The current public display name is **OhMyPie OmniRoute Plugin**. The existing
+The current public display name is **OMP OmniRoute Provider**. The existing
 `/cruxomni` commands and package identity remain in use for compatibility; this
 branding change does not reset stored credentials or OMP profile configuration.
 

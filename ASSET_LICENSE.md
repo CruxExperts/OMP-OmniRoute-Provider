@@ -1,12 +1,12 @@
-# OhMyPie OmniRoute Plugin visual asset license
+# OMP OmniRoute Provider visual asset license
 
 Copyright © 2026 Crux Experts LLC. All rights reserved.
 
 The original artwork in `assets/` is not licensed under the repository's MIT
 License. Crux Experts LLC grants users of this project a non-exclusive,
 revocable permission to display unmodified copies of those assets solely to
-identify, describe, link to, review, list, or demonstrate the OhMyPie OmniRoute
-Plugin (OMP-OmniRoute-Provider). That project-reference display grant includes
+identify, describe, link to, review, list, or demonstrate the OMP OmniRoute
+Provider (OMP-OmniRoute-Provider). That project-reference display grant includes
 GitHub pages, package listings, marketplace entries, articles, and screenshots
 that accurately refer to this project.
 

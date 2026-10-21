@@ -2,10 +2,10 @@
   "$schema": "./marketplace.schema.json",
   "schemaVersion": 1,
   "id": "cruxomni-omp-client",
-  "name": "OhMyPie OmniRoute Plugin",
+  "name": "OMP OmniRoute Provider",
   "package": "@cruxexperts/cruxomni-omp-client",
   "version": "0.1.1",
-  "description": "OhMyPie OmniRoute Plugin connects Oh My Pi to OmniRoute with guided setup, live discovery, and guarded administration.",
+  "description": "OMP OmniRoute Provider connects Oh My Pi to OmniRoute with guided setup, live discovery, and guarded administration.",
   "entrypoint": "./src/index.ts",
   "compatibility": {
     "host": ">=18.12.2 <19",

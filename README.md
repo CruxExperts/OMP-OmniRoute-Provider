@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/brand/banner.png" alt="OhMyPie OmniRoute Plugin: your gateway, inside Oh My Pi" width="100%">
+  <img src="assets/brand/banner.png" alt="OMP OmniRoute Provider: your gateway, inside Oh My Pi" width="100%">
 </p>
 
-<h1 align="center">OhMyPie OmniRoute Plugin</h1>
+<h1 align="center">OMP OmniRoute Provider</h1>
 
 [![CI](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/workflows/ci.yml/badge.svg)](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/source-MIT-blue)](LICENSE)
@@ -19,7 +19,7 @@
 
 ## Why use it?
 
-OhMyPie OmniRoute Plugin is an OMP extension that connects to your existing OmniRoute server.
+OMP OmniRoute Provider is an OMP extension that connects to your existing OmniRoute server.
 The server runs your gateway and manages provider accounts; the client provides
 setup, live model discovery, inference, and qualified administration inside OMP:
 
@@ -56,7 +56,7 @@ optional, so the wizard can stay as simple as you need it to be.
 </p>
 
 This genuine capture is from an earlier CruxOmni-branded development build; its
-visible name predates **OhMyPie OmniRoute Plugin**. It documents the setup flow in
+visible name predates **OMP OmniRoute Provider**. It documents the setup flow in
 an isolated OMP session with disposable data. The [short native walkthrough and
 text alternative](assets/native/omp-18.12.5/walkthrough.md) also show the earlier
 administration browser. The capture cancels before an administration request and

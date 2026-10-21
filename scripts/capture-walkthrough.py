@@ -409,7 +409,7 @@ def render_terminal(ansi: str, output: Path, font_path: Path, alt: str) -> tuple
             draw.rectangle((x, y, x + cell_width, y + cell_height), fill=bg)
             draw.text((x, y - bbox[1] + 1), character, fill=fg, font=bold_font if bold else font)
     metadata = PngImagePlugin.PngInfo()
-    metadata.add_text("Title", "OhMyPie OmniRoute Plugin native terminal capture — OMP 18.12.5")
+    metadata.add_text("Title", "OMP OmniRoute Provider native terminal capture — OMP 18.12.5")
     metadata.add_text("Description", alt)
     metadata.add_text("Copyright", OWNER)
     metadata.add_text("Website", WEBSITE)
@@ -604,7 +604,7 @@ def main() -> int:
         frames = [json.loads(line) for line in recorder.frames_path.read_text(encoding="utf-8").splitlines()]
         wizard = selected_frame(
             frames,
-            lambda value: "OhMyPie OmniRoute Plugin" in value and "Setup" in value and "Connection" in value and "Administration (optional)" in value,
+            lambda value: "OMP OmniRoute Provider" in value and "Setup" in value and "Connection" in value and "Administration (optional)" in value,
             "setup wizard",
         )
         fallback = selected_frame(
@@ -629,7 +629,7 @@ def main() -> int:
                 "model-capability administration browser": "admin-model-capability-overrides.png",
             }[item["label"]]
             alt = {
-                "setup wizard": "Oh My Pi terminal showing OhMyPie OmniRoute Plugin's setup wizard menu with Connection, Metadata, Catalogs, Administration, Pricing, Summary, and Finish choices. The walkthrough cancels before entering configuration.",
+                "setup wizard": "Oh My Pi terminal showing OMP OmniRoute Provider's setup wizard menu with Connection, Metadata, Catalogs, Administration, Pricing, Summary, and Finish choices. The walkthrough cancels before entering configuration.",
                 "fallback-chain administration browser": "Oh My Pi terminal administration browser showing fallback-chain operations as available in this captured source snapshot, plus the operation prompt. The walkthrough cancels before sending a request; later release eligibility may differ.",
                 "model-capability administration browser": "Oh My Pi terminal administration browser showing model-capability-override operations as available in this captured source snapshot, plus the operation prompt. The walkthrough cancels before sending a request; later release eligibility may differ.",
             }[item["label"]]
@@ -694,7 +694,7 @@ SOFTWARE.
             tool_evidence["tools"]["ffmpeg"], "-hide_banner", "-loglevel", "error", "-y",
             "-framerate", "4", "-i", str(video_dir / "frame-%05d.png"),
             "-an", "-c:v", "mpeg4", "-q:v", "4", "-threads", "1", "-pix_fmt", "yuv420p", "-r", "4",
-            "-movflags", "+faststart", "-metadata", "title=OhMyPie OmniRoute Plugin native setup and administration walkthrough",
+            "-movflags", "+faststart", "-metadata", "title=OMP OmniRoute Provider native setup and administration walkthrough",
             "-metadata", f"copyright={OWNER}", "-metadata", f"artist=Crux Experts LLC; {WEBSITE}",
             "-metadata", f"comment={RIGHTS} {THIRD_PARTY}", str(video_path),
         ]
@@ -709,7 +709,7 @@ SOFTWARE.
 
         accessible = f"""# Native OMP setup and administration walkthrough
 
-This walkthrough was captured from a real Oh My Pi (OMP) 18.12.5 process running the built OhMyPie OmniRoute Plugin in an isolated native Linux x64 terminal. The terminal UI was mirrored from its Bun PTY into a private tmux 3.4 server, then rendered from captured terminal cells. It was not drawn from the fixture illustrations and it was not captured from a desktop.
+This walkthrough was captured from a real Oh My Pi (OMP) 18.12.5 process running the built OMP OmniRoute Provider in an isolated native Linux x64 terminal. The terminal UI was mirrored from its Bun PTY into a private tmux 3.4 server, then rendered from captured terminal cells. It was not drawn from the fixture illustrations and it was not captured from a desktop.
 
 The setup screenshot shows the actual setup menu: Connection, Metadata (optional), Catalogs (optional), Administration (optional), Pricing (optional), Summary, and Finish. The setup flow was cancelled before any credentials or configuration were entered.
 

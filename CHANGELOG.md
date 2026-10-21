@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to OhMyPie OmniRoute Plugin are recorded here.
+All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## Unreleased
 

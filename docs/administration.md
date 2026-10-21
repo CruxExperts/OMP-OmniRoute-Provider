@@ -1,6 +1,6 @@
 # Administration
 
-OhMyPie OmniRoute Plugin runs inside Oh My Pi. OmniRoute runs the gateway and owns its accounts,
+OMP OmniRoute Provider runs inside Oh My Pi. OmniRoute runs the gateway and owns its accounts,
 providers, keys, routing rules, and access controls. Installing this client does
 not install or configure an OmniRoute server.
 

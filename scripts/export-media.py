@@ -10,9 +10,10 @@ from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 
 ROOT = Path(__file__).resolve().parent.parent
 DEST = ROOT / "assets/brand"
-PRODUCT_NAME = "OhMyPie OmniRoute Plugin"
+PRODUCT_NAME = "OMP OmniRoute Provider"
 REPOSITORY_NAME = "OMP-OmniRoute-Provider"
-PROVIDER_NAME = "OMP Provider"
+PROVIDER_NAME = "Oh My Pi provider"
+CLIENT_LABEL = "OH MY PI PROVIDER"
 COPYRIGHT = "Copyright © 2026 Crux Experts LLC"
 WEBSITE = "https://www.cruxexperts.com/"
 RIGHTS = "Private asset. Property of Crux Experts LLC. Use, reproduction, modification, distribution, or publication without prior written permission is prohibited."
@@ -85,18 +86,18 @@ def main():
 
         wordmark = Drawing(f"wordmark-{theme}",1000,240,background,f"{PRODUCT_NAME}, identified as the {PROVIDER_NAME}, with the routed connection symbol.")
         wordmark.mark(30,30,180,foreground)
-        wordmark.text(248,32,"OhMyPie",54,foreground,True)
-        wordmark.text(252,96,"OmniRoute Plugin",38,foreground,True)
-        wordmark.text(254,159,"OMP PROVIDER",22,ACCENT,True)
+        wordmark.text(248,32,"OMP",54,foreground,True)
+        wordmark.text(252,96,"OmniRoute Provider",38,foreground,True)
+        wordmark.text(254,159,CLIENT_LABEL,22,ACCENT,True)
         wordmark.save()
 
     for name,width,height in [("social",1280,640),("banner",1600,640),("square",1080,1080)]:
         art = Drawing(name,width,height,DARK,f"{PRODUCT_NAME}, the {PROVIDER_NAME}. Connect Oh My Pi to your OmniRoute gateway with guided setup, live models, and reviewed administration.")
         art.line([(64,64),(width-64,64)],ACCENT,3)
         art.mark(68,112,200,LIGHT)
-        art.text(310,102,"OhMyPie",70,LIGHT,True)
-        art.text(314,183,"OmniRoute Plugin",48,LIGHT,True)
-        art.text(318,253,"OMP PROVIDER",28,ACCENT,True)
+        art.text(310,102,"OMP",70,LIGHT,True)
+        art.text(314,183,"OmniRoute Provider",48,LIGHT,True)
+        art.text(318,253,CLIENT_LABEL,28,ACCENT,True)
         top=400 if height==640 else 500
         art.text(80,top,"Your OmniRoute gateway, inside Oh My Pi.",36,LIGHT)
         art.text(82,top+62,"Guided setup  /  Live models  /  Reviewed changes",23,MUTED)
