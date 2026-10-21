@@ -74,6 +74,14 @@ function adminHarness(
     response: { ...mutationSource.response, schema: { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false, required: [] } },
     coverage: { status: "invokable", adapterId: "typed.fixture.mutation", reason: null },
     reconciliation: relation,
+    mutationSafety: {
+      preflight: { kind: "required", observations: [{
+        name: "synthetic-target", read: relation.targetRead,
+        readCompleteness: { kind: "single-response", sourceReason: "The synthetic regression reader returns the complete target in one response." },
+      }] },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null },
+    },
   };
   const descriptors = [mutation, targetRead];
   const registry = fixtureRegistry(descriptors);
@@ -82,7 +90,9 @@ function adminHarness(
     readTarget,
     dispatch: async (request, context) => {
       dispatches += 1;
-      return dispatchOverride ? dispatchOverride(request, context) : { ok: true };
+      const result = dispatchOverride ? await dispatchOverride(request, context) : { ok: true };
+      if (result && typeof result === "object" && "status" in result && result.status === "operator-required") return result;
+      return { kind: "response", status: 200, body: result };
     },
   });
   executor.bindCredential({ profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT, apiKey: "fixture-management-key" });

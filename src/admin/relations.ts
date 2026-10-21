@@ -1,6 +1,9 @@
-import { canonicalizeJson, RegistryError, type OperationReconciliationRelation, type ReconciliationFieldMapping, type ReconciliationProjectedField, type ValidatedOperationInput } from "./registry.ts";
+import { canonicalizeJson, RegistryError, type OperationDescriptor, type OperationReadCompleteness, type OperationReconciliationRelation, type ReconciliationFieldMapping, type ReconciliationProjectedField, type ValidatedOperationInput } from "./registry.ts";
 import type { JsonObject, JsonValue } from "./types.ts";
-import { sourceStateView, sourceRelationSnapshot, sourceRelationExpectedPayload } from "./source-normalization.ts";
+import { sourceStateView, sourceRelationSnapshot, sourceRelationExpectedPayload, sourceUnpaginatedListProofMatches } from "./source-normalization.ts";
+
+const MAX_COMPLETE_LIST_ROWS = 10_000;
+const MAX_COMPLETE_LIST_BYTES = 8 * 1024 * 1024;
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -14,6 +17,38 @@ function field(value: unknown, path: readonly string[]): unknown {
     current = (current as Record<string, unknown>)[key];
   }
   return current;
+}
+
+export function assertSafetyReadRequest(proof: OperationReadCompleteness, descriptor: OperationDescriptor, input: ValidatedOperationInput): void {
+  if (!proof.sourceReason || (proof.kind === "single-response" && descriptor.pagination.mode !== "none")) {
+    throw new RegistryError("invalid-inventory", "safety read completeness is not source qualified", descriptor.operationId);
+  }
+  if (proof.kind === "unpaginated-list") {
+    if (descriptor.pagination.mode !== "offset" || !sourceUnpaginatedListProofMatches(descriptor.operationId, proof)
+      || Object.hasOwn(input.query, "limit") || Object.hasOwn(input.query, "offset")) {
+      throw new RegistryError("invalid-inventory", "safety list read is paginated or not source bound", descriptor.operationId);
+    }
+  }
+}
+
+/** Validate the raw complete list before a source view can select an absent row. */
+export function assertSafetyReadResponse(proof: OperationReadCompleteness, descriptor: OperationDescriptor, response: unknown): void {
+  if (proof.kind === "single-response") return;
+  if (!sourceUnpaginatedListProofMatches(descriptor.operationId, proof)) throw new RegistryError("invalid-inventory", "safety list proof is not source bound", descriptor.operationId);
+  const rows = field(response, proof.itemsPath);
+  const total = field(response, proof.totalPath);
+  if (!Array.isArray(rows) || !Number.isSafeInteger(total) || (total as number) < 0 || (total as number) > MAX_COMPLETE_LIST_ROWS
+    || rows.length !== total || Buffer.byteLength(JSON.stringify(response), "utf8") > MAX_COMPLETE_LIST_BYTES) {
+    throw new RegistryError("invalid-inventory", "safety list response is incomplete or oversized", descriptor.operationId);
+  }
+  const identities = new Set<string>();
+  for (const row of rows) {
+    const parts = proof.identityPaths.map(path => field(row, path));
+    if (parts.some(part => typeof part !== "string" || part.length === 0)) throw new RegistryError("invalid-inventory", "safety list identity is invalid", descriptor.operationId);
+    const identity = canonicalizeJson(parts);
+    if (identities.has(identity)) throw new RegistryError("invalid-inventory", "safety list identity is duplicated", descriptor.operationId);
+    identities.add(identity);
+  }
 }
 
 function json(value: unknown, depth = 0): JsonValue {

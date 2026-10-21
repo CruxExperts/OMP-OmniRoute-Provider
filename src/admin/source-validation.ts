@@ -80,6 +80,116 @@ const MAX_PROVIDER_CREDENTIAL_LENGTH = 100_000;
 const MAX_PROVIDER_SPECIFIC_TIMEOUT_MS = 86_400_000;
 const OPENROUTER_PRESET_MAX_LENGTH = 200;
 
+// Derived by executing isManagedProviderConnectionId and the route's compatible/no-auth checks from the pinned provider catalog.
+// catalog.ts SHA-256: 88f9e0cdcf50212d32787fa4619e4c38af466a9aac4f859aa8aa89fd8b9fa8d3
+// providers.ts SHA-256: ef98615ab91f7208d0692e61cee2f41b7ea206f74c181ab971157893ea4d05e8
+// The independent regression loads these and all category leaf catalogs through route-sources.json SHA-256 receipts.
+const MANUAL_PROVIDER_CREATE_IDS: ReadonlySet<string> = new Set<string>([
+  "1min", "360ai", "aai", "adapta-web", "adobe-firefly",
+  "adp-web", "af", "agentrouter", "agnes", "agnes-cn",
+  "agnescn", "ai21", "aihorde", "aiml", "aimlapi",
+  "ainative", "aion", "ali", "ali-cn", "alibaba",
+  "alibaba-cn", "ant-ling", "anthropic", "anyapi", "anysearch",
+  "anysearch-search", "api-airforce", "apmix", "arcee", "arcee-ai",
+  "assemblyai", "aug", "auggie", "auriko", "aws-polly",
+  "azure", "azure-ai", "azure-openai", "bai", "baichuan",
+  "baidu", "bailian-coding-plan", "baseten", "bazaarlink", "bb",
+  "bb-web", "bcp", "beatapi", "bedrock", "bfl",
+  "bigmodel", "black-forest-labs", "blackbox", "blackbox-web", "bluesminds",
+  "bm", "bpm", "brave-search", "byteplus", "bytez",
+  "bzl", "cartesia", "cbai", "cbcn", "cerebras",
+  "cf", "cfp", "cgpt-codex", "charm-hyper", "chat-oripe",
+  "chatanywhere", "chatgpt-web", "chatgpt-web-codex", "chatplayground", "cheaperinference",
+  "chenzk", "chutes", "cinf", "cl", "clarifai",
+  "claude-web", "cline", "clinepass", "cloudcode-one", "cloudflare-ai",
+  "cloudflare-playground", "clova", "clova-studio", "cmd", "cnl",
+  "codebuddy-cn", "codebuddy-intl", "codestral", "codex-app-server", "codex-cloud",
+  "cohere", "comfyui", "command-code", "conol-web", "context7",
+  "copilot", "copilot-m365-web", "copilot-web", "coze", "cp",
+  "cpl", "crof", "cua", "cursor-api", "cw",
+  "cxa", "dahl", "dai", "daoxe", "databricks",
+  "datarobot", "db", "ddgw", "deepai", "deepgram",
+  "deepinfra", "deepseek", "deepseek-web", "demonroute", "devin",
+  "devin-cli-agentic", "dg", "dgrid", "dify", "digitalocean",
+  "dit", "dmr", "docker-model-runner", "doubao", "doubao-web",
+  "ds", "ds-web", "duckduckgo-web", "dva", "dxnt",
+  "el", "electronhub", "elevenlabs", "empower", "eurouter",
+  "exa-search", "factory", "faik", "fal", "fal-ai",
+  "fastrouter", "fc", "featherless", "featherless-ai", "fenayai",
+  "firecrawl", "firefly", "fireworks", "fishaudio", "fmd",
+  "free-ai", "freeaiapikey", "freebuff", "freeinference", "freemodel-dev",
+  "freepik", "freetheai", "friendli", "friendliai", "fta",
+  "g4f-gemini", "g4f-groq", "g4f-nvidia", "g4f-ollama", "g4f-pollinations",
+  "g4fgem", "g4fgroq", "g4fnv", "g4foll", "g4fpol",
+  "galadriel", "gemini", "gemini-web", "getgoapi", "ggo",
+  "gigachat", "gitlab", "gitlawb", "gitlawb-gmi", "gladia",
+  "glb", "glb-gmi", "glm", "glm-cn", "glmcn",
+  "glmt", "google-pse", "google-pse-search", "greenpt", "grok-web",
+  "groq", "gw", "gweb", "ha", "haiper",
+  "hcnsec", "helixmind", "helyxai", "heroku", "hf",
+  "horde", "hp", "huggingchat", "huggingface", "hyp",
+  "hyperagent", "hyperbolic", "ideo", "ideogram", "if",
+  "iflytek", "in-ai", "inception", "inet", "inference-net",
+  "inner-ai", "internlm", "inworld", "jina", "jina-ai",
+  "jina-reader", "jr", "jules", "kc", "kenari",
+  "kg", "kie", "kilo-gateway", "kilocode", "kimi",
+  "kimi-coding-apikey", "kimi-web", "kmca", "lambda", "lambda-ai",
+  "laozhang", "lc", "lemonade", "leo", "leonardo",
+  "ling", "linkup", "linkup-search", "liquid", "literouter",
+  "llama-cpp", "llamacpp", "llamafile", "llamagate", "llm-kiwi",
+  "llm7", "llmgateway", "llmkiwi", "lm-studio", "lma",
+  "lmarena", "lmstudio", "logfare", "longcat", "lyceum",
+  "lz", "m365copilot", "magnific", "maritalk", "maxai",
+  "mc", "mdl", "meganova-ai", "meta", "meta-llama",
+  "mimo", "mimotp", "minimax", "minimax-cn", "mistral",
+  "mixedbread", "mixlayer", "mlx-gemma", "mlx-qwen", "mnn-ai",
+  "modal", "modelscope", "monster", "monsterapi", "moonshot",
+  "morph", "ms", "ms-web", "muse-code", "muse-spark-web",
+  "mx", "mxbai", "naga", "naga-ac", "naga-ai",
+  "nan", "nanogpt", "nara", "navy", "nebius",
+  "nimble", "nimble-search", "nlpc", "nlpcloud", "nomic",
+  "notion-web", "notrack-web", "nous", "nous-research", "novita",
+  "nscale", "ntw", "nube", "nvidia", "nw",
+  "oad", "oci", "ofa", "ofoxai", "ollama",
+  "ollama-cloud", "ollama-local", "ollama-search", "ollamacloud", "oneminai",
+  "onomeo", "ooba", "oobabooga", "openadapter", "openai",
+  "opencode-go", "opencode-zen", "openference-api", "openrouter", "openvecta",
+  "opper", "orcarouter", "ovh", "ovhcloud", "parallel",
+  "parallel-search", "perplexity", "perplexity-agent", "perplexity-search", "perplexity-web",
+  "pi", "piapi", "pioneer", "plamo", "playht",
+  "pn", "poe", "poe-web", "poixe-ai", "pol",
+  "pollinations", "polly", "poolside", "pplx", "pplx-agent",
+  "pplx-search", "pplx-web", "pql", "predibase", "promptql",
+  "publicai", "qct", "qianfan", "qiniu", "qoder",
+  "qwc", "qwen-cloud", "qwen-cloud-token-plan", "recraft", "regolo",
+  "reka", "requesty", "rev-ai", "revai", "routeway",
+  "runway", "runwayml", "samba", "sambanova", "sap",
+  "sarvam", "scaleway", "scw", "sdwebui", "sealion",
+  "searchapi", "searchapi-search", "searxng", "searxng-search", "seekai",
+  "segmind", "sensenova", "serper-search", "siliconflow", "ska",
+  "sm", "snowflake", "soniox", "sparkdesk", "speechmatics",
+  "speka", "stability", "stability-ai", "stepfun", "stx",
+  "sumopod", "sx", "synthetic", "syntx", "t3-web",
+  "t3chat", "tabitoken", "tasw", "tavily-search", "tcw",
+  "tencent", "tencent-aistudio-web", "tf", "thebai", "tinycms-web",
+  "tinyfish", "tk", "tm", "together", "token-kiosk",
+  "tokenmarket", "tokenreply", "tokenrouter", "topaz", "triton",
+  "trk", "twinmind", "typesafe", "typhoon", "uc",
+  "uc-direct", "ucd", "ucn", "udio", "unc",
+  "uncloseai", "unifically", "unorouter", "upstage", "v0",
+  "v0-vercel", "v0-vercel-web", "vag", "veap", "vecp",
+  "ven", "venice", "venice-web", "veo-free", "veoaifree-web",
+  "vercel-ai-gateway", "vertex", "vertex-partner", "vllm", "void-ai",
+  "volcengine", "volcengine-agent-plan", "volcengine-coding-plan", "voyage", "voyage-ai",
+  "vp", "wafer", "wandb", "watsonx", "writer",
+  "x-search", "x5lab", "x_search", "xai", "xiaomi-mimo",
+  "xiaomi-mimo-token-plan", "xinference", "xkiro", "xquik", "xquik-search",
+  "y-api", "ybw", "yi", "yolo-auto", "youcom-search",
+  "yuanbao-web", "zai", "zai-web", "zc", "zcode",
+  "zenmux", "zenmux-free", "zerolimitai", "zm", "zmf",
+  "zw", "zylo", "zylo-api"
+]);
+
 // Data copied from shared/constants/providers/noauth.ts at the pinned commit.
 // Deliberately keep an ordinary-object prototype because upstream uses `in`
 // against NOAUTH_PROVIDERS when classifying optional API keys.
@@ -223,6 +333,12 @@ export function sourceProviderAllowsOptionalApiKey(provider: unknown): boolean {
 /** Mirrors the route's stricter own-property check for registered no-auth providers. */
 export function sourceHasNoAuthProvider(provider: unknown): boolean {
   return typeof provider === "string" && Object.hasOwn(NOAUTH_PROVIDER_IDS, provider);
+}
+
+function isManualProviderCreateAllowed(provider: string): boolean {
+  return MANUAL_PROVIDER_CREATE_IDS.has(provider) ||
+    provider.startsWith(OPENAI_COMPATIBLE_PREFIX) ||
+    provider.startsWith(ANTHROPIC_COMPATIBLE_PREFIX);
 }
 
 // ECMAScript String.prototype.trim whitespace, checked by code unit to avoid
@@ -651,13 +767,12 @@ export function sourceRequestIssue(
     if (provider === "google-pse-search" && !hasNonEmptyString(providerSpecificData.cx)) {
       return fail("providerSpecificData.cx", "is required and must not be blank");
     }
-    if (provider === "ghe-copilot" && !hasNonEmptyString(providerSpecificData.gheUrl)) {
-      return fail("providerSpecificData.gheUrl", "is required and must not be blank");
-    }
   } else if (provider === "google-pse-search") {
     return fail("providerSpecificData.cx", "is required and must not be blank");
-  } else if (provider === "ghe-copilot") {
-    return fail("providerSpecificData.gheUrl", "is required and must not be blank");
+  }
+
+  if (!isManualProviderCreateAllowed(provider)) {
+    return fail("provider", "is not eligible for manual API-key creation");
   }
 
   return undefined;

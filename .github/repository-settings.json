@@ -1,6 +1,6 @@
 {
   "status": "prepared-not-applied",
-  "repository": "CruxExperts/CruxOmni-OMP-Client",
+  "repository": "CruxExperts/OMP-OmniRoute-Provider",
   "description": "Connect Oh My Pi to OmniRoute with guided setup, live models, and guarded administration.",
   "topics": [
     "ai-gateway",

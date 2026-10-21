@@ -2,10 +2,10 @@
   "$schema": "./marketplace.schema.json",
   "schemaVersion": 1,
   "id": "cruxomni-omp-client",
-  "name": "CruxOmni-OMP-Client",
+  "name": "OhMyPie OmniRoute Plugin",
   "package": "@cruxexperts/cruxomni-omp-client",
   "version": "0.1.1",
-  "description": "Crux Experts OmniRoute client for Oh My Pi with guided setup, live discovery, and verified administration.",
+  "description": "OhMyPie OmniRoute Plugin connects Oh My Pi to OmniRoute with guided setup, live discovery, and guarded administration.",
   "entrypoint": "./src/index.ts",
   "compatibility": {
     "host": ">=18.12.2 <19",
@@ -15,9 +15,9 @@
     ]
   },
   "repository": {
-    "url": "https://github.com/CruxExperts/CruxOmni-OMP-Client",
-    "homepage": "https://github.com/CruxExperts/CruxOmni-OMP-Client#readme",
-    "issues": "https://github.com/CruxExperts/CruxOmni-OMP-Client/issues"
+    "url": "https://github.com/CruxExperts/OMP-OmniRoute-Provider",
+    "homepage": "https://github.com/CruxExperts/OMP-OmniRoute-Provider#readme",
+    "issues": "https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues"
   },
   "license": "MIT",
   "publisher": "Crux Experts LLC",

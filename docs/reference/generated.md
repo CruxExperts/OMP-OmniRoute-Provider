@@ -45,7 +45,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/cli-tools | 0 | 77 | 0 |
 | api/cloud | 0 | 5 | 0 |
 | api/codex | 0 | 2 | 0 |
-| api/combos | 13 | 0 | 0 |
+| api/combos | 6 | 7 | 0 |
 | api/compliance | 0 | 1 | 0 |
 | api/compression | 0 | 7 | 0 |
 | api/conductor | 0 | 5 | 0 |
@@ -82,7 +82,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/memory | 0 | 12 | 0 |
 | api/middleware | 0 | 5 | 0 |
 | api/modality-bridge | 0 | 6 | 0 |
-| api/model-capability-overrides | 3 | 0 | 0 |
+| api/model-capability-overrides | 1 | 2 | 0 |
 | api/model-combo-mappings | 5 | 0 | 0 |
 | api/models | 0 | 9 | 0 |
 | api/monitoring | 0 | 3 | 0 |
@@ -96,9 +96,9 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/pricing | 0 | 8 | 0 |
 | api/provider-metrics | 0 | 1 | 0 |
 | api/provider-models | 0 | 6 | 0 |
-| api/provider-nodes | 0 | 5 | 0 |
+| api/provider-nodes | 1 | 4 | 0 |
 | api/provider-stats | 0 | 1 | 0 |
-| api/providers | 8 | 69 | 0 |
+| api/providers | 9 | 68 | 0 |
 | api/proxy-fallback | 0 | 1 | 0 |
 | api/quota | 0 | 19 | 0 |
 | api/radar | 0 | 26 | 0 |

@@ -350,11 +350,11 @@ function verifySchemaShapes(): void {
   const definitions = requireObject(eligibilitySchema.$defs, "eligibility schema definitions");
   const contract = requireObject(definitions.operationContract, "eligibility operation contract schema");
   const rootProperties = requireObject(eligibilitySchema.properties, "eligibility schema properties");
-  if (requireObject(rootProperties.schemaVersion, "eligibility schema version").const !== 2 || contract.additionalProperties !== false) {
+  if (requireObject(rootProperties.schemaVersion, "eligibility schema version").const !== 3 || contract.additionalProperties !== false) {
     throw new Error("eligibility operation contract schema is not closed/versioned");
   }
   const contractProperties = requireObject(contract.properties, "eligibility operation contract properties");
-  const requiredContract = ["request", "auth", "response", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "reconciliation"].sort(compareText);
+  const requiredContract = ["request", "auth", "response", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "reconciliation", "mutationSafety"].sort(compareText);
   if (canonical([...requireArray(contract.required, "operation contract required")].map(String).sort(compareText)) !== canonical(requiredContract)
     || canonical(Object.keys(contractProperties).sort(compareText)) !== canonical(requiredContract)) {
     throw new Error("eligibility operation contract schema fields drift");

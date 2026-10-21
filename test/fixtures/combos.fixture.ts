@@ -379,6 +379,35 @@ function contractFor(operationId: string): OperationSourceContract {
   }
   const isRead = operationId.startsWith("GET ");
   const isTest = operationId === "POST /api/combos/test";
+  const targetRelation = isRead || isTest ? null : relation(operationId);
+  const metricsReset = operationId === "DELETE /api/combos/metrics";
+  const preflight = isTest
+    ? { kind: "unavailable" as const, reason: "The charged test resolves mutable combo and provider targets that no source-qualified read observes before dispatch." }
+    : metricsReset && targetRelation
+      ? { kind: "required" as const, observations: [{
+          name: "metrics-reset-scope",
+          read: targetRelation.targetRead,
+          readCompleteness: { kind: "single-response" as const, sourceReason: "The pinned GET returns one selected production/shadow metrics object or null, or the complete exposed map for all production/shadow names. Neither response exposes standalone persisted-skip counters or names present only in that hidden counter map." },
+        }],
+        visibilityLimits: [
+          "A named GET returns that name's metrics object or null; null means no exposed production or shadow metrics, not that hidden persisted-skip state is absent.",
+          "An all-name GET exposes production and shadow metrics entries; standalone persisted-skip counters and names present only in that counter map are omitted.",
+          "The all-name JSON map omits a metric named __proto__; a named GET can still observe that name directly.",
+          "A named reset deletes production metrics, shadow metrics, and the selected name's persisted-skip counter.",
+          "Reset-all deletes all three counter maps and stops the metrics cleanup interval until module reload.",
+        ] as const,
+      }
+    : operationId === "PUT /api/combos/{id}" || operationId === "PATCH /api/combos/{id}"
+      ? { kind: "unavailable" as const, reason: "The update handler reads the mutable full combo collection for normalization, name collision, and DAG checks; the paginated collection GET has no complete-list proof." }
+    : targetRelation?.targetRead.operationId === "GET /api/combos"
+      ? { kind: "unavailable" as const, reason: "The collection read is paginated and has no source-qualified complete-list proof; absence and dependency state cannot be established." }
+      : targetRelation
+        ? { kind: "required" as const, observations: [{
+            name: "combo-target",
+            read: targetRelation.targetRead,
+            readCompleteness: { kind: "single-response" as const, sourceReason: "The pinned GET returns the complete selected combo or metric target in one response without pagination." },
+          }] }
+        : { kind: "unavailable" as const, reason: "No source-qualified preflight read resolves the mutation target." };
   const contract: OperationSourceContract = { ...base, request, auth: operationAuth(base.auth, operationId), sideEffect: isRead ? "read" : "mutation",
     secrets: { ...base.secrets, outputFields: [...base.secrets.outputFields, "providers.connections.lastError", "config.apiKey"] },
     pagination: operationId === "GET /api/combos" ? { mode: "offset", parameters: ["limit", "offset"] } : { mode: "none", parameters: [] },
@@ -386,7 +415,12 @@ function contractFor(operationId: string): OperationSourceContract {
     confirmation: { required: !isRead, reason: isRead ? "Source-defined management-authorized read." : isTest ? "Combo test executes configured model requests that may incur external cost." : "Human confirmation is required before applying this combo management mutation." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
     response: responseContract(base.response, operationId, RESPONSE_SCHEMAS[operationId] ?? ERROR_SCHEMA),
-    reconciliation: isRead || isTest ? null : relation(operationId) };
+    reconciliation: targetRelation,
+    mutationSafety: isRead ? null : {
+      preflight,
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+    } };
   return contract;
 }
 
@@ -483,6 +517,15 @@ export class CombosHttpFixture {
   rejectNextProbe(model: string): void {
     if (!model.trim()) throw new Error("A probe model id is required for the controlled fixture failure");
     this.#rejectedProbeModels.add(model);
+  }
+  recordHiddenPersistedSkipBypass(name: string): void {
+    (this.#handlers.metrics as unknown as { recordPersistedSkipBypass(name: string): void }).recordPersistedSkipBypass(name);
+  }
+  hiddenPersistedSkipBypasses(name: string): number {
+    return (this.#handlers.metrics as unknown as { getPersistedSkipBypassed(name: string): number }).getPersistedSkipBypassed(name);
+  }
+  recordComboMetrics(name: string): void {
+    this.#handlers.metrics.recordComboRequest(name, "fixture/chat", { success: true, latencyMs: 7, strategy: "priority" });
   }
   get state(): JsonValue {
     return sanitizePrivateFixtureState({

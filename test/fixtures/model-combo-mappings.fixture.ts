@@ -386,6 +386,43 @@ function sourceContract(operationId: ModelComboMappingFixtureOperationId): Opera
     }),
   };
   const mutation = operationId !== "GET /api/model-combo-mappings" && operationId !== "GET /api/model-combo-mappings/{id}";
+  const reconciliation = mutation ? sourceReconciliation(operationId) : null;
+  const deletePreflightRead = {
+    operationId: "GET /api/model-combo-mappings/{id}",
+    inputs: [{ target: { section: "path" as const, field: "id" }, source: { section: "path" as const, path: ["id"] } }],
+    snapshot: {
+      kind: "resource" as const,
+      identity: [{ name: "id", path: ["mapping", "id"] }],
+      state: ["pattern", "comboId", "priority", "enabled", "description"].map(name => ({ name, path: ["mapping", name] })),
+    },
+  };
+  const preflightRead = operationId === "DELETE /api/model-combo-mappings/{id}"
+    ? deletePreflightRead
+    : reconciliation?.targetRead;
+  const readCompleteness = create
+    ? {
+        kind: "unpaginated-list" as const,
+        sourceReason: "The pinned v3.8.52 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
+        itemsPath: ["mappings"],
+        totalPath: ["total"],
+        identityPaths: [["id"]],
+      }
+    : {
+        kind: "single-response" as const,
+        sourceReason: "The pinned v3.8.52 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination.",
+      };
+  const mutationSafety: NonNullable<OperationSourceContract["mutationSafety"]> | null = !mutation ? null : {
+    preflight: {
+      kind: "required",
+      observations: [{
+        name: create ? "model-combo-mapping-collection" : update ? "selected-model-combo-mapping" : "selected-model-combo-delete-target",
+        read: preflightRead!,
+        readCompleteness,
+      }],
+    },
+    reconciliation: { kind: "unknown" },
+    settlement: { responseComplete: { statusCodes: [create ? 201 : 200] }, definiteRejection: null },
+  };
   return {
     ...base,
     request,
@@ -402,7 +439,8 @@ function sourceContract(operationId: ModelComboMappingFixtureOperationId): Opera
         : "Source-defined ordinary mapping read; the management authorization boundary remains enforced.",
     },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
-    reconciliation: mutation ? sourceReconciliation(operationId) : null,
+    reconciliation,
+    mutationSafety,
   };
 }
 

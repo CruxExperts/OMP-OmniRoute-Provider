@@ -1,5 +1,8 @@
 {
   "schemaVersion": 1,
+  "productName": "OhMyPie OmniRoute Plugin",
+  "providerName": "OMP Provider",
+  "repositoryName": "OMP-OmniRoute-Provider",
   "sourceVersion": "0.1.1",
   "copyright": "Copyright \u00a9 2026 Crux Experts LLC",
   "source": "https://www.cruxexperts.com/",
@@ -17,59 +20,59 @@
   "files": [
     {
       "path": "assets/brand/banner.png",
-      "sha256": "bc35d6edd75df8d395626eb150db55da2bffe8927a606e20a1a664a74b60e44e"
+      "sha256": "33aa2efd36306505434bd619b4936f76663f6f0ebb698a43e08b5b25cea75172"
     },
     {
       "path": "assets/brand/banner.svg",
-      "sha256": "3fbb777ae86d47268724403e03bb622c3235a3031559be648f5551511e3c4d80"
+      "sha256": "aa388fe4c1db835ac65f7ab96e615fa1a8ec7d670fddb839d316bc6ac5b060bf"
     },
     {
       "path": "assets/brand/icon-dark.png",
-      "sha256": "bc8813ee8df7636aff16dfe88113a86ac3314e9cb7ed1204d6966e9c68a63b36"
+      "sha256": "c529d09964b04ccf59311468d05a0deb3ca4a6eee8c4a40e70649415696432f8"
     },
     {
       "path": "assets/brand/icon-dark.svg",
-      "sha256": "8e053f233c9d2d86798943b63905e41bb65299db3edab11bfd1f0566ab7f45f7"
+      "sha256": "bdfa431d9ce2a31df5f2f8f7f94fb9f8bc51213d78d4ef203e313206c73ebffe"
     },
     {
       "path": "assets/brand/icon-light.png",
-      "sha256": "340a5abb9786ce565cf924fcf7c1cd2c8b999f67af00fe05b7623fb15ff03e28"
+      "sha256": "2f26656f2d8d7e1e6ff0e2a48d790198c3cee39f2e80d990f739a0f02927ca36"
     },
     {
       "path": "assets/brand/icon-light.svg",
-      "sha256": "cdae31042d3f0954f0737442bd38dfa0aec4c4ca6f2f08743bb84f3cda0bef8d"
+      "sha256": "3698cc70a4e379cd1485edce47b09215b86dfe226b003b96a684e87e09bbd0b0"
     },
     {
       "path": "assets/brand/social.png",
-      "sha256": "407ba18513ee376dee7206196e8351c6997e1dcc0bdc561175d334b804dbd6de"
+      "sha256": "ff3a2fd9dbfa8e6bc75a284c93367a78f82498321757f6e1b4d2bc0f0b288171"
     },
     {
       "path": "assets/brand/social.svg",
-      "sha256": "10a3f50824a490598628d791fbcf9f45631089fd6aaae55cd0ef247307f733b5"
+      "sha256": "ec88eefa2325e66589398c15698588c2716b0c684fcf05110913cf74df39ebaf"
     },
     {
       "path": "assets/brand/square.png",
-      "sha256": "09730a6acd663ae15bf82fc33538441930604701434cf98dc233cfde41e8f3c0"
+      "sha256": "7f90277411bac0d18f0887b691d0f504cf47333ada487da807b72ad5d063dfa4"
     },
     {
       "path": "assets/brand/square.svg",
-      "sha256": "fd91866e2458b6ba63b7bfea6ab9d8dba6142c5f586bf5e74701d460920d8a2b"
+      "sha256": "44564f47b91621d0f577fd468d35b7b7ad52fb35e3c06755eee8f6c58e2f1bcc"
     },
     {
       "path": "assets/brand/wordmark-dark.png",
-      "sha256": "af27db496228166acecb3964c2c2e86a12a4969a694e5b07fe80c3527211c868"
+      "sha256": "db777c9adbf758de8428563bcf6ee7ad161144c9d3f4790828de926d287cb3cf"
     },
     {
       "path": "assets/brand/wordmark-dark.svg",
-      "sha256": "e075aa75555970bb97aa493fc2433a58006870fc5fb50a2c7e6a90913a2184a0"
+      "sha256": "c34284e61277b3c56095ba0ee35fa24869151f421ffc2105bac68adf8f0d43b7"
     },
     {
       "path": "assets/brand/wordmark-light.png",
-      "sha256": "18a900ec79a14ac4bf21d8dc2f07d460d4023f489ccf389e7839d278c0ef1299"
+      "sha256": "9d80872b38d094f97a1d431f275ed660c9ffb7f81e235de7bca0c86321e454b0"
     },
     {
       "path": "assets/brand/wordmark-light.svg",
-      "sha256": "9c7c0e4057a1db8589d88517559d0e0afe10a1bbe187f16ddbbd241fe82777c1"
+      "sha256": "1582a722474de9af660778f714aff32f6647e9cf76ff4747591cb93378be072e"
     }
   ]
 }

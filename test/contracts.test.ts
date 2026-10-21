@@ -10,6 +10,7 @@ import {
 } from "../scripts/generate-contracts.ts";
 import { getOperation, type OperationDescriptor } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
+import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
 
 function sourceRequestAdapter(operationId: string) {
   const source = getOperation(operationId);
@@ -117,4 +118,26 @@ test("a source-only path parameter remains required even without an OpenAPI sche
   expect(() => adapter.validate({ path: { id: "" } })).toThrow();
   const input = adapter.validate({ path: { id: "provider-123" } });
   expect(adapter.buildPath(input)).toBe("/api/providers/provider-123/cc-alias");
+});
+
+test("source-bound preflight views remain valid when settlement is unknown", () => {
+  const base = FALLBACK_CHAIN_SOURCE_CONTRACTS[FALLBACK_CHAIN_POST];
+  if (!base.reconciliation) throw new Error("fallback source fixture has no preflight view");
+  const observation = {
+    name: "existing-chain",
+    read: base.reconciliation.targetRead,
+    readCompleteness: { kind: "single-response", sourceReason: "Pinned GET returns the complete runtime chain map." },
+  };
+  const safety = {
+    preflight: { kind: "required", observations: [observation] },
+    reconciliation: { kind: "unknown" },
+    settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+  };
+  const contract = { ...base, reconciliation: null, mutationSafety: safety };
+  expect(operationEvidenceBinding(FALLBACK_CHAIN_POST, contract).mutationSafetySha256).toMatch(/^[a-f0-9]{64}$/);
+  const wrongRead = { ...observation, read: { ...observation.read, operationId: "GET /api/health" } };
+  expect(() => operationEvidenceBinding(FALLBACK_CHAIN_POST, {
+    ...contract,
+    mutationSafety: { ...safety, preflight: { ...safety.preflight, observations: [wrongRead] } },
+  })).toThrow(/source relation preflight does not match/);
 });

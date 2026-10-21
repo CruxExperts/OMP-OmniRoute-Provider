@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { requiredOmaScope } from "./authorization-policy.ts";
 import { sourceRequestIssue, sourceRequestValidatorBinding, type SourceRequestIssue, type SourceRequestValidatorId } from "./source-validation.ts";
-import { normalizeSourceRequest, sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches, type SourceNormalizationId, type SourceStateViewId, type SourceRelationViewId } from "./source-normalization.ts";
+import { normalizeSourceRequest, sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches, sourcePreflightViewMatches, type SourceNormalizationId, type SourceStateViewId, type SourceRelationViewId } from "./source-normalization.ts";
 import type { AdminAuthDomain, AdminMethod, AdminQueryParameter, AdminRisk, AdminSideEffect, JsonObject, JsonValue } from "./types.ts";
 import { escapeControls } from "./types.ts";
 import { createEligibilityIndex, eligibilityFor, isVerifiedEligibility, type EligibilityOptions, type OperationEligibilityRecord, type OperationEvidenceBinding, type OperationQualificationReceipt, type OperationSourceContract } from "./eligibility.ts";
@@ -182,6 +182,26 @@ export interface OperationReconciliationRelation {
   };
 }
 
+export type OperationReadCompleteness =
+  | { readonly kind: "single-response"; readonly sourceReason: string }
+  | { readonly kind: "unpaginated-list"; readonly sourceReason: string; readonly itemsPath: readonly string[];
+      readonly totalPath: readonly string[]; readonly identityPaths: readonly (readonly string[])[] };
+
+/** Mutation safety is independent of whether a post-dispatch outcome can be observed. */
+export type OperationMutationSafety = {
+  readonly preflight:
+    | { readonly kind: "required"; readonly observations: readonly { readonly name: string; readonly read: OperationReconciliationRelation["targetRead"]; readonly readCompleteness: OperationReadCompleteness }[]; readonly visibilityLimits?: readonly string[] }
+    | { readonly kind: "not-applicable"; readonly sourceReason: string }
+    | { readonly kind: "unavailable"; readonly reason: string };
+  readonly reconciliation:
+    | { readonly kind: "complete"; readonly postconditions: readonly { readonly name: string; readonly relation: OperationReconciliationRelation; readonly readCompleteness: OperationReadCompleteness }[] }
+    | { readonly kind: "unknown" };
+  readonly settlement: {
+    readonly responseComplete: { readonly statusCodes: readonly number[] };
+    readonly definiteRejection: { readonly sourceClassifier: string } | null;
+  };
+};
+
 export interface OperationDescriptor {
   readonly operationId: string;
   readonly method: AdminMethod;
@@ -208,6 +228,7 @@ export interface OperationDescriptor {
   readonly source: { readonly file: string; readonly sha256: string; readonly gitBlobSha: string; readonly export: "direct" | "re-export" };
   readonly specification: { readonly documented: boolean; readonly path: string | null; readonly operationId: string | null; readonly discrepancies: readonly unknown[] };
   readonly reconciliation: OperationReconciliationRelation | null;
+  readonly mutationSafety: OperationMutationSafety | null;
   readonly coverage: { readonly status: "invokable" | "unqualified" | "non-invokable"; readonly adapterId: string | null; readonly reason: string | null };
   readonly qualification?: OperationQualificationReceipt;
 }
@@ -463,6 +484,15 @@ function assertSourceNormalizationUse(descriptor: OperationDescriptor): void {
     const binding = sourceNormalizationBinding(normalizer);
     if (!binding || !binding.methods.includes(descriptor.method) || descriptor.pathTemplate !== binding.pathTemplate) {
       throw new RegistryError("invalid-inventory", "source normalizer does not match its closed operation", descriptor.operationId);
+    }
+  }
+  const preflight = descriptor.mutationSafety?.preflight;
+  if (preflight?.kind === "required") {
+    for (const observation of preflight.observations) {
+      const view = observation.read.sourceView;
+      if (view !== undefined && !sourcePreflightViewMatches(view, descriptor.operationId, observation.read.operationId)) {
+        throw new RegistryError("invalid-inventory", "source preflight view does not match its exact mutation and read operation", descriptor.operationId);
+      }
     }
   }
   const relation = descriptor.reconciliation;
@@ -940,6 +970,75 @@ export function isSecretOutputField(
   return SECRET_NAMES.has(key) || /(?:secret|password|token|credential|authorization|cookie|api[-_]?key)/i.test(key);
 }
 
+/** Redact projected source output for display while retaining the source field path. */
+export function redactSourceOutput(value: unknown, explicitSecretPaths: readonly string[] = []): unknown {
+  type PathCandidates = readonly (readonly string[])[];
+  const extend = (paths: PathCandidates, ...segments: string[]): string[][] => paths.map(path => [...path, ...segments]);
+  const combine = (...sets: PathCandidates[]): string[][] => {
+    const unique = new Map<string, string[]>();
+    for (const path of sets.flat()) unique.set(JSON.stringify(path), [...path]);
+    return [...unique.values()];
+  };
+  const isSecret = (key: string, child: unknown, parentPaths: PathCandidates): boolean =>
+    parentPaths.some(parentPath => isSecretOutputField(key, child, parentPath, explicitSecretPaths));
+  const put = (output: Record<string, unknown>, key: string, child: unknown): void => {
+    if (key === "__proto__") Object.defineProperty(output, key, { value: child, enumerable: true, configurable: true, writable: true });
+    else output[key] = child;
+  };
+
+  const visit = (node: unknown, parentPaths: PathCandidates): unknown => {
+    if (Array.isArray(node)) return node.map(item => visit(item, parentPaths));
+    if (!isRecord(node)) return typeof node === "string" ? escapeControls(node) : node;
+
+    const isRelationDocument = (node.kind === "resource" || node.kind === "collection") && Array.isArray(node.entries);
+    const output: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(node)) {
+      if (isRelationDocument && key === "entries" && Array.isArray(child)) {
+        if (isSecret(key, child, parentPaths)) {
+          put(output, key, "[redacted]");
+        } else {
+          put(output, key, child.map(entry => {
+            if (isRecord(entry) && isRecord(entry.identity) && isRecord(entry.state)) return visitRelationEntry(entry, parentPaths);
+            return visit(entry, extend(parentPaths, key));
+          }));
+        }
+        continue;
+      }
+      if (isSecret(key, child, parentPaths)) {
+        put(output, key, "[redacted]");
+        continue;
+      }
+      put(output, key, visit(child, extend(parentPaths, key)));
+    }
+    return output;
+  };
+
+  function visitRelationEntry(entry: Record<string, unknown>, logicalParents: PathCandidates): Record<string, unknown> {
+    const output: Record<string, unknown> = {};
+    const physicalEntryParents = extend(logicalParents, "entries");
+    for (const [key, child] of Object.entries(entry)) {
+      if (key === "state" || key === "identity") {
+        if (isSecret(key, child, physicalEntryParents)) {
+          put(output, key, "[redacted]");
+          continue;
+        }
+        const transparent = logicalParents;
+        const sourcePath = extend(physicalEntryParents, key);
+        put(output, key, visit(child, combine(transparent, sourcePath)));
+        continue;
+      }
+      if (isSecret(key, child, physicalEntryParents)) {
+        put(output, key, "[redacted]");
+        continue;
+      }
+      put(output, key, visit(child, extend(physicalEntryParents, key)));
+    }
+    return output;
+  }
+
+  return visit(value, [[]]);
+}
+
 function projectionShape(schema: JsonSchema, value: unknown, descriptor: OperationDescriptor, depth: number): JsonSchema {
   if (depth > 24) throw new RegistryError("invalid-inventory", "response schema depth limit exceeded", descriptor.operationId);
   schema = resolveSchema(schema, descriptor.operationId);
@@ -1068,7 +1167,7 @@ export function operationSourceContract(descriptor: OperationDescriptor): Operat
     request: descriptor.request, auth: descriptor.auth, response: descriptor.response,
     secrets: descriptor.secrets, sideEffect: descriptor.sideEffect, pagination: descriptor.pagination,
     streaming: descriptor.streaming, confirmation: descriptor.confirmation, retry: descriptor.retry,
-    reconciliation: descriptor.reconciliation,
+    reconciliation: descriptor.reconciliation, mutationSafety: descriptor.mutationSafety,
   };
 }
 
@@ -1080,6 +1179,7 @@ export function operationContractBinding(descriptor: OperationDescriptor, proven
     sideEffect: descriptor.sideEffect, responseProjectionSha256: hash(descriptor.response),
     operationSemanticsSha256: hash(operationSourceContract(descriptor)), sideEffectSha256: hash(descriptor.sideEffect),
     routeImportsSha256: provenance.routeImportsSha256, frameworkContextSha256: provenance.frameworkContextSha256,
+    mutationSafetySha256: hash(descriptor.mutationSafety),
   };
 }
 
@@ -1111,7 +1211,14 @@ export class OperationRegistry {
       const configuredEligibility = eligibilityFor(descriptor.operationId, eligibilityIndex);
       const qualification = descriptor.qualification;
       const binding = qualification ? operationContractBinding(descriptor, qualification.binding) : undefined;
-      const eligibility = configuredEligibility.status === "verified" && !isVerifiedEligibility(configuredEligibility, { source: descriptor.source, qualification, binding })
+      const heldMutation = descriptor.sideEffect !== "read" && descriptor.mutationSafety?.preflight.kind === "unavailable";
+      const eligibility = heldMutation
+        ? {
+            operationId: descriptor.operationId,
+            status: "unavailable" as const,
+            reason: "Mutation preflight cannot observe every mutable target and dependency.",
+          }
+        : configuredEligibility.status === "verified" && !isVerifiedEligibility(configuredEligibility, { source: descriptor.source, qualification, binding })
         ? {
             operationId: descriptor.operationId,
             status: "unavailable" as const,

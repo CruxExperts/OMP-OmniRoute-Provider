@@ -39,11 +39,11 @@ const DELETE_PARAM_FILTERS = "DELETE /api/providers/{id}/param-filters";
 
 const REQUIRED_CASES: Readonly<Record<ProviderConfigurationOperationId, readonly string[]>> = {
   [GET_INTERCEPTION]: ["provider-scope-and-empty-default", "management-auth-guard", "storage-error"],
-  [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "private-only-target-drift"],
-  [DELETE_INTERCEPTION]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error"],
+  [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "private-only-target-drift", "dispatched-500-unknown"],
+  [DELETE_INTERCEPTION]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown"],
   [GET_PARAM_FILTERS]: ["source-defaults-and-provider-scope", "management-auth-guard", "storage-error"],
-  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error"],
-  [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error"],
+  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "dispatched-500-unknown"],
+  [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown"],
 };
 
 type Observation = {
@@ -164,8 +164,11 @@ function setup(fixture: ProviderConfigurationFixture): FixtureHarness {
       const observed = responses.get(request.operationId) ?? [];
       observed.push(response);
       responses.set(request.operationId, observed);
-      if (response.status >= 400) throw Object.assign(new Error(`fixture HTTP ${response.status}`), { status: response.status });
-      return response.data;
+      if (request.operationId.startsWith("GET ")) {
+        if (response.status >= 400) throw Object.assign(new Error(`fixture HTTP ${response.status}`), { status: response.status });
+        return response.data;
+      }
+      return { kind: "response", status: response.status, body: response.data };
     },
     readTarget: async context => {
       const adapter = registry.require(context.readOperation.operationId);
@@ -486,6 +489,8 @@ describe("pinned provider configuration management semantics", () => {
         },
       },
     });
+    expect(plan.preview.visibilityLimits?.join(" ")).toContain("process-local cache");
+    expect(plan.preview.visibilityLimits?.join(" ")).toContain("no atomic conditional write");
     expect(JSON.stringify(plan.preview.payload)).not.toContain("new-route");
     expect(JSON.stringify(plan.preview.projectedTarget)).not.toContain("proxy.example/old");
     expect(JSON.stringify(plan.preview.projectedTarget)).not.toContain("old-model-secret");
@@ -813,5 +818,118 @@ describe("pinned provider configuration management semantics", () => {
     expect(fixture.count(DELETE_PARAM_FILTERS) - ambiguousDispatchesBefore).toBe(1);
     expect(fixture.paramFilters("provider-b")).toEqual({ block: [], allow: [], autoLearn: false });
     mark(DELETE_PARAM_FILTERS, "ambiguous-no-replay");
+  });
+
+  test("an intervening source write invalidates prepared DELETE in both families before dispatch", async () => {
+    const fixture = new ProviderConfigurationFixture({
+      interception: { "provider-a": { interceptSearch: true, fetchProxyUrl: "https://proxy.example/original" } },
+      paramFilters: { "provider-b": { block: ["old"], allow: [], autoLearn: false } },
+    });
+    const harness = setup(fixture);
+    const interceptionPlan = await harness.executor.plan(DELETE_INTERCEPTION, { path: { id: "provider-a" } });
+    const paramPlan = await harness.executor.plan(DELETE_PARAM_FILTERS, { path: { id: "provider-b" } });
+    const publicBefore = await harness.executor.read(GET_INTERCEPTION, { path: { id: "provider-a" } });
+
+    const changedInterception = await directRequest(fixture, PUT_INTERCEPTION, "provider-a", "Bearer fixture-management-key", {
+      interceptSearch: true,
+      fetchProxyUrl: "https://proxy.example/private-replacement",
+    });
+    const changedFilters = await directRequest(fixture, PUT_PARAM_FILTERS, "provider-b", "Bearer fixture-management-key", {
+      block: ["new"],
+    });
+    expect(changedInterception.status).toBe(200);
+    expect(changedFilters.status).toBe(200);
+    const publicAfter = await harness.executor.read(GET_INTERCEPTION, { path: { id: "provider-a" } });
+    expect(publicAfter.output).toEqual(publicBefore.output);
+    const deletesBefore = [fixture.count(DELETE_INTERCEPTION), fixture.count(DELETE_PARAM_FILTERS)];
+
+    await expect(confirmedApply(harness.executor, interceptionPlan.planId)).rejects.toMatchObject({ code: "target-drift" });
+    await expect(confirmedApply(harness.executor, paramPlan.planId)).rejects.toMatchObject({ code: "target-drift" });
+    expect([fixture.count(DELETE_INTERCEPTION), fixture.count(DELETE_PARAM_FILTERS)]).toEqual(deletesBefore);
+    expect(fixture.interception("provider-a")).toEqual({
+      interceptSearch: true,
+      fetchProxyUrl: "https://proxy.example/private-replacement",
+    });
+    expect(fixture.paramFilters("provider-b")).toEqual({ block: ["new"], allow: [], autoLearn: false });
+    mark(DELETE_INTERCEPTION, "intervening-write");
+    mark(DELETE_PARAM_FILTERS, "intervening-write");
+  });
+
+  test("out-of-band SQLite changes remain hidden by both pinned GET caches", async () => {
+    const fixture = new ProviderConfigurationFixture({
+      interception: { "provider-a": { interceptSearch: true } },
+      paramFilters: { "provider-b": { block: ["old"], allow: [], autoLearn: false } },
+    });
+    const harness = setup(fixture);
+    const interceptionBefore = await harness.executor.read(GET_INTERCEPTION, { path: { id: "provider-a" } });
+    const filtersBefore = await harness.executor.read(GET_PARAM_FILTERS, { path: { id: "provider-b" } });
+    fixture.writeConfigurationOutsideSourceCache("interception-rules", "provider-a", { interceptSearch: false });
+    fixture.writeConfigurationOutsideSourceCache("param-filters", "provider-b", { block: ["new"], allow: [], autoLearn: false });
+
+    const interceptionAfter = await harness.executor.read(GET_INTERCEPTION, { path: { id: "provider-a" } });
+    const filtersAfter = await harness.executor.read(GET_PARAM_FILTERS, { path: { id: "provider-b" } });
+    expect(interceptionAfter.output).toEqual(interceptionBefore.output);
+    expect(filtersAfter.output).toEqual(filtersBefore.output);
+    expect(interceptionAfter.output).toEqual({ interceptSearch: true });
+    expect(filtersAfter.output).toEqual({ block: ["old"], allow: [], autoLearn: false });
+  });
+
+  test("stored empty rows look absent through GET, so lost DELETE responses remain unknown without replay", async () => {
+    const fixture = new ProviderConfigurationFixture({
+      interception: { "provider-a": {} },
+      paramFilters: { "provider-b": { block: [], allow: [], autoLearn: false } },
+    });
+    const harness = setup(fixture);
+    for (const [deleteId, readId, family, providerId] of [
+      [DELETE_INTERCEPTION, GET_INTERCEPTION, "interception-rules", "provider-a"],
+      [DELETE_PARAM_FILTERS, GET_PARAM_FILTERS, "param-filters", "provider-b"],
+    ] as const) {
+      expect(fixture.hasStoredConfiguration(family, providerId)).toBe(true);
+      const stored = await harness.executor.read(readId, { path: { id: providerId } });
+      const absent = await harness.executor.read(readId, { path: { id: "provider-missing" } });
+      expect(stored.output).toEqual(absent.output);
+      const plan = await harness.executor.plan(deleteId, { path: { id: providerId } });
+      const before = fixture.count(deleteId);
+      const hold = fixture.holdNextDeleteResponse();
+      const controller = new AbortController();
+      const pending = confirmedApply(harness.executor, plan.planId, controller.signal);
+      await hold.received;
+      controller.abort();
+      const result = await pending;
+      hold.release();
+      expect(result.status).toBe("unknown");
+      expect(fixture.count(deleteId) - before).toBe(1);
+      expect(fixture.hasStoredConfiguration(family, providerId)).toBe(false);
+      mark(deleteId, "stored-empty-lost-response");
+    }
+  });
+
+  test("a source 500 after dispatch leaves each configuration mutation unknown", async () => {
+    const fixture = new ProviderConfigurationFixture({
+      interception: { "provider-a": { interceptSearch: true } },
+      paramFilters: { "provider-b": { block: ["old"], allow: [], autoLearn: false } },
+    });
+    const harness = setup(fixture);
+    const beforeInterception = fixture.interception("provider-a");
+    const beforeFilters = fixture.paramFilters("provider-b");
+    for (const [operationId, providerId, body] of [
+      [PUT_INTERCEPTION, "provider-a", { interceptSearch: false }],
+      [DELETE_INTERCEPTION, "provider-a", undefined],
+      [PUT_PARAM_FILTERS, "provider-b", { block: ["new"] }],
+      [DELETE_PARAM_FILTERS, "provider-b", undefined],
+    ] as const) {
+      const plan = await harness.executor.plan(operationId, {
+        path: { id: providerId },
+        ...(body === undefined ? {} : { body }),
+      });
+      const beforeCount = fixture.count(operationId);
+      fixture.failNextWrite();
+      const result = await confirmedApply(harness.executor, plan.planId);
+      expect(result.status).toBe("unknown");
+      expect(fixture.count(operationId) - beforeCount).toBe(1);
+      expect(fixture.interception("provider-a")).toEqual(beforeInterception);
+      expect(fixture.paramFilters("provider-b")).toEqual(beforeFilters);
+      mark(operationId, "dispatched-500-unknown");
+    }
   });
 });

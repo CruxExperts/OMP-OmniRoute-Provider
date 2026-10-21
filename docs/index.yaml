@@ -7,7 +7,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-20"
+    last_updated: "2026-10-21"
     doc_type: how_to
     tags: [install, setup, omp, credentials, catalogs, metadata]
   - id: troubleshooting
@@ -52,7 +52,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-20"
+    last_updated: "2026-10-21"
     doc_type: reference
     tags: [upgrade, removal, compatibility]
   - id: generated
@@ -88,6 +88,6 @@ documents:
     category_label: Reference
     category_slug: reference
     status: active
-    last_updated: "2026-10-20"
+    last_updated: "2026-10-21"
     doc_type: runbook
     tags: [contracts, provenance, qualification, testing]

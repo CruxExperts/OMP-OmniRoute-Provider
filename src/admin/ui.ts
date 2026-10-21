@@ -1,6 +1,6 @@
 import { Input } from "@oh-my-pi/pi-tui";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { getOperationRegistry, type OperationAdapter, type OperationRegistry } from "./registry.ts";
+import { getOperationRegistry, redactSourceOutput, type OperationAdapter, type OperationRegistry } from "./registry.ts";
 import { escapeControls, type AdminCredentialInput, type AdminPlanHandle, type AdminPreview } from "./types.ts";
 import type { AdminExecutor } from "./executor.ts";
 import { isLoopbackHostname } from "./adapters.ts";
@@ -78,9 +78,12 @@ async function askText(context: AdminContext, prompt: string, secret = false): P
 
 function redactPreview(preview: AdminPreview, registry: OperationRegistry): string {
   const descriptor = registry.getOperation(preview.operationId);
-  const secretFields = new Set(descriptor?.secrets.inputFields.map(field => field.toLowerCase()) ?? []);
+  const secretFields = new Set([
+    ...(descriptor?.secrets.inputFields ?? []),
+    ...(descriptor?.secrets.outputFields ?? []),
+  ].map(field => field.toLowerCase()));
   const redact = (value: unknown, key?: string): unknown => {
-    if (key && secretFields.has(key.toLowerCase())) return "[redacted]";
+    if (key && (secretFields.has(key.toLowerCase()) || /(?:secret|password|token|credential|authorization|cookie|api[-_]?key)/i.test(key))) return "[redacted]";
     if (Array.isArray(value)) return value.map(item => redact(item));
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, child]) => [name, redact(child, name)]));
     return value;
@@ -97,6 +100,8 @@ function redactPreview(preview: AdminPreview, registry: OperationRegistry): stri
     sideEffect: preview.sideEffect,
     authorization: preview.authorization,
     change: redact(preview.payload),
+    observedTarget: redactSourceOutput(preview.projectedTarget, descriptor?.secrets.outputFields ?? []),
+    ...(preview.visibilityLimits === undefined ? {} : { visibilityLimits: preview.visibilityLimits }),
     consequence: preview.consequence,
     confirmationRequired: preview.confirmationRequired,
   });

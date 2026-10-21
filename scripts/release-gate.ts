@@ -5,6 +5,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { isMuslTarget, validateMuslRuntimeEvidence } from "./musl-runtime.ts";
 import { validateNativeSmokeOutput } from "./qualify-release.ts";
+import { REPOSITORY_SLUG } from "../src/identity.ts";
 
 const execFileAsync = promisify(execFile);
 const defaultRoot = resolve(import.meta.dir, "..");
@@ -250,11 +251,11 @@ async function cleanHead(root: string): Promise<string> {
 
 function expectedArtifactNames(version: string): string[] {
   return [
-    `CruxOmni-OMP-Client-v${version}-source.tar.gz`,
+    `${REPOSITORY_SLUG}-v${version}-source.tar.gz`,
     `cruxexperts-cruxomni-omp-client-${version}.tgz`,
-    `CruxOmni-OMP-Client-v${version}-graphics.zip`,
-    `CruxOmni-OMP-Client-v${version}.cdx.json`,
-    `CruxOmni-OMP-Client-v${version}-release-notes.md`,
+    `${REPOSITORY_SLUG}-v${version}-graphics.zip`,
+    `${REPOSITORY_SLUG}-v${version}.cdx.json`,
+    `${REPOSITORY_SLUG}-v${version}-release-notes.md`,
   ].sort();
 }
 
@@ -299,7 +300,7 @@ async function validateManifest(root: string, releaseDirectory: string): Promise
   if (pkg.name !== packageName || pkg.version !== version || canonicalVersion !== version) throw new Error("release manifest version does not match package.json and VERSION");
   const packageArtifacts = artifacts.filter(item => item.name.endsWith(".tgz"));
   if (packageArtifacts.length !== 1) throw new Error("release manifest must contain exactly one npm package archive");
-  const notesName = `CruxOmni-OMP-Client-v${version}-release-notes.md`;
+  const notesName = `${REPOSITORY_SLUG}-v${version}-release-notes.md`;
   const notesArtifact = artifacts.find(item => item.name === notesName);
   if (!notesArtifact || !(await readFile(resolve(releaseDirectory, notesName))).equals(await readFile(resolve(root, "CHANGELOG.md")))) {
     throw new Error("versioned release notes must match the exact reviewed CHANGELOG.md bytes");

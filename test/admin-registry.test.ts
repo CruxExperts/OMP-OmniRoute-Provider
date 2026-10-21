@@ -1,6 +1,14 @@
 import { expect, test } from "bun:test";
-import { getOperation, getOperationRegistry, OperationRegistry, projectResponse, type JsonSchema, type OperationDescriptor } from "../src/admin/registry.ts";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { getOperation, getOperationRegistry, OperationRegistry, operationSourceContract, projectResponse, redactSourceOutput, type JsonSchema, type OperationDescriptor } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
+import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
+import { assertSafetyReadRequest, assertSafetyReadResponse } from "../src/admin/relations.ts";
+import { buildModelComboMappingFixtureRegistry } from "./fixtures/model-combo-mappings.fixture.ts";
+import { sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 
 const EMPTY: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
 function fixtureOperation(body: JsonSchema | null = null): OperationDescriptor {
@@ -143,6 +151,61 @@ test("path-scoped secrets redact through arrays while typed token metadata remai
   expect(adapter.projectTarget(response)).toEqual(response);
 });
 
+test("source output redaction follows declared paths through arrays and relation snapshot wrappers", () => {
+  const direct = redactSourceOutput({
+    providers: [{ connections: [{ id: "fixture-direct-connection", lastError: "fixture-direct-private-diagnostic", status: "ready" }] }],
+    health: { lastError: "fixture-direct-public-diagnostic" },
+  }, ["providers.connections.lastError"]);
+  expect(direct).toEqual({
+    providers: [{ connections: [{ id: "fixture-direct-connection", lastError: "[redacted]", status: "ready" }] }],
+    health: { lastError: "fixture-direct-public-diagnostic" },
+  });
+
+  const projected = redactSourceOutput({
+    kind: "collection",
+    entries: [{ identity: { scope: "all" }, state: {
+      providers: [{ connections: [
+        { id: "fixture-connection", lastError: "fixture-private-diagnostic", status: "ready", accessToken: "fixture-private-token" },
+      ] }],
+      health: { lastError: "fixture-public-diagnostic" },
+    } }],
+  }, ["providers.connections.lastError"]);
+
+  expect(projected).toEqual({
+    kind: "collection",
+    entries: [{ identity: { scope: "all" }, state: {
+      providers: [{ connections: [
+        { id: "fixture-connection", lastError: "[redacted]", status: "ready", accessToken: "[redacted]" },
+      ] }],
+      health: { lastError: "fixture-public-diagnostic" },
+    } }],
+  });
+  expect(JSON.stringify(direct)).not.toContain("fixture-direct-private-diagnostic");
+  expect(JSON.stringify(direct)).toContain("fixture-direct-public-diagnostic");
+  expect(JSON.stringify(projected)).not.toContain("fixture-private-diagnostic");
+  expect(JSON.stringify(projected)).not.toContain("fixture-private-token");
+});
+
+test("relation snapshot wrapper path declarations remain sensitive", () => {
+  const projected = redactSourceOutput({
+    kind: "collection",
+    entries: [{ identity: { id: "fixture-row" }, state: {
+      lastError: "fixture-private-source-field",
+      details: { lastError: "fixture-public-sibling" },
+    } }],
+  }, ["entries.state.lastError"]);
+
+  expect(projected).toEqual({
+    kind: "collection",
+    entries: [{ identity: { id: "fixture-row" }, state: {
+      lastError: "[redacted]",
+      details: { lastError: "fixture-public-sibling" },
+    } }],
+  });
+  expect(JSON.stringify(projected)).not.toContain("fixture-private-source-field");
+  expect(JSON.stringify(projected)).toContain("fixture-public-sibling");
+});
+
 test("response union branches preserve identifier roles without promoting structural maps", () => {
   const source = fixtureOperation();
   const descriptor: OperationDescriptor = { ...source, response: { ...source.response, schema: {
@@ -239,11 +302,105 @@ test("typed data-map keys remain literal data rather than changing object inheri
   }
 });
 
-// Exercise the packaged runtime reader, rather than synthetic fixture authority.
-test("reviewed public qualification references enable their exact generated operations", () => {
-  const operationId = "GET /api/model-capability-overrides";
-  const registry = getOperationRegistry();
-  expect(registry.getEligibility(operationId).status).toBe("verified");
-  expect(registry.require(operationId).descriptor.operationId).toBe(operationId);
-  expect(registry.getEligibility("GET /api/providers").status).toBe("unavailable");
+// Load the actual reader in isolated module roots, without assuming which public operations qualify.
+test("archived qualification records cannot enable the new mutation contract", async () => {
+  const descriptor: OperationDescriptor = {
+    ...fixtureOperation(),
+    mutationSafety: {
+      preflight: { kind: "not-applicable", sourceReason: "Synthetic unit operation has no mutable target." },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null },
+    },
+  };
+  const authority = fixtureRegistry([descriptor]);
+  const qualified = authority.getOperation(descriptor.operationId)!;
+  const receipt = qualified.qualification!;
+  const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = receipt.binding;
+  const entry = {
+    ...authority.getEligibility(descriptor.operationId), binding,
+    contract: operationSourceContract(qualified),
+    test: { ...receipt.test, observedOutcome: `provenance/qualification/${"0".repeat(64)}.json` },
+  };
+  const { mutationSafety, ...legacyContract } = entry.contract;
+  const { mutationSafetySha256, ...legacyBinding } = entry.binding;
+  const legacyEntry = { ...entry, contract: legacyContract, binding: legacyBinding };
+  const temporary = await mkdtemp(join(tmpdir(), "cruxomni-eligibility-reader-"));
+  try {
+    for (const [name, schemaVersion, record, expected] of [
+      ["current", 3, entry, "verified"],
+      ["archived", 2, legacyEntry, "unavailable"],
+      ["legacy-binding", 3, { ...entry, binding: legacyBinding }, "unavailable"],
+    ] as const) {
+      const root = join(temporary, name);
+      await mkdir(join(root, "src/admin"), { recursive: true });
+      await mkdir(join(root, "contracts"));
+      const readerPath = join(root, "src/admin/eligibility.ts");
+      await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
+      await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({
+        schemaVersion, recordKind: "omniroute-release-eligibility",
+        release: { commit: receipt.releaseCommit },
+        default: { status: "unavailable", reason: "Synthetic unit document." }, operations: [record],
+      }));
+      const reader = await import(pathToFileURL(readerPath).href) as typeof import("../src/admin/eligibility.ts");
+      expect(reader.eligibilityFor(descriptor.operationId, reader.createEligibilityIndex()).status).toBe(expected);
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test("registry binds a source preflight view without requiring a reconciliation claim", () => {
+  const source = getOperation(FALLBACK_CHAIN_POST);
+  const relation = FALLBACK_CHAIN_SOURCE_CONTRACTS[FALLBACK_CHAIN_POST].reconciliation;
+  if (!source || !relation) throw new Error("fallback preflight fixture is missing");
+  const observation = {
+    name: "existing-chain",
+    read: relation.targetRead,
+    readCompleteness: { kind: "single-response" as const, sourceReason: "Pinned GET returns the complete runtime chain map." },
+  };
+  const safety = {
+    preflight: { kind: "required" as const, observations: [observation] },
+    reconciliation: { kind: "unknown" as const },
+    settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+  };
+  expect(() => new OperationRegistry([{ ...source, reconciliation: null, mutationSafety: safety }], { records: [] })).not.toThrow();
+  expect(() => new OperationRegistry([{
+    ...source,
+    reconciliation: null,
+    mutationSafety: { ...safety, preflight: { ...safety.preflight, observations: [{ ...observation, read: { ...observation.read, operationId: "GET /api/health" } }] } },
+  }], { records: [] })).toThrow(/source preflight view does not match/);
+});
+
+test("a hash-bound synthetic verified record cannot make an unavailable mutation eligible", () => {
+  const descriptor: OperationDescriptor = {
+    ...fixtureOperation(),
+    mutationSafety: {
+      preflight: { kind: "unavailable", reason: "Mutable dependency is not observable." },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+    },
+  };
+  const registry = fixtureRegistry([descriptor]);
+  expect(registry.getEligibility(descriptor.operationId)).toMatchObject({ status: "unavailable" });
+  expect(registry.require(descriptor.operationId).eligibility.status).toBe("unavailable");
+});
+
+test("pinned collection proof checks unpaginated raw rows, total, and unique identities", () => {
+  const adapter = buildModelComboMappingFixtureRegistry().require("GET /api/model-combo-mappings");
+  const descriptor = adapter.descriptor;
+  const proof = {
+    kind: "unpaginated-list" as const,
+    sourceReason: "Pinned collection GET returns all SQLite rows and total when limit and offset are absent.",
+    itemsPath: ["mappings"], totalPath: ["total"], identityPaths: [["id"]],
+  };
+  expect(() => assertSafetyReadRequest(proof, descriptor, adapter.validate({}))).not.toThrow();
+  expect(() => assertSafetyReadResponse(proof, descriptor, { mappings: [{ id: "a" }, { id: "b" }], total: 2 })).not.toThrow();
+  expect(() => assertSafetyReadResponse(proof, descriptor, { mappings: [{ id: "a" }], total: 2 })).toThrow(/incomplete/);
+  expect(() => assertSafetyReadResponse(proof, descriptor, { mappings: [{ id: "a" }, { id: "a" }], total: 2 })).toThrow(/duplicated/);
+  expect(() => assertSafetyReadResponse(proof, descriptor, { mappings: [{ id: "a" }], total: 10_001 })).toThrow(/incomplete/);
+  expect(() => assertSafetyReadRequest(proof, descriptor, adapter.validate({ query: { limit: 1 } }))).toThrow(/paginated/);
+  expect(() => assertSafetyReadRequest(proof, descriptor, adapter.validate({ query: { offset: 0 } }))).toThrow(/paginated/);
+  expect(() => assertSafetyReadRequest({ ...proof, itemsPath: ["other"] }, descriptor, adapter.validate({}))).toThrow(/source bound/);
+  expect(sourceUnpaginatedListProofMatches(descriptor.operationId, proof, "POST /api/model-combo-mappings")).toBe(true);
+  expect(sourceUnpaginatedListProofMatches(descriptor.operationId, proof, "POST /api/fallback-chains")).toBe(false);
 });

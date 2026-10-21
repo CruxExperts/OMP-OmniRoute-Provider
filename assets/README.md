@@ -1,8 +1,9 @@
 # Media sources and exports
 
-The `brand/` collection identifies CruxOmni as an **OMP client**. The bracket mark
-represents the client boundary; the teal connection represents a route through the
-gateway. The navy and teal palette keeps terminal-oriented artwork readable.
+The `brand/` collection uses the current public display name **OhMyPie OmniRoute
+Plugin** for an OMP client. The bracket mark represents the client boundary; the
+teal connection represents a route through the gateway. The navy and teal palette
+keeps terminal-oriented artwork readable.
 
 Run `python3 scripts/export-media.py` with Python 3, Pillow, and DejaVu Sans
 available to reproduce both the editable SVG sources and PNG exports. The manifest
@@ -27,6 +28,12 @@ illustrations. They remain labeled as fixtures and are not presented as native U
 captures.
 
 ## Native OMP walkthrough
+
+The checked-in native screenshots, video, transcript, and provenance are an
+earlier genuine development capture whose UI displays the former CruxOmni name.
+They are retained as historical evidence and have not been relabeled or edited to
+show the current brand. Replace them only with a genuine capture from a newly
+qualified native package, preserving the captured source and output provenance.
 
 [`native/omp-18.12.5/`](native/omp-18.12.5/walkthrough.md) contains a genuine
 capture of the compiled OMP 18.12.5 terminal running this plugin in a disposable

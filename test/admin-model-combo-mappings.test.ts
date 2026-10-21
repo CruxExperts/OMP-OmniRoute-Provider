@@ -11,7 +11,7 @@ import {
 import { invokeJsonAdapter, type AdminCredential } from "../src/admin/adapters.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import { canonicalizeJson, type OperationAdapter } from "../src/admin/registry.ts";
-import { mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "../src/admin/relations.ts";
+import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot } from "../src/admin/relations.ts";
 import type { JsonValue } from "../src/admin/types.ts";
 import {
   buildModelComboMappingFixtureRegistry,
@@ -107,30 +107,27 @@ function createHarness(fixture: ModelComboMappingsHttpFixture) {
   const responses = new Map<ModelComboMappingFixtureOperationId, HttpSnapshot[]>();
   const dispatchedBodies = new Map<ModelComboMappingFixtureOperationId, JsonValue[]>();
   const lostResponses = new Set<ModelComboMappingFixtureOperationId>();
+  let targetReads = 0;
+  let reconciliationReads = 0;
   let nextPlanId = 0;
   const executor = createAdminExecutor({
     registry,
     now: () => Date.parse(FIXED_NOW),
     randomId: () => `model-combo-mapping-plan-${++nextPlanId}`,
     readTarget: async context => {
+      targetReads += 1;
       const adapter = registry.require(context.readOperation.operationId);
       const validated = adapter.validate(mapRelationInput(context.relation.inputs, context.payload));
+      assertSafetyReadRequest(context.readCompleteness, adapter.descriptor, validated);
       const response = await callAdapter(adapter, context.auth.endpoint, validated, context.auth.credential, context.signal);
       if (response.status >= 400) throw Object.assign(new Error("pinned mapping target read failed"), { status: response.status });
+      assertSafetyReadResponse(context.readCompleteness, adapter.descriptor, response.data);
       const snapshot = projectRelationSnapshot(context.relation, response.data, context.payload);
       return { snapshot, digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex") };
     },
-    reconcile: async context => {
-      const relation = context.operation.reconciliation;
-      if (!relation || relation.reconcile.operationId !== context.readOperation.operationId) return { status: "unknown" };
-      const adapter = registry.require(context.readOperation.operationId);
-      const validated = adapter.validate(mapRelationInput(context.relation.inputs, context.payload, context.request.body));
-      const response = await callAdapter(adapter, context.auth.endpoint, validated, context.auth.credential, context.signal);
-      if (response.status >= 400) return { status: "unknown" };
-      const observed = projectRelationSnapshot(relation.targetRead, response.data, context.payload);
-      return relationOutcomeMatches(relation, context.originalTarget, observed, context.payload)
-        ? { status: "applied", output: response.data }
-        : { status: "unknown" };
+    reconcile: async () => {
+      reconciliationReads += 1;
+      return { status: "unknown" };
     },
     dispatch: async (request, context) => {
       const operationId = request.operationId as ModelComboMappingFixtureOperationId;
@@ -151,16 +148,21 @@ function createHarness(fixture: ModelComboMappingsHttpFixture) {
       });
       const body = response.status >= 400 || response.data === undefined ? response.data ?? null : adapter.project(response.data);
       recordResponse(responses, operationId, { status: response.status, body });
-      if (response.status >= 400) throw Object.assign(new Error("pinned mapping handler rejected the request"), { status: response.status });
       if (lostResponses.delete(operationId)) {
         throw Object.assign(new Error("fixture transport lost the completed mapping response"), { code: "network-lost-response", uncertain: true });
       }
+      if (operationId !== LIST && operationId !== ITEM) {
+        return { kind: "response", status: response.status, body: response.data ?? null };
+      }
+      if (response.status >= 400) throw Object.assign(new Error("pinned mapping handler rejected the request"), { status: response.status });
       return response.data;
     },
   });
   executor.bindCredential({ profileId: PROFILE_ID, endpoint: fixture.endpoint, apiKey: MANAGE_KEY });
   return {
     executor,
+    targetReadCount() { return targetReads; },
+    reconciliationReadCount() { return reconciliationReads; },
     loseNextResponse(operationId: ModelComboMappingFixtureOperationId) { lostResponses.add(operationId); },
     dispatchCount(operationId: ModelComboMappingFixtureOperationId) { return responses.get(operationId)?.length ?? 0; },
     dispatchedBodies(operationId: ModelComboMappingFixtureOperationId) { return structuredClone(dispatchedBodies.get(operationId) ?? []); },
@@ -231,10 +233,10 @@ afterEach(async () => {
 afterAll(async () => {
   const requiredCases: Readonly<Record<ModelComboMappingFixtureOperationId, readonly string[]>> = {
     [LIST]: ["anonymous-auth", "authorized-left-join", "priority-pagination", "secret-free-combo-projection"],
-    [CREATE]: ["scope-denial", "malformed-json", "invalid-pattern", "trim-defaults-and-create-omits-join", "raw-pattern-preserved-on-wire", "whitespace-trims-only-in-persisted-state", "sqlite-source-error", "uncertain-single-dispatch-reconcile"],
+    [CREATE]: ["scope-denial", "malformed-json", "invalid-pattern", "trim-defaults-and-create-omits-join", "raw-pattern-preserved-on-wire", "whitespace-trims-only-in-persisted-state", "sqlite-source-error", "source-complete-external-drift-0-writes", "lost-single-dispatch-unknown", "response-complete-201", "partial-error-unknown"],
     [ITEM]: ["authorized-joined-item", "missing-item", "unknown-combo-has-no-join", "secret-free-combo-projection"],
-    [UPDATE]: ["scope-denial", "malformed-json", "partial-update-preserves-state", "unknown-combo-clears-stale-join", "selected-target-drift", "uncertain-single-dispatch-reconcile"],
-    [DELETE]: ["pinned-source-delete", "not-found-after-delete", "selected-target-drift", "uncertain-single-dispatch-reconcile"],
+    [UPDATE]: ["scope-denial", "malformed-json", "partial-update-preserves-state", "unknown-combo-clears-stale-join", "selected-target-drift", "lost-single-dispatch-unknown", "response-complete-200"],
+    [DELETE]: ["pinned-source-delete", "not-found-after-delete", "selected-target-drift", "lost-single-dispatch-unknown", "response-complete-200"],
   };
   if (!allAssertionsPassed || !MODEL_COMBO_MAPPING_OPERATION_IDS.every(operationId =>
     requiredCases[operationId].every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId))) return;
@@ -257,6 +259,43 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   const fixture = startFixture();
   const harness = createHarness(fixture);
   executors.push(harness.executor);
+  expect(MODEL_COMBO_MAPPING_SOURCE_CONTRACTS[LIST].mutationSafety).toBeNull();
+  expect(MODEL_COMBO_MAPPING_SOURCE_CONTRACTS[ITEM].mutationSafety).toBeNull();
+  expect(MODEL_COMBO_MAPPING_SOURCE_CONTRACTS[CREATE].mutationSafety).toMatchObject({
+    preflight: {
+      kind: "required",
+      observations: [{
+        name: "model-combo-mapping-collection",
+        read: { operationId: LIST, inputs: [] },
+        readCompleteness: {
+          kind: "unpaginated-list",
+          sourceReason: "The pinned v3.8.52 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
+          itemsPath: ["mappings"],
+          totalPath: ["total"],
+          identityPaths: [["id"]],
+        },
+      }],
+    },
+    reconciliation: { kind: "unknown" },
+    settlement: { responseComplete: { statusCodes: [201] }, definiteRejection: null },
+  });
+  for (const [operationId, name] of [[UPDATE, "selected-model-combo-mapping"], [DELETE, "selected-model-combo-delete-target"]] as const) {
+    expect(MODEL_COMBO_MAPPING_SOURCE_CONTRACTS[operationId].mutationSafety).toMatchObject({
+      preflight: {
+        kind: "required",
+        observations: [{
+          name,
+          read: { operationId: ITEM },
+          readCompleteness: {
+            kind: "single-response",
+            sourceReason: "The pinned v3.8.52 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination.",
+          },
+        }],
+      },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null },
+    });
+  }
   fixture.database.prepare("UPDATE combos SET data = ? WHERE id = ?").run(
     JSON.stringify({ id: "combo-known", name: "Known combo", models: [], isActive: true, apiKey: SECRET_MARKER }),
     "combo-known",
@@ -305,11 +344,33 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(missingItem.status).toBe(404);
   mark(ITEM, ["authorized-joined-item", "missing-item", "unknown-combo-has-no-join", "secret-free-combo-projection"]);
 
+  const staleCreatePlan = await harness.executor.plan(CREATE, {
+    body: { pattern: "external-drift/*", comboId: "combo-known" },
+  });
+  const writesBeforeCreateDrift = harness.dispatchCount(CREATE);
+  const createCollectionDrift = await directRequest(fixture, "PUT", "/api/model-combo-mappings/mapping-known", {
+    key: MANAGE_KEY,
+    body: { description: "create-plan external edit" },
+  });
+  expect(createCollectionDrift.status).toBe(200);
+  await expect(harness.executor.apply(staleCreatePlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(harness.dispatchCount(CREATE)).toBe(writesBeforeCreateDrift);
+  mark(CREATE, ["source-complete-external-drift-0-writes"]);
+
   const createBefore = state(fixture);
-  const createResult = await apply(harness, CREATE, {
+  const createReadsBeforeLostApply = harness.targetReadCount();
+  const createReconciliationsBeforeLostApply = harness.reconciliationReadCount();
+  const lostCreatePlan = await harness.executor.plan(CREATE, {
     body: { pattern: "  vendor/*  ", comboId: "combo-known" },
-  }, true);
-  expect(createResult.status).toBe("applied");
+  });
+  expect(lostCreatePlan.preview.confirmationRequired).toBe(true);
+  harness.loseNextResponse(CREATE);
+  const createResult = await harness.executor.apply(lostCreatePlan.planId, { confirmed: true });
+  expect(createResult).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+  expect(harness.dispatchCount(CREATE)).toBe(1);
+  expect(harness.targetReadCount()).toBe(createReadsBeforeLostApply + 2);
+  expect(harness.reconciliationReadCount()).toBe(createReconciliationsBeforeLostApply);
+  await expect(harness.executor.apply(lostCreatePlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
   expect(harness.dispatchCount(CREATE)).toBe(1);
   expect(harness.dispatchedBodies(CREATE)).toEqual([{
     pattern: "  vendor/*  ",
@@ -333,8 +394,9 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(createResponse.body).not.toHaveProperty("mapping.comboName");
   expect(JSON.stringify(createResponse.body)).not.toContain(SECRET_MARKER);
   const whitespaceBefore = state(fixture);
-  const whitespaceCreateResult = await apply(harness, CREATE, { body: { pattern: "   ", comboId: "combo-known" } }, true);
+  const whitespaceCreateResult = await apply(harness, CREATE, { body: { pattern: "   ", comboId: "combo-known" } });
   expect(whitespaceCreateResult.status).toBe("applied");
+  expect(whitespaceCreateResult.plan.state).toBe("applied");
   expect(harness.dispatchCount(CREATE)).toBe(2);
   expect(harness.dispatchedBodies(CREATE).at(-1)).toEqual({
     pattern: "   ",
@@ -351,6 +413,7 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   const whitespaceItem = await directRequest(fixture, "GET", `/api/model-combo-mappings/${whitespaceId}`, { key: MANAGE_KEY });
   expect(whitespaceItem).toMatchObject({ status: 200, body: { mapping: { id: whitespaceId, pattern: "" } } });
   observe(CREATE, { before: whitespaceBefore, after: state(fixture), result: whitespaceResponse });
+  mark(CREATE, ["lost-single-dispatch-unknown", "response-complete-201"]);
 
   const invalidPattern = await directRequest(fixture, "POST", "/api/model-combo-mappings", {
     key: MANAGE_KEY,
@@ -382,10 +445,24 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   fixture.database.exec(`DROP TRIGGER ${triggerName}`);
   expect(storageError).toEqual({ status: 500, body: { error: "Failed to create model-combo mapping" } });
   expect(JSON.stringify(storageError.body)).not.toContain(SECRET_MARKER);
-  mark(CREATE, ["scope-denial", "malformed-json", "invalid-pattern", "trim-defaults-and-create-omits-join", "raw-pattern-preserved-on-wire", "whitespace-trims-only-in-persisted-state", "sqlite-source-error", "uncertain-single-dispatch-reconcile"]);
+  const partialFailureTrigger = "fixture_mapping_partial_failure";
+  fixture.database.exec(`CREATE TRIGGER ${partialFailureTrigger} AFTER INSERT ON model_combo_mappings
+    BEGIN SELECT RAISE(FAIL, '${SECRET_MARKER}'); END`);
+  const partialFailure = await apply(harness, CREATE, {
+    body: { pattern: "partial-error/*", comboId: "combo-known" },
+  });
+  fixture.database.exec(`DROP TRIGGER ${partialFailureTrigger}`);
+  expect(partialFailure).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+  expect(harness.last(CREATE).status).toBe(500);
+  expect(fixture.state.mappings.some(row => row.pattern === "partial-error/*")).toBe(true);
+  mark(CREATE, ["scope-denial", "malformed-json", "invalid-pattern", "trim-defaults-and-create-omits-join", "raw-pattern-preserved-on-wire", "whitespace-trims-only-in-persisted-state", "sqlite-source-error", "partial-error-unknown"]);
 
   const stalePlan = await harness.executor.plan(UPDATE, { path: { id: "mapping-known" }, body: { priority: 81 } });
-  fixture.database.prepare("UPDATE model_combo_mappings SET description = ? WHERE id = ?").run("concurrent external edit", "mapping-known");
+  const externalUpdate = await directRequest(fixture, "PUT", "/api/model-combo-mappings/mapping-known", {
+    key: MANAGE_KEY,
+    body: { description: "concurrent external edit" },
+  });
+  expect(externalUpdate.status).toBe(200);
   await expect(harness.executor.apply(stalePlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
   expect(harness.dispatchCount(UPDATE)).toBe(0);
   const malformedUpdate = await directRequest(fixture, "PUT", "/api/model-combo-mappings/mapping-known", { key: MANAGE_KEY, rawBody: "{" });
@@ -397,11 +474,20 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(deniedUpdate.status).toBe(403);
 
   const updateBefore = state(fixture);
-  const updateResult = await apply(harness, UPDATE, {
+  const updateReadsBeforeLostApply = harness.targetReadCount();
+  const updateReconciliationsBeforeLostApply = harness.reconciliationReadCount();
+  const lostUpdatePlan = await harness.executor.plan(UPDATE, {
     path: { id: "mapping-known" },
     body: { priority: 90 },
-  }, true);
-  expect(updateResult.status).toBe("applied");
+  });
+  expect(lostUpdatePlan.preview.confirmationRequired).toBe(true);
+  harness.loseNextResponse(UPDATE);
+  const updateResult = await harness.executor.apply(lostUpdatePlan.planId, { confirmed: true });
+  expect(updateResult).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+  expect(harness.dispatchCount(UPDATE)).toBe(1);
+  expect(harness.targetReadCount()).toBe(updateReadsBeforeLostApply + 2);
+  expect(harness.reconciliationReadCount()).toBe(updateReconciliationsBeforeLostApply);
+  await expect(harness.executor.apply(lostUpdatePlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
   expect(harness.dispatchCount(UPDATE)).toBe(1);
   const updateResponse = harness.last(UPDATE);
   expect(updateResponse.status).toBe(200);
@@ -415,6 +501,15 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
     comboName: "Known combo",
   } });
   observe(UPDATE, { before: updateBefore, after: state(fixture), result: updateResponse });
+  const updateReadsBeforeResponseComplete = harness.targetReadCount();
+  const responseCompleteUpdate = await apply(harness, UPDATE, {
+    path: { id: "mapping-known" },
+    body: { priority: 91 },
+  });
+  expect(responseCompleteUpdate.status).toBe("applied");
+  expect(responseCompleteUpdate.plan.state).toBe("applied");
+  expect(harness.targetReadCount()).toBe(updateReadsBeforeResponseComplete + 2);
+  mark(UPDATE, ["lost-single-dispatch-unknown", "response-complete-200"]);
   const unknownComboUpdate = await directRequest(fixture, "PUT", "/api/model-combo-mappings/mapping-known", {
     key: MANAGE_KEY,
     body: { comboId: "combo-missing" },
@@ -424,16 +519,29 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(updatedItem.status).toBe(200);
   expect(updatedItem.body).not.toHaveProperty("mapping.comboName");
   expect(JSON.stringify(updateResponse.body)).not.toContain(SECRET_MARKER);
-  mark(UPDATE, ["scope-denial", "malformed-json", "partial-update-preserves-state", "unknown-combo-clears-stale-join", "selected-target-drift", "uncertain-single-dispatch-reconcile"]);
+  mark(UPDATE, ["scope-denial", "malformed-json", "partial-update-preserves-state", "unknown-combo-clears-stale-join", "selected-target-drift"]);
 
   const createdId = "00000000-0000-4000-8000-000000000001";
   const staleDelete = await harness.executor.plan(DELETE, { path: { id: createdId } });
-  fixture.database.prepare("UPDATE model_combo_mappings SET description = ? WHERE id = ?").run("concurrent delete target edit", createdId);
+  const externalDeleteDrift = await directRequest(fixture, "PUT", `/api/model-combo-mappings/${createdId}`, {
+    key: MANAGE_KEY,
+    body: { description: "concurrent delete target edit" },
+  });
+  expect(externalDeleteDrift.status).toBe(200);
   await expect(harness.executor.apply(staleDelete.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
   expect(harness.dispatchCount(DELETE)).toBe(0);
   const deleteBefore = state(fixture);
-  const deleteResult = await apply(harness, DELETE, { path: { id: createdId } }, true);
-  expect(deleteResult.status).toBe("applied");
+  const deleteReadsBeforeLostApply = harness.targetReadCount();
+  const deleteReconciliationsBeforeLostApply = harness.reconciliationReadCount();
+  const lostDeletePlan = await harness.executor.plan(DELETE, { path: { id: createdId } });
+  expect(lostDeletePlan.preview.confirmationRequired).toBe(true);
+  harness.loseNextResponse(DELETE);
+  const deleteResult = await harness.executor.apply(lostDeletePlan.planId, { confirmed: true });
+  expect(deleteResult).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+  expect(harness.dispatchCount(DELETE)).toBe(1);
+  expect(harness.targetReadCount()).toBe(deleteReadsBeforeLostApply + 2);
+  expect(harness.reconciliationReadCount()).toBe(deleteReconciliationsBeforeLostApply);
+  await expect(harness.executor.apply(lostDeletePlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
   expect(harness.dispatchCount(DELETE)).toBe(1);
   const deleteResponse = harness.last(DELETE);
   expect(deleteResponse).toEqual({ status: 200, body: { success: true } });
@@ -441,7 +549,10 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   const missingAfterDelete = await directRequest(fixture, "GET", `/api/model-combo-mappings/${createdId}`, { key: MANAGE_KEY });
   expect(missingAfterDelete.status).toBe(404);
   observe(DELETE, { before: deleteBefore, after: state(fixture), result: deleteResponse });
-  mark(DELETE, ["pinned-source-delete", "not-found-after-delete", "selected-target-drift", "uncertain-single-dispatch-reconcile"]);
+  const responseCompleteDelete = await apply(harness, DELETE, { path: { id: "mapping-prefix" } });
+  expect(responseCompleteDelete.status).toBe("applied");
+  expect(responseCompleteDelete.plan.state).toBe("applied");
+  mark(DELETE, ["pinned-source-delete", "not-found-after-delete", "selected-target-drift", "lost-single-dispatch-unknown", "response-complete-200"]);
 
   allAssertionsPassed = true;
 });

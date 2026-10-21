@@ -61,18 +61,59 @@ bun run verify:contracts
 bun run docs:check
 ```
 
-The current reviewed families are combos, fallback chains, model capability
-overrides and provider aliases. Their fixtures execute pinned handlers and management authorization.
-Combo tests also execute the pinned SQLite repository, migrations, compatibility
-facade, virtual builder and metrics code, with configured catalog/policy inputs
-and recorded service effects. Clock and UUID inputs are deterministic; complete
-observed fields remain recorded. Provider-alias tests execute SQLite persistence
-and the pinned error formatter and sanitizer; they bind the selected alias through
-preflight and reconciliation. Fallback and capability fixtures use explicit
-in-memory storage backends. These tests do not qualify substituted services, external databases,
-live network providers, session cryptography, IP filtering, body limits, elapsed
-latency/timeouts, or native platforms. Mapping qualification remains unfinished. The
+Active qualification is being rebuilt after a mutation-safety contract migration.
+Historical evidence covered combos, fallback chains, capability overrides,
+provider aliases, model-combo mappings, and provider configuration. That evidence
+is retained, but cannot authorize calls under the new contract. Provider
+configuration, fallback chains, provider aliases, and model-combo mappings have
+regained qualification through fresh tests and review, within their documented
+visibility and outcome limits. Fallback tests
+execute the pinned policy with an in-memory persistence backend and injected
+failures; they do not establish SQLite integration. Combo and capability reads
+have also regained qualification. Metrics reset has qualified invocation with
+required exposed-state reads, explicit hidden-counter and cleanup-timer limits,
+and unknown one-shot settlement. Other combo and capability mutations await
+qualification of their available dependencies and source effects. Other
+operations must complete the same process; direct source-handler tests alone
+do not qualify held client invocations. The
 [generated inventory](generated.md#operation-inventory) owns the current counts.
+
+Approval-state checks and outcome reconciliation have separate responsibilities.
+Read and bind the relevant target state that upstream exposes, even when a
+later read cannot prove whether a lost-response mutation completed. An upstream
+visibility limit alone must not prevent a supported operation. Record that
+limit in the source-bound contract and show it alongside the operation's exact
+scope and observed state in the confirmation. This does not excuse an unfinished
+client read, a failed available read, or omitted observable routing dependencies.
+A missing target row cannot prove that all dependent cleanup succeeded.
+
+For example, a metrics reset can cover all counters for the selected combo even
+when upstream omits some counter values from its GET response. Read and bind the
+exposed metrics, disclose that hidden counters are also cleared, and retain an
+unknown outcome when complete success cannot be established. A reset of all
+metrics also stops upstream's periodic cleanup timer until the module reloads;
+that consequence belongs in its confirmation. Neither a partial observation nor
+a successful HTTP response should be presented as proof of complete state.
+
+The migration also distinguishes a response that proves complete success from
+one that requires verified postconditions or leaves an unknown outcome. A
+dispatched error can follow partial writes. Neither an HTTP success status nor
+a server error alone establishes the complete result of a cascading operation.
+Unknown outcomes must never trigger an automatic replay.
+
+The version 3 contract binds these decisions in `mutationSafety`. Its `preflight`
+contains named observations, an evidenced reason that target reads do not apply,
+or an explicit unavailable dependency. Its `reconciliation` either names all
+required postconditions or declares an unknown outcome. `settlement` lists only
+response statuses independently proven to acknowledge every required effect.
+Legacy contracts cannot authorize mutations. Pagination without a verified
+complete-read contract remains blocked; a partial page cannot prove absence.
+
+For the source-qualified mapping collection read, `unpaginated-list` requires
+omitted pagination inputs, a raw row count matching the source's total, unique
+identities, and bounded response size before selecting a target. It does not
+implement page traversal. Incomplete, duplicate, oversized, or paginated results
+cannot be used to approve a mutation or establish absence.
 
 An empty active eligibility list is a valid fail-closed development state. It does
 not satisfy release acceptance. Historical qualification is retained separately

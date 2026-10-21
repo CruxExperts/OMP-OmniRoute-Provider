@@ -676,19 +676,17 @@ export function comboRelationSnapshot(
   const metrics = (response as Record<string, unknown>).metrics;
   const combo = queryCombo(payload);
   if (combo !== undefined) {
-    if (metrics === null || metrics === undefined) return relationDocument("collection", []);
-    if (typeof metrics !== "object" || Array.isArray(metrics)) throw new TypeError("combo metrics selection is invalid");
-    const selectedMetrics = Object.hasOwn(metrics, combo)
-      ? (metrics as Record<string, unknown>)[combo]
-      : Object.hasOwn(metrics, "totalRequests") ? metrics : undefined;
-    return relationDocument("collection", selectedMetrics === undefined || selectedMetrics === null
-      ? []
-      : [relationEntry({ comboName: combo }, { metrics: json(selectedMetrics) })]);
+    if (metrics !== null && metrics !== undefined && (typeof metrics !== "object" || Array.isArray(metrics))) {
+      throw new TypeError("combo metrics selection is invalid");
+    }
+    return relationDocument("collection", [relationEntry(
+      { scope: "selected", comboName: combo },
+      { metrics: metrics === null || metrics === undefined ? null : json(metrics) },
+    )]);
   }
-  if (metrics === null || metrics === undefined) return relationDocument("collection", []);
+  if (metrics === null || metrics === undefined) throw new TypeError("all combo metrics map is missing");
   if (typeof metrics !== "object" || Array.isArray(metrics)) throw new TypeError("combo metrics map is invalid");
-  const entries = Object.entries(metrics).map(([name, value]) => relationEntry({ comboName: name }, { metrics: json(value) }));
-  return relationDocument("collection", entries);
+  return relationDocument("collection", [relationEntry({ scope: "all" }, { metrics: json(metrics) })]);
 }
 
 function parseRelationSnapshot(value: JsonValue): { kind: string; entries: Array<{ identity: JsonObject; state: JsonObject; absent?: boolean }> } {

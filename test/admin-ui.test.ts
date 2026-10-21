@@ -146,6 +146,78 @@ test("apply command remains human-only when the confirmation form is cancelled",
   expect(applyCalls).toBe(0);
 });
 
+test("apply confirmation renders the observed target and visibility limits with secret fields redacted", async () => {
+  const descriptor = getOperation("DELETE /api/combos/metrics");
+  if (!descriptor) throw new Error("combo metrics reset descriptor is missing");
+  const displayDescriptor = {
+    ...descriptor,
+    secrets: { ...descriptor.secrets, outputFields: [...descriptor.secrets.outputFields, "providers.connections.lastError"] },
+  };
+  const registry = fixtureRegistry([displayDescriptor]);
+  const plan: AdminPlanHandle = {
+    planId: "p-visible-target",
+    operationId: descriptor.operationId,
+    auth: { domain: "management", profileId: "omniroute", endpoint: "http://127.0.0.1:20128", epoch: 1 },
+    targetAuth: { domain: "management", profileId: "omniroute", endpoint: "http://127.0.0.1:20128", epoch: 1 },
+    payloadDigest: "payload-digest",
+    targetDigest: "target-digest",
+    risk: "mutation",
+    createdAt: 0,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    state: "pending",
+    preview: {
+      operationId: descriptor.operationId,
+      method: "DELETE",
+      pathTemplate: descriptor.pathTemplate,
+      target: { profileId: "omniroute", endpoint: "http://127.0.0.1:20128" },
+      risk: "mutation",
+      sideEffect: "mutation",
+      confirmationRequired: true,
+      authorization: { kind: "server-enforced", message: "The server enforces credential permissions; this preview did not preflight them." },
+      payload: { path: {}, query: { combo: "Probe" } },
+      projectedTarget: {
+        kind: "collection",
+        entries: [{ identity: { scope: "selected", comboName: "Probe" }, state: {
+          metrics: { totalRequests: 2, accessToken: "fixture-private-token" },
+          providers: [{ connections: [{ id: "fixture-connection", lastError: "fixture-private-diagnostic", status: "ready" }] }],
+          health: { lastError: "fixture-public-diagnostic" },
+        } }],
+      },
+      visibilityLimits: ["Standalone persisted-skip counters are hidden from this GET."],
+      consequence: "Resets the selected combo's visible and hidden counters.",
+      resolvedPath: "/api/combos/metrics",
+      queryParameters: [],
+      planDigest: "plan-digest",
+    },
+  };
+  const messages: string[] = [];
+  let applyCalls = 0;
+  const executor = {
+    apply: async () => { applyCalls += 1; return { status: "unknown" as const, plan }; },
+    getCredentialBinding: () => ({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", epoch: 1, credentialKind: "apiKey", authority: "server-enforced", enabled: true }),
+    getPlan: (planId: string) => planId === plan.planId ? plan : undefined,
+  };
+  const handler = createAdminCommandHandler({ executor: executor as never, registry, endpoint: "http://127.0.0.1:20128" });
+  const context = {
+    hasUI: true,
+    ui: {
+      custom: async () => "APPLY",
+      confirm: async (_title: string, body: string) => { messages.push(body); return true; },
+      notify: (message: string) => { messages.push(message); },
+    },
+  };
+  await handler("apply p-visible-target", context as never);
+  const display = messages.join("\n");
+  expect(display).toContain("observedTarget");
+  expect(display).toContain("visibilityLimits");
+  expect(display).toContain("scope");
+  expect(display).toContain("[redacted]");
+  expect(display).not.toContain("fixture-private-token");
+  expect(display).not.toContain("fixture-private-diagnostic");
+  expect(display).toContain("fixture-public-diagnostic");
+  expect(applyCalls).toBe(1);
+});
+
 test("browse executes only ordinary reads and displays the executor-projected response", async () => {
   const descriptor = await publicReadDescriptor("GET /fixture/admin-ui-read", "/fixture/admin-ui-read");
   const registry = fixtureRegistry([descriptor]);

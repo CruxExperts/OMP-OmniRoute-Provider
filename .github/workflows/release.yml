@@ -212,7 +212,7 @@ jobs:
           for name in "${names[@]}"; do assets+=("release/$name"); done
           gh release create "$RELEASE_TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "CruxOmni-OMP-Client ${RELEASE_TAG#v}" \
+            --title "OhMyPie OmniRoute Plugin ${RELEASE_TAG#v}" \
             --notes-file "release/$notes_name" \
             --draft \
             --verify-tag

@@ -67,6 +67,7 @@ function integrationFixture(): IntegrationFixture {
         metadataRequest.resolve(observed);
         return Response.json({ catalog: { "fixture-owner": { models: [{ id: "fixture-model", context_length: 64000 }] } } });
       }
+      if (url.pathname === "/api/fallback/chains") return Response.json({});
       return new Response("not found", { status: 404 });
     },
   });
@@ -79,16 +80,22 @@ function integrationFixture(): IntegrationFixture {
 }
 
 
-function extensionHost(storage: AuthStorage) {
+function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]) => Promise<void>, onGetActiveTools?: () => void) {
   const commands = new Map<string, { handler: (args: string, context: never) => Promise<void> }>();
   const events = new Map<string, (...args: never[]) => unknown>();
+  const toolNames = new Set<string>();
+  const providerIds = new Set<string>();
+  let activeTools: string[] = [];
   const api = {
     zod: z,
     pi: { discoverAuthStorage: () => discoverAuthStorage(directory!, { cwd: directory! }) },
     registerCommand(name: string, command: { handler: (args: string, context: never) => Promise<void> }) { commands.set(name, command); },
-    registerTool() {},
-    registerProvider() {},
-    unregisterProvider() {},
+    registerTool(tool: { name: string }) { toolNames.add(tool.name); },
+    getAllTools() { return [...toolNames].map(name => ({ name })); },
+    getActiveTools() { onGetActiveTools?.(); return [...activeTools]; },
+    async setActiveTools(names: string[]) { await onSetActiveTools?.(names); activeTools = [...names]; },
+    registerProvider(id: string) { providerIds.add(id); },
+    unregisterProvider(id: string) { providerIds.delete(id); },
     on(name: string, callback: (...args: never[]) => unknown) { events.set(name, callback); },
   };
   const context = (ui: Record<string, unknown> = {}) => ({
@@ -98,8 +105,189 @@ function extensionHost(storage: AuthStorage) {
     ui: { notify() {}, ...ui },
     modelRegistry: { authStorage: storage },
   }) as never;
-  return { api, commands, events, context };
+  return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds] };
 }
+
+test("pre-enabled administration defers host action methods until session start and rebinds on restart", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    }
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    process.env.OMP_OMNIROUTE_ADMIN_API_KEY = "fixture-admin-key";
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, adminEnabled: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    let hostReady = false;
+    const host = extensionHost(nativeStorage, undefined, () => {
+      if (!hostReady) throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
+    });
+    await register(host.api as never);
+    hostReady = true;
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    shutdown = host.events.get("session_shutdown");
+    const notices: string[] = [];
+    const readContext = host.context({
+      notify(message: string) { notices.push(message); },
+      async custom(factory: (...args: never[]) => { onSubmit(value: string): void }) {
+        const { promise, resolve } = Promise.withResolvers<string | undefined>();
+        const input = factory(undefined as never, undefined as never, undefined as never, resolve as never);
+        input.onSubmit("{}");
+        return promise;
+      },
+    });
+    const read = async () => host.commands.get("cruxomni-admin")!.handler("GET /api/fallback/chains", readContext);
+    await read();
+    expect(fixture.requests.filter(request => request.path === "/api/fallback/chains")).toEqual([
+      { path: "/api/fallback/chains", authorization: "Bearer fixture-admin-key" },
+    ]);
+
+    await shutdown?.();
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    await read();
+    expect(fixture.requests.filter(request => request.path === "/api/fallback/chains")).toEqual([
+      { path: "/api/fallback/chains", authorization: "Bearer fixture-admin-key" },
+      { path: "/api/fallback/chains", authorization: "Bearer fixture-admin-key" },
+    ]);
+    expect(notices.filter(message => message.startsWith("read result for GET /api/fallback/chains"))).toHaveLength(2);
+    expect(notices.some(message => message.includes("requires a source-qualified management credential"))).toBe(false);
+    expect(new Set(host.activeTools()).size).toBe(host.activeTools().length);
+    expect(host.activeProviders()).toEqual(["omniroute"]);
+  } finally {
+    await shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+  }
+});
+
+test("failed administration initialization and cleanup cannot poison the next command", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  let failHostActions = true;
+  let hostActionCalls = 0;
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    }
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    process.env.OMP_OMNIROUTE_ADMIN_API_KEY = "fixture-admin-key";
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    const host = extensionHost(nativeStorage, undefined, () => {
+      if (failHostActions) {
+        hostActionCalls++;
+        throw Object.assign(new Error("host actions unavailable"), {
+          code: hostActionCalls === 1 ? "initialization_failed" : "cleanup_failed",
+        });
+      }
+    });
+    await register(host.api as never);
+    shutdown = host.events.get("session_shutdown");
+    const notices: string[] = [];
+    const context = host.context({
+      notify(message: string) { notices.push(message); },
+      async confirm() { return true; },
+      async custom(factory: (...args: never[]) => { onSubmit(value: string): void }) {
+        const { promise, resolve } = Promise.withResolvers<string | undefined>();
+        const input = factory(undefined as never, undefined as never, undefined as never, resolve as never);
+        input.onSubmit("{}");
+        return promise;
+      },
+    });
+    const admin = host.commands.get("cruxomni-admin")!;
+    await admin.handler("enable", context);
+    expect(notices).toContain("omniroute operations unavailable (initialization_failed); no request was sent");
+    expect(hostActionCalls).toBeGreaterThan(1);
+    expect((await loadConfig()).adminEnabled).toBe(false);
+
+    failHostActions = false;
+    await admin.handler("enable", context);
+    expect((await loadConfig()).adminEnabled).toBe(true);
+    await admin.handler("GET /api/fallback/chains", context);
+    expect(fixture.requests.filter(request => request.path === "/api/fallback/chains")).toEqual([
+      { path: "/api/fallback/chains", authorization: "Bearer fixture-admin-key" },
+    ]);
+    expect(notices.some(message => message.includes("requires a source-qualified management credential"))).toBe(false);
+  } finally {
+    failHostActions = false;
+    await shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+  }
+});
+
+test("an in-flight administration creator cannot replace the runtime after restart", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let firstActivation = true;
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    }
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    process.env.OMP_OMNIROUTE_ADMIN_API_KEY = "fixture-admin-key";
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, adminEnabled: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    const host = extensionHost(nativeStorage, async () => {
+      if (!firstActivation) return;
+      firstActivation = false;
+      entered.resolve();
+      await release.promise;
+    });
+    await register(host.api as never);
+    const starting = Promise.resolve(host.events.get("session_start")!(undefined as never, host.context() as never));
+    await Promise.race([
+      entered.promise,
+      Bun.sleep(3_000).then(() => { throw new Error("administration activation did not begin"); }),
+    ]);
+    shutdown = host.events.get("session_shutdown");
+    const retiring = Promise.resolve(shutdown?.());
+    const restarting = Promise.resolve(host.events.get("session_start")!(undefined as never, host.context() as never));
+    release.resolve();
+    await Promise.all([starting, retiring, restarting]);
+
+    const notices: string[] = [];
+    const readContext = host.context({
+      notify(message: string) { notices.push(message); },
+      async custom(factory: (...args: never[]) => { onSubmit(value: string): void }) {
+        const { promise, resolve } = Promise.withResolvers<string | undefined>();
+        const input = factory(undefined as never, undefined as never, undefined as never, resolve as never);
+        input.onSubmit("{}");
+        return promise;
+      },
+    });
+    await host.commands.get("cruxomni-admin")!.handler("GET /api/fallback/chains", readContext);
+    expect(fixture.requests.filter(request => request.path === "/api/fallback/chains")).toEqual([
+      { path: "/api/fallback/chains", authorization: "Bearer fixture-admin-key" },
+    ]);
+    expect(notices.some(message => message.includes("requires a source-qualified management credential"))).toBe(false);
+    expect(new Set(host.activeTools()).size).toBe(host.activeTools().length);
+    expect(host.activeProviders()).toEqual(["omniroute"]);
+  } finally {
+    release.resolve();
+    await shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+  }
+});
 
 test("session-only secrets vanish on restart and never enter profile files", async () => {
   await isolated(); const { store, rows } = storage(); const credentials = new OptionalCredentials();

@@ -282,6 +282,8 @@ export function fallbackChainTargetSnapshot(
   }
   const model = payload.body.model.trim();
   if (model.length === 0 || model.length > 200) throw new TypeError("fallback-chain target model is invalid");
+  // Pinned GET assigns to an ordinary object; this name never becomes an own JSON key.
+  if (model === "__proto__") throw new TypeError("fallback-chain target cannot be observed through the source GET");
   const found = Object.hasOwn(response, model);
   const selected = found ? response[model] : undefined;
   if (found && !Array.isArray(selected)) throw new TypeError("fallback-chain target row is not an array");

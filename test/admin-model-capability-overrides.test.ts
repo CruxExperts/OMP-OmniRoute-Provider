@@ -41,10 +41,8 @@ const ANTHROPIC_NODE_ID = "anthropic-compatible-chat-00000000-0000-4000-8000-000
 const RESERVED_NODE_ID = "openai-compatible-chat-00000000-0000-4000-8000-000000000004";
 const NO_PREFIX_NODE_ID = "openai-compatible-chat-00000000-0000-4000-8000-000000000005";
 
-const REQUIRED_CASES: Readonly<Record<ModelCapabilityOverrideOperationId, readonly string[]>> = {
+const REQUIRED_CASES: Readonly<Record<typeof GET_OVERRIDES, readonly string[]>> = {
   [GET_OVERRIDES]: ["prefix-list-order-and-uuid-suppression", "management-authorization-boundaries", "opaque-cookie-session", "auth-disabled-central-and-handler"],
-  [PATCH_OVERRIDES]: ["json-body-coercion-and-context-storage", "reasoning-effort-parser-boundaries", "prefix-winner-reserved-and-raw-id-boundaries", "management-authorization-boundaries", "auth-disabled-central-and-handler", "confirmed-uncertain-single-attempt"],
-  [DELETE_OVERRIDES]: ["independent-table-delete-and-absent-noop", "management-authorization-boundaries", "auth-disabled-central-and-handler", "confirmed-uncertain-single-attempt"],
 };
 
 interface SemanticObservation {
@@ -212,7 +210,7 @@ function setupExecutor(fixture: ModelCapabilityOverridesFixture): ExecutorHarnes
       if (lostResponses.delete(operationId)) {
         throw Object.assign(new Error("fixture committed the mutation but lost its response"), { code: "network-lost-response", uncertain: true });
       }
-      return response.data;
+      return adapter.risk === "read" ? response.data : { kind: "response", status: response.status, body: response.data };
     },
   });
   executor.setAdminBinding({ profileId: PROFILE_ID, endpoint: fixture.endpoint }, true);
@@ -249,13 +247,14 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  const complete = MODEL_CAPABILITY_OVERRIDE_OPERATION_IDS.every(operationId =>
+  const eligibleOperations = [GET_OVERRIDES] as const;
+  const complete = eligibleOperations.every(operationId =>
     REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId)),
   );
   if (!complete) return;
   const observationDirectory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(observationDirectory, { recursive: true, mode: 0o700 });
-  for (const operationId of MODEL_CAPABILITY_OVERRIDE_OPERATION_IDS) {
+  for (const operationId of eligibleOperations) {
     const observation = observations.get(operationId);
     if (!observation) return;
     const binding = operationEvidenceBinding(operationId, MODEL_CAPABILITY_OVERRIDE_SOURCE_CONTRACTS[operationId]);
@@ -301,43 +300,30 @@ describe("pinned `/api/model-capability-overrides` operation semantics", () => {
     const fixture = createFixture({ capabilities: [], contexts: [] });
     const harness = setupExecutor(fixture);
     const before = fixture.publicState();
-    const plan = await harness.executor.plan(PATCH_OVERRIDES, {
-      body: { target: " shared/context-model ", key: "context_length", value: "0x1000", ignored: "not persisted" },
-    });
-
-    expect(plan.risk).toBe("mutation");
-    expect(plan.preview.confirmationRequired).toBe(true);
-    expect(plan.targetDigest).toBeNull();
-    expect(plan.preview.consequence).toContain("one attempt");
+    const mutationBody = { target: " shared/context-model ", key: "context_length", value: "0x1000", ignored: "not persisted" };
+    await expect(harness.executor.plan(PATCH_OVERRIDES, { body: mutationBody })).rejects.toMatchObject({ code: "operation-unavailable" });
+    expect(harness.dispatchCount(PATCH_OVERRIDES)).toBe(0);
     expect(fixture.context("openai-compatible-chat-00000000-0000-4000-8000-000000000001", "context-model")).toBeUndefined();
     expect(fixture.cacheInvalidations).toBe(0);
 
-    const applied = await harness.executor.apply(plan.planId, { confirmed: true });
-    expect(applied.status).toBe("applied");
-    expect(harness.dispatchCount(PATCH_OVERRIDES)).toBe(1);
+    const direct = await rawRequest(fixture, { operationId: PATCH_OVERRIDES, token: MANAGEMENT_KEY, body: mutationBody });
+    const directBody = await ensureJsonResponse(direct, 200);
+    expect(harness.dispatchCount(PATCH_OVERRIDES)).toBe(0);
     expect(fixture.context("openai-compatible-chat-00000000-0000-4000-8000-000000000001", "context-model")).toMatchObject({
       realContext: 4096,
       source: "manual",
     });
     expect(fixture.capability("openai-compatible-chat-00000000-0000-4000-8000-000000000001", "context-model", "max_input_tokens")).toBeUndefined();
     expect(fixture.cacheInvalidations).toBe(1);
-    expect(lastRows(harness, PATCH_OVERRIDES).some(row => row.target === "shared/context-model" && row.key === "context_length" && row.value === 4096)).toBe(true);
-    expect(fixture.lastPatchWireBody).toEqual({
-      target: " shared/context-model ",
-      key: "context_length",
-      value: 4096,
-    });
+    expect(overrideRows(directBody).some(row => row.target === "shared/context-model" && row.key === "context_length" && row.value === 4096)).toBe(true);
+    expect(fixture.lastPatchWireBody).toEqual(mutationBody);
 
-    const boolPlan = await harness.executor.plan(PATCH_OVERRIDES, {
-      body: { target: "openai/boolean-coercion", key: "max_input_tokens", value: true },
-    });
-    await harness.executor.apply(boolPlan.planId, { confirmed: true });
+    await ensureJsonResponse(await rawRequest(fixture, { operationId: PATCH_OVERRIDES, token: MANAGEMENT_KEY,
+      body: { target: "openai/boolean-coercion", key: "max_input_tokens", value: true } }), 200);
     expect(fixture.capability("openai", "boolean-coercion", "max_input_tokens")?.value).toBe(1);
 
-    const arrayPlan = await harness.executor.plan(PATCH_OVERRIDES, {
-      body: { target: "openai/array-coercion", key: "max_output_tokens", value: ["7"] },
-    });
-    await harness.executor.apply(arrayPlan.planId, { confirmed: true });
+    await ensureJsonResponse(await rawRequest(fixture, { operationId: PATCH_OVERRIDES, token: MANAGEMENT_KEY,
+      body: { target: "openai/array-coercion", key: "max_output_tokens", value: ["7"] } }), 200);
     expect(fixture.capability("openai", "array-coercion", "max_output_tokens")?.value).toBe(7);
     expect(fixture.cacheInvalidations).toBe(3);
 
@@ -358,29 +344,27 @@ describe("pinned `/api/model-capability-overrides` operation semantics", () => {
     expect(malformedBody).toEqual({ error: "Invalid JSON body" });
     expect(fixture.capability("openai", "rejected", "max_input_tokens")).toBeUndefined();
 
-    const lastResponse = harness.response(PATCH_OVERRIDES);
     observe(PATCH_OVERRIDES, "json-body-coercion-and-context-storage", {
       before,
       after: fixture.publicState(),
-      result: { status: lastResponse.status, body: lastResponse.data },
+      result: { status: direct.status, body: directBody },
     });
   });
 
   test("PATCH reasoning efforts preserves source order and rejects unsupported, duplicate, and non-English separators", async () => {
     const fixture = createFixture({ capabilities: [], contexts: [] });
-    const harness = setupExecutor(fixture);
     const before = fixture.publicState();
-    const valid = await harness.executor.plan(PATCH_OVERRIDES, {
-      body: { target: "openai/reasoning-model", key: "reasoning_efforts", value: " NONE,\u2009LOW , max ", ignored: true },
-    });
-    await harness.executor.apply(valid.planId, { confirmed: true });
+    const valid = await rawRequest(fixture, { operationId: PATCH_OVERRIDES, token: MANAGEMENT_KEY,
+      body: { target: "openai/reasoning-model", key: "reasoning_efforts", value: " NONE,\u2009LOW , max ", ignored: true } });
+    const validBody = await ensureJsonResponse(valid, 200);
     expect(fixture.lastPatchWireBody).toEqual({
       target: "openai/reasoning-model",
       key: "reasoning_efforts",
-      value: "none,low,max",
+      value: " NONE,\u2009LOW , max ",
+      ignored: true,
     });
     expect(fixture.capability("openai", "reasoning-model", "reasoning_efforts")?.value).toEqual(["none", "low", "max"]);
-    expect(lastRows(harness, PATCH_OVERRIDES).find(row => row.target === "openai/reasoning-model")?.value).toEqual(["none", "low", "max"]);
+    expect(overrideRows(validBody).find(row => row.target === "openai/reasoning-model")?.value).toEqual(["none", "low", "max"]);
 
     for (const value of ["bogus", "low,LOW", "low，high", "low,,high", ["low", "high"]]) {
       const response = await rawRequest(fixture, {
@@ -396,31 +380,26 @@ describe("pinned `/api/model-capability-overrides` operation semantics", () => {
       body: { target: "openai/reasoning-rejected", key: "reasoning_efforts", value: "ultra,wat" },
     });
     await ensureJsonResponse(unsupportedResponse, 400);
-    const reasoningResponse = harness.response(PATCH_OVERRIDES);
     expect(fixture.capability("openai", "reasoning-rejected", "reasoning_efforts")).toBeUndefined();
     observe(PATCH_OVERRIDES, "reasoning-effort-parser-boundaries", {
       before,
       after: fixture.publicState(),
-      result: { status: reasoningResponse.status, body: reasoningResponse.data },
+      result: { status: valid.status, body: validBody },
     });
     mark(PATCH_OVERRIDES, "reasoning-effort-parser-boundaries");
   });
 
   test("PATCH resolves source prefix winners, maps reserved aliases, rejects raw node IDs, and accepts an unconfigured provider", async () => {
     const fixture = createFixture({ capabilities: [], contexts: [] });
-    const harness = setupExecutor(fixture);
-    const winnerPlan = await harness.executor.plan(PATCH_OVERRIDES, {
-      body: { target: " shared/winner ", key: "max_output_tokens", value: "128" },
-    });
-    await harness.executor.apply(winnerPlan.planId, { confirmed: true });
+    const winner = await rawRequest(fixture, { operationId: PATCH_OVERRIDES, token: MANAGEMENT_KEY,
+      body: { target: " shared/winner ", key: "max_output_tokens", value: "128" } });
+    const winnerBody = await ensureJsonResponse(winner, 200);
     expect(fixture.capability(WINNER_NODE_ID, "winner", "max_output_tokens")?.value).toBe(128);
     expect(fixture.capability(SECOND_NODE_ID, "winner", "max_output_tokens")).toBeUndefined();
     expect(fixture.capability(ANTHROPIC_NODE_ID, "winner", "max_output_tokens")).toBeUndefined();
 
-    const reservedPlan = await harness.executor.plan(PATCH_OVERRIDES, {
-      body: { target: "cx/reserved-alias-model", key: "max_input_tokens", value: 64 },
-    });
-    await harness.executor.apply(reservedPlan.planId, { confirmed: true });
+    await ensureJsonResponse(await rawRequest(fixture, { operationId: PATCH_OVERRIDES, token: MANAGEMENT_KEY,
+      body: { target: "cx/reserved-alias-model", key: "max_input_tokens", value: 64 } }), 200);
     expect(fixture.capability("codex", "reserved-alias-model", "max_input_tokens")?.value).toBe(64);
     expect(fixture.capability(RESERVED_NODE_ID, "reserved-alias-model", "max_input_tokens")).toBeUndefined();
 
@@ -455,7 +434,7 @@ describe("pinned `/api/model-capability-overrides` operation semantics", () => {
       body: { target: "spaced/model", key: "max_input_tokens", value: 10 },
     });
     expect(JSON.stringify(await ensureJsonResponse(whitespacePrefixResponse, 400))).toContain("Invalid or ambiguous model capability override target");
-    const listed = lastRows(harness, PATCH_OVERRIDES);
+    const listed = overrideRows(winnerBody);
     expect(listed.some(row => row.target === "shared/winner" && row.value === 128)).toBe(true);
     expect(JSON.stringify(listed)).not.toContain(WINNER_NODE_ID);
     mark(PATCH_OVERRIDES, "prefix-winner-reserved-and-raw-id-boundaries");
@@ -466,74 +445,59 @@ describe("pinned `/api/model-capability-overrides` operation semantics", () => {
       capabilities: [{ provider: "openai", modelId: "two-table-model", key: "max_output_tokens", value: 512, refreshedAt: "2026-10-18T12:00:00.000Z" }],
       contexts: [{ provider: "openai", modelId: "two-table-model", realContext: 8192, source: "manual", refreshedAt: "2026-10-18T13:00:00.000Z" }],
     });
-    const harness = setupExecutor(fixture);
     const before = fixture.publicState();
     const invalidationsBefore = fixture.cacheInvalidations;
-    const contextPlan = await harness.executor.plan(DELETE_OVERRIDES, queryInput("openai/two-table-model", "context_length"));
-    expect(contextPlan.risk).toBe("mutation");
-    expect(contextPlan.preview.confirmationRequired).toBe(true);
-    await harness.executor.apply(contextPlan.planId, { confirmed: true });
+    await ensureJsonResponse(await rawRequest(fixture, { operationId: DELETE_OVERRIDES, token: MANAGEMENT_KEY,
+      query: { target: "openai/two-table-model", key: "context_length" } }), 200);
     expect(fixture.context("openai", "two-table-model")).toBeUndefined();
     expect(fixture.capability("openai", "two-table-model", "max_output_tokens")?.value).toBe(512);
     expect(fixture.cacheInvalidations).toBe(invalidationsBefore + 1);
 
-    const capabilityPlan = await harness.executor.plan(DELETE_OVERRIDES, queryInput("openai/two-table-model", "max_output_tokens"));
-    await harness.executor.apply(capabilityPlan.planId, { confirmed: true });
+    await ensureJsonResponse(await rawRequest(fixture, { operationId: DELETE_OVERRIDES, token: MANAGEMENT_KEY,
+      query: { target: "openai/two-table-model", key: "max_output_tokens" } }), 200);
     expect(fixture.capability("openai", "two-table-model", "max_output_tokens")).toBeUndefined();
     expect(fixture.cacheInvalidations).toBe(invalidationsBefore + 2);
 
     const afterRemoving = fixture.cacheInvalidations;
-    const absentPlan = await harness.executor.plan(DELETE_OVERRIDES, queryInput("openai/absent-model", "max_output_tokens"));
-    const absent = await harness.executor.apply(absentPlan.planId, { confirmed: true });
-    expect(absent.status).toBe("applied");
+    const absent = await rawRequest(fixture, { operationId: DELETE_OVERRIDES, token: MANAGEMENT_KEY,
+      query: { target: "openai/absent-model", key: "max_output_tokens" } });
+    const absentBody = await ensureJsonResponse(absent, 200);
     expect(fixture.cacheInvalidations).toBe(afterRemoving);
-    expect(lastRows(harness, DELETE_OVERRIDES).some(row => row.target === "openai/two-table-model")).toBe(false);
+    expect(overrideRows(absentBody).some(row => row.target === "openai/two-table-model")).toBe(false);
 
     for (const query of [{ target: "openai/two-table-model", key: "max_token" }, { target: "", key: "max_output_tokens" }, { target: "bad-target", key: "max_output_tokens" }]) {
       const response = await rawRequest(fixture, { operationId: DELETE_OVERRIDES, token: MANAGEMENT_KEY, query });
       await ensureJsonResponse(response, 400);
     }
-    const observed = harness.response(DELETE_OVERRIDES);
     observe(DELETE_OVERRIDES, "independent-table-delete-and-absent-noop", {
       before,
       after: fixture.publicState(),
-      result: { status: observed.status, body: observed.data },
+      result: { status: absent.status, body: absentBody },
     });
   });
 
-  test("uncertain PATCH and DELETE outcomes never dispatch a second mutation or invent reconciliation", async () => {
+  test("mutable target resolution blocks PATCH and DELETE before dispatch", async () => {
     const patchFixture = createFixture({ capabilities: [], contexts: [] });
     const patchHarness = setupExecutor(patchFixture);
-    const patchPlan = await patchHarness.executor.plan(PATCH_OVERRIDES, {
+    await expect(patchHarness.executor.plan(PATCH_OVERRIDES, {
       body: { target: "openai/committed-unknown", key: "context_length", value: 4096 },
-    });
-    patchHarness.loseNextResponse(PATCH_OVERRIDES);
-    const patchResult = await patchHarness.executor.apply(patchPlan.planId, { confirmed: true });
-    expect(patchResult.status).toBe("unknown");
-    expect(patchResult.plan.state).toBe("unknown");
-    expect(patchHarness.dispatchCount(PATCH_OVERRIDES)).toBe(1);
-    expect(patchFixture.context("openai", "committed-unknown")?.realContext).toBe(4096);
+    })).rejects.toMatchObject({ code: "operation-unavailable" });
+    expect(patchHarness.dispatchCount(PATCH_OVERRIDES)).toBe(0);
+    expect(patchFixture.context("openai", "committed-unknown")).toBeUndefined();
     expect(patchFixture.count(GET_OVERRIDES)).toBe(0);
-    await expect(patchHarness.executor.apply(patchPlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
-    expect(patchHarness.dispatchCount(PATCH_OVERRIDES)).toBe(1);
-    mark(PATCH_OVERRIDES, "confirmed-uncertain-single-attempt");
 
     const deleteFixture = createFixture({
       capabilities: [{ provider: "openai", modelId: "delete-committed-unknown", key: "max_output_tokens", value: 32, refreshedAt: "2026-10-18T00:00:00.000Z" }],
       contexts: [],
     });
     const deleteHarness = setupExecutor(deleteFixture);
-    const deletePlan = await deleteHarness.executor.plan(DELETE_OVERRIDES, queryInput("openai/delete-committed-unknown", "max_output_tokens"));
-    deleteHarness.loseNextResponse(DELETE_OVERRIDES);
-    const deleteResult = await deleteHarness.executor.apply(deletePlan.planId, { confirmed: true });
-    expect(deleteResult.status).toBe("unknown");
-    expect(deleteResult.plan.state).toBe("unknown");
-    expect(deleteHarness.dispatchCount(DELETE_OVERRIDES)).toBe(1);
-    expect(deleteFixture.capability("openai", "delete-committed-unknown", "max_output_tokens")).toBeUndefined();
+    await expect(deleteHarness.executor.plan(DELETE_OVERRIDES, queryInput("openai/delete-committed-unknown", "max_output_tokens")))
+      .rejects.toMatchObject({ code: "operation-unavailable" });
+    expect(deleteHarness.dispatchCount(DELETE_OVERRIDES)).toBe(0);
+    expect(deleteFixture.capability("openai", "delete-committed-unknown", "max_output_tokens")?.value).toBe(32);
     expect(deleteFixture.count(GET_OVERRIDES)).toBe(0);
-    await expect(deleteHarness.executor.apply(deletePlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
-    expect(deleteHarness.dispatchCount(DELETE_OVERRIDES)).toBe(1);
-    mark(DELETE_OVERRIDES, "confirmed-uncertain-single-attempt");
+    expect(registry.getEligibility(PATCH_OVERRIDES).status).toBe("unavailable");
+    expect(registry.getEligibility(DELETE_OVERRIDES).status).toBe("unavailable");
   });
 
   test("all three operations retain the management guard, status/media branches, and exact OMA minima", async () => {

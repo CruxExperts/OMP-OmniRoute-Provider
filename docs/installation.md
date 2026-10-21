@@ -8,8 +8,9 @@
 - Bun `>=1.4.2` when installing from source or running package checks.
 - An OmniRoute-compatible HTTPS endpoint and a runtime API key.
 
-The package identity is `@cruxexperts/cruxomni-omp-client`. The provider ID
-remains `omniroute`, preserving native model and credential identity.
+The public display name is **OhMyPie OmniRoute Plugin**. For compatibility, the
+current package identity remains `@cruxexperts/cruxomni-omp-client`, and the
+provider ID remains `omniroute`, preserving native model and credential identity.
 
 ## Install a published package
 

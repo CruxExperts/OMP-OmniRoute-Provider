@@ -232,10 +232,15 @@ function createSourceContract(operationId: FallbackChainOperationId): OperationS
       retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
       response: responseContract(base.response, GET_SUCCESS_SCHEMA),
       reconciliation: null,
+      mutationSafety: null,
     };
   }
 
-  const modelSchema: JsonSchema = { type: "string", minLength: 1, maxLength: 200 };
+  const modelSchema: JsonSchema = {
+    type: "string", minLength: 1, maxLength: 200,
+    // The source GET cannot expose this model's current state after trim normalization.
+    pattern: "^(?!\\s*__proto__\\s*$)[\\s\\S]+$",
+  };
   const modelNormalization = [{ section: "body" as const, path: ["model"], kind: "trim-string" as const }];
   const requestSchema = operationId === FALLBACK_CHAIN_POST
     ? objectSchema({
@@ -256,6 +261,8 @@ function createSourceContract(operationId: FallbackChainOperationId): OperationS
       },
     }, ["model", "chain"])
     : objectSchema({ model: modelSchema }, ["model"]);
+  const targetRead = reconciliation(operationId)?.targetRead;
+  if (!targetRead) throw new Error(`fallback-chain preflight view is missing: ${operationId}`);
   return {
     ...base,
     request: bodyRequest(
@@ -273,6 +280,26 @@ function createSourceContract(operationId: FallbackChainOperationId): OperationS
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
     response: responseContract(base.response, operationId === FALLBACK_CHAIN_POST ? POST_SUCCESS_SCHEMA : DELETE_SUCCESS_SCHEMA),
     reconciliation: reconciliation(operationId),
+    mutationSafety: {
+      preflight: {
+        kind: "required",
+        visibilityLimits: [
+          "The server exposes its in-memory fallback map. This read cannot reveal direct database writes or another process's map, or prove persistence.",
+          "The server can silently fail persistence after changing its runtime map. Even a normal success reply leaves this mutation outcome unknown; it will not be replayed automatically.",
+          "Another client can change the selected chain after the final read; the server provides no atomic conditional write.",
+        ],
+        observations: [{
+          name: "runtime-model-chain",
+          read: targetRead,
+          readCompleteness: {
+            kind: "single-response",
+            sourceReason: "Pinned GET returns the complete in-memory fallback map in one response; it does not prove SQLite durability.",
+          },
+        }],
+      },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+    },
   };
 }
 

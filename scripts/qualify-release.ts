@@ -7,6 +7,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { isMuslTarget, muslRuntimeProvenanceSha256, muslTargetProvenance, sortMuslInventory, validateMuslRuntimeEvidence, type MuslInventoryEntry } from "./musl-runtime.ts";
+import { GITHUB_REPOSITORY, REPOSITORY_SLUG } from "../src/identity.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(import.meta.dir, "..");
@@ -84,10 +85,10 @@ async function releaseArtifacts(directory: string): Promise<{ manifest: JsonReco
   const packageName = `cruxexperts-cruxomni-omp-client-${version}.tgz`;
   const expectedNames = new Set([
     packageName,
-    `CruxOmni-OMP-Client-v${version}-source.tar.gz`,
-    `CruxOmni-OMP-Client-v${version}-graphics.zip`,
-    `CruxOmni-OMP-Client-v${version}.cdx.json`,
-    `CruxOmni-OMP-Client-v${version}-release-notes.md`,
+    `${REPOSITORY_SLUG}-v${version}-source.tar.gz`,
+    `${REPOSITORY_SLUG}-v${version}-graphics.zip`,
+    `${REPOSITORY_SLUG}-v${version}.cdx.json`,
+    `${REPOSITORY_SLUG}-v${version}-release-notes.md`,
   ]);
   if (artifactNames.some(name => !expectedNames.delete(name)) || expectedNames.size !== 0) throw new Error("release manifest does not contain the exact five versioned release artifacts");
   const packageMatches = artifacts.filter(value => value.name === packageName);
@@ -129,7 +130,7 @@ async function producerMetadata(jobName: string): Promise<JsonRecord> {
   const workflowPath = ".github/workflows/qualification.yml";
   const workflowName = "release-qualification";
   const workflowSha256 = await sha256(await readFile(join(root, workflowPath)));
-  if (!/^\d+$/.test(runId) || repository !== "CruxExperts/CruxOmni-OMP-Client") throw new Error("qualification producer must be the canonical repository workflow run");
+  if (!/^\d+$/.test(runId) || repository !== GITHUB_REPOSITORY) throw new Error("qualification producer must be the canonical repository workflow run");
   return { repository, runId, workflowPath, workflowName, workflowSha256, jobName };
 }
 
@@ -858,16 +859,24 @@ export function validateNativeSmokeOutput(value: unknown, target: TargetId, arch
     throw new Error("native smoke omitted the tool continuation check");
   }
   const administration = object(native.administration, "native administration I/O evidence");
+  const administrationFields = ["family", "route", "readOperationId", "mutationOperationId", "cleanupOperationId",
+    "readRequests", "mutationRequests", "cleanupRequests", "confirmedMutationAttempts", "unknownOutcomes",
+    "durability", "fixtureAuthorization", "exactMutationBodies", "baselineAbsent", "runtimeReadBack",
+    "cleanupRead", "noUnexpectedAdminRequests"];
   if (administration.family !== "fallback-chains" || administration.route !== "/api/fallback/chains"
     || administration.readOperationId !== "GET /api/fallback/chains"
     || administration.mutationOperationId !== "POST /api/fallback/chains"
     || administration.cleanupOperationId !== "DELETE /api/fallback/chains"
     || !Number.isInteger(administration.readRequests) || Number(administration.readRequests) < 3 || Number(administration.readRequests) > 20
-    || administration.mutationRequests !== 1 || administration.cleanupRequests !== 1 || administration.confirmedApplies !== 2
+    || administration.mutationRequests !== 1 || administration.cleanupRequests !== 1
+    || administration.confirmedMutationAttempts !== 2 || administration.unknownOutcomes !== 2
+    || administration.durability !== "unverified"
     || administration.fixtureAuthorization !== true || administration.exactMutationBodies !== true
-    || administration.baselineAbsent !== true || administration.persistedRead !== true || administration.cleanupRead !== true
-    || administration.noUnexpectedAdminRequests !== true) {
-    throw new Error("native smoke omitted exact confirmed administration I/O and cleanup evidence");
+    || administration.baselineAbsent !== true || administration.runtimeReadBack !== true || administration.cleanupRead !== true
+    || administration.noUnexpectedAdminRequests !== true
+    || Object.keys(administration).length !== administrationFields.length
+    || administrationFields.some(field => !Object.hasOwn(administration, field))) {
+    throw new Error("native smoke omitted exact unknown-outcome administration I/O and runtime cleanup evidence");
   }
   const bytes = Buffer.from(JSON.stringify(smoke));
   if (bytes.byteLength > 128 * 1024) throw new Error("native smoke output is too large for qualification evidence");

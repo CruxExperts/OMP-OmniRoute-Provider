@@ -18,6 +18,7 @@ export interface OperationContractBinding {
   readonly operationSemanticsSha256: string;
   readonly routeImportsSha256: string;
   readonly frameworkContextSha256: string;
+  readonly mutationSafetySha256: string;
 }
 export interface OperationEvidenceBinding extends OperationContractBinding {
   readonly handlerSha256: string;
@@ -35,7 +36,8 @@ export interface OperationQualificationReceipt {
   readonly test: OperationQualificationTest;
 }
 export type OperationSourceContract = Pick<OperationDescriptor,
-  "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation">;
+  "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation"> &
+  Partial<Pick<OperationDescriptor, "mutationSafety">>;
 
 /** Runtime keeps a compact proof view, not a second copy of every source contract. */
 export interface OperationEligibilityRecord {
@@ -60,8 +62,8 @@ export interface EligibilityVerification {
 }
 
 const DEFAULT_REASON = "No exact pinned-source and observed behavior evidence is recorded for this operation in the release eligibility contract.";
-const CONTRACT_FIELDS = ["request", "auth", "response", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "reconciliation"] as const;
-const HASH_FIELDS = ["requestSchemaSha256", "authSha256", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256"] as const;
+const CONTRACT_FIELDS = ["request", "auth", "response", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "reconciliation", "mutationSafety"] as const;
+const HASH_FIELDS = ["requestSchemaSha256", "authSha256", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"] as const;
 let document: EligibilityDocument | undefined;
 function unavailable(operationId: string, reason = DEFAULT_REASON): OperationEligibilityRecord { return { operationId, status: "unavailable", reason }; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -96,7 +98,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
 function loadDocument(): EligibilityDocument {
   try {
     const parsed: unknown = JSON.parse(readFileSync(resolve(import.meta.dir, "../../contracts/release-eligibility.json"), "utf8"));
-    if (!record(parsed) || parsed.schemaVersion !== 2 || parsed.recordKind !== "omniroute-release-eligibility" || !record(parsed.release) || !sha(parsed.release.commit, 40)
+    if (!record(parsed) || parsed.schemaVersion !== 3 || parsed.recordKind !== "omniroute-release-eligibility" || !record(parsed.release) || !sha(parsed.release.commit, 40)
       || !record(parsed.default) || parsed.default.status !== "unavailable" || typeof parsed.default.reason !== "string" || !parsed.default.reason || !Array.isArray(parsed.operations)) throw new Error("invalid eligibility document");
     const operations = parsed.operations.map(parseRecord);
     if (operations.some(item => item === undefined)) throw new Error("invalid operation evidence");

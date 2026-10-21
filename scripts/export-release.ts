@@ -4,6 +4,7 @@ import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, utimes,
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { REPOSITORY_SLUG } from "../src/identity.ts";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
 
 const execFileAsync = promisify(execFile);
@@ -127,7 +128,7 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
   await mkdir(outputParent, { recursive: true });
   const temporary = await mkdtemp(join(outputParent, `.${basename(output)}.fresh-`));
   const stage = join(temporary, "staged-output");
-  const sourceStage = join(temporary, `CruxOmni-OMP-Client-${packageManifest.version}`);
+  const sourceStage = join(temporary, `${REPOSITORY_SLUG}-${packageManifest.version}`);
   let packageEvidence: PackageVerificationResult | undefined;
   try {
     await mkdir(stage, { recursive: true });
@@ -135,23 +136,23 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
     await copyReviewed(root, reviewed.paths, sourceStage, reviewed);
     await touchTree(sourceStage);
 
-    const sourceName = `CruxOmni-OMP-Client-v${packageManifest.version}-source.tar.gz`;
+    const sourceName = `${REPOSITORY_SLUG}-v${packageManifest.version}-source.tar.gz`;
     await command("tar", ["--sort=name", "--mtime=1980-01-01 UTC", "--owner=0", "--group=0", "--numeric-owner", "-czf", join(stage, sourceName), basename(sourceStage)], temporary);
 
     packageEvidence = await (options.packageVerifier ?? (() => verifyPackage({ keepTemporary: true })))(root);
     const npmName = `cruxexperts-cruxomni-omp-client-${packageManifest.version}.tgz`;
     await cp(packageEvidence.archive, join(stage, npmName));
-    const sbomName = `CruxOmni-OMP-Client-v${packageManifest.version}.cdx.json`;
+    const sbomName = `${REPOSITORY_SLUG}-v${packageManifest.version}.cdx.json`;
     await writeFile(join(stage, sbomName), `${JSON.stringify(packageEvidence.sbom, null, 2)}\n`);
-    const notesName = `CruxOmni-OMP-Client-v${packageManifest.version}-release-notes.md`;
+    const notesName = `${REPOSITORY_SLUG}-v${packageManifest.version}-release-notes.md`;
     await cp(join(sourceStage, "CHANGELOG.md"), join(stage, notesName));
 
-    const graphicsStage = join(temporary, `CruxOmni-OMP-Client-v${packageManifest.version}-graphics`);
+    const graphicsStage = join(temporary, `${REPOSITORY_SLUG}-v${packageManifest.version}-graphics`);
     await mkdir(graphicsStage);
     const graphicsFiles = reviewed.paths.filter(path => path.startsWith("assets/") || path === "ASSET_LICENSE.md" || path === "THIRD_PARTY_NOTICES.md");
     await copyReviewed(root, graphicsFiles, graphicsStage, reviewed);
     await touchTree(graphicsStage);
-    const graphicsName = `CruxOmni-OMP-Client-v${packageManifest.version}-graphics.zip`;
+    const graphicsName = `${REPOSITORY_SLUG}-v${packageManifest.version}-graphics.zip`;
     await command("zip", ["-X", "-q", "-r", join(stage, graphicsName), basename(graphicsStage)], temporary);
 
     const names = [sourceName, npmName, graphicsName, sbomName, notesName];

@@ -1,6 +1,7 @@
 import type {
   OperationDescriptor,
   OperationReconciliationRelation,
+  OperationReadCompleteness,
   OperationRegistry,
   ValidatedOperationInput,
 } from "./registry.ts";
@@ -72,6 +73,12 @@ export interface AdminTarget {
   readonly snapshot: JsonValue;
 }
 
+export interface AdminDispatchResponse {
+  readonly kind: "response";
+  readonly status: number;
+  readonly body: unknown;
+}
+
 export interface AdminPlanHandle {
   readonly planId: string;
   readonly operationId: string;
@@ -98,6 +105,7 @@ export interface AdminPreview {
   readonly authorization: AdminAuthorizationSummary;
   readonly payload: ValidatedOperationInput;
   readonly projectedTarget?: unknown;
+  readonly visibilityLimits?: readonly string[];
   readonly consequence: string;
   readonly resolvedPath: string;
   readonly queryParameters: readonly AdminQueryParameter[];
@@ -135,6 +143,8 @@ export interface AdminReconcileContext {
   readonly request: AdminRequest;
   readonly payload: ValidatedOperationInput;
   readonly relation: OperationReconciliationRelation["reconcile"];
+  readonly fullRelation: OperationReconciliationRelation;
+  readonly readCompleteness: OperationReadCompleteness;
   readonly readOperation: OperationDescriptor;
   readonly originalTarget: JsonValue;
   readonly originalError: unknown;
@@ -151,6 +161,7 @@ export type AdminTargetReader = (context: {
   readonly operation: OperationDescriptor;
   readonly payload: ValidatedOperationInput;
   readonly relation: OperationReconciliationRelation["targetRead"];
+  readonly readCompleteness: OperationReadCompleteness;
   readonly readOperation: OperationDescriptor;
   readonly signal?: AbortSignal;
 }) => Promise<AdminTarget>;

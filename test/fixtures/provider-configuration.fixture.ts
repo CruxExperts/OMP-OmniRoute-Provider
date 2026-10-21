@@ -26,7 +26,7 @@ export const PROVIDER_CONFIGURATION_OPERATION_IDS = [
 export type ProviderConfigurationOperationId = typeof PROVIDER_CONFIGURATION_OPERATION_IDS[number];
 type ConfigFamily = "interception-rules" | "param-filters";
 type ProviderConfigurationContract = Pick<OperationDescriptor,
-  "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation">;
+  "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation" | "mutationSafety">;
 
 
 const BACKENDS = ["firecrawl", "jina", "tavily"] as const;
@@ -241,6 +241,27 @@ function sourceContract(operationId: ProviderConfigurationOperationId): Provider
   const pathBoundRequest = constrainProviderPath(template.request, family);
   const request = write ? putRequest(pathBoundRequest, family) : pathBoundRequest;
   const reconciliation = write ? updateRelation(family) : null;
+  const mutationSafety: ProviderConfigurationContract["mutationSafety"] = read ? null : {
+    preflight: {
+      kind: "required",
+      visibilityLimits: [
+        "The server reads this configuration through a process-local cache. Direct database writes or writes through another process may be invisible to this preview and its apply check.",
+        "The server provides no atomic conditional write; another client can change this configuration after the final read.",
+      ],
+      observations: [{
+        name: "provider-configuration",
+        read: updateRelation(family).targetRead,
+        readCompleteness: {
+          kind: "single-response",
+          sourceReason: "The pinned GET returns the selected provider's complete configuration in one response without pagination; its module cache can conceal out-of-band SQL writes.",
+        },
+      }],
+    },
+    // GET uses a module cache and returns the same defaults for an absent row and a stored empty row.
+    // A lost response cannot prove which write committed from this read alone.
+    reconciliation: { kind: "unknown" },
+    settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null },
+  };
   return {
     request,
     auth: managementAuth(template, read ? "read" : "admin"),
@@ -254,6 +275,7 @@ function sourceContract(operationId: ProviderConfigurationOperationId): Provider
     confirmation,
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
     reconciliation,
+    mutationSafety,
   };
 }
 
@@ -387,6 +409,12 @@ export class ProviderConfigurationFixture {
     return this.#database.prepare(
       "SELECT 1 AS present FROM key_value WHERE namespace = ? AND key = ?",
     ).get(namespace, providerId) !== null;
+  }
+
+  writeConfigurationOutsideSourceCache(family: ConfigFamily, providerId: string, value: JsonValue): void {
+    const namespace = family === "interception-rules" ? "interception_rules" : "provider_param_filters";
+    this.#database.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES (?, ?, ?)")
+      .run(namespace, providerId, JSON.stringify(value));
   }
 
   close(): void {

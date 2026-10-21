@@ -324,12 +324,15 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	replaceProvider(providerConfig(oauth));
 	let administration: AdminRuntime | undefined;
 	let administrationFlight: Promise<AdminRuntime | undefined> | undefined;
+	let administrationEpoch = 0;
+	let administrationRetirement: Promise<void> = Promise.resolve();
 	const ensureAdministration = (): Promise<AdminRuntime | undefined> => {
 		if (stopped) return Promise.resolve(undefined);
 		if (administration) return Promise.resolve(administration);
 		if (administrationFlight) return administrationFlight;
-		const flight = import("./admin/runtime.ts").then(async ({ createAdminRuntime }) => {
-			if (stopped) return undefined;
+		const epoch = administrationEpoch;
+		const flight = administrationRetirement.then(() => import("./admin/runtime.ts")).then(async ({ createAdminRuntime }) => {
+			if (stopped || epoch !== administrationEpoch) return undefined;
 			const created = createAdminRuntime({
 				pi,
 				credentials: optionalCredentials,
@@ -339,18 +342,16 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				stopped: () => stopped,
 				onConfig: current => { config = current; },
 			});
-			administration = created;
 			try {
 				await created.synchronize();
-				if (stopped) {
+				if (stopped || epoch !== administrationEpoch) {
 					await created.shutdown();
-					administration = undefined;
 					return undefined;
 				}
+				administration = created;
 				return created;
 			} catch (error) {
-				await created.shutdown();
-				administration = undefined;
+				try { await created.shutdown(); } catch { /* Preserve the synchronization failure. */ }
 				throw error;
 			}
 		});
@@ -644,7 +645,17 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		setContext(undefined);
 		manager.shutdown();
 		optionalCredentials.clear();
-		await administration?.shutdown();
+		administrationEpoch++;
+		const retired = administration;
+		const retiredFlight = administrationFlight;
+		administration = undefined;
+		administrationFlight = undefined;
+		const retirement = administrationRetirement.then(async () => {
+			await retired?.shutdown();
+			await retiredFlight?.catch(() => undefined);
+		});
+		administrationRetirement = retirement.catch(() => undefined);
+		await retirement;
 		pi.unregisterProvider(PROVIDER_ID);
 		providerRegistered = false;
 	});

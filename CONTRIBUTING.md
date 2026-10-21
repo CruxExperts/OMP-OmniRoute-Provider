@@ -1,4 +1,4 @@
-# Contributing to CruxOmni-OMP-Client
+# Contributing to OhMyPie OmniRoute Plugin
 
 Thank you for improving `@cruxexperts/cruxomni-omp-client`. Contributions should
 keep the extension standalone, public-safe, OMP-versioned, and disabled in
@@ -12,7 +12,7 @@ contracts, provenance, fixtures, scripts, and package documentation. It must
 remain exportable as a standalone checkout without a runtime dependency on
 LocalSetup, Envman, a local database, or a private service.
 
-Preserve the public `CruxOmni-OMP-Client` identity and the protocol-facing
+Preserve the public `OhMyPie OmniRoute Plugin` display name and the protocol-facing
 `omniroute` provider ID unless a reviewed contract change explicitly says
 otherwise. The setup entry point is `/cruxomni setup`.
 

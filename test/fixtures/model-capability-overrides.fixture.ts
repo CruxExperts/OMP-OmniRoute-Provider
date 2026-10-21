@@ -297,6 +297,11 @@ function sourceContract(operationId: ModelCapabilityOverrideOperationId): Operat
         },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
     reconciliation: null,
+    mutationSafety: method === "GET" ? null : {
+      preflight: { kind: "unavailable", reason: "The public GET projects provider prefixes and suppresses mutable provider and alias resolution, so the exact write target and dependencies cannot be observed before dispatch." },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+    },
   };
 }
 

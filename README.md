@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/brand/banner.png" alt="CruxOmni OMP Client: your gateway, inside Oh My Pi" width="100%">
+  <img src="assets/brand/banner.png" alt="OhMyPie OmniRoute Plugin: your gateway, inside Oh My Pi" width="100%">
 </p>
 
-<h1 align="center">CruxOmni-OMP-Client</h1>
+<h1 align="center">OhMyPie OmniRoute Plugin</h1>
 
-[![CI](https://github.com/CruxExperts/CruxOmni-OMP-Client/actions/workflows/ci.yml/badge.svg)](https://github.com/CruxExperts/CruxOmni-OMP-Client/actions/workflows/ci.yml)
+[![CI](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/workflows/ci.yml/badge.svg)](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/source-MIT-blue)](LICENSE)
 
 <p align="center">
@@ -12,14 +12,14 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CruxExperts/CruxOmni-OMP-Client/releases/latest">Download</a>
+  <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/latest">Download</a>
   · <a href="docs/installation.md">Setup guide</a>
   · <a href="docs/troubleshooting.md">Troubleshooting</a>
 </p>
 
 ## Why use it?
 
-CruxOmni is an OMP extension that connects to your existing OmniRoute server.
+OhMyPie OmniRoute Plugin is an OMP extension that connects to your existing OmniRoute server.
 The server runs your gateway and manages provider accounts; the client provides
 setup, live model discovery, inference, and qualified administration inside OMP:
 
@@ -52,13 +52,15 @@ Connection setup comes first. Pricing, metadata, and administration are
 optional, so the wizard can stay as simple as you need it to be.
 
 <p align="center">
-  <img src="assets/native/omp-18.12.5/setup-wizard.png" alt="CruxOmni setup menu running inside Oh My Pi 18.12.5 in a disposable terminal profile" width="760">
+  <img src="assets/native/omp-18.12.5/setup-wizard.png" alt="Earlier CruxOmni-branded development capture of the setup menu running inside Oh My Pi 18.12.5 in a disposable terminal profile" width="760">
 </p>
 
-This is the real setup menu in an isolated OMP session with disposable data.
-The [short native walkthrough and text alternative](assets/native/omp-18.12.5/walkthrough.md)
-also show the administration browser. The capture cancels before an administration
-request; it does not establish complete release qualification.
+This genuine capture is from an earlier CruxOmni-branded development build; its
+visible name predates **OhMyPie OmniRoute Plugin**. It documents the setup flow in
+an isolated OMP session with disposable data. The [short native walkthrough and
+text alternative](assets/native/omp-18.12.5/walkthrough.md) also show the earlier
+administration browser. The capture cancels before an administration request and
+does not establish current release qualification.
 
 ## Everyday commands
 

@@ -5,7 +5,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileS
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import * as ts from "typescript";
 import { fileURLToPath } from "node:url";
-import { sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches } from "../src/admin/source-normalization.ts";
+import { sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches, sourcePreflightViewMatches, sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { requiredOmaScope } from "../src/admin/authorization-policy.ts";
 import { sourceRequestValidatorBinding } from "../src/admin/source-validation.ts";
 import { isSecretOutputField } from "../src/admin/registry.ts";
@@ -996,12 +996,13 @@ type EvidenceBinding = {
   operationSemanticsSha256: string;
   routeImportsSha256: string;
   frameworkContextSha256: string;
+  mutationSafetySha256: string;
 };
 
 function eligibilityRecords(): Map<string, RecordValue> {
   const root = requireRecord(JSON.parse(readFileSync(eligibilityPath, "utf8")) as unknown, "release eligibility");
   assertKeys(root, "release eligibility", ["$schema", "schemaVersion", "recordKind", "release", "default", "operations", "history"]);
-  if (root.schemaVersion !== 2 || root.recordKind !== "omniroute-release-eligibility") throw new Error("release eligibility identity/version is unsupported");
+  if (root.schemaVersion !== 3 || root.recordKind !== "omniroute-release-eligibility") throw new Error("release eligibility identity/version is unsupported");
   const expectedRelease = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
   const release = requireRecord(root.release, "release eligibility.release");
   assertKeys(release, "release eligibility.release", ["repository", "tag", "commit"]);
@@ -1025,7 +1026,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
     const source = requireRecord(record.source, `${operationId}.eligibility.source`);
     assertKeys(source, `${operationId}.eligibility.source`, ["file", "sha256", "gitBlobSha"]);
     const binding = requireRecord(record.binding, `${operationId}.eligibility.binding`);
-    assertKeys(binding, `${operationId}.eligibility.binding`, ["requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256"]);
+    assertKeys(binding, `${operationId}.eligibility.binding`, ["requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"]);
     const test = requireRecord(record.test, `${operationId}.eligibility.test`);
     assertKeys(test, `${operationId}.eligibility.test`, ["id", "observedOutcome", "caseSha256", "outcomeSha256"]);
     const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -1037,7 +1038,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
 
 const OPERATION_CONTRACT_FIELDS = [
   "request", "auth", "response", "secrets", "sideEffect", "pagination",
-  "streaming", "confirmation", "retry", "reconciliation",
+  "streaming", "confirmation", "retry", "reconciliation", "mutationSafety",
 ] as const;
 
 function contractFromOperation(operation: RecordValue): RecordValue {
@@ -1054,6 +1055,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     operationSemanticsSha256: sha256(canonicalJson(contract)),
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
+    mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
 
@@ -1096,6 +1098,7 @@ function validateEligibility(
     operationSemanticsSha256: binding.operationSemanticsSha256,
     routeImportsSha256: binding.routeImportsSha256,
     frameworkContextSha256: binding.frameworkContextSha256,
+    mutationSafetySha256: binding.mutationSafetySha256,
   }, `${operationId}.expected binding`);
   if (canonicalJson(actualJson) !== canonicalJson(expectedJson)) throw new Error(`eligibility operation contract binding drift: ${operationId}`);
   const test = requireRecord(record.test, `${operationId}.eligibility.test`);
@@ -1426,6 +1429,98 @@ function validateReconciliation(value: unknown, operationId: string): void {
   }
 }
 
+function validateReadCompleteness(value: unknown, operationId: string, readId: string): void {
+  const proof = requireRecord(value, `${operationId}.readCompleteness`);
+  if (proof.kind === "single-response") {
+    assertKeys(proof, `${operationId}.readCompleteness`, ["kind", "sourceReason"]);
+  } else if (proof.kind === "unpaginated-list") {
+    assertKeys(proof, `${operationId}.readCompleteness`, ["kind", "sourceReason", "itemsPath", "totalPath", "identityPaths"]);
+    stringList(proof.itemsPath, `${operationId}.readCompleteness.itemsPath`, true);
+    stringList(proof.totalPath, `${operationId}.readCompleteness.totalPath`, true);
+    const identities = requireArray(proof.identityPaths, `${operationId}.readCompleteness.identityPaths`);
+    if (identities.length === 0 || identities.length > 4) throw new Error(`${operationId}.readCompleteness identity path count is invalid`);
+    for (const path of identities) stringList(path, `${operationId}.readCompleteness.identityPath`, true);
+    if (!sourceUnpaginatedListProofMatches(readId, proof, operationId)) throw new Error(`${operationId}.readCompleteness does not match a pinned complete list source`);
+  } else throw new Error(`${operationId}.readCompleteness kind is unsupported`);
+  requireString(proof.sourceReason, `${operationId}.readCompleteness.sourceReason`);
+}
+
+function validateMutationSafety(value: unknown, operationId: string, sideEffect: unknown, responseValue: unknown): void {
+  if (value === null) {
+    if (sideEffect !== "read") throw new Error(`${operationId}.mutationSafety is required for mutations`);
+    return;
+  }
+  if (sideEffect === "read") throw new Error(`${operationId}.read operation cannot carry mutation safety`);
+  const safety = requireRecord(value, `${operationId}.mutationSafety`);
+  assertKeys(safety, `${operationId}.mutationSafety`, ["preflight", "reconciliation", "settlement"]);
+  const preflight = requireRecord(safety.preflight, `${operationId}.preflight`);
+  if (preflight.kind === "required") {
+    assertKeys(preflight, `${operationId}.preflight`, ["kind", "observations"], ["visibilityLimits"]);
+    const observations = requireArray(preflight.observations, `${operationId}.observations`);
+    if (observations.length < 1 || observations.length > 16) throw new Error(`${operationId}.preflight observation count is invalid`);
+    if (preflight.visibilityLimits !== undefined) {
+      const visibilityLimits = requireArray(preflight.visibilityLimits, `${operationId}.preflight.visibilityLimits`);
+      if (visibilityLimits.length < 1 || visibilityLimits.length > 16) throw new Error(`${operationId}.preflight visibility limit count is invalid`);
+      for (const [index, value] of visibilityLimits.entries()) {
+        const limit = requireString(value, `${operationId}.preflight.visibilityLimits[${index}]`);
+        if (limit.trim().length === 0 || limit.length > 500 || /[\u0000-\u001f\u007f]/.test(limit)) {
+          throw new Error(`${operationId}.preflight visibility limit is empty, oversized, or contains control characters`);
+        }
+      }
+    }
+    const names = new Set<string>();
+    for (const observationValue of observations) {
+      const observation = requireRecord(observationValue, `${operationId}.observation`);
+      assertKeys(observation, `${operationId}.observation`, ["name", "read", "readCompleteness"]);
+      const name = requireString(observation.name, `${operationId}.observation.name`);
+      const read = requireRecord(observation.read, `${operationId}.observation.read`);
+      validateReadCompleteness(observation.readCompleteness, operationId, requireString(read.operationId, `${operationId}.observation.read.operationId`));
+      if (names.has(name)) throw new Error(`${operationId}.observation name is duplicated`);
+      names.add(name);
+      if (read.sourceView !== undefined && !sourcePreflightViewMatches(read.sourceView, operationId, read.operationId)) {
+        throw new Error(`${operationId}.source relation preflight does not match its exact mutation and read operation`);
+      }
+      const { sourceView: _sourceView, ...plainRead } = read;
+      validateReconciliation({ targetRead: plainRead, reconcile: { operationId: read.operationId, inputs: [], outcome: { kind: "matches", identityFields: [], stateFields: [] } } }, operationId);
+    }
+  } else if (preflight.kind === "not-applicable") {
+    assertKeys(preflight, `${operationId}.preflight`, ["kind", "sourceReason"]);
+    requireString(preflight.sourceReason, `${operationId}.preflight.sourceReason`);
+  } else if (preflight.kind === "unavailable") {
+    assertKeys(preflight, `${operationId}.preflight`, ["kind", "reason"]);
+    requireString(preflight.reason, `${operationId}.preflight.reason`);
+  } else throw new Error(`${operationId}.preflight kind is invalid`);
+  const reconciliation = requireRecord(safety.reconciliation, `${operationId}.mutationSafety.reconciliation`);
+  if (reconciliation.kind === "unknown") assertKeys(reconciliation, `${operationId}.mutationSafety.reconciliation`, ["kind"]);
+  else if (reconciliation.kind === "complete") {
+    assertKeys(reconciliation, `${operationId}.mutationSafety.reconciliation`, ["kind", "postconditions"]);
+    const postconditions = requireArray(reconciliation.postconditions, `${operationId}.postconditions`);
+    if (postconditions.length < 1 || postconditions.length > 16) throw new Error(`${operationId}.postcondition count is invalid`);
+    const names = new Set<string>();
+    for (const value of postconditions) {
+      const item = requireRecord(value, `${operationId}.postcondition`);
+      assertKeys(item, `${operationId}.postcondition`, ["name", "relation", "readCompleteness"]);
+      const name = requireString(item.name, `${operationId}.postcondition.name`);
+      const relation = requireRecord(item.relation, `${operationId}.postcondition.relation`);
+      const targetRead = requireRecord(relation.targetRead, `${operationId}.postcondition.targetRead`);
+      validateReadCompleteness(item.readCompleteness, operationId, requireString(targetRead.operationId, `${operationId}.postcondition.targetRead.operationId`));
+      if (names.has(name)) throw new Error(`${operationId}.postcondition name is duplicated`);
+      names.add(name);
+      validateReconciliation(item.relation, operationId);
+    }
+  } else throw new Error(`${operationId}.reconciliation kind is invalid`);
+  const settlement = requireRecord(safety.settlement, `${operationId}.settlement`);
+  assertKeys(settlement, `${operationId}.settlement`, ["responseComplete", "definiteRejection"]);
+  const responseComplete = requireRecord(settlement.responseComplete, `${operationId}.responseComplete`);
+  assertKeys(responseComplete, `${operationId}.responseComplete`, ["statusCodes"]);
+  const statuses = requireArray(responseComplete.statusCodes, `${operationId}.responseComplete.statusCodes`);
+  if (new Set(statuses).size !== statuses.length || statuses.some(status => !Number.isInteger(status) || Number(status) < 200 || Number(status) > 299)) throw new Error(`${operationId}.responseComplete status is invalid`);
+  const response = requireRecord(responseValue, `${operationId}.response`);
+  const declared = new Set(requireArray(response.statusCodes, `${operationId}.response.statusCodes`));
+  if (statuses.some(status => !declared.has(String(status)))) throw new Error(`${operationId}.responseComplete status is not source declared`);
+  if (settlement.definiteRejection !== null) throw new Error(`${operationId}.definiteRejection has no reviewed source classifier`);
+}
+
 function validateSourceAuthorizationPolicy(value: unknown, domain: string, operationId: string): void {
   const policy = requireRecord(value, `${operationId}.contract.auth.sourcePolicy`);
   if (policy.status !== "qualified" || policy.source !== "omniroute-v3.8.52") {
@@ -1566,6 +1661,7 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
   }
   if (!retry.allowed && (retry.maxAttempts !== 1 || retryStatuses.length > 0)) throw new Error(`${operationId}.disabled retry must have one attempt and no statuses`);
   validateReconciliation(contract.reconciliation, operationId);
+  validateMutationSafety(contract.mutationSafety, operationId, contract.sideEffect, contract.response);
   return contract;
 }
 
@@ -1729,6 +1825,11 @@ function makeOperation(
       discrepancies: specificationDiscrepancies,
     },
     reconciliation: null,
+    mutationSafety: method === "GET" || method === "HEAD" || method === "OPTIONS" ? null : {
+      preflight: { kind: "unavailable", reason: "No source-qualified preflight observation is recorded." },
+      reconciliation: { kind: "unknown" },
+      settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null },
+    },
   };
   const eligibilityRecord = eligibility.get(operationId);
   if (routeClass === "source-justified-non-invokable" && (eligibilityRecord || explicitContract !== undefined)) {
@@ -1742,6 +1843,10 @@ function makeOperation(
   const effective: RecordValue = contractValue === undefined
     ? base
     : { ...base, ...validateOperationContract(contractValue, base, operationId, requireString(route.sourceFile, `${operationId}.sourceFile`)) };
+  if (eligibilityRecord && effective.sideEffect !== "read"
+    && requireRecord(requireRecord(effective.mutationSafety, `${operationId}.mutationSafety`).preflight, `${operationId}.preflight`).kind === "unavailable") {
+    throw new Error(`stored verified eligibility cannot promote a mutation with unavailable preflight: ${operationId}`);
+  }
   const effectiveRequest = requireRecord(effective.request, `${operationId}.request`);
   const effectiveBody = effectiveRequest.body === null ? null : requireRecord(effectiveRequest.body, `${operationId}.request.body`);
   const effectiveResponse = requireRecord(effective.response, `${operationId}.response`);
@@ -1776,7 +1881,40 @@ function makeOperation(
 }
 function validateClosedRelations(operations: readonly RecordValue[]): void {
   const byId = new Map(operations.map(operation => [String(operation.operationId), operation]));
+  const requireRead = (operationId: string, relatedId: string, proof: unknown): void => {
+    const related = byId.get(relatedId);
+    if (!related || (related.method !== "GET" && related.method !== "HEAD")
+      || requireRecord(related.coverage, `${relatedId}.coverage`).status !== "invokable") {
+      throw new Error(`${operationId} references an unqualified or incomplete safety read: ${relatedId}`);
+    }
+    const pagination = requireRecord(related.pagination, `${relatedId}.pagination`);
+    const completeness = requireRecord(proof, `${operationId}.readCompleteness`);
+    if ((completeness.kind === "single-response" && pagination.mode !== "none")
+      || (completeness.kind === "unpaginated-list"
+        && (pagination.mode !== "offset" || !sourceUnpaginatedListProofMatches(relatedId, completeness, operationId)))) {
+      throw new Error(`${operationId} references a safety read without a complete source proof: ${relatedId}`);
+    }
+  };
   for (const operation of operations) {
+    const safety = operation.mutationSafety;
+    if (safety !== null) {
+      const contract = requireRecord(safety, `${String(operation.operationId)}.mutationSafety`);
+      const preflight = requireRecord(contract.preflight, `${String(operation.operationId)}.preflight`);
+      if (preflight.kind === "required") for (const value of requireArray(preflight.observations, "observations")) {
+        const observation = requireRecord(value, "observation");
+        const read = requireRecord(observation.read, "observation.read");
+        requireRead(String(operation.operationId), requireString(read.operationId, "observation.read.operationId"), observation.readCompleteness);
+      }
+      const reconciliation = requireRecord(contract.reconciliation, "mutation reconciliation");
+      if (reconciliation.kind === "complete") for (const value of requireArray(reconciliation.postconditions, "postconditions")) {
+        const postcondition = requireRecord(value, "postcondition");
+        const relation = requireRecord(postcondition.relation, "postcondition.relation");
+        for (const key of ["targetRead", "reconcile"]) {
+          const read = requireRecord(relation[key], `postcondition.${key}`);
+          requireRead(String(operation.operationId), requireString(read.operationId, `postcondition.${key}.operationId`), postcondition.readCompleteness);
+        }
+      }
+    }
     if (operation.reconciliation === null) continue;
     const relation = requireRecord(operation.reconciliation, `${String(operation.operationId)}.reconciliation`);
     for (const key of ["targetRead", "reconcile"] as const) {
@@ -1833,7 +1971,7 @@ export function generateOperations(manifestValue: unknown, eligibility = eligibi
   const eligibilityJson = toJson(JSON.parse(readFileSync(eligibilityPath, "utf8")), "release eligibility");
   return {
     $schema: "./operations.schema.json",
-    schemaVersion: 2,
+    schemaVersion: 3,
     recordKind: "omniroute-operation-contract",
     release: toJson(manifest.release, "manifest.release"),
     generatedFrom: {

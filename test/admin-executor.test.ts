@@ -18,6 +18,7 @@ import {
   type JsonSchema,
 } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
+import { assertSafetyReadResponse } from "../src/admin/relations.ts";
 import { ManagementAuthFixture, WHOAMI_OPERATION_ID, whoamiSourceContract, type FixtureAccessRecord, type FixtureAccessScope } from "./fixtures/management-auth.fixture.ts";
 
 const MUTATION = "DELETE /api/cache";
@@ -48,6 +49,11 @@ interface FixtureDomains {
   readonly reconciliation?: Exclude<AdminAuthDomain, "unknown">;
   readonly reconciliationEnabled?: boolean;
   readonly mutationBodySchema?: JsonSchema;
+  readonly preflight?: "required" | "missing" | "unavailable";
+  readonly visibilityLimits?: readonly string[];
+  readonly dependencyObservation?: boolean;
+  readonly secondPostcondition?: boolean;
+  readonly responseCompleteStatuses?: readonly number[];
 }
 function fixtureAuthorizationPolicy(
   domain: Exclude<AdminAuthDomain, "unknown">,
@@ -126,7 +132,7 @@ function makeRegistry(domains: FixtureDomains = {}): OperationRegistry {
     pathTemplate,
     auth: { ...readSource.auth, domain, sourcePolicy: fixtureAuthorizationPolicy(domain, domain === "management" ? "read" : undefined) },
     secrets: operationId === "GET /fixture/target"
-      ? { ...readSource.secrets, outputFields: [...new Set([...readSource.secrets.outputFields, "fetchProxyUrl"])] }
+      ? { ...readSource.secrets, outputFields: [...new Set([...readSource.secrets.outputFields, "fetchProxyUrl", "providers.connections.lastError"])] }
       : readSource.secrets,
     sideEffect: "read",
     confirmation: { required: false, reason: "Synthetic ordinary read." },
@@ -137,6 +143,7 @@ function makeRegistry(domains: FixtureDomains = {}): OperationRegistry {
   });
   const targetRead = makeRead("GET /fixture/target", "/fixture/target", domains.target ?? "management");
   const reconciliationRead = makeRead("GET /fixture/reconcile", "/fixture/reconcile", domains.reconciliation ?? "management");
+  const dependencyRead = makeRead("GET /fixture/dependency", "/fixture/dependency", domains.target ?? "management");
   const relation: OperationReconciliationRelation = {
     targetRead: {
       operationId: targetRead.operationId,
@@ -149,6 +156,7 @@ function makeRegistry(domains: FixtureDomains = {}): OperationRegistry {
       outcome: { kind: "matches", identityFields: [], stateFields: [] },
     },
   };
+  const readCompleteness = { kind: "single-response" as const, sourceReason: "Synthetic fixture returns the entire selected state in one bounded read." };
   const whoami: OperationDescriptor = {
     ...whoamiSource,
     ...whoamiSourceContract(),
@@ -185,8 +193,21 @@ function makeRegistry(domains: FixtureDomains = {}): OperationRegistry {
     response: { ...mutationSource.response, schema: { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false, required: [] } },
     coverage: { status: "invokable", adapterId: "typed.fixture.mutation", reason: null },
     reconciliation: domains.reconciliationEnabled === false ? null : relation,
+    mutationSafety: domains.preflight === "missing" ? null : {
+      preflight: domains.preflight === "unavailable"
+        ? { kind: "unavailable", reason: "The source has no qualified dependency observation." }
+        : { kind: "required", observations: [
+          { name: "target", read: relation.targetRead, readCompleteness },
+          ...(domains.dependencyObservation ? [{ name: "dependency", read: { ...relation.targetRead, operationId: dependencyRead.operationId }, readCompleteness }] : []),
+        ], ...(domains.visibilityLimits === undefined ? {} : { visibilityLimits: domains.visibilityLimits }) },
+      reconciliation: domains.reconciliationEnabled === false ? { kind: "unknown" } : { kind: "complete", postconditions: [
+        { name: "effect", relation, readCompleteness },
+        ...(domains.secondPostcondition ? [{ name: "dependent-effect", relation, readCompleteness }] : []),
+      ] },
+      settlement: { responseComplete: { statusCodes: domains.responseCompleteStatuses ?? [200] }, definiteRejection: null },
+    },
   };
-  const descriptors = [mutation, targetRead, reconciliationRead, whoami];
+  const descriptors = [mutation, targetRead, reconciliationRead, dependencyRead, whoami];
   return fixtureRegistry(descriptors);
 }
 
@@ -197,7 +218,9 @@ function setup(options: SetupOptions = {}): ExecutorHarness {
     readTarget: options.readTarget ?? (async () => makeTarget("target-a")),
     dispatch: async (request, context) => {
       calls += 1;
-      return options.dispatch ? options.dispatch(request, context) : { ok: true, unknown: "withheld" };
+      const result = options.dispatch ? await options.dispatch(request, context) : { ok: true, unknown: "withheld" };
+      if (request.operationId !== (options.mutationOperationId ?? MUTATION) || (result && typeof result === "object" && "status" in result)) return result;
+      return { kind: "response", status: 200, body: result };
     },
     ...(options.reconcile === undefined ? {} : { reconcile: options.reconcile }),
     ...(options.resolveAuth === undefined ? {} : { resolveAuth: options.resolveAuth }),
@@ -381,13 +404,29 @@ test("target drift and management credential changes invalidate a dependent plan
   await expect(changed.executor.apply(changedPlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-invalidated" });
 });
 
+test("an incomplete raw collection read blocks mutation dispatch", async () => {
+  const descriptor = getOperationRegistry().getOperation("GET /api/model-combo-mappings");
+  if (!descriptor) throw new Error("pinned mapping collection is missing");
+  const proof = {
+    kind: "unpaginated-list" as const,
+    sourceReason: "Pinned collection returns every SQLite row when no pagination key is supplied.",
+    itemsPath: ["mappings"], totalPath: ["total"], identityPaths: [["id"]],
+  };
+  const configured = setup({ readTarget: async () => {
+    assertSafetyReadResponse(proof, descriptor, { mappings: [], total: 1 });
+    return makeTarget("unreachable");
+  } });
+  await expect(configured.executor.plan(MUTATION, MUTATION_INPUT)).rejects.toThrow(/incomplete/);
+  expect(configured.calls()).toBe(0);
+});
+
 test("pre-dispatch target-read 403 invalidates approval without replay", async () => {
   let targetReads = 0;
   let denied = true;
   const configured = setup({
     readTarget: async () => {
       targetReads += 1;
-      if (targetReads === 2 && denied) throw Object.assign(new Error("fixture authorization denied"), { status: 403 });
+      if (targetReads === 3 && denied) throw Object.assign(new Error("fixture authorization denied"), { status: 403 });
       return makeTarget("target-a");
     },
   });
@@ -398,7 +437,7 @@ test("pre-dispatch target-read 403 invalidates approval without replay", async (
 
   denied = false;
   await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-invalidated" });
-  expect(targetReads).toBe(2);
+  expect(targetReads).toBe(3);
   expect(configured.calls()).toBe(0);
 });
 test("secret target fields stay private while exact target digests still detect drift", async () => {
@@ -413,6 +452,28 @@ test("secret target fields stay private while exact target digests still detect 
   expect(JSON.stringify(handle)).not.toContain("opaque-a");
 
   fetchProxyUrl = "https://user:password-b@proxy.example/?api_key=opaque-b";
+  await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(configured.calls()).toBe(0);
+});
+
+test("path-scoped source diagnostics are redacted through relation wrappers while raw changes still stale approval", async () => {
+  let lastError = "fixture-private-diagnostic-a";
+  const configured = setup({ readTarget: async () => makeTarget({
+    kind: "collection",
+    entries: [{ identity: { scope: "selected", comboName: "Probe" }, state: {
+      providers: [{ connections: [{ id: "fixture-connection", lastError, status: "ready" }] }],
+    } }],
+  }) });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  expect(plan.preview.projectedTarget).toEqual({
+    kind: "collection",
+    entries: [{ identity: { scope: "selected", comboName: "Probe" }, state: {
+      providers: [{ connections: [{ id: "fixture-connection", lastError: "[redacted]", status: "ready" }] }],
+    } }],
+  });
+  expect(JSON.stringify(plan.preview)).not.toContain("fixture-private-diagnostic-a");
+
+  lastError = "fixture-private-diagnostic-b";
   await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
   expect(configured.calls()).toBe(0);
 });
@@ -542,7 +603,7 @@ test("plan identities and errors never expose credential values", async () => {
   const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
   expect(plan.auth).toEqual({ domain: "management", profileId: PROFILE_ID, endpoint: ENDPOINT, epoch: 1 });
   expect(JSON.stringify(plan)).not.toContain("management-secret");
-  await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "dispatch-failed", status: 500 });
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
 });
 test("a post-dispatch cancellation remains unknown and is never replayed", async () => {
   let configured!: ExecutorHarness;
@@ -562,11 +623,11 @@ test("a post-dispatch cancellation remains unknown and is never replayed", async
   expect(configured.calls()).toBe(1);
 });
 
-test("a known rejected dispatch does not leave an applied plan state", async () => {
+test("an unclassified rejected dispatch remains unknown after one attempt", async () => {
   const configured = setup({ dispatch: async () => { throw Object.assign(new Error("request rejected"), { status: 400 }); } });
   const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
-  await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "dispatch-failed", status: 400 });
-  expect(configured.executor.getPlan(plan.planId)?.state).not.toBe("applied");
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  expect(configured.executor.getPlan(plan.planId)?.state).toBe("unknown");
   expect(configured.calls()).toBe(1);
 });
 test("management permission remains server-enforced and is stated in the plan preview", async () => {
@@ -676,13 +737,56 @@ test("target-auth epoch rotation after the awaited target read prevents dispatch
     resolveAuth: async (operation, context) => domainAuth(operation.auth.domain, context.profileId, context.endpoint, operation.auth.domain === "runtime" ? 4 : targetEpoch),
     readTarget: async () => {
       reads += 1;
-      if (reads === 2) targetEpoch = 2;
+      if (reads === 3) targetEpoch = 2;
       return makeTarget("target-a");
     },
   });
   const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
   await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "credential-mismatch" });
   expect(configured.calls()).toBe(0);
+});
+
+test("mutation credential rotation after dispatch cannot settle a lost response as applied", async () => {
+  let mutationEpoch = 1;
+  let reconcileCalls = 0;
+  const configured = setup({
+    mutation: "runtime",
+    target: "metadata",
+    reconciliation: "local",
+    resolveAuth: async (operation, context) => domainAuth(operation.auth.domain, context.profileId, context.endpoint,
+      operation.auth.domain === "runtime" ? mutationEpoch : 5),
+    dispatch: async () => {
+      mutationEpoch = 2;
+      throw Object.assign(new Error("lost reply after credential rotation"), { uncertain: true });
+    },
+    reconcile: async () => { reconcileCalls += 1; return { status: "applied" }; },
+  });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  expect(reconcileCalls).toBe(0);
+  expect(configured.calls()).toBe(1);
+});
+
+test("mutation credential rotation during composite reconciliation remains unknown", async () => {
+  let mutationEpoch = 1;
+  let reconciles = 0;
+  const configured = setup({
+    mutation: "runtime",
+    target: "metadata",
+    reconciliation: "local",
+    secondPostcondition: true,
+    resolveAuth: async (operation, context) => domainAuth(operation.auth.domain, context.profileId, context.endpoint,
+      operation.auth.domain === "runtime" ? mutationEpoch : 5),
+    dispatch: async () => { throw Object.assign(new Error("lost reply"), { uncertain: true }); },
+    reconcile: async () => {
+      if (++reconciles === 2) mutationEpoch = 2;
+      return { status: "applied" };
+    },
+  });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  expect(reconciles).toBe(2);
+  expect(configured.calls()).toBe(1);
 });
 
 test("an explicit non-reconcilable relation produces unknown after one lost dispatch", async () => {
@@ -693,9 +797,74 @@ test("an explicit non-reconcilable relation produces unknown after one lost disp
     reconcile: async () => { reconcileCalls += 1; return { status: "applied" }; },
   });
   const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
-  expect(plan.targetDigest).toBeNull();
+  expect(plan.targetDigest).toMatch(/^[a-f0-9]{64}$/);
   const result = await configured.executor.apply(plan.planId, { confirmed: true });
   expect(result.status).toBe("unknown");
   expect(configured.calls()).toBe(1);
   expect(reconcileCalls).toBe(0);
+});
+
+test("missing or unavailable preflight blocks a mutation before dispatch", async () => {
+  for (const preflight of ["missing", "unavailable"] as const) {
+    const configured = setup({ preflight });
+    await expect(configured.executor.plan(MUTATION, MUTATION_INPUT)).rejects.toMatchObject({ code: "operation-unavailable" });
+    expect(configured.calls()).toBe(0);
+  }
+});
+
+test("visibility limits must be bounded, non-empty, and control-safe before planning", async () => {
+  for (const visibilityLimits of [
+    [],
+    [" \t "],
+    ["line one\nline two"],
+    ["x".repeat(501)],
+    Array.from({ length: 17 }, (_value, index) => `limit ${index}`),
+  ]) {
+    const configured = setup({ visibilityLimits });
+    await expect(configured.executor.plan(MUTATION, MUTATION_INPUT)).rejects.toMatchObject({ code: "operation-unavailable" });
+    expect(configured.calls()).toBe(0);
+  }
+});
+
+test("an external dependency observation changing after approval blocks dispatch", async () => {
+  let dependency = "before";
+  const configured = setup({
+    dependencyObservation: true,
+    readTarget: async context => makeTarget(context.relation.operationId === "GET /fixture/dependency" ? dependency : "target"),
+  });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  dependency = "after";
+  await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(configured.calls()).toBe(0);
+});
+
+test("a failed response cannot settle a composite effect when one postcondition is missing", async () => {
+  let reconciles = 0;
+  const configured = setup({
+    secondPostcondition: true,
+    dispatch: async () => ({ kind: "response", status: 500, body: { ok: false } }),
+    reconcile: async () => ({ status: ++reconciles === 1 ? "applied" : "unknown" }),
+  });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  expect(reconciles).toBe(2);
+  expect(configured.calls()).toBe(1);
+});
+
+test("an invalid success body cannot settle a mutation", async () => {
+  const configured = setup({ dispatch: async () => ({ kind: "response", status: 200, body: { ok: "invalid" } }) });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  expect(configured.calls()).toBe(1);
+});
+
+test("a 200 response stays unknown when the source has no complete success proof", async () => {
+  const configured = setup({
+    reconciliationEnabled: false,
+    responseCompleteStatuses: [],
+    dispatch: async () => ({ kind: "response", status: 200, body: { ok: true } }),
+  });
+  const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  expect(configured.calls()).toBe(1);
 });

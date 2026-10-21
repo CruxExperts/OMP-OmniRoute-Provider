@@ -46,11 +46,13 @@ import {
   comboRelationExpectedPayload,
   isComboNormalizationId,
   isComboRelationViewId,
+  COMBO_RELATION_BINDINGS,
   type ComboSourceNormalizationId,
   type ComboSourceRelationViewId,
 } from "./source-combos.ts";
 import {
   isModelComboMappingRelationViewId,
+  MODEL_COMBO_MAPPING_RELATION_BINDINGS,
   isModelComboMappingRequestCodecId,
   modelComboMappingCodecBinding,
   modelComboMappingRelationExpectedPayload,
@@ -239,6 +241,36 @@ export function sourceRelationViewMatches(
   const expectedKind = operationId === FALLBACK_CHAIN_POST ? "upsert" : operationId === FALLBACK_CHAIN_DELETE ? "absent" : undefined;
   return expectedKind !== undefined && outcomeKind === expectedKind
     && targetReadId === FALLBACK_CHAIN_GET && reconciliationId === FALLBACK_CHAIN_GET;
+}
+
+/** A preflight projection binds the mutation and read, without claiming a postcondition. */
+export function sourcePreflightViewMatches(id: unknown, operationId: string, targetReadId: unknown): boolean {
+  if (isComboRelationViewId(id)) {
+    const binding = COMBO_RELATION_BINDINGS[id];
+    return binding.operationIds.includes(operationId) && binding.targetReadId === targetReadId;
+  }
+  if (isModelComboMappingRelationViewId(id)) {
+    const binding = MODEL_COMBO_MAPPING_RELATION_BINDINGS[id];
+    return binding.operationIds.includes(operationId as typeof binding.operationIds[number])
+      && binding.targetRead.operationId === targetReadId;
+  }
+  if (id === "omniroute-v3.8.52.provider-cc-alias.selected-override") {
+    return operationId === PROVIDER_CC_ALIAS_PUT && targetReadId === PROVIDER_CC_ALIAS_GET;
+  }
+  return id === FALLBACK_CHAIN_RELATION_VIEW_BINDING.id
+    && FALLBACK_CHAIN_RELATION_VIEW_BINDING.operations.includes(operationId)
+    && targetReadId === FALLBACK_CHAIN_GET;
+}
+
+/** The pinned collection handler returns every SQLite row when neither pagination key is supplied. */
+export function sourceUnpaginatedListProofMatches(operationId: string, proof: unknown, mutationOperationId?: string): boolean {
+  if (operationId !== "GET /api/model-combo-mappings" || !isRecord(proof)
+    || (mutationOperationId !== undefined && mutationOperationId !== "POST /api/model-combo-mappings"
+      && mutationOperationId !== "DELETE /api/model-combo-mappings/{id}")) return false;
+  return proof.kind === "unpaginated-list"
+    && isDeepStrictEqual(proof.itemsPath, ["mappings"])
+    && isDeepStrictEqual(proof.totalPath, ["total"])
+    && isDeepStrictEqual(proof.identityPaths, [["id"]]);
 }
 
 export function sourceRelationSnapshot(id: SourceRelationViewId, payload: ValidatedOperationInput, response: unknown): JsonValue {

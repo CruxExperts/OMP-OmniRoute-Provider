@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   sourceRequestIssue,
+  sourceProviderAllowsOptionalApiKey,
   type SourceRequestIssue,
   type SourceRequestValidatorId,
 } from "../src/admin/source-validation.ts";
+import { loadPinnedModule } from "./fixtures/pinned-handler.fixture.ts";
 
 const VALIDATOR_ID: SourceRequestValidatorId = "omniroute-v3.8.52.provider-create";
 const SECRET = "sentinel-secret-must-never-appear-in-errors";
@@ -15,7 +17,7 @@ function providerBody(
   return {
     provider,
     name: "fixture connection",
-    ...(provider === "fixture" ? { apiKey: "fixture-api-key" } : {}),
+    ...(provider === "openai" ? { apiKey: "fixture-api-key" } : {}),
     ...(providerSpecificData === undefined ? {} : { providerSpecificData }),
   };
 }
@@ -27,7 +29,106 @@ function expectIssue(body: unknown, field: string): SourceRequestIssue {
   return issue!;
 }
 
+function loadPinnedManualCreateOracle() {
+  const leaf = (path: string) => loadPinnedModule(path, specifier => {
+    throw new Error(`Unexpected provider-catalog dependency ${specifier} in ${path}`);
+  });
+  const gitlabSetup = leaf("src/shared/constants/gitlabDuoSetupMessage.ts");
+  const childCatalogs = new Map<string, Record<string, unknown>>();
+  const loadChild = (name: string) => {
+    const cached = childCatalogs.get(name);
+    if (cached) return cached;
+    const module = loadPinnedModule(`src/shared/constants/providers/${name}.ts`, specifier => {
+      if (specifier === "@/shared/constants/gitlabDuoSetupMessage") return gitlabSetup;
+      if (name === "apikey/gateways" && specifier === "./onomeo") return loadChild("apikey/onomeo");
+      if (name === "apikey/gateways" && specifier === "./unifically") return loadChild("apikey/unifically");
+      throw new Error(`Unexpected catalog leaf dependency ${specifier} in ${name}`);
+    });
+    childCatalogs.set(name, module);
+    return module;
+  };
+  const constants = loadPinnedModule("src/shared/constants/providers.ts", specifier => {
+    if (specifier === "./providers/noauth") return loadChild("noauth");
+    if (specifier === "./providers/oauth") return loadChild("oauth");
+    if (specifier === "./providers/web-cookie") return loadPinnedModule("src/shared/constants/providers/web-cookie.ts", child => {
+      if (child === "./web-cookie-chatplayground") return loadChild("web-cookie-chatplayground");
+      if (child === "./web-cookie-notrack") return loadChild("web-cookie-notrack");
+      throw new Error(`Unexpected web-cookie catalog dependency ${child}`);
+    });
+    if (specifier === "./providers/apikey") return loadPinnedModule("src/shared/constants/providers/apikey/index.ts", child => {
+      const name = child.replace(/^\.\//, "");
+      if (["gateways", "beatapi", "frontier-labs", "inference-hosts", "enterprise-cloud", "regional", "specialty-media"].includes(name)) {
+        return loadChild(`apikey/${name}`);
+      }
+      throw new Error(`Unexpected API-key catalog dependency ${child}`);
+    });
+    const childNameBySpecifier: Readonly<Record<string, string>> = {
+      "./providers/local": "local",
+      "./providers/search": "search",
+      "./providers/audio": "audio",
+      "./providers/upstream-proxy": "upstream-proxy",
+      "./providers/cloud-agent": "cloud-agent",
+      "./providers/system": "system",
+    };
+    const childName = childNameBySpecifier[specifier];
+    if (childName !== undefined) return loadChild(childName);
+    if (specifier === "../validation/providerSchema") return { validateProviders: () => undefined };
+    if (specifier === "@omniroute/open-sse/services/usage/supportedProviders.ts") return {};
+    throw new Error(`Unexpected provider aggregator dependency ${specifier}`);
+  });
+  const catalog = loadPinnedModule("src/lib/providers/catalog.ts", specifier => {
+    if (specifier === "@/shared/constants/providers") return constants;
+    throw new Error(`Unexpected provider catalog dependency ${specifier}`);
+  });
+  const candidates = new Set<string>();
+  const groups = catalog.STATIC_PROVIDER_CATALOG_GROUPS as Record<string, { providers: Record<string, { id: string; alias?: string }> }>;
+  for (const group of Object.values(groups)) {
+    for (const provider of Object.values(group.providers)) {
+      candidates.add(provider.id);
+      if (provider.alias) candidates.add(provider.alias);
+    }
+  }
+  for (const provider of constants.FREE_APIKEY_PROVIDER_IDS as Set<string>) candidates.add(provider);
+  for (const provider of ["clinepass", "codebuddy-cn", "codebuddy-intl", "xai", "muse-code", "cline", "kilocode"]) candidates.add(provider);
+  const canonicalize = (provider: string): string =>
+    (constants.resolveProviderId as (id: string) => string)(provider);
+  const manual = (provider: string): boolean => {
+    const canonical = canonicalize(provider);
+    return (catalog.isManagedProviderConnectionId as (id: string) => boolean)(canonical) ||
+      (constants.isOpenAICompatibleProvider as (id: string) => boolean)(canonical) ||
+      (constants.isAnthropicCompatibleProvider as (id: string) => boolean)(canonical) ||
+      Object.hasOwn(constants.NOAUTH_PROVIDERS as object, canonical);
+  };
+  return { candidates, canonicalize, manual };
+}
+
 describe("pinned provider-create source validation", () => {
+  test("matches the executed route manual-create allowlist across pinned catalog IDs and aliases", () => {
+    const source = loadPinnedManualCreateOracle();
+    expect(source.candidates.size).toBeGreaterThan(500);
+    for (const provider of source.candidates) {
+      const canonical = source.canonicalize(provider);
+      const body = {
+        provider,
+        name: "fixture connection",
+        apiKey: SECRET,
+        ...(canonical === "google-pse-search" ? { providerSpecificData: { cx: "fixture-engine" } } : {}),
+      };
+      const issue = sourceRequestIssue(VALIDATOR_ID, body);
+      expect(issue?.field === "provider").toBe(!source.manual(provider));
+      if (source.manual(provider)) expect(issue).toBeUndefined();
+    }
+
+    for (const provider of ["constructor", "toString", "__proto__", "ghe-copilot", "grok-cli", "unknown-provider"]) {
+      expect(source.manual(provider)).toBe(false);
+      expectIssue({ provider, name: "fixture", apiKey: SECRET, providerSpecificData: provider === "ghe-copilot" ? { gheUrl: "https://enterprise.example" } : undefined }, "provider");
+    }
+    for (const provider of ["openai-compatible-dynamic", "anthropic-compatible-dynamic"]) {
+      expect(source.manual(provider)).toBe(true);
+      expect(sourceRequestIssue(VALIDATOR_ID, { provider, name: "fixture", apiKey: SECRET })).toBeUndefined();
+    }
+  });
+
   test("fails closed for unknown validator IDs and structurally invalid direct calls", () => {
     expect(sourceRequestIssue("unknown-validator" as SourceRequestValidatorId, providerBody())?.field).toBe("validatorId");
     expectIssue(null, "body");
@@ -49,18 +150,21 @@ describe("pinned provider-create source validation", () => {
       "mlx-gemma", "mlx-qwen", "ollama-local", "lm-studio", "vllm", "lemonade",
       "llamafile", "llama-cpp", "triton", "docker-model-runner", "xinference",
       "oobabooga", "sdwebui", "comfyui",
-      "openai-compatible-private-provider", "anthropic-compatible-private-provider",
-      // Source's `in` test against an ordinary object also recognizes inherited keys.
-      "constructor", "toString", "__proto__",
     ];
     for (const provider of optionalProviders) {
-      expect(sourceRequestIssue(VALIDATOR_ID, providerBody(provider))).toBeUndefined();
+      expect(sourceProviderAllowsOptionalApiKey(provider)).toBe(true);
     }
+    expect(sourceProviderAllowsOptionalApiKey("constructor")).toBe(true);
+    expect(sourceProviderAllowsOptionalApiKey("toString")).toBe(true);
+    expect(sourceProviderAllowsOptionalApiKey("__proto__")).toBe(true);
+    expectIssue(providerBody("constructor"), "provider");
+    expectIssue(providerBody("toString"), "provider");
+    expectIssue(providerBody("__proto__"), "provider");
     expectIssue(providerBody("opencode"), "apiKey");
-    expect(sourceRequestIssue(VALIDATOR_ID, { ...providerBody("opencode"), apiKey: "fixture-key" })).toBeUndefined();
+    expect(sourceRequestIssue(VALIDATOR_ID, { ...providerBody("openai"), apiKey: "fixture-key" })).toBeUndefined();
     expectIssue(providerBody("ordinary-cloud-provider"), "apiKey");
     expectIssue({ ...providerBody("ordinary-cloud-provider"), apiKey: " \t\n " }, "apiKey");
-    expect(sourceRequestIssue(VALIDATOR_ID, { ...providerBody("ordinary-cloud-provider"), apiKey: SECRET })).toBeUndefined();
+    expectIssue({ ...providerBody("ordinary-cloud-provider"), apiKey: SECRET }, "provider");
     expect(sourceRequestIssue(VALIDATOR_ID, providerBody("openai-compatible-x", { apiKey: "not-a-provider-key-field" }))).toBeUndefined();
   });
 
@@ -73,7 +177,7 @@ describe("pinned provider-create source validation", () => {
     expectIssue({ ...providerBody("ordinary-cloud-provider"), apiKey: SECRET, allowNoCredential: true }, "allowNoCredential");
     expectIssue({ ...providerBody("ordinary-cloud-provider"), apiKey: " enc:v1:stored-envelope " }, "apiKey");
     expect(sourceRequestIssue(VALIDATOR_ID, {
-      ...providerBody("ordinary-cloud-provider"), apiKey: SECRET,
+      ...providerBody("openai"), apiKey: SECRET,
     })).toBeUndefined();
   });
 
@@ -92,7 +196,7 @@ describe("pinned provider-create source validation", () => {
     expectIssue({ ...providerBody(), testStatus: "s".repeat(51) }, "testStatus");
     expectIssue({ ...providerBody(), apiKey: "k".repeat(100_001) }, "apiKey");
     expect(sourceRequestIssue(VALIDATOR_ID, {
-      ...providerBody("ordinary-cloud-provider"),
+      ...providerBody("openai"),
       apiKey: SECRET,
       priority: 100,
       globalPriority: null,
@@ -101,7 +205,7 @@ describe("pinned provider-create source validation", () => {
     })).toBeUndefined();
   });
 
-  test("requires Google PSE cx and GitHub Enterprise Copilot HTTPS URL", () => {
+  test("requires Google PSE cx and rejects OAuth-only manual create even with valid GHE URL", () => {
     const googleBase = providerBody("google-pse-search");
     expectIssue({ ...googleBase, apiKey: SECRET }, "providerSpecificData.cx");
     expectIssue({ ...googleBase, apiKey: SECRET, providerSpecificData: { cx: " \t " } }, "providerSpecificData.cx");
@@ -111,30 +215,30 @@ describe("pinned provider-create source validation", () => {
     })).toBeUndefined();
 
     const gheBase = providerBody("ghe-copilot");
-    expectIssue({ ...gheBase, apiKey: SECRET }, "providerSpecificData.gheUrl");
+    expectIssue({ ...gheBase, apiKey: SECRET }, "provider");
     expectIssue({ ...gheBase, apiKey: SECRET, providerSpecificData: { gheUrl: "  " } }, "providerSpecificData.gheUrl");
     expectIssue({ ...gheBase, apiKey: SECRET, providerSpecificData: { gheUrl: "http://github.example" } }, "providerSpecificData.gheUrl");
     expect(sourceRequestIssue(VALIDATOR_ID, {
       ...gheBase, apiKey: SECRET, providerSpecificData: { gheUrl: "https://github.example" },
-    })).toBeUndefined();
+    })?.field).toBe("provider");
   });
 
   test("validates URL, optional strings, capability enums, and source coercion behavior", () => {
-    expectIssue(providerBody("fixture", { gheUrl: 1 }), "providerSpecificData.gheUrl");
-    expectIssue(providerBody("fixture", { baseUrl: "file:///tmp" }), "providerSpecificData.baseUrl");
-    expectIssue(providerBody("fixture", { customUserAgent: "a".repeat(501) }), "providerSpecificData.customUserAgent");
-    expectIssue(providerBody("fixture", { region: 65 }), "providerSpecificData.region");
-    expectIssue(providerBody("fixture", { codexFingerprintMode: "unknown" }), "providerSpecificData.codexFingerprintMode");
-    expectIssue(providerBody("fixture", { preserveEncryptedReasoning: "yes" }), "providerSpecificData.preserveEncryptedReasoning");
-    expectIssue(providerBody("fixture", { blockExtraUsage: 1 }), "providerSpecificData.blockExtraUsage");
-    expectIssue(providerBody("fixture", { autoFetchModels: "yes" }), "providerSpecificData.autoFetchModels");
-    expectIssue(providerBody("fixture", { disableStreamOptions: "yes" }), "providerSpecificData.disableStreamOptions");
-    expectIssue(providerBody("fixture", { preset: "x".repeat(201) }), "providerSpecificData.preset");
-    expectIssue(providerBody("fixture", { requestDefaults: { reasoningEffort: "extreme" } }), "providerSpecificData.requestDefaults.reasoningEffort");
-    expectIssue(providerBody("fixture", { requestDefaults: { serviceTier: " turbo " } }), "providerSpecificData.requestDefaults.serviceTier");
-    expectIssue(providerBody("fixture", { requestDefaults: { context1m: 1 } }), "providerSpecificData.requestDefaults.context1m");
+    expectIssue(providerBody(undefined, { gheUrl: 1 }), "providerSpecificData.gheUrl");
+    expectIssue(providerBody(undefined, { baseUrl: "file:///tmp" }), "providerSpecificData.baseUrl");
+    expectIssue(providerBody(undefined, { customUserAgent: "a".repeat(501) }), "providerSpecificData.customUserAgent");
+    expectIssue(providerBody(undefined, { region: 65 }), "providerSpecificData.region");
+    expectIssue(providerBody(undefined, { codexFingerprintMode: "unknown" }), "providerSpecificData.codexFingerprintMode");
+    expectIssue(providerBody(undefined, { preserveEncryptedReasoning: "yes" }), "providerSpecificData.preserveEncryptedReasoning");
+    expectIssue(providerBody(undefined, { blockExtraUsage: 1 }), "providerSpecificData.blockExtraUsage");
+    expectIssue(providerBody(undefined, { autoFetchModels: "yes" }), "providerSpecificData.autoFetchModels");
+    expectIssue(providerBody(undefined, { disableStreamOptions: "yes" }), "providerSpecificData.disableStreamOptions");
+    expectIssue(providerBody(undefined, { preset: "x".repeat(201) }), "providerSpecificData.preset");
+    expectIssue(providerBody(undefined, { requestDefaults: { reasoningEffort: "extreme" } }), "providerSpecificData.requestDefaults.reasoningEffort");
+    expectIssue(providerBody(undefined, { requestDefaults: { serviceTier: " turbo " } }), "providerSpecificData.requestDefaults.serviceTier");
+    expectIssue(providerBody(undefined, { requestDefaults: { context1m: 1 } }), "providerSpecificData.requestDefaults.context1m");
 
-    expect(sourceRequestIssue(VALIDATOR_ID, providerBody("fixture", {
+    expect(sourceRequestIssue(VALIDATOR_ID, providerBody(undefined, {
       gheUrl: "https://enterprise.example",
       baseUrl: "https://gateway.example/v1",
       customUserAgent: null,
@@ -153,24 +257,24 @@ describe("pinned provider-create source validation", () => {
       },
     }))).toBeUndefined();
     // Upstream skips non-string fingerprint values after coercing them to an empty string.
-    expect(sourceRequestIssue(VALIDATOR_ID, providerBody("fixture", { codexFingerprintMode: 12 }))).toBeUndefined();
-    expect(sourceRequestIssue(VALIDATOR_ID, providerBody("fixture", { baseUrl: "http:gateway.example" }))).toBeUndefined();
+    expect(sourceRequestIssue(VALIDATOR_ID, providerBody(undefined, { codexFingerprintMode: 12 }))).toBeUndefined();
+    expect(sourceRequestIssue(VALIDATOR_ID, providerBody(undefined, { baseUrl: "http:gateway.example" }))).toBeUndefined();
   });
 
   test("validates cache and peak-hour nested objects without adding stricter time rules", () => {
-    expectIssue(providerBody("fixture", { cache: null }), "providerSpecificData.cache");
-    expectIssue(providerBody("fixture", { cache: { supportsPromptCaching: "yes" } }), "providerSpecificData.cache.supportsPromptCaching");
-    expectIssue(providerBody("fixture", { cache: { cacheControlPassthrough: " CLAUDE-FORMAT " } }), "providerSpecificData.cache.cacheControlPassthrough");
-    expectIssue(providerBody("fixture", { peakHourProtection: [] }), "providerSpecificData.peakHourProtection");
-    expectIssue(providerBody("fixture", { peakHourProtection: { enabled: 1 } }), "providerSpecificData.peakHourProtection.enabled");
-    expectIssue(providerBody("fixture", { peakHourProtection: { mode: "BLOCK" } }), "providerSpecificData.peakHourProtection.mode");
-    expectIssue(providerBody("fixture", { peakHourProtection: { windows: [null] } }), "providerSpecificData.peakHourProtection.windows.0");
-    expectIssue(providerBody("fixture", { peakHourProtection: { windows: [{ startUtc: "9:0", endUtc: "10:00" }] } }), "providerSpecificData.peakHourProtection.windows.0.startUtc");
-    expectIssue(providerBody("fixture", { peakHourProtection: { windows: [{ startUtc: "09:00", endUtc: "10:00", days: "mon" }] } }), "providerSpecificData.peakHourProtection.windows.0.days");
-    expectIssue(providerBody("fixture", { peakHourProtection: { windows: [{ startUtc: "09:00", endUtc: "10:00", days: ["holiday"] }] } }), "providerSpecificData.peakHourProtection.windows.0.days");
-    expectIssue(providerBody("fixture", { peakHourProtection: { windows: Array.from({ length: 17 }, () => ({ startUtc: "09:00", endUtc: "10:00" })) } }), "providerSpecificData.peakHourProtection.windows");
+    expectIssue(providerBody(undefined, { cache: null }), "providerSpecificData.cache");
+    expectIssue(providerBody(undefined, { cache: { supportsPromptCaching: "yes" } }), "providerSpecificData.cache.supportsPromptCaching");
+    expectIssue(providerBody(undefined, { cache: { cacheControlPassthrough: " CLAUDE-FORMAT " } }), "providerSpecificData.cache.cacheControlPassthrough");
+    expectIssue(providerBody(undefined, { peakHourProtection: [] }), "providerSpecificData.peakHourProtection");
+    expectIssue(providerBody(undefined, { peakHourProtection: { enabled: 1 } }), "providerSpecificData.peakHourProtection.enabled");
+    expectIssue(providerBody(undefined, { peakHourProtection: { mode: "BLOCK" } }), "providerSpecificData.peakHourProtection.mode");
+    expectIssue(providerBody(undefined, { peakHourProtection: { windows: [null] } }), "providerSpecificData.peakHourProtection.windows.0");
+    expectIssue(providerBody(undefined, { peakHourProtection: { windows: [{ startUtc: "9:0", endUtc: "10:00" }] } }), "providerSpecificData.peakHourProtection.windows.0.startUtc");
+    expectIssue(providerBody(undefined, { peakHourProtection: { windows: [{ startUtc: "09:00", endUtc: "10:00", days: "mon" }] } }), "providerSpecificData.peakHourProtection.windows.0.days");
+    expectIssue(providerBody(undefined, { peakHourProtection: { windows: [{ startUtc: "09:00", endUtc: "10:00", days: ["holiday"] }] } }), "providerSpecificData.peakHourProtection.windows.0.days");
+    expectIssue(providerBody(undefined, { peakHourProtection: { windows: Array.from({ length: 17 }, () => ({ startUtc: "09:00", endUtc: "10:00" })) } }), "providerSpecificData.peakHourProtection.windows");
 
-    expect(sourceRequestIssue(VALIDATOR_ID, providerBody("fixture", {
+    expect(sourceRequestIssue(VALIDATOR_ID, providerBody(undefined, {
       cache: { supportsPromptCaching: false, cacheControlPassthrough: "claude-format" },
       peakHourProtection: {
         enabled: true,
@@ -179,31 +283,31 @@ describe("pinned provider-create source validation", () => {
       },
     }))).toBeUndefined();
     // A non-array windows field is intentionally ignored by the pinned validator.
-    expect(sourceRequestIssue(VALIDATOR_ID, providerBody("fixture", { peakHourProtection: { windows: {} } }))).toBeUndefined();
+    expect(sourceRequestIssue(VALIDATOR_ID, providerBody(undefined, { peakHourProtection: { windows: {} } }))).toBeUndefined();
   });
 
   test("validates credentials, workspace pairing, routing lists, and numeric bounds", () => {
-    expectIssue(providerBody("fixture", { consoleApiKey: 1 }), "providerSpecificData.consoleApiKey");
-    expectIssue(providerBody("fixture", { newApiUserId: "u".repeat(257) }), "providerSpecificData.newApiUserId");
-    expectIssue(providerBody("fixture", { authCookie: 1 }), "providerSpecificData.authCookie");
-    expectIssue(providerBody("fixture", { qwenCloudSecToken: "c".repeat(10_001) }), "providerSpecificData.qwenCloudSecToken");
-    expectIssue(providerBody("fixture", { glmOrganizationId: 1 }), "providerSpecificData.glmOrganizationId");
-    expectIssue(providerBody("fixture", { glmOrganizationId: "org-only" }), "providerSpecificData.glmProjectId");
-    expectIssue(providerBody("fixture", { bigmodelProject: "project-only" }), "providerSpecificData.glmOrganizationId");
-    expectIssue(providerBody("fixture", { tag: "t".repeat(101) }), "providerSpecificData.tag");
-    expectIssue(providerBody("fixture", { tags: ["ok", "  "] }), "providerSpecificData.tags");
-    expectIssue(providerBody("fixture", { tags: Array.from({ length: 51 }, () => "tag") }), "providerSpecificData.tags");
-    expectIssue(providerBody("fixture", { excludedModels: ["**"] }), "providerSpecificData.excludedModels");
-    expectIssue(providerBody("fixture", { excluded_models: [" "] }), "providerSpecificData.excludedModels");
-    expectIssue(providerBody("fixture", { excludedModels: "x".repeat(5_001) }), "providerSpecificData.excludedModels");
-    expectIssue(providerBody("fixture", { clientProfile: "desktop" }), "providerSpecificData.clientProfile");
-    expectIssue(providerBody("fixture", { newApiAggregatorBalance: "true" }), "providerSpecificData.newApiAggregatorBalance");
-    expectIssue(providerBody("fixture", { quotaPerUnit: 0 }), "providerSpecificData.quotaPerUnit");
-    expectIssue(providerBody("fixture", { quotaPerUnit: Number.POSITIVE_INFINITY }), "providerSpecificData.quotaPerUnit");
-    expectIssue(providerBody("fixture", { timeoutMs: 1.5 }), "providerSpecificData.timeoutMs");
-    expectIssue(providerBody("fixture", { timeoutMs: 86_400_001 }), "providerSpecificData.timeoutMs");
+    expectIssue(providerBody(undefined, { consoleApiKey: 1 }), "providerSpecificData.consoleApiKey");
+    expectIssue(providerBody(undefined, { newApiUserId: "u".repeat(257) }), "providerSpecificData.newApiUserId");
+    expectIssue(providerBody(undefined, { authCookie: 1 }), "providerSpecificData.authCookie");
+    expectIssue(providerBody(undefined, { qwenCloudSecToken: "c".repeat(10_001) }), "providerSpecificData.qwenCloudSecToken");
+    expectIssue(providerBody(undefined, { glmOrganizationId: 1 }), "providerSpecificData.glmOrganizationId");
+    expectIssue(providerBody(undefined, { glmOrganizationId: "org-only" }), "providerSpecificData.glmProjectId");
+    expectIssue(providerBody(undefined, { bigmodelProject: "project-only" }), "providerSpecificData.glmOrganizationId");
+    expectIssue(providerBody(undefined, { tag: "t".repeat(101) }), "providerSpecificData.tag");
+    expectIssue(providerBody(undefined, { tags: ["ok", "  "] }), "providerSpecificData.tags");
+    expectIssue(providerBody(undefined, { tags: Array.from({ length: 51 }, () => "tag") }), "providerSpecificData.tags");
+    expectIssue(providerBody(undefined, { excludedModels: ["**"] }), "providerSpecificData.excludedModels");
+    expectIssue(providerBody(undefined, { excluded_models: [" "] }), "providerSpecificData.excludedModels");
+    expectIssue(providerBody(undefined, { excludedModels: "x".repeat(5_001) }), "providerSpecificData.excludedModels");
+    expectIssue(providerBody(undefined, { clientProfile: "desktop" }), "providerSpecificData.clientProfile");
+    expectIssue(providerBody(undefined, { newApiAggregatorBalance: "true" }), "providerSpecificData.newApiAggregatorBalance");
+    expectIssue(providerBody(undefined, { quotaPerUnit: 0 }), "providerSpecificData.quotaPerUnit");
+    expectIssue(providerBody(undefined, { quotaPerUnit: Number.POSITIVE_INFINITY }), "providerSpecificData.quotaPerUnit");
+    expectIssue(providerBody(undefined, { timeoutMs: 1.5 }), "providerSpecificData.timeoutMs");
+    expectIssue(providerBody(undefined, { timeoutMs: 86_400_001 }), "providerSpecificData.timeoutMs");
 
-    expect(sourceRequestIssue(VALIDATOR_ID, providerBody("fixture", {
+    expect(sourceRequestIssue(VALIDATOR_ID, providerBody(undefined, {
       consoleApiKey: null,
       newApiUserId: null,
       openCodeGoWorkspaceId: "workspace",
@@ -221,7 +325,7 @@ describe("pinned provider-create source validation", () => {
 
   test("never echoes API keys or provider-specific secrets in issues", () => {
     const apiKeyIssue = expectIssue({ ...providerBody("ordinary-cloud-provider"), apiKey: SECRET + "x".repeat(100_001) }, "apiKey");
-    const specificDataIssue = expectIssue(providerBody("fixture", { consoleApiKey: SECRET, cache: null }), "providerSpecificData.cache");
+    const specificDataIssue = expectIssue(providerBody(undefined, { consoleApiKey: SECRET, cache: null }), "providerSpecificData.cache");
     expect(JSON.stringify(apiKeyIssue)).not.toContain(SECRET);
     expect(JSON.stringify(specificDataIssue)).not.toContain(SECRET);
     expect(JSON.stringify(specificDataIssue)).not.toContain("consoleApiKey");

@@ -29,18 +29,22 @@ import { AdminError, escapeControls, safeError } from "./types.ts";
 import {
   canonicalizeJson,
   getOperationRegistry,
+  redactSourceOutput,
   RegistryError,
   type ManagementAuthorizationAlternative,
   type OMAAccessTokenScope,
   type OperationAdapter,
   type OperationDescriptor,
   type OperationReconciliationRelation,
+  type OperationReadCompleteness,
+  type OperationMutationSafety,
   type OperationRegistry,
   type OperationSourceAuthorizationPolicy,
   type ValidatedOperationInput,
 } from "./registry.ts";
 import { requiredOmaScope } from "./authorization-policy.ts";
-import { mapRelationInput } from "./relations.ts";
+import { assertSafetyReadRequest, mapRelationInput } from "./relations.ts";
+import { sourceUnpaginatedListProofMatches } from "./source-normalization.ts";
 
 export interface AdminPlanOptions {
   readonly profileId?: string;
@@ -91,18 +95,38 @@ interface InternalPlan {
   readonly input: ValidatedOperationInput;
   readonly payloadDigest: string;
   readonly targetDigest: string | null;
-  readonly targetSnapshot: JsonValue | undefined;
   readonly auth: AdminAuthIdentity;
   readonly authAuthority: AdminAuthorizationAuthority;
   readonly targetAuth: AdminAuthIdentity | null;
-  readonly targetAuthAuthority: AdminAuthorizationAuthority | null;
-  readonly relation: OperationReconciliationRelation | null;
-  readonly targetReadOperation: OperationAdapter | undefined;
-  readonly reconciliationOperation: OperationAdapter | undefined;
+  readonly mutationSafety: OperationMutationSafety;
+  readonly observations: readonly PlannedObservation[];
+  readonly postconditions: readonly PlannedPostcondition[];
   readonly createdAt: number;
   readonly expiresAt: number;
   readonly preview: AdminPreview;
   state: AdminPlanHandle["state"];
+}
+
+interface PlannedObservation {
+  readonly name: string;
+  readonly relation: OperationReconciliationRelation["targetRead"];
+  readonly readCompleteness: OperationReadCompleteness;
+  readonly readOperation: OperationAdapter;
+  readonly target: AdminTarget;
+  readonly auth: AdminAuthIdentity;
+  readonly authority: AdminAuthorizationAuthority;
+}
+interface PlannedPostcondition {
+  readonly name: string;
+  readonly relation: OperationReconciliationRelation;
+  readonly readCompleteness: OperationReadCompleteness;
+  readonly readOperation: OperationAdapter;
+  readonly targetReadOperation: OperationAdapter;
+  readonly targetAuth: AdminAuthIdentity;
+  readonly targetAuthority: AdminAuthorizationAuthority;
+  readonly target: AdminTarget;
+  readonly auth: AdminAuthIdentity;
+  readonly authority: AdminAuthorizationAuthority;
 }
 
 interface OperationSelection {
@@ -314,8 +338,14 @@ function requestFor(adapter: OperationAdapter, endpoint: string, input: Validate
   };
 }
 
-function consequence(descriptor: OperationDescriptor, risk: AdminRisk, relation: OperationReconciliationRelation | null): string {
+function consequence(descriptor: OperationDescriptor, risk: AdminRisk, relation: OperationReconciliationRelation | null, input?: ValidatedOperationInput): string {
   if (risk === "read") return "Read-only operation; response is projected through the closed allowlist.";
+  if (descriptor.operationId === "DELETE /api/combos/metrics") {
+    const selected = typeof input?.query.combo === "string" && input.query.combo.length > 0;
+    return selected
+      ? "Resets the selected combo's production, shadow, and persisted-skip counters. The source returns HTTP 200 but supplies no complete success proof, so the outcome remains unknown after one dispatch."
+      : "Resets all production, shadow, and persisted-skip counters and stops the metrics cleanup interval until module reload. The source returns HTTP 200 but supplies no complete success proof, so the outcome remains unknown after one dispatch.";
+  }
   if (relation === null) {
     return `${descriptor.confirmation.reason} This operation has no verified reconciliation read; at most one dispatch will be attempted, and an ambiguous outcome remains unknown without replay.`;
   }
@@ -503,34 +533,56 @@ export class AdminExecutorImpl implements AdminExecutor {
     if (adapter.risk === "read") throw this.#error("confirmation-required", "ordinary reads must use the read operation", operationId);
     const validated = this.#validate(adapter, input);
     const selection = this.#selection(options);
-    const relation = this.#relationForPlan(adapter);
+    const mutationSafety = this.#safetyForPlan(adapter);
     this.#assertEligible(adapter);
     const request = requestFor(adapter, selection.endpoint, validated);
     const auth = await this.#resolveOperationAuth(adapter.descriptor, selection, request, options.signal);
-    let targetDigest: string | null = null;
-    let targetSnapshot: JsonValue | undefined;
-    let targetAuthIdentity: AdminAuthIdentity | null = null;
-    let targetAuthAuthority: AdminAuthorizationAuthority | null = null;
-    let targetReadOperation: OperationAdapter | undefined;
-    let reconciliationOperation: OperationAdapter | undefined;
-    if (relation !== null) {
-      targetReadOperation = this.#requireRelationRead(relation.targetRead.operationId, operationId);
-      reconciliationOperation = this.#requireRelationRead(relation.reconcile.operationId, operationId);
-      if (!this.#readTarget) throw this.#error("target-drift", "reconciliation target reader is unavailable", operationId);
-      const target = await this.#readRelationTarget(adapter, validated, relation, targetReadOperation, selection, auth, options.signal);
-      targetDigest = target.target.digest;
-      targetSnapshot = target.target.snapshot;
-      targetAuthIdentity = identityOf(target.auth);
-      targetAuthAuthority = target.auth.authority;
-
-      const currentOperationAuth = await this.#resolveOperationAuth(adapter.descriptor, selection, request, options.signal);
-      this.#assertAuthUnchanged(auth, currentOperationAuth, adapter.descriptor);
-      const currentTargetAuth = await this.#resolveOperationAuth(targetReadOperation.descriptor, selection, target.request, options.signal);
-      this.#assertAuthUnchanged(target.auth, currentTargetAuth, targetReadOperation.descriptor);
-    } else {
-      // Explicitly non-reconcilable operations intentionally have no target authority or digest.
-      targetDigest = null;
+    const observations: PlannedObservation[] = [];
+    const postconditions: PlannedPostcondition[] = [];
+    if (mutationSafety.preflight.kind === "unavailable") throw this.#error("operation-unavailable", mutationSafety.preflight.reason, operationId);
+    if (mutationSafety.preflight.kind === "required") {
+      for (const observation of mutationSafety.preflight.observations) {
+        const readOperation = this.#requireRelationRead(observation.read.operationId, operationId, observation.readCompleteness);
+        const result = await this.#readRelationTarget(adapter, validated, observation.read, observation.readCompleteness, readOperation, selection, auth, options.signal);
+        observations.push({ name: observation.name, relation: observation.read, readCompleteness: observation.readCompleteness, readOperation, target: result.target,
+          auth: identityOf(result.auth), authority: result.auth.authority });
+      }
     }
+    if (mutationSafety.reconciliation.kind === "complete") {
+      for (const postcondition of mutationSafety.reconciliation.postconditions) {
+        const targetReadOperation = this.#requireRelationRead(postcondition.relation.targetRead.operationId, operationId, postcondition.readCompleteness);
+        const readOperation = this.#requireRelationRead(postcondition.relation.reconcile.operationId, operationId, postcondition.readCompleteness);
+        const result = await this.#readRelationTarget(adapter, validated, postcondition.relation.targetRead, postcondition.readCompleteness, targetReadOperation, selection, auth, options.signal);
+        const readInput = readOperation.validate(mapRelationInput(postcondition.relation.reconcile.inputs, validated));
+        const readAuth = await this.#resolveOperationAuth(readOperation.descriptor, selection, requestFor(readOperation, selection.endpoint, readInput), options.signal);
+        postconditions.push({ name: postcondition.name, relation: postcondition.relation, readCompleteness: postcondition.readCompleteness, readOperation, targetReadOperation,
+          target: result.target, auth: identityOf(readAuth), authority: readAuth.authority,
+          targetAuth: identityOf(result.auth), targetAuthority: result.auth.authority });
+      }
+    }
+    const targetDigest = observations.length === 0 ? null : digest(observations.map(item => [item.name, item.target.digest]));
+    const targetSnapshot = observations[0]?.target.snapshot;
+    const targetAuthIdentity = observations[0]?.auth ?? null;
+    const targetReadOperation = observations[0]?.readOperation;
+    const currentOperationAuth = await this.#resolveOperationAuth(adapter.descriptor, selection, request, options.signal);
+    this.#assertAuthUnchanged(auth, currentOperationAuth, adapter.descriptor);
+    for (const item of observations) {
+      const readInput = item.readOperation.validate(mapRelationInput(item.relation.inputs, validated));
+      const readRequest = requestFor(item.readOperation, selection.endpoint, readInput);
+      const currentAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection, readRequest, options.signal);
+      this.#assertPlannedAuth(item.auth, item.authority, currentAuth, item.readOperation.descriptor);
+    }
+    for (const item of postconditions) {
+      const targetInput = item.targetReadOperation.validate(mapRelationInput(item.relation.targetRead.inputs, validated));
+      const targetRequest = requestFor(item.targetReadOperation, selection.endpoint, targetInput);
+      const targetAuth = await this.#resolveOperationAuth(item.targetReadOperation.descriptor, selection, targetRequest, options.signal);
+      this.#assertPlannedAuth(item.targetAuth, item.targetAuthority, targetAuth, item.targetReadOperation.descriptor);
+      const readInput = item.readOperation.validate(mapRelationInput(item.relation.reconcile.inputs, validated));
+      const readRequest = requestFor(item.readOperation, selection.endpoint, readInput);
+      const currentAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection, readRequest, options.signal);
+      this.#assertPlannedAuth(item.auth, item.authority, currentAuth, item.readOperation.descriptor);
+    }
+    const relation = adapter.descriptor.reconciliation;
 
     throwIfAborted(options.signal, operationId);
     const createdAt = this.#now();
@@ -546,8 +598,11 @@ export class AdminExecutorImpl implements AdminExecutor {
       confirmationRequired: true,
       authorization: authorizationSummary(auth.authority),
       payload: previewPayload,
-      ...(targetSnapshot === undefined ? {} : { projectedTarget: redactInput(targetSnapshot, targetReadOperation?.descriptor ?? adapter.descriptor) }),
-      consequence: consequence(adapter.descriptor, adapter.risk, relation),
+      ...(targetSnapshot === undefined ? {} : { projectedTarget: redactSourceOutput(targetSnapshot, (targetReadOperation?.descriptor ?? adapter.descriptor).secrets.outputFields) }),
+      ...(mutationSafety.preflight.kind === "required" && mutationSafety.preflight.visibilityLimits !== undefined
+        ? { visibilityLimits: mutationSafety.preflight.visibilityLimits.map(escapeControls) }
+        : {}),
+      consequence: consequence(adapter.descriptor, adapter.risk, relation, validated),
       resolvedPath: request.path,
       queryParameters: request.queryParameters,
     };
@@ -561,14 +616,10 @@ export class AdminExecutorImpl implements AdminExecutor {
       input: validated,
       payloadDigest,
       targetDigest,
-      targetSnapshot,
       auth: identityOf(auth),
       authAuthority: auth.authority,
       targetAuth: targetAuthIdentity,
-      targetAuthAuthority,
-      relation,
-      targetReadOperation,
-      reconciliationOperation,
+      mutationSafety, observations, postconditions,
       createdAt,
       expiresAt: createdAt + this.#planTtlMs,
       preview,
@@ -650,29 +701,49 @@ export class AdminExecutorImpl implements AdminExecutor {
       this.#assertApplyingPlan(plan);
       this.#assertPlannedAuth(plan.auth, plan.authAuthority, initialAuth, plan.operation.descriptor);
 
-      let currentTargetAuth: AdminOperationAuthBinding | undefined;
-      if (plan.operation.risk !== "read" && plan.relation !== null) {
-        const relation = plan.relation;
-        const readOperation = plan.targetReadOperation;
-        if (!readOperation || !this.#readTarget || plan.targetDigest === null || plan.targetSnapshot === undefined || !plan.targetAuth || !plan.targetAuthAuthority) {
-          throw this.#error("target-drift", "reconciliation target cannot be verified", operationId);
-        }
-        const currentTarget = await this.#readRelationTarget(plan.operation, plan.input, relation, readOperation, selection, initialAuth, authorization.signal);
+      const currentTargetSignals: (AbortSignal | undefined)[] = [];
+      const currentDigests: [string, string][] = [];
+      for (const item of plan.observations) {
+        const current = await this.#readRelationTarget(plan.operation, plan.input, item.relation, item.readCompleteness, item.readOperation,
+          selection, initialAuth, authorization.signal);
         this.#assertApplyingPlan(plan);
-        this.#assertPlannedAuth(plan.targetAuth, plan.targetAuthAuthority, currentTarget.auth, readOperation.descriptor);
-        if (currentTarget.target.digest !== plan.targetDigest) throw this.#error("target-drift", "target changed since preview", operationId);
-        currentTargetAuth = currentTarget.auth;
-
-        const latestTargetAuth = await this.#resolveOperationAuth(readOperation.descriptor, selection, currentTarget.request, authorization.signal);
+        this.#assertPlannedAuth(item.auth, item.authority, current.auth, item.readOperation.descriptor);
+        if (current.target.digest !== item.target.digest) throw this.#error("target-drift", `preflight observation ${item.name} changed since preview`, operationId);
+        currentDigests.push([item.name, current.target.digest]);
+        currentTargetSignals.push(current.auth.signal);
+        const latestAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection, current.request, authorization.signal);
         this.#assertApplyingPlan(plan);
-        this.#assertPlannedAuth(plan.targetAuth, plan.targetAuthAuthority, latestTargetAuth, readOperation.descriptor);
-        const latestOperationAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, authorization.signal);
-        this.#assertApplyingPlan(plan);
-        this.#assertPlannedAuth(plan.auth, plan.authAuthority, latestOperationAuth, plan.operation.descriptor);
-        currentTargetAuth = latestTargetAuth;
-      } else if (plan.operation.risk !== "read" && plan.relation === undefined) {
-        throw this.#error("operation-unavailable", "verified reconciliation contract is missing", operationId);
+        this.#assertPlannedAuth(item.auth, item.authority, latestAuth, item.readOperation.descriptor);
+        currentTargetSignals.push(latestAuth.signal);
       }
+      for (const item of plan.postconditions) {
+        const targetInput = item.targetReadOperation.validate(mapRelationInput(item.relation.targetRead.inputs, plan.input));
+        const targetAuth = await this.#resolveOperationAuth(item.targetReadOperation.descriptor, selection,
+          requestFor(item.targetReadOperation, selection.endpoint, targetInput), authorization.signal);
+        this.#assertApplyingPlan(plan);
+        this.#assertPlannedAuth(item.targetAuth, item.targetAuthority, targetAuth, item.targetReadOperation.descriptor);
+        currentTargetSignals.push(targetAuth.signal);
+        const readInput = item.readOperation.validate(mapRelationInput(item.relation.reconcile.inputs, plan.input));
+        const readAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection,
+          requestFor(item.readOperation, selection.endpoint, readInput), authorization.signal);
+        this.#assertApplyingPlan(plan);
+        this.#assertPlannedAuth(item.auth, item.authority, readAuth, item.readOperation.descriptor);
+        currentTargetSignals.push(readAuth.signal);
+      }
+      if (plan.observations.length > 0 && digest(currentDigests) !== plan.targetDigest) {
+        throw this.#error("target-drift", "preflight observation set changed since preview", operationId);
+      }
+      for (const item of plan.observations) {
+        const readInput = item.readOperation.validate(mapRelationInput(item.relation.inputs, plan.input));
+        const latestAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection,
+          requestFor(item.readOperation, selection.endpoint, readInput), authorization.signal);
+        this.#assertApplyingPlan(plan);
+        this.#assertPlannedAuth(item.auth, item.authority, latestAuth, item.readOperation.descriptor);
+        currentTargetSignals.push(latestAuth.signal);
+      }
+      const latestOperationAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, authorization.signal);
+      this.#assertApplyingPlan(plan);
+      this.#assertPlannedAuth(plan.auth, plan.authAuthority, latestOperationAuth, plan.operation.descriptor);
 
       throwIfAborted(authorization.signal, operationId);
       if (this.#stopped || this.#now() >= plan.expiresAt) throw this.#error(this.#stopped ? "shutdown" : "plan-expired", this.#stopped ? "administration is shut down" : "plan has expired", operationId);
@@ -684,13 +755,26 @@ export class AdminExecutorImpl implements AdminExecutor {
       // Mark before dispatch: an uncertain result must never cause a second mutation attempt.
       plan.state = "applied";
       dispatched = true;
-      return await withAuth(finalAuth, [currentTargetAuth?.signal, authorization.signal], operationId, async (boundAuth, signal) => {
+      return await withAuth(finalAuth, [...currentTargetSignals, authorization.signal], operationId, async (boundAuth, signal) => {
         const result = await this.#dispatch(request, this.#dispatchContext(boundAuth, plan.operation.descriptor, this.#retryAllowed(plan.operation), signal));
         if (result && typeof result === "object" && "status" in result && result.status === "operator-required") {
           plan.state = "operator-required";
           return { status: "operator-required", plan: this.#handle(plan), output: result };
         }
-        return { status: "applied", plan: this.#handle(plan), output: plan.operation.project(result) };
+        if (result && typeof result === "object" && "kind" in result && result.kind === "response"
+          && "status" in result && typeof result.status === "number" && "body" in result) {
+          if (plan.mutationSafety.settlement.responseComplete.statusCodes.includes(result.status)) {
+            const output = plan.operation.project(result.body);
+            return { status: "applied", plan: this.#handle(plan), output };
+          }
+        }
+        plan.state = "unknown";
+        const reconciled = await this.#reconcileOutcome(plan, request, result, authorization.signal);
+        if (reconciled.status === "applied") {
+          plan.state = "applied";
+          return { status: "applied", plan: this.#handle(plan) };
+        }
+        return { status: "unknown", plan: this.#handle(plan), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", operationId)) };
       });
     } catch (error) {
       if (!dispatched) {
@@ -708,26 +792,13 @@ export class AdminExecutorImpl implements AdminExecutor {
         if (plan.state === "pending" && this.#now() >= plan.expiresAt) plan.state = "expired";
         throw error;
       }
-      const failure = safeError(error);
-      if (error instanceof AdminError && error.code === "plan-invalidated") failure.uncertain = true;
-      if (failure.status === 401 || failure.status === 403) {
-        plan.state = "invalidated";
-        throw this.#error("unauthorized", "administration request was not authorized", operationId, failure.status);
+      plan.state = "unknown";
+      const reconciled = await this.#reconcileOutcome(plan, requestFor(plan.operation, plan.auth.endpoint, plan.input), error, authorization.signal);
+      if (reconciled.status === "applied") {
+        plan.state = "applied";
+        return { status: "applied", plan: this.#handle(plan) };
       }
-      if (failure.uncertain) {
-        plan.state = "unknown";
-        const reconciled = await this.#reconcileOutcome(plan, requestFor(plan.operation, plan.auth.endpoint, plan.input), error, authorization.signal);
-        if (reconciled.status === "applied") {
-          plan.state = "applied";
-          const output = reconciled.output === undefined || !plan.reconciliationOperation
-            ? undefined
-            : plan.reconciliationOperation.project(reconciled.output);
-          return { status: "applied", plan: this.#handle(plan), ...(output === undefined ? {} : { output }) };
-        }
-        return { status: "unknown", plan: this.#handle(plan), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", operationId)) };
-      }
-      plan.state = "invalidated";
-      throw this.#error("dispatch-failed", "administration request failed", operationId, failure.status);
+      return { status: "unknown", plan: this.#handle(plan), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", operationId)) };
     }
   }
 
@@ -751,13 +822,18 @@ export class AdminExecutorImpl implements AdminExecutor {
     return plan.state === "invalidated";
   }
 
-  #requireRelationRead(operationId: string, ownerOperationId: string): OperationAdapter {
+  #requireRelationRead(operationId: string, ownerOperationId: string, proof: OperationReadCompleteness): OperationAdapter {
     const adapter = this.#requireAdapter(operationId);
     this.#assertEligible(adapter);
     const descriptor = adapter.descriptor;
     if (adapter.risk !== "read" || descriptor.sideEffect !== "read" || descriptor.confirmation.required || RELATION_READ_METHODS[descriptor.method] !== true) {
       throw this.#error("operation-unavailable", "reconciliation relation must name a verified ordinary GET or HEAD read", ownerOperationId);
     }
+    try {
+      assertSafetyReadRequest(proof, descriptor, { path: {}, query: {} });
+      if (proof.kind === "unpaginated-list" && !sourceUnpaginatedListProofMatches(operationId, proof, ownerOperationId)) throw new Error("unbound safety list proof");
+    }
+    catch { throw this.#error("operation-unavailable", "relation read has no source-qualified complete pagination proof", ownerOperationId); }
     return adapter;
   }
 
@@ -1068,16 +1144,59 @@ export class AdminExecutorImpl implements AdminExecutor {
     }
   }
 
-  #relationForPlan(adapter: OperationAdapter): OperationReconciliationRelation | null {
-    const relation = adapter.descriptor.reconciliation;
-    if (relation === undefined) throw this.#error("operation-unavailable", "verified reconciliation contract is missing", adapter.descriptor.operationId);
-    return relation;
+  #safetyForPlan(adapter: OperationAdapter): OperationMutationSafety {
+    const safety = adapter.descriptor.mutationSafety;
+    if (!safety || !safety.preflight || !safety.reconciliation || !safety.settlement
+      || !Array.isArray(safety.settlement.responseComplete?.statusCodes)) {
+      throw this.#error("operation-unavailable", "verified mutation safety contract is missing", adapter.descriptor.operationId);
+    }
+    if (safety.preflight.kind === "required" && (!Array.isArray(safety.preflight.observations) || safety.preflight.observations.length === 0)) {
+      throw this.#error("operation-unavailable", "required preflight observations are missing", adapter.descriptor.operationId);
+    }
+    if (!["required", "not-applicable", "unavailable"].includes(safety.preflight.kind)
+      || !["complete", "unknown"].includes(safety.reconciliation.kind)) {
+      throw this.#error("operation-unavailable", "mutation safety decision is invalid", adapter.descriptor.operationId);
+    }
+    const invalidVisibilityLimits = safety.preflight.kind === "required" && safety.preflight.visibilityLimits !== undefined
+      && (!Array.isArray(safety.preflight.visibilityLimits) || safety.preflight.visibilityLimits.length < 1
+        || safety.preflight.visibilityLimits.length > 16
+        || safety.preflight.visibilityLimits.some(limit => typeof limit !== "string" || limit.trim().length === 0
+          || limit.length > 500 || /[\u0000-\u001f\u007f]/.test(limit)));
+    if (safety.preflight.kind === "required" && (safety.preflight.observations.length > 16
+      || new Set(safety.preflight.observations.map(item => item.name)).size !== safety.preflight.observations.length
+      || safety.preflight.observations.some(item => !item.name || !item.read?.operationId
+        || !["single-response", "unpaginated-list"].includes(item.readCompleteness?.kind) || !item.readCompleteness.sourceReason)
+      || invalidVisibilityLimits)) {
+      throw this.#error("operation-unavailable", "required preflight observations are invalid", adapter.descriptor.operationId);
+    }
+    if (safety.preflight.kind === "not-applicable" && !safety.preflight.sourceReason) {
+      throw this.#error("operation-unavailable", "preflight exception has no source reason", adapter.descriptor.operationId);
+    }
+    if (safety.reconciliation.kind === "complete" && (!Array.isArray(safety.reconciliation.postconditions) || safety.reconciliation.postconditions.length === 0)) {
+      throw this.#error("operation-unavailable", "complete reconciliation has no postconditions", adapter.descriptor.operationId);
+    }
+    if (safety.reconciliation.kind === "complete" && (safety.reconciliation.postconditions.length > 16
+      || new Set(safety.reconciliation.postconditions.map(item => item.name)).size !== safety.reconciliation.postconditions.length
+      || safety.reconciliation.postconditions.some(item => !item.name || !item.relation?.reconcile?.operationId
+        || !["single-response", "unpaginated-list"].includes(item.readCompleteness?.kind) || !item.readCompleteness.sourceReason))) {
+      throw this.#error("operation-unavailable", "complete reconciliation postconditions are invalid", adapter.descriptor.operationId);
+    }
+    if (new Set(safety.settlement.responseComplete.statusCodes).size !== safety.settlement.responseComplete.statusCodes.length
+      || safety.settlement.responseComplete.statusCodes.some(status => !Number.isInteger(status) || status < 200 || status > 299
+        || !adapter.descriptor.response.statusCodes.includes(String(status)))) {
+      throw this.#error("operation-unavailable", "response settlement status is not source declared", adapter.descriptor.operationId);
+    }
+    if (safety.settlement.definiteRejection !== null) {
+      throw this.#error("operation-unavailable", "definite rejection source classifier is unavailable", adapter.descriptor.operationId);
+    }
+    return safety;
   }
 
   async #readRelationTarget(
     operation: OperationAdapter,
     payload: ValidatedOperationInput,
-    relation: OperationReconciliationRelation,
+    relation: OperationReconciliationRelation["targetRead"],
+    readCompleteness: OperationReadCompleteness,
     readOperation: OperationAdapter,
     selection: OperationSelection,
     mutationAuth: AdminOperationAuthBinding,
@@ -1085,7 +1204,8 @@ export class AdminExecutorImpl implements AdminExecutor {
   ): Promise<{ target: AdminTarget; auth: AdminOperationAuthBinding; request: AdminRequest }> {
     if (!this.#readTarget) throw this.#error("target-drift", "reconciliation target reader is unavailable", operation.descriptor.operationId);
     this.#assertEligible(readOperation);
-    const readInput = readOperation.validate(mapRelationInput(relation.targetRead.inputs, payload));
+    const readInput = readOperation.validate(mapRelationInput(relation.inputs, payload));
+    assertSafetyReadRequest(readCompleteness, readOperation.descriptor, readInput);
     const request = requestFor(readOperation, selection.endpoint, readInput);
     const auth = await this.#resolveOperationAuth(readOperation.descriptor, selection, request, signal);
     return withAuth(auth, [mutationAuth.signal, signal], operation.descriptor.operationId, async (boundAuth, combinedSignal) => {
@@ -1093,7 +1213,8 @@ export class AdminExecutorImpl implements AdminExecutor {
         auth: boundAuth,
         operation: operation.descriptor,
         payload,
-        relation: relation.targetRead,
+        relation,
+        readCompleteness,
         readOperation: readOperation.descriptor,
         ...(combinedSignal === undefined ? {} : { signal: combinedSignal }),
       });
@@ -1129,33 +1250,52 @@ export class AdminExecutorImpl implements AdminExecutor {
     originalError: unknown,
     signal?: AbortSignal,
   ): Promise<AdminReconcileResult> {
-    const relation = plan.relation;
-    const readOperation = plan.reconciliationOperation;
     const reconcile = this.#reconcile;
-    const originalTarget = plan.targetSnapshot;
-    if (!relation || !readOperation || !reconcile || originalTarget === undefined) return { status: "unknown" };
+    if (!reconcile || plan.mutationSafety.reconciliation.kind !== "complete" || plan.postconditions.length === 0) return { status: "unknown" };
     try {
-      this.#assertEligible(readOperation);
       const selection = { profileId: plan.auth.profileId, endpoint: plan.auth.endpoint };
-      const readInput = readOperation.validate(mapRelationInput(relation.reconcile.inputs, plan.input));
-      const readRequest = requestFor(readOperation, selection.endpoint, readInput);
-      const auth = await this.#resolveOperationAuth(readOperation.descriptor, selection, readRequest, signal);
-      const result = await withAuth(auth, [signal], plan.operation.descriptor.operationId, async (boundAuth, combinedSignal) => {
-        const context: AdminReconcileContext = {
-          auth: boundAuth,
-          operation: plan.operation.descriptor,
-          request,
-          payload: plan.input,
-          relation: relation.reconcile,
-          readOperation: readOperation.descriptor,
-          originalTarget,
-          originalError,
-          ...(combinedSignal === undefined ? {} : { signal: combinedSignal }),
-        };
-        return reconcile(context);
-      });
-      if (result.status === "applied") return result;
-      return { status: "unknown" };
+      const operationAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, signal);
+      this.#assertPlannedAuth(plan.auth, plan.authAuthority, operationAuth, plan.operation.descriptor);
+      const observedAuth: { item: PlannedPostcondition; signal?: AbortSignal }[] = [];
+      for (const item of plan.postconditions) {
+        this.#assertEligible(item.readOperation);
+        const readInput = item.readOperation.validate(mapRelationInput(item.relation.reconcile.inputs, plan.input));
+        assertSafetyReadRequest(item.readCompleteness, item.readOperation.descriptor, readInput);
+        const readRequest = requestFor(item.readOperation, selection.endpoint, readInput);
+        const auth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection, readRequest, signal);
+        this.#assertPlannedAuth(item.auth, item.authority, auth, item.readOperation.descriptor);
+        observedAuth.push({ item, ...(auth.signal === undefined ? {} : { signal: auth.signal }) });
+        const result = await withAuth(auth, [operationAuth.signal, signal], plan.operation.descriptor.operationId, async (boundAuth, combinedSignal) => {
+          const context: AdminReconcileContext = {
+            auth: boundAuth,
+            operation: plan.operation.descriptor,
+            request,
+            payload: plan.input,
+            relation: item.relation.reconcile,
+            fullRelation: item.relation,
+            readCompleteness: item.readCompleteness,
+            readOperation: item.readOperation.descriptor,
+            originalTarget: item.target.snapshot,
+            originalError,
+            ...(combinedSignal === undefined ? {} : { signal: combinedSignal }),
+          };
+          return reconcile(context);
+        });
+        if (result.status !== "applied") return { status: "unknown" };
+      }
+      for (const { item, signal: observedSignal } of observedAuth) {
+        throwIfAborted(observedSignal, plan.operation.descriptor.operationId);
+        const readInput = item.readOperation.validate(mapRelationInput(item.relation.reconcile.inputs, plan.input));
+        const latestAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection,
+          requestFor(item.readOperation, selection.endpoint, readInput), signal);
+        this.#assertPlannedAuth(item.auth, item.authority, latestAuth, item.readOperation.descriptor);
+      }
+      for (const { signal: observedSignal } of observedAuth) throwIfAborted(observedSignal, plan.operation.descriptor.operationId);
+      throwIfAborted(operationAuth.signal, plan.operation.descriptor.operationId);
+      const latestOperationAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, signal);
+      this.#assertPlannedAuth(plan.auth, plan.authAuthority, latestOperationAuth, plan.operation.descriptor);
+      throwIfAborted(operationAuth.signal, plan.operation.descriptor.operationId);
+      return { status: "applied" };
     } catch {
       return { status: "unknown" };
     }

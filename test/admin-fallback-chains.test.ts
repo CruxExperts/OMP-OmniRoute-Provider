@@ -11,7 +11,7 @@ import {
 import { invokeJsonAdapter } from "../src/admin/adapters.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 import { canonicalizeJson, type OperationAdapter } from "../src/admin/registry.ts";
-import { mapRelationInput, relationOutcomeMatches } from "../src/admin/relations.ts";
+import { mapRelationInput } from "../src/admin/relations.ts";
 import type { JsonValue } from "../src/admin/types.ts";
 import {
   FALLBACK_CHAIN_DELETE,
@@ -30,7 +30,6 @@ import {
   fallbackChainTargetSnapshot,
   normalizeFallbackChain,
   normalizeFallbackChainPayload,
-  type FallbackChainMutationOperation,
 } from "../src/admin/source-fallback-chains.ts";
 import { ManagementAuthFixture, type FixtureAccessRecord, type FixtureAccessScope } from "./fixtures/management-auth.fixture.ts";
 
@@ -42,8 +41,8 @@ const registry = buildFallbackChainFixtureRegistry();
 
 const REQUIRED_CASES: Readonly<Record<typeof FALLBACK_CHAIN_OPERATION_IDS[number], readonly string[]>> = {
   [FALLBACK_CHAIN_GET]: ["model-map-read-and-projection", "authorization-boundaries", "handler-error", "swallowed-initial-db-load-failure"],
-  [FALLBACK_CHAIN_POST]: ["human-confirmed-replacement", "source-validation-and-defaults", "authorization-boundaries", "invalid-json", "create-when-absent-lost-response", "closed-hook-bindings-and-target-snapshot"],
-  [FALLBACK_CHAIN_DELETE]: ["existing-and-absent-removal", "authorization-boundaries", "invalid-json-and-handler-error", "swallowed-storage-delete-failure", "closed-hook-bindings-and-target-snapshot"],
+  [FALLBACK_CHAIN_POST]: ["human-confirmed-replacement", "source-validation-and-defaults", "authorization-boundaries", "invalid-json", "create-when-absent-lost-response", "swallowed-storage-save-failure", "closed-hook-bindings-and-target-snapshot", "unobservable-model-rejected"],
+  [FALLBACK_CHAIN_DELETE]: ["existing-and-absent-removal", "authorization-boundaries", "invalid-json-and-handler-error", "swallowed-storage-delete-failure", "closed-hook-bindings-and-target-snapshot", "unobservable-model-rejected"],
 };
 
 type Observation = { before: unknown; after: unknown; result: { status: number; body: unknown } };
@@ -149,11 +148,6 @@ async function callAdapter(
   });
 }
 
-function mutationOperation(value: string): FallbackChainMutationOperation {
-  if (value === FALLBACK_CHAIN_POST || value === FALLBACK_CHAIN_DELETE) return value;
-  throw new Error(`fallback-chain relation requested for non-mutation ${value}`);
-}
-
 function createHarness(pair: FixturePair): ExecutorHarness {
   const dispatches = new Map<string, number>();
   const lastResponses = new Map<string, { status: number; body: unknown }>();
@@ -174,38 +168,25 @@ function createHarness(pair: FixturePair): ExecutorHarness {
       dispatches.set(request.operationId, (dispatches.get(request.operationId) ?? 0) + 1);
       const body = response.status >= 400 || response.data === undefined ? response.data ?? null : adapter.project(response.data);
       lastResponses.set(request.operationId, { status: response.status, body });
-      if (response.status >= 400) {
+      if (response.status >= 400 && request.operationId === FALLBACK_CHAIN_GET) {
         throw Object.assign(new Error("fallback-chain fixture returned an HTTP error"), { status: response.status });
       }
       if (lostResponses.delete(request.operationId)) {
         throw Object.assign(new Error("fixture committed the mutation but lost its response"), { code: "network-lost-response", uncertain: true });
       }
-      return response.data;
+      return request.operationId === FALLBACK_CHAIN_GET
+        ? response.data
+        : { kind: "response", status: response.status, body: response.data };
     },
     readTarget: async context => {
-      const relation = context.operation.reconciliation;
-      if (!relation || relation.targetRead.operationId !== FALLBACK_CHAIN_GET) throw new Error("fallback-chain mutation has no exact collection target read");
-      const readAdapter = registry.require(relation.targetRead.operationId);
-      const input = mapRelationInput(relation.targetRead.inputs, context.payload);
+      const relation = context.relation;
+      if (relation.operationId !== FALLBACK_CHAIN_GET) throw new Error("fallback-chain mutation has no exact collection target read");
+      const readAdapter = registry.require(relation.operationId);
+      const input = mapRelationInput(relation.inputs, context.payload);
       const response = await callAdapter(readAdapter, context.auth.endpoint, fixtureCredential(context.auth), input, context.signal);
       if (response.status >= 400) throw Object.assign(new Error("fallback-chain target read was denied"), { status: response.status });
       const snapshot = fallbackChainTargetSnapshot(context.payload, response.data);
       return { digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex"), snapshot };
-    },
-    reconcile: async context => {
-      const relation = context.operation.reconciliation;
-      if (!relation || relation.reconcile.operationId !== context.readOperation.operationId || relation.reconcile.operationId !== FALLBACK_CHAIN_GET) {
-        return { status: "unknown" };
-      }
-      const readAdapter = registry.require(context.readOperation.operationId);
-      const input = mapRelationInput(context.relation.inputs, context.payload, context.request.body);
-      const response = await callAdapter(readAdapter, context.auth.endpoint, fixtureCredential(context.auth), input, context.signal);
-      if (response.status >= 400) return { status: "unknown" };
-      const operationId = mutationOperation(context.operation.operationId);
-      const observed = fallbackChainTargetSnapshot(context.payload, response.data);
-      return relationOutcomeMatches(relation, context.originalTarget, observed, context.payload)
-        ? { status: "applied", output: response.data }
-        : { status: "unknown" };
     },
   });
   executors.push(executor);
@@ -294,6 +275,30 @@ afterAll(async () => {
 });
 
 describe("pinned OmniRoute fallback-chain operations", () => {
+  test("unobservable reserved model is rejected before writes while source GET hides the persisted key", async () => {
+    const pair = startFixture();
+    const harness = createHarness(pair);
+    for (const operationId of [FALLBACK_CHAIN_POST, FALLBACK_CHAIN_DELETE] as const) {
+      for (const model of ["__proto__", " __proto__ "]) {
+        await expect(harness.executor.plan(operationId, {
+          body: { model, ...(operationId === FALLBACK_CHAIN_POST ? { chain: [{ provider: "fixture" }] } : {}) },
+        })).rejects.toMatchObject({ code: "invalid-input" });
+      }
+      expect(harness.dispatchCount(operationId)).toBe(0);
+      mark(operationId, "unobservable-model-rejected");
+    }
+    const response = await directRequest(pair.route, "POST", {
+      bearer: MANAGE_KEY,
+      body: mutationBody("__proto__", [{ provider: "fixture" }]),
+    });
+    expect(response.status).toBe(200);
+    expect(Object.hasOwn(pair.route.durableSnapshot, "__proto__")).toBe(true);
+    const observed = await directRequest(pair.route, "GET", { bearer: MANAGE_KEY });
+    expect(observed.status).toBe(200);
+    expect(Object.hasOwn(await observed.json(), "__proto__")).toBe(false);
+    expect(() => fallbackChainTargetSnapshot({ path: {}, query: {}, body: { model: "__proto__" } }, {})).toThrow("cannot be observed");
+  });
+
   test("GET loads the model-keyed map and exposes only source fields", async () => {
     const pair = startFixture({
       persisted: {
@@ -419,6 +424,8 @@ describe("pinned OmniRoute fallback-chain operations", () => {
       },
     };
     const plan = await harness.executor.plan(FALLBACK_CHAIN_POST, input);
+    expect(plan.preview.visibilityLimits?.join(" ")).toContain("silently fail persistence");
+    expect(plan.preview.visibilityLimits?.join(" ")).toContain("in-memory fallback map");
     expect(plan.preview.confirmationRequired).toBe(true);
     expect(harness.dispatchCount(FALLBACK_CHAIN_POST)).toBe(0);
     expect(pair.route.state.runtime).toEqual({
@@ -426,7 +433,7 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     });
 
     const applied = await harness.executor.apply(plan.planId, { confirmed: true });
-    expect(applied.status).toBe("applied");
+    expect(applied.status).toBe("unknown");
     const expected = [
       { provider: "defaulted", priority: 0, enabled: true },
       { provider: "earlier", priority: 2, enabled: true },
@@ -442,7 +449,7 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     });
     harness.loseNextResponse(FALLBACK_CHAIN_POST);
     const reconciled = await harness.executor.apply(createPlan.planId, { confirmed: true });
-    expect(reconciled.status).toBe("applied");
+    expect(reconciled.status).toBe("unknown");
     const created = [
       { provider: "first", priority: 0, enabled: true },
       { provider: "later", priority: 5, enabled: true },
@@ -450,7 +457,7 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     expect(pair.route.state.runtime).toEqual({ "fixture/model": expected, "fixture/new-model": created });
     expect(pair.route.state.durable).toEqual({ "fixture/model": expected, "fixture/new-model": created });
     expect(harness.dispatchCount(FALLBACK_CHAIN_POST)).toBe(2);
-    expect(pair.route.counts.get).toBe(5);
+    expect(pair.route.counts.get).toBe(4);
 
     const response = harness.lastResponse(FALLBACK_CHAIN_POST);
     if (!response) throw new Error("POST did not record the observed response");
@@ -462,8 +469,9 @@ describe("pinned OmniRoute fallback-chain operations", () => {
         status: response.status,
         body: {
           responseLostAfterCommit: true,
-          reconciledStatus: reconciled.status,
-          reconciliationReads: 1,
+          executorOutcome: reconciled.status,
+          durableOutcome: "unproven-by-runtime-get",
+          reconciliationReads: 0,
           dispatches: harness.dispatchCount(FALLBACK_CHAIN_POST),
           observedMutationResponse: response.body,
         },
@@ -520,6 +528,35 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     mark(FALLBACK_CHAIN_POST, "invalid-json");
   });
 
+  test("POST HTTP 200 and matching runtime GET stay unknown when the pinned policy swallows a persistence save failure", async () => {
+    const pair = startFixture({
+      persisted: { "fixture/save-failure": [{ provider: "old", priority: 1, enabled: true }] },
+    });
+    const harness = createHarness(pair);
+    const before = safeState(pair);
+    pair.route.failNextDatabaseSave();
+    const plan = await harness.executor.plan(FALLBACK_CHAIN_POST, {
+      body: { model: "fixture/save-failure", chain: [{ provider: "replacement" }] },
+    });
+    const result = await harness.executor.apply(plan.planId, { confirmed: true });
+    expect(result.status).toBe("unknown");
+    expect(harness.lastResponse(FALLBACK_CHAIN_POST)).toEqual({
+      status: 200, body: { success: true, model: "fixture/save-failure" },
+    });
+    const runtimeGet = await harness.executor.read(FALLBACK_CHAIN_GET, {});
+    expect(runtimeGet.output).toEqual({ "fixture/save-failure": [{ provider: "replacement", priority: 0, enabled: true }] });
+    expect(pair.route.state.durable).toEqual({ "fixture/save-failure": [{ provider: "old", priority: 1, enabled: true }] });
+    expect(harness.dispatchCount(FALLBACK_CHAIN_POST)).toBe(1);
+    const response = harness.lastResponse(FALLBACK_CHAIN_POST);
+    if (!response) throw new Error("POST did not record the observed response");
+    observe(FALLBACK_CHAIN_POST, ["swallowed-storage-save-failure"], {
+      before,
+      after: safeState(pair),
+      result: { status: response.status, body: { observedMutationResponse: response.body, executorOutcome: result.status,
+        runtimeGet: runtimeGet.output, durableOutcome: "diverged", dispatches: harness.dispatchCount(FALLBACK_CHAIN_POST) } },
+    });
+  });
+
   test("POST uses the exact OMA write scope; authentication-disabled access is conditional", async () => {
     const configured = startFixture({ includeReadToken: true, includeWriteToken: true });
     const before = safeState(configured);
@@ -565,7 +602,7 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     expect(firstPlan.preview.confirmationRequired).toBe(true);
     expect(harness.dispatchCount(FALLBACK_CHAIN_DELETE)).toBe(0);
     const firstResult = await harness.executor.apply(firstPlan.planId, { confirmed: true });
-    expect(firstResult.status).toBe("applied");
+    expect(firstResult.status).toBe("unknown");
     expect(harness.lastResponse(FALLBACK_CHAIN_DELETE)).toEqual({
       status: 200,
       body: { success: true, removed: true },
@@ -581,7 +618,7 @@ describe("pinned OmniRoute fallback-chain operations", () => {
 
     const missingPlan = await harness.executor.plan(FALLBACK_CHAIN_DELETE, { body: { model: "fixture/missing" } });
     const missingResult = await harness.executor.apply(missingPlan.planId, { confirmed: true });
-    expect(missingResult.status).toBe("applied");
+    expect(missingResult.status).toBe("unknown");
     expect(harness.lastResponse(FALLBACK_CHAIN_DELETE)).toEqual({ status: 200, body: { success: true, removed: false } });
     expect(harness.dispatchCount(FALLBACK_CHAIN_DELETE)).toBe(2);
     expect(pair.route.state.runtime).toEqual({
@@ -595,7 +632,9 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     pair.route.failNextDatabaseDelete();
     const storagePlan = await harness.executor.plan(FALLBACK_CHAIN_DELETE, { body: { model: "fixture/storage-failure" } });
     const storageResult = await harness.executor.apply(storagePlan.planId, { confirmed: true });
-    expect(storageResult.status).toBe("applied");
+    expect(storageResult.status).toBe("unknown");
+    const runtimeGet = await harness.executor.read(FALLBACK_CHAIN_GET, {});
+    expect(runtimeGet.output).toEqual({ "fixture/other": [{ provider: "keep", priority: 3, enabled: false }] });
     expect(pair.route.state.runtime).toEqual({
       "fixture/other": [{ provider: "keep", priority: 3, enabled: false }],
     });
@@ -609,7 +648,8 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     observe(FALLBACK_CHAIN_DELETE, ["existing-and-absent-removal", "swallowed-storage-delete-failure"], {
       before,
       after: safeState(pair),
-      result: { status: response.status, body: response.body },
+      result: { status: response.status, body: { observedMutationResponse: response.body, executorOutcome: storageResult.status,
+        runtimeGet: runtimeGet.output, durableOutcome: "diverged", dispatches: harness.dispatchCount(FALLBACK_CHAIN_DELETE) } },
     });
   });
 
@@ -675,16 +715,21 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     expect(fallbackChainHookMatchesOperation(relationId, remove)).toBe(true);
     expect(fallbackChainHookMatchesOperation(relationId, read)).toBe(false);
 
-    const postRelation = post.reconciliation;
-    const deleteRelation = remove.reconciliation;
-    if (!postRelation || !deleteRelation) throw new Error("fallback mutation relation contract is missing");
-    expect(postRelation.targetRead.operationId).toBe(FALLBACK_CHAIN_GET);
-    expect(postRelation.targetRead.sourceView).toBe(relationId);
-    expect(postRelation.reconcile.operationId).toBe(FALLBACK_CHAIN_GET);
-    expect(postRelation.reconcile.outcome.kind).toBe("upsert");
-    expect(deleteRelation.targetRead.sourceView).toBe(relationId);
-    expect(deleteRelation.reconcile.operationId).toBe(FALLBACK_CHAIN_GET);
-    expect(deleteRelation.reconcile.outcome.kind).toBe("absent");
+    const postSafety = post.mutationSafety;
+    const deleteSafety = remove.mutationSafety;
+    if (postSafety?.preflight.kind !== "required" || deleteSafety?.preflight.kind !== "required") {
+      throw new Error("fallback mutation preflight contract is missing");
+    }
+    expect(post.reconciliation?.targetRead.sourceView).toBe(relationId);
+    expect(remove.reconciliation?.targetRead.sourceView).toBe(relationId);
+    expect(read.mutationSafety).toBeNull();
+    expect(postSafety.preflight.observations[0]?.read.operationId).toBe(FALLBACK_CHAIN_GET);
+    expect(postSafety.preflight.observations[0]?.read.sourceView).toBe(relationId);
+    expect(deleteSafety.preflight.observations[0]?.read.sourceView).toBe(relationId);
+    expect(postSafety.reconciliation).toEqual({ kind: "unknown" });
+    expect(deleteSafety.reconciliation).toEqual({ kind: "unknown" });
+    expect(postSafety.settlement.responseComplete.statusCodes).toEqual([]);
+    expect(deleteSafety.settlement.responseComplete.statusCodes).toEqual([]);
 
     const payload = registry.require(FALLBACK_CHAIN_POST).validate({
       body: { model: " fixture/model ", chain: [{ provider: "later", priority: 4 }, { provider: "first" }] },

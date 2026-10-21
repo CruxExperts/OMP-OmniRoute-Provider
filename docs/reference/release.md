@@ -25,7 +25,7 @@ that the output contains exactly the five manifest artifacts plus
 `SHA256SUMS.txt` and `release-manifest.json`, then replaces the output directory
 atomically. A failed build leaves an existing output directory in place.
 
-The fifth artifact, `CruxOmni-OMP-Client-v<VERSION>-release-notes.md`, is an
+The fifth artifact, `OMP-OmniRoute-Provider-v<VERSION>-release-notes.md`, is an
 exact byte copy of the reviewed `CHANGELOG.md`. Its hash is part of the release
 manifest and approval receipt. The release workflow uses this exact file as the
 GitHub Release description when it creates the draft and resets the description
@@ -103,12 +103,15 @@ actual bytes.
 
 Every native smoke run must also complete a confirmed administration cycle
 against disposable fallback-chain data: read the absent baseline, create one
-chain through the installed OMP interface, read the persisted value, confirm
-deletion, and read the cleaned state. Both changes require typed confirmation.
-The proof binds authorization, exact request bodies, one dispatch per mutation,
-and absence of unexpected administration requests. The target collector and
-standalone release gate apply the same complete native-output validator; labels
-and output hashes alone cannot qualify a target.
+chain through the installed OMP interface, read its runtime value, confirm
+deletion, and read the cleaned runtime state. Both changes require typed
+confirmation. Both outcomes must remain unknown because the upstream fallback
+policy can silently fail persistence; the proof explicitly marks durability
+unverified and rejects an applied claim. It binds authorization, exact request
+bodies, one dispatch per mutation, and absence of unexpected administration
+requests. The target collector and standalone release gate apply the same
+complete native-output validator; labels and output hashes alone cannot qualify
+a target.
 
 The two Linux musl evidence files also require a strict `runtime` binding.
 It binds the source revision and package archive to the exact runtime-provenance

@@ -225,9 +225,10 @@ async function syntheticNativeSmoke(id: typeof qualificationTargetIds[number], a
       administration: {
         family: "fallback-chains", route: "/api/fallback/chains",
         readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains",
-        readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedApplies: 2,
+        readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedMutationAttempts: 2,
+        unknownOutcomes: 2, durability: "unverified",
         fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
-        persistedRead: true, cleanupRead: true, noUnexpectedAdminRequests: true,
+        runtimeReadBack: true, cleanupRead: true, noUnexpectedAdminRequests: true,
       },
     },
   };
@@ -240,7 +241,7 @@ async function qualificationFor(output: string, root: string, skipGateHash = fal
   const workflowPath = ".github/workflows/qualification.yml";
   const workflowBytes = await readFile(join(root, workflowPath)).catch(() => Buffer.alloc(0));
   const producer = {
-    repository: "CruxExperts/CruxOmni-OMP-Client",
+    repository: "CruxExperts/OMP-OmniRoute-Provider",
     runId: "90000001",
     workflowPath,
     workflowName: "release-qualification",
@@ -304,7 +305,7 @@ async function qualificationFor(output: string, root: string, skipGateHash = fal
 
 function qualificationRunMetadata() {
   const runId = "90000001";
-  const repository = "CruxExperts/CruxOmni-OMP-Client";
+  const repository = "CruxExperts/OMP-OmniRoute-Provider";
   const sourceRevision = gitHash;
   const run = {
     id: Number(runId),
@@ -782,9 +783,10 @@ describe("release automation", () => {
         administration: {
           family: "fallback-chains", route: "/api/fallback/chains",
           readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains",
-          readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedApplies: 2,
+          readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedMutationAttempts: 2,
+          unknownOutcomes: 2, durability: "unverified",
           fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
-          persistedRead: true, cleanupRead: true, noUnexpectedAdminRequests: true,
+          runtimeReadBack: true, cleanupRead: true, noUnexpectedAdminRequests: true,
         },
       },
     };
@@ -795,9 +797,17 @@ describe("release automation", () => {
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: undefined } }, "linux-x64-glibc", hashA))
       .toThrow("native administration I/O evidence");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, mutationRequests: 2 } } }, "linux-x64-glibc", hashA))
-      .toThrow("confirmed administration I/O");
+      .toThrow("unknown-outcome administration I/O");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, cleanupRead: false } } }, "linux-x64-glibc", hashA))
-      .toThrow("confirmed administration I/O");
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, unknownOutcomes: 1 } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, durability: "verified" } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, confirmedApplies: 2 } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, persistedRead: true } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
   });
 
   it("synchronizes VERSION, package.json, and marketplace.json", async () => {
@@ -860,15 +870,15 @@ describe("release automation", () => {
     await exportFixture(root, output);
     const names = (await readdir(output)).sort();
     expect(names).toEqual([
-      "CruxOmni-OMP-Client-v0.1.1.cdx.json",
-      "CruxOmni-OMP-Client-v0.1.1-graphics.zip",
-      "CruxOmni-OMP-Client-v0.1.1-release-notes.md",
-      "CruxOmni-OMP-Client-v0.1.1-source.tar.gz",
+      "OMP-OmniRoute-Provider-v0.1.1.cdx.json",
+      "OMP-OmniRoute-Provider-v0.1.1-graphics.zip",
+      "OMP-OmniRoute-Provider-v0.1.1-release-notes.md",
+      "OMP-OmniRoute-Provider-v0.1.1-source.tar.gz",
       "SHA256SUMS.txt",
       "cruxexperts-cruxomni-omp-client-0.1.1.tgz",
       "release-manifest.json",
     ].sort());
-    expect(await readFile(join(output, "CruxOmni-OMP-Client-v0.1.1-release-notes.md"))).toEqual(await readFile(join(root, "CHANGELOG.md")));
+    expect(await readFile(join(output, "OMP-OmniRoute-Provider-v0.1.1-release-notes.md"))).toEqual(await readFile(join(root, "CHANGELOG.md")));
 
     const before = new Map(await Promise.all(names.map(async name => [name, await readFile(join(output, name))] as const)));
     await expect(exportRelease({ root, outputDirectory: output, packageVerifier: async () => { throw new Error("synthetic package verification failure"); } })).rejects.toThrow("synthetic package verification failure");
@@ -891,10 +901,10 @@ describe("release automation", () => {
     const result = await verifyReleaseApproval({ root, releaseDirectory: output, qualificationPath: qualification.path, expectedReceiptSha256: qualification.hash });
     expect(result).toMatchObject({ status: "ready-for-protected-approval", targets: 8, qualifiedOperations: 1 });
 
-    const notesPath = join(output, "CruxOmni-OMP-Client-v0.1.1-release-notes.md");
+    const notesPath = join(output, "OMP-OmniRoute-Provider-v0.1.1-release-notes.md");
     const notesBytes = await readFile(notesPath);
     await writeFile(notesPath, "unreviewed release notes\n");
-    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("release artifact hash mismatch: CruxOmni-OMP-Client-v0.1.1-release-notes.md");
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("release artifact hash mismatch: OMP-OmniRoute-Provider-v0.1.1-release-notes.md");
     await writeFile(notesPath, notesBytes);
 
     const manifestPath = join(output, "release-manifest.json");
@@ -1021,7 +1031,19 @@ describe("release automation", () => {
     smoke.native.administration = { ...validAdministration, mutationRequests: 2 };
     await writeEvidence();
     await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path }))
-      .rejects.toThrow("confirmed administration I/O");
+      .rejects.toThrow("unknown-outcome administration I/O");
+    smoke.native.administration = { ...validAdministration, confirmedApplies: 2 };
+    await writeEvidence();
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path }))
+      .rejects.toThrow("unknown-outcome administration I/O");
+    smoke.native.administration = { ...validAdministration, durability: "verified" };
+    await writeEvidence();
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path }))
+      .rejects.toThrow("unknown-outcome administration I/O");
+    smoke.native.administration = { ...validAdministration, unknownOutcomes: 1 };
+    await writeEvidence();
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path }))
+      .rejects.toThrow("unknown-outcome administration I/O");
   });
 
   it("accepts only the named qualification run with all eight completed native jobs", () => {

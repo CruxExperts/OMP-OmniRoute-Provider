@@ -11,8 +11,7 @@ import {
 import { invokeJsonAdapter } from "../src/admin/adapters.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import { canonicalizeJson, type OperationAdapter, type OperationDescriptor } from "../src/admin/registry.ts";
-import { AdminError } from "../src/admin/types.ts";
-import { mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "../src/admin/relations.ts";
+import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot } from "../src/admin/relations.ts";
 import {
   buildProviderCcAliasRegistry,
   PROVIDER_CC_ALIAS_OPERATION_IDS,
@@ -80,14 +79,18 @@ function createHarness(fixture: ProviderCcAliasFixture) {
   const registry = buildProviderCcAliasRegistry();
   const responses = new Map<ProviderCcAliasOperationId, HttpSnapshot[]>();
   let loseNextPutResponse = false;
+  let targetReads = 0;
+  let reconciliationReads = 0;
   let nextPlanId = 0;
   const executor = createAdminExecutor({
     registry,
     now: () => FIXED_NOW,
     randomId: () => `cc-alias-plan-${++nextPlanId}`,
     readTarget: async context => {
+      targetReads += 1;
       const readAdapter = registry.require(context.readOperation.operationId);
       const input = readAdapter.validate(mapRelationInput(context.relation.inputs, context.payload));
+      assertSafetyReadRequest(context.readCompleteness, descriptorFor(readAdapter), input);
       const response = await invokeJsonAdapter({
         descriptor: descriptorFor(readAdapter),
         endpoint: context.auth.endpoint,
@@ -98,31 +101,16 @@ function createHarness(fixture: ProviderCcAliasFixture) {
         ...(context.signal === undefined ? {} : { signal: context.signal }),
       });
       if (response.status >= 400) throw Object.assign(new Error("pinned source target read failed"), { status: response.status });
+      assertSafetyReadResponse(context.readCompleteness, descriptorFor(readAdapter), response.data);
       const snapshot = projectRelationSnapshot(context.relation, response.data, context.payload);
       return {
         digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex"),
         snapshot,
       };
     },
-    reconcile: async context => {
-      const relation = context.operation.reconciliation;
-      if (!relation || relation.reconcile.operationId !== context.readOperation.operationId) return { status: "unknown" };
-      const readAdapter = registry.require(context.readOperation.operationId);
-      const input = readAdapter.validate(mapRelationInput(context.relation.inputs, context.payload, context.request.body));
-      const response = await invokeJsonAdapter({
-        descriptor: descriptorFor(readAdapter),
-        endpoint: context.auth.endpoint,
-        ...(context.auth.credential === undefined ? {} : { credential: context.auth.credential }),
-        resolvedPath: readAdapter.buildPath(input),
-        queryParameters: readAdapter.buildQuery(input),
-        ...(input.body === undefined ? {} : { body: input.body }),
-        ...(context.signal === undefined ? {} : { signal: context.signal }),
-      });
-      if (response.status >= 400) return { status: "unknown" };
-      const observed = projectRelationSnapshot(relation.targetRead, response.data, context.payload);
-      return relationOutcomeMatches(relation, context.originalTarget, observed, context.payload)
-        ? { status: "applied", output: response.data }
-        : { status: "unknown" };
+    reconcile: async () => {
+      reconciliationReads += 1;
+      return { status: "unknown" };
     },
     dispatch: async (request, context) => {
       const operationId = request.operationId as ProviderCcAliasOperationId;
@@ -139,11 +127,14 @@ function createHarness(fixture: ProviderCcAliasFixture) {
       const snapshots = responses.get(operationId) ?? [];
       snapshots.push({ status: response.status, body: response.data ?? null });
       responses.set(operationId, snapshots);
-      if (response.status >= 400) throw Object.assign(new Error("pinned source fixture rejected the request"), { status: response.status });
       if (operationId === PUT_CC_ALIAS && loseNextPutResponse) {
         loseNextPutResponse = false;
         throw Object.assign(new Error("fixture transport lost the completed HTTP response"), { code: "network-lost-response" });
       }
+      if (operationId === PUT_CC_ALIAS) {
+        return { kind: "response", status: response.status, body: response.data ?? null };
+      }
+      if (response.status >= 400) throw Object.assign(new Error("pinned source fixture rejected the request"), { status: response.status });
       return response.data;
     },
   });
@@ -153,6 +144,8 @@ function createHarness(fixture: ProviderCcAliasFixture) {
     registry,
     responses,
     loseNextPutResponse() { loseNextPutResponse = true; },
+    targetReadCount() { return targetReads; },
+    reconciliationReadCount() { return reconciliationReads; },
     count(operationId: ProviderCcAliasOperationId) { return responses.get(operationId)?.length ?? 0; },
     last(operationId: ProviderCcAliasOperationId): HttpSnapshot {
       const value = responses.get(operationId)?.at(-1);
@@ -187,7 +180,7 @@ afterEach(async () => {
 afterAll(async () => {
   const requiredCases: Readonly<Record<ProviderCcAliasOperationId, readonly string[]>> = {
     [GET_CC_ALIAS]: ["anonymous-auth", "authorized-read", "provider-model-isolation"],
-    [PUT_CC_ALIAS]: ["scope-denial", "schema-validation", "trim-set-clear", "credential-cancellation", "selected-target-drift", "competing-plans", "unrelated-alias-change", "prototype-model-identifiers", "malformed-json", "storage-errors", "lost-response-reconcile"],
+    [PUT_CC_ALIAS]: ["scope-denial", "schema-validation", "trim-set-clear", "credential-cancellation", "selected-target-drift", "competing-plans", "unrelated-alias-change", "prototype-model-identifiers", "malformed-json", "storage-errors", "lost-response-unknown", "partial-error-unknown"],
   };
   if (!allAssertionsPassed || !PROVIDER_CC_ALIAS_OPERATION_IDS.every(operationId =>
     requiredCases[operationId].every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId))) return;
@@ -212,6 +205,22 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
   fixtures.push(fixture);
   const harness = createHarness(fixture);
   executors.push(harness.executor);
+  expect(PROVIDER_CC_ALIAS_SOURCE_CONTRACTS[GET_CC_ALIAS].mutationSafety).toBeNull();
+  expect(PROVIDER_CC_ALIAS_SOURCE_CONTRACTS[PUT_CC_ALIAS].mutationSafety).toMatchObject({
+    preflight: {
+      kind: "required",
+      observations: [{
+        name: "selected-provider-cc-alias",
+        read: { operationId: GET_CC_ALIAS },
+        readCompleteness: {
+          kind: "single-response",
+          sourceReason: "The pinned v3.8.52 GET reads the provider override by exact key and every model override in one SQLite query, then returns the provider's complete override map in one response.",
+        },
+      }],
+    },
+    reconciliation: { kind: "unknown" },
+    settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null },
+  });
   const before = fixture.state();
   expect(before).toEqual([]);
 
@@ -403,12 +412,14 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
     body: { scope: "provider", value: "off" },
   });
   const dispatchesBeforeUncertain = harness.count(PUT_CC_ALIAS);
+  const readsBeforeUncertainApply = harness.targetReadCount();
+  const reconciliationsBeforeUncertainApply = harness.reconciliationReadCount();
   harness.loseNextPutResponse();
   const uncertain = await harness.executor.apply(uncertainPlan.planId, { confirmed: true });
-  expect(uncertain.status).toBe("applied");
-  expect(uncertain.plan.state).toBe("applied");
-  expect(uncertain.output).toEqual({ provider: "off", models: { "model/another": "on", "model/unrelated": "on" } });
+  expect(uncertain).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
   expect(harness.count(PUT_CC_ALIAS)).toBe(dispatchesBeforeUncertain + 1);
+  expect(harness.targetReadCount()).toBe(readsBeforeUncertainApply + 1);
+  expect(harness.reconciliationReadCount()).toBe(reconciliationsBeforeUncertainApply);
   expect((await directRequest(fixture, "GET", "claude", { key: MANAGEMENT_KEY })).body)
     .toEqual({ provider: "off", models: { "model/another": "on", "model/unrelated": "on" } });
   await expect(harness.executor.apply(uncertainPlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
@@ -423,13 +434,8 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
     path: { id: "error-fixture" },
     body: { scope: "provider", value: "on" },
   });
-  let publicDispatchError: unknown;
-  try {
-    await harness.executor.apply(failedWritePlan.planId, { confirmed: true });
-  } catch (error) {
-    publicDispatchError = error;
-  }
-  expect(publicDispatchError).toMatchObject({ code: "dispatch-failed", status: 500 });
+  const failedWriteResult = await harness.executor.apply(failedWritePlan.planId, { confirmed: true });
+  expect(failedWriteResult).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
   const sanitizedWriteError = harness.last(PUT_CC_ALIAS);
   expect(sanitizedWriteError.status).toBe(500);
   expect(sanitizedWriteError.body).toEqual({
@@ -441,13 +447,19 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
   });
   expect(JSON.stringify(sanitizedWriteError.body)).not.toContain("/home/fixture");
   expect(JSON.stringify(sanitizedWriteError.body)).not.toContain("sk-proj-");
-  expect(publicDispatchError).toBeInstanceOf(AdminError);
-  const projectedError = (publicDispatchError as AdminError).toJSON();
-  expect(projectedError).toMatchObject({ code: "dispatch-failed", status: 500, operationId: PUT_CC_ALIAS });
-  expect(JSON.stringify(projectedError)).not.toContain("fixture persistence");
-  expect(JSON.stringify(projectedError)).not.toContain("sk-proj-");
   expect(fixture.state()).not.toContainEqual({ key: "provider:error-fixture", value: "on" });
   fixture.clearAliasWriteFailure();
+
+  fixture.failCatalogWriteSignal();
+  const partialWritePlan = await harness.executor.plan(PUT_CC_ALIAS, {
+    path: { id: "error-fixture" },
+    body: { scope: "provider", value: "on" },
+  });
+  const partialWriteResult = await harness.executor.apply(partialWritePlan.planId, { confirmed: true });
+  expect(partialWriteResult).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+  expect(harness.last(PUT_CC_ALIAS).status).toBe(500);
+  expect(fixture.state()).toContainEqual({ key: "provider:error-fixture", value: "on" });
+  fixture.clearCatalogWriteSignalFailure();
 
   fixture.dropStorageForReadFailure();
   const failedRead = await directRequest(fixture, "GET", "anthropic", { key: MANAGEMENT_KEY });
@@ -466,7 +478,7 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
     after: finalState,
     result: { status: getResult.status, body: getResult.body },
   });
-  observe(PUT_CC_ALIAS, ["scope-denial", "schema-validation", "trim-set-clear", "credential-cancellation", "selected-target-drift", "competing-plans", "unrelated-alias-change", "prototype-model-identifiers", "malformed-json", "storage-errors", "lost-response-reconcile"], {
+  observe(PUT_CC_ALIAS, ["scope-denial", "schema-validation", "trim-set-clear", "credential-cancellation", "selected-target-drift", "competing-plans", "unrelated-alias-change", "prototype-model-identifiers", "malformed-json", "storage-errors", "lost-response-unknown", "partial-error-unknown"], {
     before,
     after: finalState,
     result: { status: putResult.status, body: putResult.body },

@@ -17,7 +17,7 @@
       "type": "string"
     },
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "recordKind": {
       "const": "omniroute-release-eligibility"
@@ -137,7 +137,8 @@
         "streaming",
         "confirmation",
         "retry",
-        "reconciliation"
+        "reconciliation",
+        "mutationSafety"
       ],
       "properties": {
         "request": {
@@ -169,6 +170,9 @@
         },
         "reconciliation": {
           "$ref": "./operations.schema.json#/$defs/reconciliation"
+        },
+        "mutationSafety": {
+          "$ref": "./operations.schema.json#/$defs/mutationSafety"
         }
       }
     },
@@ -213,7 +217,8 @@
             "responseProjectionSha256",
             "operationSemanticsSha256",
             "routeImportsSha256",
-            "frameworkContextSha256"
+            "frameworkContextSha256",
+            "mutationSafetySha256"
           ],
           "properties": {
             "requestSchemaSha256": {
@@ -241,6 +246,9 @@
               "$ref": "#/$defs/sha256"
             },
             "frameworkContextSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "mutationSafetySha256": {
               "$ref": "#/$defs/sha256"
             }
           }
@@ -435,7 +443,8 @@
             "responseProjectionSha256",
             "operationSemanticsSha256",
             "routeImportsSha256",
-            "frameworkContextSha256"
+            "frameworkContextSha256",
+            "mutationSafetySha256"
           ],
           "properties": {
             "requestSchemaSha256": {
@@ -463,6 +472,9 @@
               "$ref": "#/$defs/sha256"
             },
             "frameworkContextSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "mutationSafetySha256": {
               "$ref": "#/$defs/sha256"
             }
           }

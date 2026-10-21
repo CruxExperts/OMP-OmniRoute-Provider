@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to CruxOmni-OMP-Client are recorded here.
+All notable changes to OhMyPie OmniRoute Plugin are recorded here.
 
 ## Unreleased
 

@@ -5,8 +5,8 @@ import type { OptionalCredentials } from "../credentials.ts";
 import type { DiscoveryBinding } from "../health.ts";
 import { adapterFor, invokeBinaryAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeWebSocketAdapter, isLoopbackHostname, type AdapterInvocation, type MultipartFile } from "./adapters.ts";
 import { createAdminExecutor, type AdminExecutor } from "./executor.ts";
-import { canonicalizeJson, getOperationRegistry, type OperationAdapter, type OperationDescriptor, type ValidatedOperationInput } from "./registry.ts";
-import { mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "./relations.ts";
+import { canonicalizeJson, getOperationRegistry, type OperationAdapter, type OperationDescriptor, type OperationReadCompleteness, type OperationReconciliationRelation, type ReconciliationFieldMapping, type ValidatedOperationInput } from "./registry.ts";
+import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "./relations.ts";
 import { createAdminCommandHandler, type AdminUiOptions } from "./ui.ts";
 import { registerAdminTools } from "./tools.ts";
 import type { AdminDispatch, AdminOperationAuthBinding, AdminRequest } from "./types.ts";
@@ -168,36 +168,52 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
       else if (kind === "websocket") result = await invokeWebSocketAdapter(invocation);
       else if (kind === "multipart") { const parts = multipartParts(request.body); result = await invokeMultipartAdapter(invocation, parts.files, parts.fields); }
       else result = await invokeJsonAdapter(invocation);
+      if (adapter.risk !== "read") return { kind: "response", status: result.status, body: result.data };
       if (result.status >= 400) throw Object.assign(new Error("operation request failed"), { status: result.status });
       return result.data;
     } catch (error) {
-      if (authorized && adapter.risk !== "read" && (!record(error) || typeof error.status !== "number")) {
+      if (authorized && adapter.risk !== "read") {
         throw Object.assign(new Error("operation outcome could not be observed"), { code: "network-lost-response", uncertain: true });
       }
       throw error;
     }
   };
+  const readSafetySnapshot = async (
+    adapter: OperationAdapter,
+    relation: OperationReconciliationRelation["targetRead"],
+    mappings: readonly ReconciliationFieldMapping[],
+    proof: OperationReadCompleteness,
+    payload: ValidatedOperationInput,
+    auth: AdminOperationAuthBinding,
+    signal?: AbortSignal,
+  ) => {
+    const input = adapter.validate(mapRelationInput(mappings, payload));
+    assertSafetyReadRequest(proof, adapter.descriptor, input);
+    const response = await dispatch(requestFor(adapter, auth.endpoint, input), { auth, retryAllowed: false, maxAttempts: 1, ...(signal ? { signal } : {}) });
+    assertSafetyReadResponse(proof, adapter.descriptor, response);
+    return projectRelationSnapshot(relation, adapter.projectTarget(response), payload);
+  };
   const executor = createAdminExecutor({ registry, dispatch, resolveAuth,
     readTarget: async target => {
       const adapter = registry.require(target.readOperation.operationId);
-      const input = adapter.validate(mapRelationInput(target.relation.inputs, target.payload));
-      const response = await dispatch(requestFor(adapter, target.auth.endpoint, input), { auth: target.auth, retryAllowed: false, maxAttempts: 1, ...(target.signal ? { signal: target.signal } : {}) });
-      const snapshot = projectRelationSnapshot(target.relation, adapter.projectTarget(response), target.payload);
+      const snapshot = await readSafetySnapshot(adapter, target.relation, target.relation.inputs,
+        target.readCompleteness, target.payload, target.auth, target.signal);
       return { digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex"), snapshot };
     },
     reconcile: async context => {
-      const relation = context.operation.reconciliation;
-      if (!relation) return { status: "unknown" };
+      const relation = context.fullRelation;
       const adapter = registry.require(context.readOperation.operationId);
-      const input = adapter.validate(mapRelationInput(context.relation.inputs, context.payload));
-      const response = await dispatch(requestFor(adapter, context.auth.endpoint, input), { auth: context.auth, retryAllowed: false, maxAttempts: 1, ...(context.signal ? { signal: context.signal } : {}) });
-      const snapshot = projectRelationSnapshot({ ...relation.targetRead, operationId: context.relation.operationId }, adapter.projectTarget(response), context.payload);
+      const snapshot = await readSafetySnapshot(adapter, { ...relation.targetRead, operationId: context.relation.operationId },
+        context.relation.inputs, context.readCompleteness, context.payload, context.auth, context.signal);
       return relationOutcomeMatches(relation, context.originalTarget, snapshot, context.payload) ? { status: "applied" } : { status: "unknown" };
     },
   });
   const ui: AdminUiOptions = { executor, profileId: PROFILE };
   const publishTools = (activate: boolean): Promise<void> => {
     toolFlight = toolFlight.catch(() => undefined).then(async () => {
+      // OMP action methods are unavailable while an extension is loading and
+      // after its session closes. The next session synchronization publishes.
+      if (!options.context()) return;
       if (!isEnabled()) {
         const current = options.pi.getActiveTools();
         const next = current.filter(name => !TOOL_NAMES.has(name));
@@ -248,7 +264,13 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
     })();
     syncFlight = flight;
     try { await flight; }
-    catch (error) { enabled = false; executor.disable(); delete ui.endpoint; await publishTools(false); throw error; }
+    catch (error) {
+      enabled = false;
+      executor.disable();
+      delete ui.endpoint;
+      try { await publishTools(false); } catch { /* Preserve the binding failure. */ }
+      throw error;
+    }
     finally { if (syncFlight === flight) syncFlight = undefined; }
   }
   ui.resolveEffectiveEndpoint = async () => { const active = effective(await loadConfig()); return active ? { endpoint: active.endpoint } : undefined; };

@@ -146,6 +146,21 @@ function sourceContract(operationId: ProviderCcAliasOperationId): ProviderCcAlia
       },
     },
   };
+  const mutationSafety: ProviderCcAliasContract["mutationSafety"] = read ? null : {
+    preflight: {
+      kind: "required",
+      observations: [{
+        name: "selected-provider-cc-alias",
+        read: aliasRelation.targetRead,
+        readCompleteness: {
+          kind: "single-response",
+          sourceReason: "The pinned v3.8.52 GET reads the provider override by exact key and every model override in one SQLite query, then returns the provider's complete override map in one response.",
+        },
+      }],
+    },
+    reconciliation: { kind: "unknown" },
+    settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null },
+  };
   return {
     request: requestWithContent,
     auth: managementAuth(template, read ? "read" : "admin"),
@@ -160,10 +175,11 @@ function sourceContract(operationId: ProviderCcAliasOperationId): ProviderCcAlia
       ? { required: false, reason: "Read-only provider and model alias overrides." }
       : {
           required: true,
-          reason: "Writes one provider or model alias override after checking that selected override against the preview. The upstream route has no atomic compare-and-set, so an external writer can still race between the check and PUT; an ambiguous reply is reconciled once and never replayed.",
+          reason: "Writes or clears one provider or model alias override after checking the selected override against the preview. The pinned route has no atomic compare-and-set, so an external writer can still race between the check and PUT; any ambiguous result remains unknown and is never replayed.",
         },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
     reconciliation: read ? null : aliasRelation,
+    mutationSafety,
   };
 }
 
@@ -314,6 +330,7 @@ export class ProviderCcAliasFixture {
   readonly #routes: RouteModule;
   readonly #server: Bun.Server<undefined>;
   #catalogWriteSignals = 0;
+  #failCatalogWriteSignal = false;
   #readFailureState: readonly { key: string; value: string }[] | undefined;
 
   constructor() {
@@ -331,13 +348,20 @@ export class ProviderCcAliasFixture {
         return apiScopes ? { id: `fixture-${key}`, scopes: apiScopes } : null;
       },
     });
-    this.#routes = createPinnedAliasRoute(this.#database, this.#authorization, () => { this.#catalogWriteSignals += 1; });
+    this.#routes = createPinnedAliasRoute(this.#database, this.#authorization, () => {
+      if (this.#failCatalogWriteSignal) throw new Error("fixture model-catalog signal failed after alias persistence");
+      this.#catalogWriteSignals += 1;
+    });
     this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => this.#handle(request) });
   }
 
   get endpoint(): string { return this.#server.url.origin; }
 
   get catalogWriteSignals(): number { return this.#catalogWriteSignals; }
+
+  failCatalogWriteSignal(): void { this.#failCatalogWriteSignal = true; }
+
+  clearCatalogWriteSignalFailure(): void { this.#failCatalogWriteSignal = false; }
 
   state(): readonly { key: string; value: string }[] {
     return this.#database.prepare(
