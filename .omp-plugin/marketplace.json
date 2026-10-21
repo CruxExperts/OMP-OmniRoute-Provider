@@ -4,7 +4,7 @@
   "id": "cruxomni-omp-client",
   "name": "OMP OmniRoute Provider",
   "package": "@cruxexperts/cruxomni-omp-client",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "description": "OMP OmniRoute Provider connects Oh My Pi to OmniRoute with guided setup, live discovery, and guarded administration.",
   "entrypoint": "./src/index.ts",
   "compatibility": {

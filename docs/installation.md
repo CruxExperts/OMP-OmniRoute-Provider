@@ -12,17 +12,19 @@ The public display name is **OMP OmniRoute Provider**. For compatibility, the
 current package identity remains `@cruxexperts/cruxomni-omp-client`, and the
 provider ID remains `omniroute`, preserving native model and credential identity.
 
-## Install a published package
+## Install the GitHub release
 
-After a release is qualified and published, install its exact version through
-OMP's native package installer:
+Install the pinned `1.0.0` GitHub source tag through OMP's native plugin installer:
 
 ```text
-omp install @cruxexperts/cruxomni-omp-client@<qualified-version>
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.0
 ```
 
-The current candidate is not published. Publication is separate from
-qualification; do not use a package version that has not been released.
+Restart OMP and run `/cruxomni setup`. This command installs from GitHub; it does
+not use the npm registry. The release includes a `.tgz` package artifact for
+verification and tooling, but a raw tarball URL is not the documented OMP plugin
+install target. See the [release notes](../CHANGELOG.md#100--2026-10-21) for the
+qualified administration subset and platform limits.
 
 OMP supplies its SDK modules from the running host. Their package-manager peer
 entries are marked optional so installation does not download a second SDK;

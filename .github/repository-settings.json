@@ -1,13 +1,20 @@
 {
   "status": "prepared-not-applied",
   "repository": "CruxExperts/OMP-OmniRoute-Provider",
-  "description": "Connect Oh My Pi to OmniRoute with guided setup, live models, and guarded administration.",
+  "description": "Connect Oh My Pi to OmniRoute: guided setup, live models, native credentials, and previewable administration.",
   "topics": [
+    "ai",
     "ai-gateway",
+    "bun",
+    "cli",
     "cruxexperts",
+    "developer-tools",
+    "llm",
+    "model-provider",
     "oh-my-pi",
     "omniroute",
     "omp",
+    "openai-compatible",
     "typescript"
   ],
   "socialPreview": "assets/brand/social.png",

@@ -155,6 +155,7 @@ async function fixtureRepo(options: { secondInvokable?: boolean; missingQualific
     "LICENSE": "fixture license text\n",
     "README.md": "fixture package\n",
     "SECURITY.md": "fixture security\n",
+    "SUPPORT.md": "fixture support\n",
     "THIRD_PARTY_NOTICES.md": "fixture notices\n",
     ".github/workflows/qualification.yml": "name: release-qualification\non:\n  workflow_dispatch:\njobs: {}\n",
     "VERSION": "0.1.1\n",

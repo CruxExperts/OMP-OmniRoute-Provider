@@ -10,7 +10,7 @@ import { verifyPackage, type PackageVerificationResult } from "./verify-package.
 const execFileAsync = promisify(execFile);
 const defaultRoot = resolve(import.meta.dir, "..");
 const sourcePrefixes = [".githooks/", ".github/", ".omp-plugin/", "assets/", "contracts/", "docs/", "provenance/", "scripts/", "src/", "test/"];
-const sourceFiles = [".gitignore", "ASSET_LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "README.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "VERSION", "bun.lock", "package.json", "tsconfig.json"];
+const sourceFiles = [".gitignore", "ASSET_LICENSE.md", "CHANGELOG.md", "CONTRIBUTING.md", "LICENSE", "README.md", "SECURITY.md", "SUPPORT.md", "THIRD_PARTY_NOTICES.md", "VERSION", "bun.lock", "package.json", "tsconfig.json"];
 const epoch = new Date("1980-01-01T00:00:00Z");
 
 type PackageVerifier = (root: string) => Promise<PackageVerificationResult>;

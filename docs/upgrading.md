@@ -1,14 +1,14 @@
 # Upgrade and removal
 
-Use a qualified exact version when upgrading. Check the release notes and the
+Use an exact released GitHub tag when upgrading. Check the release notes and the
 [generated compatibility reference](reference/generated.md) first. Preserve your
 OMP profile using your normal private backup procedure before a migration.
 
 ```text
-omp install @cruxexperts/cruxomni-omp-client@<qualified-version>
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.0
 ```
 
-Restart OMP, run `/cruxomni`, and refresh discovery. The package identity and
+Restart OMP, run `/cruxomni`, and refresh discovery. The GitHub release does not imply npm publication. The package identity and
 `omniroute` provider identity remain stable. A client update does not update your
 OmniRoute server. Existing environment variable names and native runtime
 credential storage remain the configuration owners.

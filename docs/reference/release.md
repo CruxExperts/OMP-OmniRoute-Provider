@@ -16,6 +16,25 @@ latest reachable release tag, or the root commit's `VERSION` before the first
 tag. Setting and committing a proposed version does not count the same changes
 again as an extra bump on the next plan.
 
+## 1.0.0 GitHub distribution
+
+Version `1.0.0` is distributed through GitHub Releases and a signed GitHub source
+tag. It does not publish to npm or claim complete operation and eight-platform
+qualification. Its notes disclose the 25 qualified operations, blocked inventory,
+and Linux x64 glibc native verification; the remaining seven targets are unqualified.
+The operation eligibility guards stay enabled.
+
+This GitHub-only release uses the existing clean-source exporter, reviewed notes,
+signed source commit and annotated tag, exact-archive verification, native smoke,
+and public download checksum checks. The export manifest remains a preparation
+record: its `github-release-and-npm` target is not a receipt for npm publication.
+The GitHub Release and public asset hashes establish what was actually published.
+
+The stricter fully qualified npm/GitHub workflow below remains unchanged. Do not
+rerun that workflow against the already published `v1.0.0` tag or replace its
+immutable version with different bytes. Later publications use a new version
+and the applicable qualification requirements.
+
 ## Export a reviewed source snapshot
 
 `bun run scripts/export-release.ts` requires a clean Git worktree, tracked

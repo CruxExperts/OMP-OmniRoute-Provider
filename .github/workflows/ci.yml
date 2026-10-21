@@ -35,7 +35,9 @@ jobs:
           bun run check:upstreams
           bun run prepare:upstream
           bun run typecheck
-          bun test
+          test_workers="$(( $(nproc) / 3 ))"
+          if [ "$test_workers" -lt 1 ]; then test_workers=1; fi
+          bun test --max-concurrency="$test_workers" --parallel="$test_workers" --timeout=15000
           python3 test/capture-walkthrough.test.py
           bun run verify:qualification
           bun run scripts/acquire-route-corpus.ts --check
