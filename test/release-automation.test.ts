@@ -865,11 +865,8 @@ describe("release automation", () => {
   it("exports into ignored source output, blocks unrelated source drift, and preserves the prior output when a rebuild fails", async () => {
     const root = await fixtureRepo();
     const output = join(root, "release");
-    await mkdir(output);
-    await writeFile(join(output, "stale.txt"), "must be replaced after successful build\n");
     await exportFixture(root, output);
-    const names = (await readdir(output)).sort();
-    expect(names).toEqual([
+    const expectedNames = [
       "OMP-OmniRoute-Provider-v0.1.1.cdx.json",
       "OMP-OmniRoute-Provider-v0.1.1-graphics.zip",
       "OMP-OmniRoute-Provider-v0.1.1-release-notes.md",
@@ -877,9 +874,14 @@ describe("release automation", () => {
       "SHA256SUMS.txt",
       "cruxexperts-cruxomni-omp-client-0.1.1.tgz",
       "release-manifest.json",
-    ].sort());
+    ].sort();
+    expect((await readdir(output)).sort()).toEqual(expectedNames);
     expect(await readFile(join(output, "OMP-OmniRoute-Provider-v0.1.1-release-notes.md"))).toEqual(await readFile(join(root, "CHANGELOG.md")));
 
+    await writeFile(join(output, "stale.txt"), "must be replaced after successful build\n");
+    await exportFixture(root, output);
+    const names = (await readdir(output)).sort();
+    expect(names).toEqual(expectedNames);
     const before = new Map(await Promise.all(names.map(async name => [name, await readFile(join(output, name))] as const)));
     const unrelatedChange = join(root, "unrelated-source-change.txt");
     await expect(exportRelease({ root, outputDirectory: output, packageVerifier: async () => {

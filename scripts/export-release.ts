@@ -126,7 +126,8 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
   const outputWithinSource = outputInsideSource !== "" && outputInsideSource !== ".." && !outputInsideSource.startsWith(`..${separator}`) && !isAbsolute(outputInsideSource);
   if (outputWithinSource) {
     try {
-      await command("git", ["check-ignore", "--quiet", "--", outputInsideSource], root);
+      const outputDirectoryPath = `${outputInsideSource.replaceAll("\\", "/")}/`;
+      await command("git", ["check-ignore", "--quiet", "--", outputDirectoryPath], root);
     } catch {
       throw new Error("release output inside the source tree must be Git-ignored");
     }
