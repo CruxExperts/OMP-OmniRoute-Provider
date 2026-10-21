@@ -88,6 +88,13 @@ def allowed(relative_path: str, is_directory: bool) -> bool:
     return False
 
 
+def is_python_cache_path(relative_path: str) -> bool:
+    components = relative_path.split("/")
+    return any(component.casefold() == "__pycache__" for component in components) or (
+        bool(components) and components[-1].casefold().endswith((".pyc", ".pyo"))
+    )
+
+
 def preflight(archive: Path) -> tuple[list[tuple[tarfile.TarInfo, str, bool]], list[str]]:
     if archive.is_symlink() or not archive.is_file():
         raise ValueError("package archive must be a regular non-symlink file")
@@ -117,6 +124,8 @@ def preflight(archive: Path) -> tuple[list[tuple[tarfile.TarInfo, str, bool]], l
             if member.size < 0 or (member.isdir() and member.size != 0):
                 raise ValueError(f"archive member has invalid size metadata: {member.name}")
             path, is_directory = normalize_member(member)
+            if is_python_cache_path(path):
+                raise ValueError(f"Python bytecode/cache paths are not allowed in package archives: {path}")
             if not allowed(path, is_directory):
                 raise ValueError(f"package archive entry is not allowlisted: {path}")
             if path in seen_paths:

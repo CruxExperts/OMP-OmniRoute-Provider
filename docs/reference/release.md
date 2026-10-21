@@ -33,7 +33,10 @@ from the same file immediately before publishing.
 
 Package verification applies a portable tar member preflight before extracting
 an archive. It rejects traversal, links, duplicate and Windows-ambiguous names,
-special files, and entries outside the package allowlist. Cross-platform smoke
+special files, entries outside the package allowlist, and Python interpreter
+cache or bytecode paths. The npm package excludes those local Python artifacts;
+archive verification also rejects them before creating an extraction directory.
+Cross-platform smoke
 jobs receive the one prepared `.tgz` archive together with its expected SHA-256;
 the verifier hashes and stages those exact bytes without modifying the caller's
 archive. Packed package name and version must match the reviewed source manifest.

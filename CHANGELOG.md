@@ -21,6 +21,8 @@ All notable changes to CruxOmni-OMP-Client are recorded here.
 - Add editable brand artwork and reproducible raster exports with ownership and
   provenance metadata, plus native setup and administration-menu captures with
   accessible static descriptions. The walkthrough cancels before admin dispatch.
+- Exclude local Python interpreter caches from npm packages and reject cache or
+  bytecode entries during archive verification before extraction.
 - Prepare disabled-by-default daily maintenance, issue guidance and review rules.
   Replace tag-triggered publication with signed-source validation, explicit
   approval, and the exact archive tested by the native qualification workflow.

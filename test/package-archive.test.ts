@@ -38,24 +38,22 @@ function extract(path: string, destination: string): string {
   return execFileSync("python3", [helper, "extract", path, destination], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
-function archivePackageFiles(repository: string, path: string): void {
-  const script = [
-    "import json, pathlib, sys, tarfile",
-    "root = pathlib.Path(sys.argv[1])",
-    "output = pathlib.Path(sys.argv[2])",
-    "manifest = json.loads((root / 'package.json').read_text())",
-    "paths = {'package.json'}",
-    "for item in manifest['files']:",
-    "    candidate = root / item",
-    "    if candidate.is_file(): paths.add(item)",
-    "    elif candidate.is_dir(): paths.update(path.relative_to(root).as_posix() for path in candidate.rglob('*') if path.is_file())",
-    "with tarfile.open(output, 'w:gz') as archive:",
-    "    for name in sorted(paths):",
-    "        source = root / name",
-    "        if source.is_symlink() or not source.is_file(): raise ValueError('package fixture contains a non-regular file: ' + name)",
-    "        archive.add(source, arcname='package/' + name, recursive=False)",
-  ].join("\n");
-  execFileSync("python3", ["-c", script, repository, path], { stdio: "pipe" });
+function archivePackageFiles(repository: string, destination: string): string {
+  const output = execFileSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], {
+    cwd: repository,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const parsed: unknown = JSON.parse(output);
+  if (!Array.isArray(parsed) || parsed.length !== 1 || typeof parsed[0] !== "object" || parsed[0] === null
+    || !("filename" in parsed[0]) || typeof parsed[0].filename !== "string") {
+    throw new Error("npm pack did not return one safe archive filename");
+  }
+  const filename = parsed[0].filename;
+  if (filename.length === 0 || filename !== filename.split(/[\\/]/).at(-1)) {
+    throw new Error("npm pack returned an unsafe archive filename");
+  }
+  return join(destination, filename);
 }
 
 afterEach(async () => {
@@ -86,13 +84,20 @@ describe("portable npm archive preflight", () => {
       { label: "case-collision", members: [{ name: "package/package.json", content: "{}" }, { name: "package/src/a.ts", content: "one" }, { name: "package/SRC/b.ts", content: "two" }] },
       { label: "device-name", members: [{ name: "package/package.json", content: "{}" }, { name: "package/src/CON.ts", content: "reserved" }] },
       { label: "allowlist", members: [{ name: "package/package.json", content: "{}" }, { name: "package/.env", content: "private" }] },
+      { label: "python-cache-directory", members: [{ name: "package/package.json", content: "{}" }, { name: "package/scripts/__pycache__/", kind: "directory" }] },
+      { label: "python-bytecode", members: [{ name: "package/package.json", content: "{}" }, { name: "package/src/cache.pyc", content: "bytecode" }] },
+      { label: "python-optimized-bytecode", members: [{ name: "package/package.json", content: "{}" }, { name: "package/src/cache.PYO", content: "bytecode" }] },
     ];
     const root = await temporary("cruxomni-malicious-archive-");
     for (const item of cases) {
       const archive = join(root, `${item.label}.tgz`);
       const destination = join(root, `${item.label}-extract`);
       makeTar(archive, item.members);
-      expect(() => extract(archive, destination)).toThrow();
+      if (item.label.startsWith("python-")) {
+        expect(() => extract(archive, destination)).toThrow("Python bytecode/cache paths are not allowed in package archives");
+      } else {
+        expect(() => extract(archive, destination)).toThrow();
+      }
       await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
     }
   });
@@ -115,14 +120,18 @@ describe("caller-supplied package archive verification", () => {
         await expect(verifyPackage({ archivePath: link, expectedArchiveSha256: callerDigest })).rejects.toThrow("regular non-symlink file");
       }
 
-      archivePackageFiles(join(import.meta.dir, ".."), callerArchive);
-      const bytes = await readFile(callerArchive);
+      const packedArchive = archivePackageFiles(join(import.meta.dir, ".."), source);
+      const bytes = await readFile(packedArchive);
       const expected = createHash("sha256").update(bytes).digest("hex");
-      verified = await verifyPackage({ archivePath: callerArchive, expectedArchiveSha256: expected, keepTemporary: true });
+      verified = await verifyPackage({ archivePath: packedArchive, expectedArchiveSha256: expected, keepTemporary: true });
       expect(verified.status).toBe("verified");
       expect(verified.archiveSha256).toBe(expected);
-      expect((await readFile(callerArchive)).equals(bytes)).toBe(true);
+      expect((await readFile(packedArchive)).equals(bytes)).toBe(true);
       expect((await readdir(verified.extractedRoot)).length).toBeGreaterThan(0);
+      expect(verified.entries).toContain("scripts/verify-package.ts");
+      expect(verified.entries).toContain("scripts/package-archive.py");
+      expect(verified.entries.some(path => path.split("/").some(component => component.toLowerCase() === "__pycache__")
+        || /\.py[co]$/i.test(path))).toBe(false);
     } finally {
       if (verified) await rm(join(verified.extractedRoot, "..", ".."), { recursive: true, force: true });
     }
