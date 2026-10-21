@@ -21,6 +21,7 @@ export interface AdminUiOptions {
   readonly registry?: OperationRegistry;
   readonly profileId?: string;
   endpoint?: string;
+  allowEnvironmentCredentials?: () => Promise<boolean> | boolean;
   resolveEffectiveEndpoint?: () => Promise<AdminBinding | undefined>;
   syncBinding?: () => Promise<void>;
   onEnable?: (endpoint: string) => Promise<AdminBinding | undefined>;
@@ -58,7 +59,8 @@ function notify(context: AdminContext, message: string, type: "info" | "warning"
 function hasInteractiveUi(context: AdminContext): boolean {
   return context.hasUI;
 }
-function credentialFromEnvironment(): { apiKey?: string; cookie?: string } {
+async function credentialFromEnvironment(options: AdminUiOptions): Promise<{ apiKey?: string; cookie?: string }> {
+  if (options.allowEnvironmentCredentials && !(await options.allowEnvironmentCredentials())) return {};
   const apiKey = process.env.OMP_OMNIROUTE_ADMIN_API_KEY?.trim();
   const cookie = process.env.OMP_OMNIROUTE_ADMIN_COOKIE?.trim();
   return { ...(apiKey ? { apiKey } : {}), ...(cookie ? { cookie } : {}) };
@@ -107,8 +109,8 @@ function redactPreview(preview: AdminPreview, registry: OperationRegistry): stri
   });
 }
 
-function rememberCredential(options: AdminUiOptions): void {
-  const credential = credentialFromEnvironment();
+async function rememberCredential(options: AdminUiOptions): Promise<void> {
+  const credential = await credentialFromEnvironment(options);
   if (!credential.apiKey && !credential.cookie) return;
   const input: AdminCredentialInput = {
     profileId: options.profileId ?? DEFAULT_PROFILE,
@@ -123,7 +125,7 @@ async function collectSessionCredential(options: AdminUiOptions, context: AdminC
   if (!options.endpoint) return false;
   const bound = options.executor.getCredentialBinding();
   if (bound?.enabled && bound.endpoint === options.endpoint && bound.profileId === (options.profileId ?? DEFAULT_PROFILE)) return true;
-  const fromEnvironment = credentialFromEnvironment();
+  const fromEnvironment = await credentialFromEnvironment(options);
   if (!fromEnvironment.apiKey && !fromEnvironment.cookie) {
     if (allowTrustedLocal && bound === undefined) return true;
     const kind = await askText(context, "Management credential kind (apiKey or cookie)");
@@ -138,7 +140,7 @@ async function collectSessionCredential(options: AdminUiOptions, context: AdminC
     options.executor.bindCredential(input);
     return true;
   }
-  rememberCredential(options);
+  await rememberCredential(options);
   return true;
 }
 type SelectedOperationResult =

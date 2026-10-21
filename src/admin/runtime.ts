@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, type PluginConfig } from "../config.ts";
+import { allowsEnvironmentOptionalCredentials, loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, type PluginConfig } from "../config.ts";
 import type { OptionalCredentials } from "../credentials.ts";
 import type { DiscoveryBinding } from "../health.ts";
 import { adapterFor, invokeBinaryAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeWebSocketAdapter, isLoopbackHostname, type AdapterInvocation, type MultipartFile } from "./adapters.ts";
@@ -101,9 +101,16 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
       };
     }
     if (operation.auth.domain === "metadata") {
-      const environment = process.env.OMP_OMNIROUTE_METADATA_API_KEY?.trim();
+      const environment = allowsEnvironmentOptionalCredentials(config, active.endpoint)
+        ? process.env.OMP_OMNIROUTE_METADATA_API_KEY?.trim()
+        : undefined;
       const credential = await options.credentials.resolve("metadata", active, options.context()?.modelRegistry.authStorage,
         environment ? { kind: "apiKey", value: environment } : undefined);
+      const confirmed = await loadConfig();
+      const confirmedActive = effective(confirmed);
+      if (confirmed.revision !== config.revision || confirmedActive?.endpoint !== active.endpoint
+        || (environment !== undefined && (!allowsEnvironmentOptionalCredentials(confirmed, active.endpoint)
+          || process.env.OMP_OMNIROUTE_METADATA_API_KEY?.trim() !== environment))) return undefined;
       if (!credential || credential.kind !== "apiKey") return undefined;
       return {
         ...base,
@@ -209,6 +216,12 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
     },
   });
   const ui: AdminUiOptions = { executor, profileId: PROFILE };
+  ui.allowEnvironmentCredentials = async () => {
+    const config = await loadConfig();
+    const active = effective(config);
+    return active !== undefined && active.endpoint === ui.endpoint
+      && allowsEnvironmentOptionalCredentials(config, active.endpoint);
+  };
   const publishTools = (activate: boolean): Promise<void> => {
     toolFlight = toolFlight.catch(() => undefined).then(async () => {
       // OMP action methods are unavailable while an extension is loading and
@@ -249,8 +262,9 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
       enabled = true;
       ui.endpoint = active.endpoint;
       executor.setAdminBinding({ profileId: PROFILE, endpoint: active.endpoint }, explicitHuman);
-      const apiKey = process.env.OMP_OMNIROUTE_ADMIN_API_KEY?.trim();
-      const cookie = process.env.OMP_OMNIROUTE_ADMIN_COOKIE?.trim();
+      const allowEnvironment = allowsEnvironmentOptionalCredentials(config, active.endpoint);
+      const apiKey = allowEnvironment ? process.env.OMP_OMNIROUTE_ADMIN_API_KEY?.trim() : undefined;
+      const cookie = allowEnvironment ? process.env.OMP_OMNIROUTE_ADMIN_COOKIE?.trim() : undefined;
       const saved = apiKey || cookie ? undefined : await options.credentials.resolve("admin", active, options.context()?.modelRegistry.authStorage);
       if (apiKey || cookie || saved) {
         executor.bindCredential({ profileId: PROFILE, endpoint: active.endpoint, ...(apiKey ? { apiKey } : {}), ...(cookie ? { cookie } : {}),

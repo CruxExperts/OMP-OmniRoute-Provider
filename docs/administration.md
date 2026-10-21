@@ -8,13 +8,14 @@ Administration qualification is being rebuilt after a mutation-safety contract
 migration. Reviewed reads, provider configuration, fallback chains, provider
 aliases, and model mappings have regained qualification with the limits below. Other examples describe intended workflows; use the
 generated inventory to check availability before trying them. Unqualified calls
-remain blocked. This development state does not meet the 1.0.0 release requirements.
+remain blocked. Version 1.0.1 does not expand the qualified operation set; the
+current release limits remain documented in the changelog and generated inventory.
 
 ## Start with read access
 
-Connect with `/cruxomni setup`, then use `/cruxomni-admin status` to inspect whether
-administration is enabled. Enable it with `/cruxomni-admin enable`. Use
-`/cruxomni-admin search` to find available operations. Administration loads when
+Connect with `/omniroute setup`, then use `/omniroute-admin status` to inspect whether
+administration is enabled. Enable it with `/omniroute-admin enable`. Use
+`/omniroute-admin search` to find available operations. Administration loads when
 needed and uses separate management credentials; the runtime key used for chat
 does not automatically authorize server changes.
 
@@ -158,7 +159,7 @@ active endpoint and resolves available credentials for the new session. Previous
 plans cannot be reused. Credentials held only in the old session may need to be
 entered again.
 
-Use `/cruxomni-admin disable` when you finish. Keep runtime, metadata, and management
+Use `/omniroute-admin disable` when you finish. Keep runtime, metadata, and management
 credentials separate. Rotate a compromised credential on the server, replace it
 through the owning credential flow, and create fresh plans. See
 [troubleshooting](troubleshooting.md) for connection and credential recovery.

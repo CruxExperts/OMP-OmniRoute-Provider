@@ -6,6 +6,7 @@ import { discoverAuthStorage, z } from "@oh-my-pi/pi-coding-agent";
 import { OptionalCredentials, type CredentialStore } from "../src/credentials.ts";
 import type { AuthStorage, StoredAuthCredential } from "@oh-my-pi/pi-ai";
 import { getConfigPath, loadConfig, resolveEnvironmentBinding, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
+import { createAdminRuntime } from "../src/admin/runtime.ts";
 import register from "../src/index.ts";
 
 let directory: string | undefined;
@@ -84,6 +85,7 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
   const commands = new Map<string, { handler: (args: string, context: never) => Promise<void> }>();
   const events = new Map<string, (...args: never[]) => unknown>();
   const toolNames = new Set<string>();
+  const tools = new Map<string, { execute: (toolCallId: string, params: unknown, signal?: AbortSignal) => Promise<unknown> }>();
   const providerIds = new Set<string>();
   const providerConfigs = new Map<string, { oauth?: { name?: string } }>();
   let activeTools: string[] = [];
@@ -91,7 +93,13 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
     zod: z,
     pi: { discoverAuthStorage: () => discoverAuthStorage(directory!, { cwd: directory! }) },
     registerCommand(name: string, command: { handler: (args: string, context: never) => Promise<void> }) { commands.set(name, command); },
-    registerTool(tool: { name: string }) { toolNames.add(tool.name); },
+    registerTool(tool: { name: string }) {
+      toolNames.add(tool.name);
+      const execute = (tool as unknown as { execute?: unknown }).execute;
+      if (typeof execute === "function") {
+        tools.set(tool.name, { execute: execute as (toolCallId: string, params: unknown, signal?: AbortSignal) => Promise<unknown> });
+      }
+    },
     getAllTools() { return [...toolNames].map(name => ({ name })); },
     getActiveTools() { onGetActiveTools?.(); return [...activeTools]; },
     async setActiveTools(names: string[]) { await onSetActiveTools?.(names); activeTools = [...names]; },
@@ -104,9 +112,12 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
     hasUI: true,
     cwd: directory,
     ui: { notify() {}, ...ui },
-    modelRegistry: { authStorage: storage },
+    modelRegistry: {
+      authStorage: storage,
+      getApiKeyForProvider: (provider: string) => storage.keys.get(provider),
+    },
   }) as never;
-  return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds], providerConfigs };
+  return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds], providerConfigs, tools };
 }
 
 test("pre-enabled administration defers host action methods until session start and rebinds on restart", async () => {
@@ -129,6 +140,9 @@ test("pre-enabled administration defers host action methods until session start 
       if (!hostReady) throw new Error("Extension runtime not initialized. Action methods cannot be called during extension loading.");
     });
     await register(host.api as never);
+    expect(host.commands.get("omniroute")).toBe(host.commands.get("cruxomni"));
+    expect(host.commands.get("omniroute-admin")).toBe(host.commands.get("cruxomni-admin"));
+    expect(host.commands.get("omniroute-pricing")).toBe(host.commands.get("cruxomni-pricing"));
     hostReady = true;
     await host.events.get("session_start")!(undefined as never, host.context() as never);
     shutdown = host.events.get("session_shutdown");
@@ -349,9 +363,10 @@ test("corrupt, unsupported and insecure configuration registers diagnostics only
   const baseline = await readFile(getConfigPath(), "utf8");
   for (const candidate of ["{invalid", baseline.replace('"version": 2', '"version": 99'), baseline]) {
     await writeFile(getConfigPath(), candidate); await chmod(getConfigPath(), candidate === baseline ? 0o644 : 0o600);
-    let providers = 0; const commands: string[] = [];
-    await register({ registerCommand(name: string) { commands.push(name); }, registerProvider() { providers++; } } as never);
-    expect(providers).toBe(0); expect(commands).toContain("cruxomni");
+    let providers = 0; const commands = new Map<string, unknown>();
+    await register({ registerCommand(name: string, command: unknown) { commands.set(name, command); }, registerProvider() { providers++; } } as never);
+    expect(providers).toBe(0); expect(commands.has("cruxomni")).toBe(true);
+    expect(commands.get("omniroute")).toBe(commands.get("cruxomni"));
     expect(await readFile(getConfigPath(), "utf8")).toBe(candidate);
   }
 });
@@ -423,6 +438,111 @@ test("remembered metadata enrichment uses the persisted source binding through t
     expect(fixture.requests.filter(request => request.path === "/api/models/catalog")).toHaveLength(1);
     expect(fixture.requests.some(request => request.authorization === `Bearer ${RUNTIME_KEY}` && request.path === "/api/models/catalog")).toBe(false);
     expect(fixture.requests.some(request => request.authorization === `Bearer ${METADATA_KEY}` && request.path === "/v1/models")).toBe(false);
+  } finally {
+    cleanupIntegration?.();
+  }
+});
+
+test("native endpoint switching blocks optional environment secrets bound to a different gateway", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  let adminRuntime: ReturnType<typeof createAdminRuntime> | undefined;
+  cleanupIntegration = () => {
+    shutdown?.();
+    void adminRuntime?.shutdown();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+    cleanupIntegration = undefined;
+  };
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_") || name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+    }
+    process.env.OMP_OMNIROUTE_BASE_URL = "https://old-environment.example";
+    process.env.OMP_OMNIROUTE_API_KEY = "fixture-old-runtime-key";
+    process.env.OMP_OMNIROUTE_METADATA_API_KEY = "fixture-old-metadata-key";
+    process.env.OMP_OMNIROUTE_ADMIN_API_KEY = "fixture-old-admin-key";
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: "fixture-native-runtime-key", source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true,
+      active: { endpoint: fixture.endpoint, generation: 1 }, adminEnabled: true, invitationDismissed: true }));
+    expect((await loadConfig()).adminEnabled).toBe(true);
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    shutdown = host.events.get("session_shutdown");
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: "Bearer fixture-native-runtime-key" });
+    expect(fixture.requests.some(request => request.path === "/api/models/catalog")).toBe(false);
+    adminRuntime = createAdminRuntime({
+      pi: host.api as never,
+      credentials: new OptionalCredentials(),
+      context: () => host.context(),
+      binding: () => undefined,
+      bindingSignal: () => undefined,
+      stopped: () => false,
+      onConfig() {},
+    });
+    await adminRuntime.synchronize(await loadConfig());
+    await expect(adminRuntime.executor.read("GET /api/fallback/chains", {}, { profileId: "omniroute", endpoint: fixture.endpoint }))
+      .resolves.toBeDefined();
+    const localRead = fixture.requests.find(request => request.path === "/api/fallback/chains");
+    expect(localRead).toBeDefined();
+    expect(localRead?.authorization).toBeNull();
+    expect(fixture.requests.some(request => request.authorization === "Bearer fixture-old-metadata-key" || request.authorization === "Bearer fixture-old-admin-key")).toBe(false);
+    expect(process.env.OMP_OMNIROUTE_ADMIN_API_KEY).toBe("fixture-old-admin-key");
+  } finally {
+    cleanupIntegration?.();
+  }
+});
+
+test("native-only profiles retain optional metadata environment credentials when no runtime override exists", async () => {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  let adminRuntime: ReturnType<typeof createAdminRuntime> | undefined;
+  cleanupIntegration = () => {
+    shutdown?.();
+    void adminRuntime?.shutdown();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+    cleanupIntegration = undefined;
+  };
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_") || name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+    }
+    process.env.OMP_OMNIROUTE_METADATA_API_KEY = METADATA_KEY;
+    process.env.OMP_OMNIROUTE_ADMIN_API_KEY = "fixture-native-admin-key";
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: "fixture-native-runtime-key", source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true,
+      active: { endpoint: fixture.endpoint, generation: 1 }, adminEnabled: true, invitationDismissed: true }));
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    shutdown = host.events.get("session_shutdown");
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: "Bearer fixture-native-runtime-key" });
+    await fixture.metadataRequest;
+    expect(fixture.requests).toContainEqual({ path: "/api/models/catalog", authorization: `Bearer ${METADATA_KEY}` });
+    adminRuntime = createAdminRuntime({
+      pi: host.api as never,
+      credentials: new OptionalCredentials(),
+      context: () => host.context(),
+      binding: () => undefined,
+      bindingSignal: () => undefined,
+      stopped: () => false,
+      onConfig() {},
+    });
+    await adminRuntime.synchronize(await loadConfig());
+    await adminRuntime.executor.read("GET /api/fallback/chains", {}, { profileId: "omniroute", endpoint: fixture.endpoint });
+    expect(fixture.requests).toContainEqual({ path: "/api/fallback/chains", authorization: "Bearer fixture-native-admin-key" });
   } finally {
     cleanupIntegration?.();
   }

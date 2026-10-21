@@ -2,6 +2,30 @@
 
 All notable changes to OMP OmniRoute Provider are recorded here.
 
+## 1.0.1 — 2026-10-21
+
+- The OMP `/login` provider selector now labels this entry **Crux OmniRoute
+  Provider**. The model provider ID and native credential identity remain
+  `omniroute`; existing profiles and saved credentials need no migration.
+- Setup and `/login` can explicitly switch a profile from a runtime
+  environment binding to a newly entered native endpoint and masked key. The
+  native source choice is persisted atomically with the pending connection;
+  environment variables remain unchanged, and a missing native key never falls
+  back to the environment key.
+- `/omniroute`, `/omniroute-admin`, and `/omniroute-pricing` are the primary
+  commands. The former `/cruxomni` command names remain aliases.
+- A [branding policy](https://github.com/CruxExperts/OMP-OmniRoute-Provider/blob/v1.0.1/docs/branding.md) defines the names, command aliases,
+  visual identity, and compatibility identifiers maintained by this project.
+- This remains a GitHub-only release with no npm publication. It carries the
+  operation and platform limits documented for 1.0.0 and does not claim full
+  administration coverage or eight-platform qualification.
+
+Install the tagged source through OMP's native plugin installer:
+
+```text
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.1
+```
+
 ## 1.0.0 — 2026-10-21
 
 Bring your OmniRoute gateway into Oh My Pi with guided setup, live model

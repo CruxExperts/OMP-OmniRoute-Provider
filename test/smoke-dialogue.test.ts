@@ -9,6 +9,8 @@ import {
   nativeAdminNewPlanPattern,
   nativeAdminPromptPattern,
   nativeAdminUnknownOutcomePattern,
+  nativeEnvironmentSwitchConfirmationPattern,
+  nativeLoginSelectorShowsProvider,
   nativePtyDialogueText,
 } from "../scripts/smoke.ts";
 
@@ -33,6 +35,26 @@ test("native administration prompt accepts the model selected by earlier inferen
     .toBe(true);
   expect(nativeAdminPromptPattern.test("π-omniroute-smoke > ⬢ no-model > 📁 workspace >"))
     .toBe(true);
+});
+
+test("native login confirms an affirmative switch away from environment credentials", () => {
+  const prompt = [
+    "Use a native OmniRoute profile connection instead of the environment connection?",
+    "This OMP profile will use the endpoint and runtime key you enter. Environment variables remain unchanged; a missing native credential will fail closed.",
+    "yes/no",
+  ].join("\n");
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt)).toBe(true);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt.replace("yes/no", ""))).toBe(false);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt.replace("endpoint and runtime key", "connection"))).toBe(false);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test("Connect to OmniRoute?\nYes/No")).toBe(false);
+});
+
+test("native login verifies the provider label inside the selector before switch confirmation", () => {
+  const section = "Select provider to login\nSearch: omniroute\nCrux OmniRoute Provider\n";
+  const confirmation = "Use a native OmniRoute profile connection instead of the environment connection?";
+  expect(nativeLoginSelectorShowsProvider(`${section}${confirmation}`)).toBe(true);
+  expect(nativeLoginSelectorShowsProvider(`Crux OmniRoute Provider\nSelect provider to login\nSearch: omniroute\n${confirmation}`)).toBe(false);
+  expect(nativeLoginSelectorShowsProvider(`Select provider to login\nSearch: omniroute\n${confirmation}\nCrux OmniRoute Provider`)).toBe(false);
 });
 
 test("composed native menu dialogue cancels after the selected available row", async () => {
@@ -92,11 +114,11 @@ test("dialogue waits for the delayed write before accepting another prompt", asy
 test("dialogue binds an apply command to the plan ID observed in native output", async () => {
   const written: string[] = [];
   const scheduler = createDialogueScheduler([
-    { when: /plan ([a-z0-9-]+) created/i, text: match => `/cruxomni-admin apply ${match[1]}\n`, afterMs: 0 },
+    { when: /plan ([a-z0-9-]+) created/i, text: match => `/omniroute-admin apply ${match[1]}\n`, afterMs: 0 },
   ], async (_step, _index, text) => { written.push(text); });
   expect(scheduler.observe("plan fixture-a1b2 created")).toBe(true);
   await Bun.sleep(5);
-  expect(written).toEqual(["/cruxomni-admin apply fixture-a1b2\n"]);
+  expect(written).toEqual(["/omniroute-admin apply fixture-a1b2\n"]);
   expect(scheduler.completed).toBe(1);
   scheduler.cancel();
 });
@@ -106,14 +128,14 @@ test("second plan ignores an earlier plan redrawn while DELETE is in progress", 
   const second = "p-36424723bc1f1958ef6ce4cc9efb4dab";
   const written: string[] = [];
   const scheduler = createDialogueScheduler([
-    { when: () => nativeAdminNewPlanPattern(first), text: match => `/cruxomni-admin apply ${match[1]}\n`, afterMs: 0 },
+    { when: () => nativeAdminNewPlanPattern(first), text: match => `/omniroute-admin apply ${match[1]}\n`, afterMs: 0 },
   ], async (_step, _index, value) => { written.push(value); });
 
   expect(scheduler.observe(`administration outcome is unknown; reconcile before retrying (${first})\nplan ${first} created`)).toBe(false);
   expect(scheduler.observe(`\nplan ${first} created`)).toBe(false);
   expect(scheduler.observe(`\nplan ${second} created`)).toBe(true);
   await Bun.sleep(5);
-  expect(written).toEqual([`/cruxomni-admin apply ${second}\n`]);
+  expect(written).toEqual([`/omniroute-admin apply ${second}\n`]);
   expect(scheduler.completed).toBe(1);
   scheduler.cancel();
 });

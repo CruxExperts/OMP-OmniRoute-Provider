@@ -39,6 +39,8 @@ export interface PendingBinding extends ActiveBinding {
 
 export interface PluginConfig {
   version: typeof CONFIG_VERSION;
+  /** Explicitly select OMP's native credential store over legacy runtime env overrides. */
+  runtimeSource?: "native";
   active?: ActiveBinding;
   pending?: PendingBinding;
   allowInsecureHttp: boolean;
@@ -163,6 +165,9 @@ function parseConfig(value: unknown): PersistedConfig {
     throw new ConfigError("corrupt-config", "config flags are invalid");
   }
   const allowInsecureHttp = value.allowInsecureHttp;
+  if (value.runtimeSource !== undefined && value.runtimeSource !== "native") {
+    throw new ConfigError("corrupt-config", "runtimeSource is invalid");
+  }
   const active = validateBinding(value.active, "active", allowInsecureHttp);
   const pending = validateBinding(value.pending, "pending", allowInsecureHttp) as PendingBinding | undefined;
   if (active && pending && pending.generation <= active.generation) {
@@ -175,6 +180,7 @@ function parseConfig(value: unknown): PersistedConfig {
     allowInsecureHttp,
     adminEnabled: value.adminEnabled,
   };
+  if (value.runtimeSource === "native") result.runtimeSource = "native";
   if (catalogSources.length > 0) result.catalogSources = catalogSources;
   if (active) result.active = active;
   if (pending) result.pending = pending;
@@ -279,6 +285,7 @@ function persisted(config: PluginConfig): PersistedConfig {
     allowInsecureHttp: config.allowInsecureHttp,
     adminEnabled: config.adminEnabled,
   };
+  if (config.runtimeSource === "native") result.runtimeSource = "native";
   if (catalogSources.length > 0) result.catalogSources = catalogSources;
   if (config.active) result.active = { ...config.active };
   if (config.pending) result.pending = { ...config.pending };
@@ -434,6 +441,8 @@ export async function savePendingConfig(
     };
     next.allowInsecureHttp = pendingOrConfig.allowInsecureHttp;
     next.adminEnabled = pendingOrConfig.adminEnabled;
+    if (pendingOrConfig.runtimeSource === "native") next.runtimeSource = "native";
+    else delete next.runtimeSource;
     if (pendingOrConfig.pricingFile === undefined) delete next.pricingFile;
     else next.pricingFile = pendingOrConfig.pricingFile;
   } else {
@@ -482,7 +491,47 @@ export async function setAdminEnabledConfig(enabled: boolean, options?: ConfigWr
   return writeConfig({ ...current.config, adminEnabled: enabled }, expected);
 }
 
-export function resolveEnvironmentBinding(config?: Pick<PluginConfig, "allowInsecureHttp">): EnvironmentBinding | undefined {
+/** True when a legacy runtime environment binding would currently take precedence. */
+export function isEnvironmentRuntimeSelected(config: Pick<PluginConfig, "runtimeSource">): boolean {
+  if (config.runtimeSource === "native") return false;
+  return hasRuntimeEnvironmentOverrides();
+}
+
+/** Detect runtime env overrides without reading or returning any credential value. */
+export function hasRuntimeEnvironmentOverrides(): boolean {
+  return Boolean(process.env.OMP_OMNIROUTE_API_KEY?.trim() || process.env.OMP_OMNIROUTE_BASE_URL?.trim());
+}
+
+/** Return only a validated, credential-free URL that is safe to show as a prompt prefill. */
+export function resolveEnvironmentEndpointPrefill(config: Pick<PluginConfig, "runtimeSource">): string | undefined {
+  if (config.runtimeSource === "native") return undefined;
+  const endpoint = process.env.OMP_OMNIROUTE_BASE_URL?.trim();
+  if (!endpoint) return undefined;
+  try { return validateEndpoint(endpoint, true); }
+  catch { return undefined; }
+}
+
+/**
+ * Optional metadata/administration env credentials may follow the runtime
+ * environment endpoint, but cannot cross from that endpoint to a native one.
+ * Historical native profiles using only optional env credentials keep working.
+ */
+export function allowsEnvironmentOptionalCredentials(
+  config: Pick<PluginConfig, "runtimeSource">,
+  selectedEndpoint: string,
+): boolean {
+  if (config.runtimeSource !== "native" || !hasRuntimeEnvironmentOverrides()) return true;
+  const environmentEndpoint = process.env.OMP_OMNIROUTE_BASE_URL?.trim();
+  if (!environmentEndpoint) return false;
+  try {
+    return validateEndpoint(environmentEndpoint, true) === validateEndpoint(selectedEndpoint, true);
+  } catch {
+    return false;
+  }
+}
+
+export function resolveEnvironmentBinding(config?: Pick<PluginConfig, "allowInsecureHttp" | "runtimeSource">): EnvironmentBinding | undefined {
+  if (config?.runtimeSource === "native") return undefined;
   const key = process.env.OMP_OMNIROUTE_API_KEY?.trim() || undefined;
   const preferredUrl = process.env.OMP_OMNIROUTE_BASE_URL?.trim() || undefined;
   const hasKey = key !== undefined;

@@ -4,7 +4,7 @@ import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
 import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
-import { type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
+import { allowsEnvironmentOptionalCredentials, type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
 import { loadCatalogMetadata, getCatalogSourceStatus, type CatalogMetadataSnapshot } from "./catalog-sources.ts";
 import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./health.ts";
@@ -70,11 +70,8 @@ function notify(context: ExtensionContext | undefined, text: string, type: "info
 	if (context.hasUI) context.ui.notify(safe, type);
 	else process.stderr.write(`${safe}\n`);
 }
-function envBinding(allowInsecureHttp = false): { endpoint: string; credential: string; generation: number } | undefined {
-	const key = process.env[RUNTIME_ENV]?.trim();
-	const configuredUrl = process.env.OMP_OMNIROUTE_BASE_URL?.trim();
-	if (!key && !configuredUrl) return undefined;
-	const binding = resolveEnvironmentBinding({ allowInsecureHttp });
+function envBinding(config: PluginConfig): { endpoint: string; credential: string; generation: number } | undefined {
+	const binding = resolveEnvironmentBinding(config);
 	if (!binding) return undefined;
 	return { endpoint: binding.endpoint, credential: binding.credential.value, generation: binding.generation };
 }
@@ -87,10 +84,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		config = await loadConfig();
 	} catch (error) {
 		const reason = safeDetail(error);
-		pi.registerCommand("cruxomni", {
+		const diagnosticCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 			description: `${DISPLAY_NAME} configuration diagnostics`,
 			handler: async (_args, ctx) => notify(ctx, `${DISPLAY_NAME}: configuration blocked (${reason}). Repair the private omniroute/config.json in this OMP profile, then restart. No credentials or requests were sent.`, "warning"),
-		});
+		};
+		pi.registerCommand("omniroute", diagnosticCommand);
+		pi.registerCommand("cruxomni", diagnosticCommand);
 		return;
 	}
 	let pricing: SellerPricing | undefined;
@@ -192,21 +191,25 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		}).join(", ");
 	};
 	const discover = async (binding: DiscoveryBinding, signal: AbortSignal) => {
-		const source = runtimeEnvironment ? resolveEnvironmentBinding(config) : config.pending ?? config.active;
+		const sourceConfig = config;
+		const source = runtimeEnvironment ? resolveEnvironmentBinding(sourceConfig) : sourceConfig.pending ?? sourceConfig.active;
 		const metadataBinding = source?.endpoint === binding.endpoint
 			? { endpoint: binding.endpoint, generation: source.generation }
 			: undefined;
-		const pricingFile = config.pricingFile ?? process.env[PRICING_ENV]?.trim();
-		const environmentMetadataKey = process.env[METADATA_ENV]?.trim();
-		const rememberedMetadata = config.optionalCredentials?.metadata?.state === "ready";
+		const pricingFile = sourceConfig.pricingFile ?? process.env[PRICING_ENV]?.trim();
+		const environmentMetadataKey = (): string | undefined => metadataBinding && allowsEnvironmentOptionalCredentials(sourceConfig, binding.endpoint)
+			? process.env[METADATA_ENV]?.trim()
+			: undefined;
+		const initialEnvironmentMetadataKey = environmentMetadataKey();
+		const rememberedMetadata = sourceConfig.optionalCredentials?.metadata?.state === "ready";
 		const sessionMetadata = metadataBinding !== undefined && optionalCredentials.hasSession("metadata", metadataBinding);
 		const requestSignal = startupSignal ? AbortSignal.any([signal, startupSignal]) : signal;
 		const limits = { totalBudgetMs: 10_000, maxBytes: MAX_BODY_BYTES, maxDepth: MAX_JSON_DEPTH };
 		const retry = { maxRetries: 1, safeRead: true, retryStatuses: [429, 502, 503, 504] as const };
 		const live = await requestJson(modelsUrl(binding.endpoint), binding.credential, limits, requestSignal, retry);
 		const projection = projectCatalog(live);
-		const catalogSources = config.catalogSources ?? [];
-		if (!pricingFile && !environmentMetadataKey && !rememberedMetadata && !sessionMetadata && catalogSources.length === 0) return { projection };
+		const catalogSources = sourceConfig.catalogSources ?? [];
+		if (!pricingFile && !initialEnvironmentMetadataKey && !rememberedMetadata && !sessionMetadata && catalogSources.length === 0) return { projection };
 		const enrichment = (async (): Promise<CatalogProjection> => {
 			const optionalSignal = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
 			let pricingError = false;
@@ -219,14 +222,15 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				? readSellerPricing(pricingFile).catch(() => { pricingError = true; return undefined; })
 				: Promise.resolve(undefined);
 			const metadataPromise = (async (): Promise<unknown> => {
-				if (!environmentMetadataKey && !rememberedMetadata && !sessionMetadata) return undefined;
+				if (!environmentMetadataKey() && !rememberedMetadata && !sessionMetadata) return undefined;
 				availability = "checking";
 				if (manager.currentBinding?.generation === binding.generation) metadataState = availability;
 				try {
-					const owner = environmentMetadataKey ? undefined : await metadataContext(optionalSignal);
+					const environmentMetadata = environmentMetadataKey();
+					const owner = environmentMetadata ? undefined : await metadataContext(optionalSignal);
 					const credential = metadataBinding
 						? await optionalCredentials.resolve("metadata", metadataBinding, owner?.modelRegistry.authStorage,
-							environmentMetadataKey ? { kind: "apiKey", value: environmentMetadataKey } : undefined)
+							environmentMetadata ? { kind: "apiKey", value: environmentMetadata } : undefined)
 						: undefined;
 					const key = credential?.value;
 					if (!key) {
@@ -238,14 +242,14 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					const credentialSignal = optionalCredentials.getSignal("metadata");
 					metadataIsCurrent = () => !stopped && !credentialSignal.aborted
 						&& optionalCredentials.getEpoch("metadata") === epoch
-						&& process.env[METADATA_ENV]?.trim() === environmentMetadataKey;
+						&& environmentMetadataKey() === environmentMetadata;
 					const metadataSignal = AbortSignal.any([optionalSignal, credentialSignal]);
 					const value = await requestJson(`${endpointRoot(binding.endpoint)}/api/models/catalog`, key,
 						{ ...limits, totalBudgetMs: 5_000 }, metadataSignal, retry);
 					if (!metadataIsCurrent()) throw new TransportError("aborted", "metadata credential changed");
 					availability = "available";
 					return value;
-				} catch {
+				} catch (error) {
 					metadataError = "metadata_unavailable";
 					availability = "unavailable";
 					return undefined;
@@ -363,7 +367,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		if (administration) await administration.synchronize(source);
 		else if (source.adminEnabled) await ensureAdministration();
 	};
-	pi.registerCommand("cruxomni-admin", {
+	const administrationCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 		description: "Inspect, enable, and human-confirm optional OmniRoute operations",
 		handler: async (args, ctx) => {
 			setContext(ctx);
@@ -373,7 +377,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				const command = args.trim().split(/\s+/, 1)[0] ?? "";
 				if (command === "status" || command === "help" || (!source.adminEnabled && command !== "enable")) {
 					if (administration) await administration.synchronize(source);
-					notify(ctx, `omniroute operations: ${source.adminEnabled ? "enabled" : "disabled"}; /cruxomni-admin enable, disable, or search; mutations require an interactive human confirmation`);
+					notify(ctx, `omniroute operations: ${source.adminEnabled ? "enabled" : "disabled"}; /omniroute-admin enable, disable, or search; mutations require an interactive human confirmation`);
 					return;
 				}
 				const runtime = await ensureAdministration();
@@ -382,7 +386,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				notify(ctx, `omniroute operations unavailable (${safeDetail(error)}); no request was sent`, "warning");
 			}
 		},
-	});
+	};
+	pi.registerCommand("omniroute-admin", administrationCommand);
+	pi.registerCommand("cruxomni-admin", administrationCommand);
 	function publishCurrent(): void {
 		if (stopped) return;
 		const binding = manager.currentBinding;
@@ -414,7 +420,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			const loaded = await loadConfig();
 			const active = resolveEnvironmentBinding(loaded) ?? loaded.active;
 			if (active) {
-				const environment = process.env[METADATA_ENV]?.trim();
+				const environment = allowsEnvironmentOptionalCredentials(loaded, active.endpoint)
+					? process.env[METADATA_ENV]?.trim()
+					: undefined;
 				await optionalCredentials.resolve("metadata", active, storage,
 					environment ? { kind: "apiKey", value: environment } : undefined);
 			}
@@ -450,7 +458,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			const loaded = await loadConfig();
 			config = loaded;
 			await synchronizeAdministration(config);
-			const environment = envBinding(config.allowInsecureHttp);
+			const environment = envBinding(config);
 			const pending = environment ? undefined : config.pending;
 			const active = environment ?? config.active;
 			runtimeEnvironment = environment !== undefined;
@@ -473,10 +481,11 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				return { pendingValidated: false };
 			}
 			const credential = environment?.credential ?? (ctx
-				? await resolveRuntimeCredential(ctx.modelRegistry)
+				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
 				: await resolveStartupRuntimeCredential(
 					() => pi.pi.discoverAuthStorage(),
 					startupSignal ?? AbortSignal.timeout(10_000),
+					loaded,
 				));
 			const confirmed = await loadConfig();
 			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
@@ -496,7 +505,13 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				if (!validation || validation.stale || revision !== credentialRevision) {
 					throw Object.assign(new Error("pending validation did not return a current live catalog"), { code: "pending_validation_failed" });
 				}
-				await recoverPendingAfterPersistence(ctx?.modelRegistry ?? { getApiKeyForProvider: () => credential }, candidateKey);
+				if (ctx) {
+					await recoverPendingAfterPersistence(ctx.modelRegistry, candidateKey);
+				} else {
+					manager.reset();
+					publishCurrent();
+					return { pendingValidated: false };
+				}
 				config = await loadConfig();
 				if (config.pending || !config.active || config.active.endpoint !== manager.currentBinding?.endpoint || revision !== credentialRevision) {
 					throw Object.assign(new Error("pending binding changed during validation"), { code: "binding_changed" });
@@ -552,8 +567,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		if (stopped) return;
 		if (!manager.currentBinding) {
 			if (manual) notify(ctx, config.pending
-				? "cruxomni: setup is pending native persistence; sign in again if the previous process was interrupted, then /cruxomni refresh"
-				: "cruxomni: setup required; use native sign-in, then /cruxomni refresh", "info");
+					? "omniroute: setup is pending native persistence; sign in again if the previous process was interrupted, then /omniroute refresh"
+					: "omniroute: setup required; use native sign-in, then /omniroute refresh", "info");
 			return;
 		}
 		try {
@@ -575,7 +590,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			await synchronizeAdministration(await loadConfig());
 		},
 	});
-	pi.registerCommand("cruxomni", {
+	const providerCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 		description: "Refresh or inspect OmniRoute provider state",
 		handler: async (args, ctx) => {
 			setContext(ctx);
@@ -598,8 +613,10 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				notify(ctx, `omniroute: ${status.state}; models=${status.modelCount}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}; catalogs=${catalogStatus()}`);
 			}
 		},
-	});
-	pi.registerCommand("cruxomni-pricing", {
+	};
+	pi.registerCommand("omniroute", providerCommand);
+	pi.registerCommand("cruxomni", providerCommand);
+	const pricingCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 		description: "Inspect source-backed OmniRoute pricing",
 		handler: async (args, ctx) => {
 			const file = config.pricingFile ?? process.env[PRICING_ENV]?.trim();
@@ -610,7 +627,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			else if (inspection) notify(ctx, `omniroute pricing ${modelId}: ${inspection.state}; fields=${JSON.stringify(inspection.fields)}; cost=${JSON.stringify(inspection.cost)}; reasons=${inspection.reasons.join(",")}; ${PRICING_WARNING}`);
 			else notify(ctx, `omniroute pricing: ${pricingCurrent ? "current file" : "unavailable"}; ${PRICING_WARNING}`);
 		},
-	});
+	};
+	pi.registerCommand("omniroute-pricing", pricingCommand);
+	pi.registerCommand("cruxomni-pricing", pricingCommand);
 
 	pi.on("session_start", async (_event, ctx) => {
 		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
@@ -621,8 +640,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		await refresh(ctx, false);
 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
 		transitionNotifications = settings.notifyTransitions !== false;
-		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config.allowInsecureHttp)) {
-			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /cruxomni setup. You can open setup at any time.`);
+		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config)) {
+			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /omniroute setup. You can open setup at any time.`);
 			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
 		}
 	});

@@ -1,7 +1,7 @@
 import { Input } from "@oh-my-pi/pi-tui";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { DISPLAY_NAME } from "./identity.ts";
-import { loadConfig, updateConfig, resolveEnvironmentBinding, validateEndpoint, type CredentialDomain } from "./config.ts";
+import { allowsEnvironmentOptionalCredentials, isEnvironmentRuntimeSelected, loadConfig, updateConfig, resolveEnvironmentBinding, resolveEnvironmentEndpointPrefill, validateEndpoint, type CredentialDomain } from "./config.ts";
 import { OptionalCredentials, type CredentialBinding, type OptionalCredential } from "./credentials.ts";
 import { readSellerPricing } from "./pricing.ts";
 import { CATALOG_SOURCE_IDS, getCatalogSourceStatus, type CatalogSourceId } from "./catalog-sources.ts";
@@ -37,26 +37,39 @@ function errorCode(error: unknown): string {
 
 export async function setupConnection(context: ExtensionContext, services: SetupServices): Promise<void> {
   const config = await loadConfig();
-  if (resolveEnvironmentBinding(config)) { info(context, "Connection is externally managed. Remove the paired environment overrides to use native login."); return; }
-  const endpoint = await promptSetup(context, "Gateway URL", false, config.setupDraft ?? config.active?.endpoint ?? "");
+  const environmentSelected = isEnvironmentRuntimeSelected(config);
+  const endpointInitial = config.runtimeSource === "native"
+    ? config.pending?.endpoint ?? config.active?.endpoint ?? config.setupDraft ?? ""
+    : environmentSelected
+      ? resolveEnvironmentEndpointPrefill(config) ?? config.setupDraft ?? config.active?.endpoint ?? ""
+      : config.setupDraft ?? config.active?.endpoint ?? "";
+  const endpoint = await promptSetup(context, "Gateway URL", false, endpointInitial);
   if (!endpoint) return;
   validateEndpoint(endpoint, true);
   let key = await promptSetup(context, "Runtime API key", true);
   if (!key) return;
   let insecureConsent = config.allowInsecureHttp;
   try {
-    if (!(await context.ui.confirm("Save connection and continue", `Validate ${endpoint} and remember the runtime key using OMP's native credential store?`))) return;
+    const detail = environmentSelected
+      ? `Use ${endpoint} for this OMP profile and remember the new runtime key using OMP's native credential store? This replaces the environment connection for this profile; environment variables remain unchanged.`
+      : `Validate ${endpoint} and remember the runtime key using OMP's native credential store?`;
+    if (!(await context.ui.confirm(environmentSelected ? "Replace environment connection" : "Save connection and continue", detail))) return;
+    const switchApproved = environmentSelected;
     await context.modelRegistry.authStorage.oauth.login("omniroute", {
       onAuth() {},
       onPrompt: async prompt => {
+        if (prompt.placeholder === "yes/no") {
+          if (prompt.message.startsWith("Use a native OmniRoute profile connection")) return switchApproved ? "yes" : "no";
+          if (prompt.message.startsWith("Allow insecure remote HTTP")) {
+            insecureConsent = await context.ui.confirm("Insecure transport", prompt.message);
+            return insecureConsent ? "yes" : "no";
+          }
+          // The setup flow does not silently accept an unverified endpoint.
+          if (prompt.message.includes("unreachable")) return "no";
+          throw new Error("unsupported native sign-in confirmation");
+        }
         if (prompt.secret) return key!;
         if (prompt.message === "OmniRoute base URL") return endpoint;
-        if (prompt.message.startsWith("Allow insecure remote HTTP")) {
-          insecureConsent = await context.ui.confirm("Insecure transport", prompt.message);
-          return insecureConsent ? "yes" : "no";
-        }
-        // The wizard never stores a runtime key against an unverified offline endpoint.
-        if (prompt.message.includes("unreachable")) return "no";
         throw new Error("unsupported native sign-in prompt");
       },
     });
@@ -66,7 +79,7 @@ export async function setupConnection(context: ExtensionContext, services: Setup
     await updateConfig(current => { const next = { ...current, invitationDismissed: true }; delete next.setupDraft; return next; });
     info(context, `Connection saved. ${services.status()}`);
   } catch (error) {
-    info(context, `Connection not completed (${errorCode(error)}). Saved sections remain unchanged; pending native persistence requires fresh sign-in.`, true);
+    info(context, `Connection not completed (${errorCode(error)}). Environment values were not changed; pending native persistence remains fail-closed until a fresh sign-in.`, true);
     const current = await loadConfig();
     if (!current.pending && errorCode(error) === "network-failure" && await context.ui.confirm("Save URL draft", "Save only this URL for a later attempt? No runtime key will be saved by this draft.")) {
       await updateConfig(value => ({ ...value, allowInsecureHttp: insecureConsent, setupDraft: validateEndpoint(endpoint, insecureConsent) }));
@@ -84,8 +97,11 @@ async function effectiveBinding(): Promise<CredentialBinding | undefined> {
 async function credentialSection(context: ExtensionContext, services: SetupServices, domain: CredentialDomain): Promise<void> {
   const binding = await effectiveBinding();
   if (!binding) { info(context, "Save a runtime connection first.", true); return; }
-  const external = domain === "metadata" ? process.env.OMP_OMNIROUTE_METADATA_API_KEY : process.env.OMP_OMNIROUTE_ADMIN_API_KEY || process.env.OMP_OMNIROUTE_ADMIN_COOKIE;
   const config = await loadConfig();
+  const allowEnvironment = allowsEnvironmentOptionalCredentials(config, binding.endpoint);
+  const external = allowEnvironment
+    ? domain === "metadata" ? process.env.OMP_OMNIROUTE_METADATA_API_KEY : process.env.OMP_OMNIROUTE_ADMIN_API_KEY || process.env.OMP_OMNIROUTE_ADMIN_COOKIE
+    : undefined;
   const ref = config.optionalCredentials?.[domain];
   if (external) { info(context, `${domain} credential is externally managed; the wizard will not replace it.`); }
   else {
@@ -191,7 +207,7 @@ function catalogSourceSummary(sources: readonly CatalogSourceId[]): string {
 export function createSetupWizard(services: SetupServices): (context: ExtensionContext) => Promise<void> {
   let busy = false;
   return async context => {
-    if (context.mode !== "tui") { if (context.hasUI) info(context, "Run /cruxomni setup in an interactive OMP terminal.", true); return; }
+    if (context.mode !== "tui") { if (context.hasUI) info(context, "Run /omniroute setup in an interactive OMP terminal.", true); return; }
     if (busy) { info(context, "Setup is already open.", true); return; }
     busy = true;
     try {

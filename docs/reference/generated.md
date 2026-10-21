@@ -4,7 +4,7 @@
 
 ## Version and compatibility
 
-Source version: **1.0.0**. This identifies checkout source, not an npm publication or a completed platform qualification.
+Source version: **1.0.1**. This identifies checkout source, not an npm publication or a completed platform qualification.
 
 | Component | Declared source | Meaning |
 | --- | --- | --- |
@@ -20,6 +20,9 @@ Source version: **1.0.0**. This identifies checkout source, not an npm publicati
 | `/cruxomni` |
 | `/cruxomni-admin` |
 | `/cruxomni-pricing` |
+| `/omniroute` |
+| `/omniroute-admin` |
+| `/omniroute-pricing` |
 
 ## Operation inventory
 

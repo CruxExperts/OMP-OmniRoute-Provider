@@ -15,17 +15,17 @@ preserving model names and native credential identity.
 
 ## Install the GitHub release
 
-Install the pinned `1.0.0` GitHub source tag through OMP's native plugin installer:
+Install the pinned `1.0.1` GitHub source tag through OMP's native plugin installer:
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.0
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.1
 ```
 
-Restart OMP and run `/cruxomni setup`. This command installs from GitHub; it does
+Restart OMP and run `/omniroute setup`. This command installs from GitHub; it does
 not use the npm registry. The release includes a `.tgz` package artifact for
 verification and tooling, but a raw tarball URL is not the documented OMP plugin
-install target. See the [release notes](../CHANGELOG.md#100--2026-10-21) for the
-qualified administration subset and platform limits.
+install target. See the [release notes](../CHANGELOG.md#101--2026-10-21) for the
+provider selector label and the unchanged administration and platform limits.
 
 OMP supplies its SDK modules from the running host. Their package-manager peer
 entries are marked optional so installation does not download a second SDK;
@@ -55,13 +55,16 @@ Restart OMP after changing a local plugin link.
 Run this command in an interactive OMP terminal:
 
 ```text
-/cruxomni setup
+/omniroute setup
 ```
 
 The wizard has independent sections:
 
 1. **Connection** asks for a gateway URL and runtime API key. The key is
-   entered in a masked prompt and handed to OMP's native credential store.
+   entered in a masked prompt and handed to OMP's native credential store. If
+   runtime environment variables are active, the wizard asks for confirmation
+   after you enter the target URL and key. Approving selects the profile's
+   native connection without changing environment variables.
 2. **Metadata (optional)** stores a separate API key or keeps it session-only.
 3. **Catalogs (optional)** opts into Models.dev or OpenRouter metadata without
    sharing a runtime, metadata, or administration credential.
@@ -76,7 +79,7 @@ earlier saved sections. An offline or malformed endpoint cannot be reported as
 success; a URL-only draft may be saved without a runtime key for later setup.
 Native login activates a connection only after the key is persisted and live
 validation succeeds. An interrupted pending login remains auth-only and needs
-a fresh sign-in; `/cruxomni refresh` forces rediscovery of an active connection.
+a fresh sign-in; `/omniroute refresh` forces rediscovery of an active connection.
 Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.
@@ -102,7 +105,7 @@ to request enrichment with the replacement credential.
 
 ## Optional metadata catalogs
 
-Open **Catalogs (optional)** in `/cruxomni setup`, then choose **Enable
+Open **Catalogs (optional)** in `/omniroute setup`, then choose **Enable
 models.dev** or **Enable OpenRouter**. Both are disabled by default. A change
 refreshes the client, publishing live models before optional enrichment finishes.
 Only the selected source IDs are saved in the version-2 `catalogSources` field;
@@ -118,7 +121,7 @@ Requests omit credentials and cookies, reject redirects, and have a five-second
 deadline, an 8-MiB body ceiling, and a JSON depth limit of 24. Successful snapshots
 are shared in memory for 24 hours and revalidated on demand, never by a heartbeat.
 Expired snapshots cannot enrich a new projection until revalidation succeeds.
-`/cruxomni` and the setup summary show each enabled source's age, usable/stale/
+`/omniroute` and the setup summary show each enabled source's age, usable/stale/
 unavailable state, and bounded error code without starting another request.
 
 Only `/v1/models` supplies runnable identities. Metadata must match the exact
@@ -142,16 +145,28 @@ package retains synthetic parser fixtures, not redistributed catalog rows.
 
 ## Environment-managed mode
 
-For an intentionally read-only binding, set both variables:
+For an environment-managed connection, set both variables:
 
 ```bash
 export OMP_OMNIROUTE_BASE_URL="https://gateway.example"
 export OMP_OMNIROUTE_API_KEY="$RUNTIME_KEY"
 ```
 
-A partial pair fails closed. Environment mode takes precedence over profile
-setup and cannot be edited by the wizard. Administration credentials remain separate:
-`OMP_OMNIROUTE_ADMIN_API_KEY` or `OMP_OMNIROUTE_ADMIN_COOKIE`.
+A partial pair fails closed. The pair remains authoritative until you explicitly
+approve switching this OMP profile through `/omniroute setup` or native `/login`.
+The switch stores the newly entered key through OMP's native credential store,
+persists that native choice for this profile, and leaves environment variables
+unchanged. A missing native key fails closed rather than falling back to the old
+environment key. If runtime environment variables are present, optional metadata
+and administration environment credentials are used only when the environment
+base URL matches the selected native endpoint. With no runtime environment
+variables, optional-only environment credentials remain supported.
+Administration credentials remain separate: `OMP_OMNIROUTE_ADMIN_API_KEY` or
+`OMP_OMNIROUTE_ADMIN_COOKIE`.
+
+The primary commands are `/omniroute`, `/omniroute-admin`, and
+`/omniroute-pricing`. The older `/cruxomni`, `/cruxomni-admin`, and
+`/cruxomni-pricing` forms continue to work as compatibility aliases.
 
 ## What is stored
 

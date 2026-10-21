@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual, stripVTControlCharacters } from "node:util";
-import { DISPLAY_NAME } from "../src/identity.ts";
+import { DISPLAY_NAME, PROVIDER_LIST_NAME } from "../src/identity.ts";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
 
 type JsonObject = Record<string, unknown>;
@@ -60,6 +60,7 @@ const packageName = "@cruxexperts/cruxomni-omp-client";
 const runtimeKey = "fixture-only-runtime-key";
 const adminKey = "fixture-only-admin-key";
 const metadataKey = "fixture-only-metadata-key";
+const oldEnvKey = "fixture-only-old-environment-key";
 const providerId = "omniroute";
 const responsesModelId = "fixture-responses-model";
 const chatModelId = "fixture-chat-model";
@@ -818,9 +819,18 @@ export function nativePtyDialogueText(text: string): string {
 }
 
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
+export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no\b/i;
 export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
 export const nativeAdminUnknownOutcomePattern = /administration outcome is unknown; reconcile before retrying \(([a-z0-9-]+)\)/i;
 export const nativeAdminEmptyFallbackReadPattern = /read result for GET \/api\/fallback\/chains:[ \t]*\{[ \t]*\}/i;
+
+export function nativeLoginSelectorShowsProvider(output: string): boolean {
+  const visible = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
+  const switchPrompt = visible.indexOf("Use a native OmniRoute profile connection instead of the environment connection?");
+  if (switchPrompt < 0) return false;
+  const selector = visible.lastIndexOf("Select provider to login", switchPrompt);
+  return selector >= 0 && visible.slice(selector, switchPrompt).includes(PROVIDER_LIST_NAME);
+}
 
 export function nativeAdminNewPlanPattern(previousId: string): RegExp {
   return new RegExp(`plan ((?!${escapeRegExp(previousId)}\\b)[a-z0-9-]+) created`, "i");
@@ -954,13 +964,14 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
   });
   if (options.dialogue) {
     dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, _index, text) => {
+      if (text === "__OBSERVE_ONLY__") return;
       if (text === "__SIGTERM__") {
         child?.kill("SIGTERM");
         return;
       }
       if (text === "__REFRESH_AND_STOP__") {
         if (terminal.closed) throw new Error("terminal closed before refresh dialogue input was written");
-        await writeInput(terminal, "/cruxomni refresh\n");
+        await writeInput(terminal, "/omniroute refresh\n");
         setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
         return;
       }
@@ -1009,7 +1020,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
 
 
 function requireSuccess(result: CommandResult, label: string): string {
-  if ([runtimeKey, adminKey, metadataKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error(`${label} leaked fixture credentials`);
+  if ([runtimeKey, adminKey, metadataKey, oldEnvKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error(`${label} leaked fixture credentials`);
   if (result.code !== 0) throw new Error(`${label} failed with exit ${result.code ?? "unknown"}: ${`${result.stdout}\n${result.stderr}`.slice(-2000)}`);
   return `${result.stdout}\n${result.stderr}`;
 }
@@ -1049,7 +1060,7 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
 
 async function nativeWizardCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ rendered: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/cruxomni setup\n", afterMs: 4_000 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/omniroute setup\n", afterMs: 4_000 },
     { when: new RegExp(`${DISPLAY_NAME}\\s+—\\s+Setup`, "i"), text: "\u001b", afterMs: 500 },
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
@@ -1069,54 +1080,68 @@ async function nativeWizardCancel(binary: string, cwd: string, environment: Node
   return { rendered, cancelled };
 }
 
-async function nativePromptSetup(binary: string, cwd: string, environment: NodeJS.ProcessEnv, fixtureUrl: string): Promise<{ masked: boolean }> {
+async function nativePromptSetup(
+  binary: string,
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  fixtureUrl: string,
+  environmentFixture: FixtureServer,
+): Promise<{ masked: boolean; postSwitchEnvironmentRequestIndex: number }> {
   const scriptedInput = process.env.OMP_SMOKE_NATIVE_INPUTS;
-  const dialogue = scriptedInput
-    ? undefined
-    : [
-        { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login\n", afterMs: 4_000 },
-        { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
-        { when: /OmniRoute base URL/i, text: `${fixtureUrl}\n`, afterMs: 250 },
-        { when: /OmniRoute API key/i, text: `${runtimeKey}\n`, afterMs: 250 },
-        { when: /Successfully logged in to omniroute/i, text: "__REFRESH_AND_STOP__", afterMs: 1_500 },
-      ];
-  const result = scriptedInput
-    ? await runPtyCommand(binary, {
-        cwd,
-        env: environment,
-        timeoutMs: 75_000,
-        inputSteps: [{ afterMs: 1_000, text: scriptedInput }],
-      })
-    : await runPtyCommand(binary, {
-        cwd,
-        env: environment,
-        timeoutMs: 75_000,
-        dialogue: dialogue!,
-      });
+  const scripted = Boolean(scriptedInput);
+  const environmentRequestStart = environmentFixture.requests.length;
+  let postSwitchEnvironmentRequestIndex: number | undefined;
+  const dialogue: DialogueStep[] = [
+    { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login\n", afterMs: scripted ? 0 : 4_000 },
+    { when: /Select provider to login[\s\S]*?Type to search/i, text: scripted ? "__OBSERVE_ONLY__" : "omniroute\n", afterMs: scripted ? 0 : 250 },
+    { when: nativeEnvironmentSwitchConfirmationPattern, text: scripted ? "__OBSERVE_ONLY__" : "yes\n", afterMs: scripted ? 0 : 250 },
+    { when: /OmniRoute base URL/i, text: scripted ? "__OBSERVE_ONLY__" : `${fixtureUrl}\n`, afterMs: scripted ? 0 : 250 },
+    { when: /OmniRoute API key/i, text: scripted ? "__OBSERVE_ONLY__" : `${runtimeKey}\n`, afterMs: scripted ? 0 : 250 },
+    {
+      when: /Successfully logged in to omniroute/i,
+      text: () => {
+        postSwitchEnvironmentRequestIndex = environmentFixture.requests.length;
+        return "__REFRESH_AND_STOP__";
+      },
+      afterMs: 0,
+    },
+  ];
+  const result = await runPtyCommand(binary, {
+    cwd,
+    env: environment,
+    timeoutMs: 75_000,
+    dialogue,
+    ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
+  });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
-  if (result.stdout.includes(runtimeKey) || result.stderr.includes(runtimeKey)) throw new Error("native provider setup leaked fixture credentials");
-  const controlledStop = result.signal === "SIGTERM" || (result.code === 143 && (!dialogue || result.dialogueCompleted === dialogue.length));
+  if ([runtimeKey, oldEnvKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error("native provider setup leaked fixture credentials");
+  const controlledStop = result.signal === "SIGTERM" || (result.code === 143 && result.dialogueCompleted === dialogue.length);
   if (result.code !== 0 && !controlledStop) throw new Error(`native provider setup failed with exit ${result.code ?? "unknown"}`);
-  if (dialogue && result.dialogueCompleted !== dialogue.length) {
-    const safeTail = output.replaceAll(runtimeKey, "[redacted]").replaceAll(adminKey, "[redacted]").slice(-2_000);
+  if (result.dialogueCompleted !== dialogue.length || postSwitchEnvironmentRequestIndex === undefined) {
+    const safeTail = output.replaceAll(runtimeKey, "[redacted]").replaceAll(oldEnvKey, "[redacted]").replaceAll(adminKey, "[redacted]").slice(-2_000);
     throw new Error(`native provider setup did not complete its prompt sequence (dialogue ${result.dialogueCompleted}/${dialogue.length}): ${safeTail}`);
+  }
+  if (!nativeLoginSelectorShowsProvider(output)) throw new Error(`native provider selector did not show ${PROVIDER_LIST_NAME}`);
+  const oldConnectionRequests = environmentFixture.requests.slice(environmentRequestStart, postSwitchEnvironmentRequestIndex);
+  if (oldConnectionRequests.length === 0 || oldConnectionRequests.some(request => request.authorization !== `Bearer ${oldEnvKey}`)) {
+    throw new Error("native /login did not use the configured environment URL with its old fixture key before switching");
   }
   if (!/omniroute/i.test(output) || !/base url|api key/i.test(output)) throw new Error("native setup output did not identify the OmniRoute selector/prompts");
   const masked = /\*{3,}|•{3,}|secret|masked|hidden/i.test(output);
   if (!masked) throw new Error("native API-key prompt did not expose a masked/secret indicator");
-  return { masked };
+  return { masked, postSwitchEnvironmentRequestIndex };
 }
 
 async function nativeAdminWalkthrough(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<void> {
   const prompt = nativeAdminPromptPattern;
   const dialogue = [
-    { when: prompt, text: "/cruxomni-admin status\n", afterMs: 6_000 },
-    { when: prompt, text: "/cruxomni-admin enable\n", afterMs: 500 },
+    { when: prompt, text: "/omniroute-admin status\n", afterMs: 6_000 },
+    { when: prompt, text: "/omniroute-admin enable\n", afterMs: 500 },
     { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
-    { when: prompt, text: "/cruxomni-admin fallback/chains\n", afterMs: 500 },
+    { when: prompt, text: "/omniroute-admin fallback/chains\n", afterMs: 500 },
     { when: /Administration category[\s\S]{0,1000}api\/fallback/i, text: "\n", afterMs: 250 },
     { when: availableOperationMenuPattern("api/fallback", "GET /api/fallback/chains"), text: "__ESC__", afterMs: 500 },
-    { when: prompt, text: "/cruxomni-admin model-capability-overrides\n", afterMs: 500 },
+    { when: prompt, text: "/omniroute-admin model-capability-overrides\n", afterMs: 500 },
     { when: /Administration category[\s\S]{0,1000}api\/model-capability-overrides/i, text: "\n", afterMs: 250 },
     { when: availableOperationMenuPattern("api/model-capability-overrides", "GET /api/model-capability-overrides"), text: "__ESC__", afterMs: 500 },
     { when: prompt, text: "__SIGTERM__", afterMs: 250 },
@@ -1184,28 +1209,28 @@ async function nativeAdministrationIo(
     if (!id || !/^[a-z0-9-]+$/.test(id)) throw new Error("native administration plan ID was not captured");
     if (planIds.length >= 2 || planIds.includes(id)) throw new Error("native administration did not create two distinct plans");
     planIds.push(id);
-    return `/cruxomni-admin apply ${id}\n`;
+    return `/omniroute-admin apply ${id}\n`;
   };
   const unknownOutcomeFor = (index: number): RegExp =>
     new RegExp(`administration outcome is unknown; reconcile before retrying \\(${escapeRegExp(planIds[index] ?? "__missing__")}\\)`, "i");
   const dialogue: DialogueStep[] = [
-    { when: nativeAdminPromptPattern, text: "/cruxomni-admin enable\n", afterMs: 6_000 },
+    { when: nativeAdminPromptPattern, text: "/omniroute-admin enable\n", afterMs: 6_000 },
     { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
-    { when: /administration enabled for exact endpoint/i, text: `/cruxomni-admin ${readId}\n`, afterMs: 500 },
+    { when: /administration enabled for exact endpoint/i, text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
-    { when: /read result for GET \/api\/fallback\/chains/i, text: `/cruxomni-admin ${postId}\n`, afterMs: 500 },
+    { when: /read result for GET \/api\/fallback\/chains/i, text: `/omniroute-admin ${postId}\n`, afterMs: 500 },
     { when: /Validated JSON input for POST \/api\/fallback\/chains/i, text: input({ body: { model: adminFallbackModel, chain: adminFallbackChain } }), afterMs: 250 },
     { when: /plan ([a-z0-9-]+) created/i, text: planCommand, afterMs: 500 },
     { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
     { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
-    { when: () => unknownOutcomeFor(0), text: `/cruxomni-admin ${readId}\n`, afterMs: 500 },
+    { when: () => unknownOutcomeFor(0), text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
-    { when: new RegExp(`read result for ${escapeRegExp(readId)}:[\\s\\S]{0,1500}${escapeRegExp(adminFallbackModel)}[\\s\\S]{0,1500}${escapeRegExp(adminFallbackChain[0]!.provider)}`, "i"), text: `/cruxomni-admin ${deleteId}\n`, afterMs: 500 },
+    { when: new RegExp(`read result for ${escapeRegExp(readId)}:[\\s\\S]{0,1500}${escapeRegExp(adminFallbackModel)}[\\s\\S]{0,1500}${escapeRegExp(adminFallbackChain[0]!.provider)}`, "i"), text: `/omniroute-admin ${deleteId}\n`, afterMs: 500 },
     { when: /Validated JSON input for DELETE \/api\/fallback\/chains/i, text: input({ body: { model: adminFallbackModel } }), afterMs: 250 },
     { when: () => nativeAdminNewPlanPattern(planIds[0] ?? "__missing__"), text: planCommand, afterMs: 500 },
     { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
     { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
-    { when: () => unknownOutcomeFor(1), text: `/cruxomni-admin ${readId}\n`, afterMs: 500 },
+    { when: () => unknownOutcomeFor(1), text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
     { when: nativeAdminEmptyFallbackReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
@@ -1608,6 +1633,7 @@ export async function runSmoke(): Promise<SmokeResult> {
   const profile = join(root, "profile");
   const environment = cleanEnvironment(process.env, profile);
   const fixture = await startFixtureServer();
+  let environmentFixture: FixtureServer | undefined;
   let packageEvidence: PackageVerificationResult | undefined;
   try {
     await mkdir(profile, { recursive: true });
@@ -1669,11 +1695,17 @@ export async function runSmoke(): Promise<SmokeResult> {
     requireSuccess(setupVersion, "setup version initialization");
     const cancelled = await nativePromptCancel(binary, workspace, nativeEnvironment);
     const wizard = await nativeWizardCancel(binary, workspace, nativeEnvironment);
-    const nativeSetup = await nativePromptSetup(binary, workspace, nativeEnvironment, fixture.url);
+    environmentFixture = await startFixtureServer();
+    const environmentA = {
+      ...nativeEnvironment,
+      OMP_OMNIROUTE_BASE_URL: environmentFixture.url,
+      OMP_OMNIROUTE_API_KEY: oldEnvKey,
+    };
+    const nativeSetup = await nativePromptSetup(binary, workspace, environmentA, fixture.url, environmentFixture);
     const persistedChatCompletions = await nativeProviderInference(
       binary,
       workspace,
-      nativeEnvironment,
+      environmentA,
       "persisted Chat Completions inference",
       fixture,
       "chat-completions",
@@ -1700,6 +1732,12 @@ export async function runSmoke(): Promise<SmokeResult> {
     requireSuccess(uninstalled, "plugin uninstall");
     await checkPluginState(binary, workspace, environment, "absent");
 
+    if (environmentFixture!.requests.length !== nativeSetup.postSwitchEnvironmentRequestIndex) {
+      throw new Error("native profile continued sending requests to the environment URL after the /login switch");
+    }
+    if (fixture.requests.some(request => request.path.startsWith("/v1/") && request.authorization !== `Bearer ${runtimeKey}`)) {
+      throw new Error("main fixture observed a provider request without the runtime fixture key");
+    }
     const allowedAuthorization = new Set([`Bearer ${runtimeKey}`, `Bearer ${adminKey}`, `Bearer ${metadataKey}`]);
     if (fixture.requests.some(request => request.authorization && !allowedAuthorization.has(request.authorization))) {
       throw new Error("fixture server observed a non-fixture credential");
@@ -1745,6 +1783,7 @@ export async function runSmoke(): Promise<SmokeResult> {
       nativeCaptureFd = undefined;
     }
     await fixture.close();
+    if (environmentFixture) await environmentFixture.close();
     if (packageEvidence) await rm(resolve(packageEvidence.extractedRoot, "..", ".."), { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   }

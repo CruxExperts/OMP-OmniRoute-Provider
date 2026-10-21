@@ -4,7 +4,9 @@ import {
   commitPendingConfig,
   type PendingBinding,
   type PluginConfig,
+  isEnvironmentRuntimeSelected,
   loadConfig,
+  resolveEnvironmentEndpointPrefill,
   resolveEnvironmentBinding,
   savePendingConfig,
   validateEndpoint,
@@ -19,8 +21,9 @@ export type AuthErrorCode =
   | "unauthorized"
   | "validation-failed"
   | "network-failure"
-  | "persistence-failed"
-  | "environment-bound";
+  /** @deprecated Environment-bound login errors are no longer emitted. */
+  | "environment-bound"
+  | "persistence-failed";
 
 export class AuthError extends Error {
   readonly name = "AuthError";
@@ -56,12 +59,19 @@ export interface NativeLoginProvider {
 
 export interface ModelRegistryCredentialReader {
   getApiKeyForProvider(name: string): Promise<string | undefined> | string | undefined;
+  authStorage?: { credentials: Pick<AuthStorage["credentials"], "get"> };
 }
 
 type StartupAuthStorage = {
+  credentials: Pick<AuthStorage["credentials"], "get">;
   keys: Pick<AuthStorage["keys"], "peek">;
   close(): void;
 };
+
+function readNativeApiKey(credentials: Pick<AuthStorage["credentials"], "get">): string | undefined {
+  const stored = credentials.get(PROVIDER_ID);
+  return stored?.type === "api_key" && stored.key.trim() !== "" ? stored.key : undefined;
+}
 
 function awaitWithSignal<T>(
   operation: Promise<T>,
@@ -99,10 +109,11 @@ function awaitWithSignal<T>(
   return promise;
 }
 
-/** Read the already-persisted native API key without refreshing or rotating it. */
+/** Resolve the startup key without rotating it, using the selected source. */
 export async function resolveStartupRuntimeCredential(
   discover: () => Promise<StartupAuthStorage>,
   signal: AbortSignal,
+  config: Pick<PluginConfig, "runtimeSource">,
 ): Promise<string | undefined> {
   if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
 
@@ -123,7 +134,10 @@ export async function resolveStartupRuntimeCredential(
       }
     });
     if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
-    const value = await awaitWithSignal(storage.keys.peek(PROVIDER_ID), signal);
+    const lookup = config.runtimeSource === "native"
+      ? Promise.resolve(readNativeApiKey(storage.credentials))
+      : storage.keys.peek(PROVIDER_ID);
+    const value = await awaitWithSignal(lookup, signal);
     if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
   } catch (error) {
@@ -220,13 +234,17 @@ export function registerNativeLogin(options: NativeLoginOptions = {}): NativeLog
         if (error instanceof ConfigError) throw new AuthError("persistence-failed", "unable to load OmniRoute profile configuration", { cause: error });
         throw error;
       }
-      try {
-        if (resolveEnvironmentBinding(config)) throw new AuthError("environment-bound", "environment credentials are read-only; remove overrides before using native login");
-      } catch (error) {
-        if (error instanceof AuthError) throw error;
-        throw new AuthError("invalid-input", "invalid environment binding", { cause: error });
+      if (isEnvironmentRuntimeSelected(config)) {
+        const approved = await callbacks.onConfirm?.({
+          message: "Use a native OmniRoute profile connection instead of the environment connection?",
+          detail: "This OMP profile will use the endpoint and runtime key you enter. Environment variables remain unchanged; a missing native credential will fail closed.",
+        });
+        if (approved !== true) throw new AuthError("cancelled", "native connection switch was not approved");
       }
-      const existingEndpoint = config.active?.endpoint;
+      const environmentEndpoint = resolveEnvironmentEndpointPrefill(config);
+      const existingEndpoint = config.runtimeSource === "native"
+        ? config.pending?.endpoint ?? config.active?.endpoint ?? config.setupDraft
+        : environmentEndpoint ?? config.pending?.endpoint ?? config.setupDraft ?? config.active?.endpoint;
       const endpointPromptOptions: OAuthPromptOptions = {
         message: "OmniRoute base URL",
         placeholder: existingEndpoint ?? "https://omniroute.example",
@@ -262,7 +280,7 @@ export function registerNativeLogin(options: NativeLoginOptions = {}): NativeLog
       };
       try {
         await savePendingConfig(
-          { ...config, allowInsecureHttp, pending },
+          { ...config, runtimeSource: "native", allowInsecureHttp, pending },
           { expectedRevision: config.revision ?? null },
         );
       } catch (error) {
@@ -271,7 +289,7 @@ export function registerNativeLogin(options: NativeLoginOptions = {}): NativeLog
       pendingCandidate = { endpoint: pending.endpoint, generation: pending.generation, key };
       try {
         await options.onSetupComplete?.(pending.endpoint, key);
-        await callbacks.onMessage?.(validation === "validated" ? "OmniRoute endpoint staged; run /cruxomni refresh to activate it." : "OmniRoute endpoint saved as unverified; run /cruxomni refresh when it is reachable.", validation === "validated" ? "info" : "warning");
+        await callbacks.onMessage?.(validation === "validated" ? "OmniRoute endpoint staged; run /omniroute refresh to activate it." : "OmniRoute endpoint saved as unverified; run /omniroute refresh when it is reachable.", validation === "validated" ? "info" : "warning");
         return key;
       } catch (error) {
         clearPendingCandidate();
@@ -281,10 +299,17 @@ export function registerNativeLogin(options: NativeLoginOptions = {}): NativeLog
   };
 }
 
-/** Resolve native OMP credentials, honoring the atomic environment binding first. */
-export async function resolveRuntimeCredential(modelRegistry: ModelRegistryCredentialReader): Promise<string | undefined> {
-  const env = resolveEnvironmentBinding();
+/** Resolve OMP credentials using the caller's source-selection snapshot. */
+export async function resolveRuntimeCredential(
+  modelRegistry: ModelRegistryCredentialReader,
+  config: Pick<PluginConfig, "allowInsecureHttp" | "runtimeSource">,
+): Promise<string | undefined> {
+  const env = resolveEnvironmentBinding(config);
   if (env) return env.credential.value;
+  if (config.runtimeSource === "native") {
+    const credentials = modelRegistry.authStorage?.credentials;
+    return credentials ? readNativeApiKey(credentials) : undefined;
+  }
   const value = await modelRegistry.getApiKeyForProvider(PROVIDER_ID);
   if (typeof value !== "string" || value.trim() === "") return undefined;
   return value;
@@ -304,7 +329,7 @@ export async function recoverPendingAfterPersistence(
     if (resolveEnvironmentBinding(config)) return undefined;
     const pending = config.pending;
     if (!pending || pending.endpoint !== candidate.endpoint || pending.generation !== candidate.generation) return undefined;
-    const persisted = await resolveRuntimeCredential(modelRegistry);
+    const persisted = await resolveRuntimeCredential(modelRegistry, config);
     if (persisted !== candidate.key) return undefined;
     return await commitPendingConfig(
       pending,

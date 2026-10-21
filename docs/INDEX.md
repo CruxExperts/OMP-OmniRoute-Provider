@@ -5,6 +5,7 @@
 ## Reference
 
 - [Agent Repo Shape](reference/agent-repo-shape.md)
+- [Branding and Naming Policy](branding.md)
 - [Contracts and Qualification](reference/contracts.md)
 - [Generated Client Reference](reference/generated.md)
 - [Repository Maintenance](reference/maintenance.md)

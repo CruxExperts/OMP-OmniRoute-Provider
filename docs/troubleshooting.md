@@ -5,7 +5,7 @@
 Check that the package is installed and enabled in the OMP profile you actually
 started. For development checkout links, restart OMP after changing the link.
 
-## `/cruxomni setup` says setup is unavailable
+## `/omniroute setup` says setup is unavailable
 
 The wizard is interactive-only. Run it in an OMP TUI session, not a headless
 job. A non-TUI host can still use the paired environment binding for runtime
@@ -17,17 +17,35 @@ Verify that `OMP_OMNIROUTE_BASE_URL` and `OMP_OMNIROUTE_API_KEY` are both set.
 Userinfo, query strings, fragments, unsupported schemes, and unapproved remote
 HTTP are rejected.
 
+## Replace an environment-configured connection
+
+The environment pair remains active until you explicitly choose a native
+profile connection. In `/login`, approve the switch prompt, then enter the new
+gateway URL and runtime key. In `/omniroute setup`, enter both values and
+approve the confirmation showing the target URL. The key prompt is masked; the
+existing environment values are left unchanged. After a switch, the saved
+profile connection takes precedence. If its native key is missing, sign in
+again; the client will not borrow the previous environment key. A partial or
+invalid runtime environment pair is ignored after a native switch. If old runtime
+environment settings remain, optional metadata/administration environment keys
+are used only when their environment endpoint matches the saved connection.
+Native profiles with no runtime environment overrides can continue using their
+optional environment credentials.
+
+Use `/omniroute` to inspect connection state. The former `/cruxomni`,
+`/cruxomni-admin`, and `/cruxomni-pricing` commands still work as aliases.
+
 ## Setup saved a draft or remains auth-only
 
 This means endpoint reachability, native persistence, readback, or activation
 did not complete. A URL-only draft never contains a runtime key. Sign in again
-through OMP's native masked prompt, then run `/cruxomni refresh`; do not test a
+through OMP's native masked prompt, then run `/omniroute refresh`; do not test a
 new key against an old endpoint manually. A pending marker after process exit
 is deliberately fail-closed and requires fresh sign-in.
 
 ## Models are stale or missing
 
-Run `/cruxomni refresh`. A valid empty live catalog removes all package-owned
+Run `/omniroute refresh`. A valid empty live catalog removes all package-owned
 models. Malformed-only catalogs and conflicting identities are rejected;
 mixed valid/malformed catalogs retain valid rows with diagnostics.
 HTTP 401/403 removes runnable models and marks the connection unauthorized.
@@ -43,18 +61,18 @@ to repair the connection. Sign in or correct the endpoint, then refresh.
 Optional metadata or pricing failures do not make an otherwise valid live
 connection offline. Replacing or forgetting a metadata credential cancels only
 its pending metadata request; it does not reset the runtime connection. A late
-response from that credential is discarded. Run `/cruxomni refresh` to retry with
+response from that credential is discarded. Run `/omniroute refresh` to retry with
 the current credential, and check the separate metadata diagnostics.
 
 ## An optional catalog is unavailable or its fields are missing
 
-Check **Catalogs (optional)** in setup and inspect `/cruxomni` or **Summary**.
+Check **Catalogs (optional)** in setup and inspect `/omniroute` or **Summary**.
 `unavailable` means there is no usable snapshot; `stale` means the previous
 snapshot expired. A successful download does not make catalog-only models
 runnable. Exact owner/ID mismatches, conflicting external fields, and unsupported
 modalities remain diagnostics rather than guessed matches.
 
-Run `/cruxomni refresh` to revalidate an expired or failed source. Source failures
+Run `/omniroute refresh` to revalidate an expired or failed source. Source failures
 do not make an otherwise healthy gateway offline. Do not add a runtime/admin key
 or raise the size/depth limits to make a public source work. Review the
 [source conditions](installation.md#optional-metadata-catalogs) if OpenRouter
@@ -94,8 +112,8 @@ Exact sensitive target state stays private to approval and drift checks.
 
 ## Credential or config recovery
 
-Use `/cruxomni setup` to forget only the affected optional credential, or use
-`/cruxomni-admin logout` to clear the administration session. Never edit a key
+Use `/omniroute setup` to forget only the affected optional credential, or use
+`/omniroute-admin logout` to clear the administration session. Never edit a key
 into `omniroute/config.json`. If the private config file is corrupt or has
 loose permissions, repair it while OMP is stopped and restart; the extension
 will not silently reset a conflicting or insecure file.

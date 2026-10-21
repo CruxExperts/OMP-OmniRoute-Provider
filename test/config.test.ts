@@ -6,9 +6,11 @@ import { join } from "node:path";
 import {
   clearPendingConfig,
   commitPendingConfig,
+  allowsEnvironmentOptionalCredentials,
   getConfigPath,
   loadConfig,
   resolveEnvironmentBinding,
+  resolveEnvironmentEndpointPrefill,
   savePendingConfig,
   setAdminEnabledConfig,
   setAgentDirResolverForTests,
@@ -20,6 +22,9 @@ import type { ConfigError } from "../src/config.ts";
 const originalAgentDir = process.env.OMP_AGENT_DIR;
 const originalApiKey = process.env.OMP_OMNIROUTE_API_KEY;
 const originalBaseUrl = process.env.OMP_OMNIROUTE_BASE_URL;
+const originalMetadataKey = process.env.OMP_OMNIROUTE_METADATA_API_KEY;
+const originalAdminKey = process.env.OMP_OMNIROUTE_ADMIN_API_KEY;
+const originalAdminCookie = process.env.OMP_OMNIROUTE_ADMIN_COOKIE;
 let tempDir: string;
 
 afterEach(async () => {
@@ -30,6 +35,12 @@ afterEach(async () => {
   else process.env.OMP_OMNIROUTE_API_KEY = originalApiKey;
   if (originalBaseUrl === undefined) delete process.env.OMP_OMNIROUTE_BASE_URL;
   else process.env.OMP_OMNIROUTE_BASE_URL = originalBaseUrl;
+  if (originalMetadataKey === undefined) delete process.env.OMP_OMNIROUTE_METADATA_API_KEY;
+  else process.env.OMP_OMNIROUTE_METADATA_API_KEY = originalMetadataKey;
+  if (originalAdminKey === undefined) delete process.env.OMP_OMNIROUTE_ADMIN_API_KEY;
+  else process.env.OMP_OMNIROUTE_ADMIN_API_KEY = originalAdminKey;
+  if (originalAdminCookie === undefined) delete process.env.OMP_OMNIROUTE_ADMIN_COOKIE;
+  else process.env.OMP_OMNIROUTE_ADMIN_COOKIE = originalAdminCookie;
   if (tempDir) await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -62,6 +73,41 @@ test("environment bindings require the branded URL and key pair before profile a
   await expectCode(Promise.resolve().then(() => resolveEnvironmentBinding()), "environment-partial");
   process.env.OMP_OMNIROUTE_BASE_URL = "https://one.example";
   expect(resolveEnvironmentBinding()?.endpoint).toBe("https://one.example");
+});
+
+test("persisted native selection ignores stale or partial runtime environment overrides", async () => {
+  await isolated();
+  process.env.OMP_OMNIROUTE_API_KEY = "old-environment-key";
+  process.env.OMP_OMNIROUTE_BASE_URL = "not-a-valid-url";
+  const selected = await updateConfig(current => ({ ...current, runtimeSource: "native", active: { endpoint: "https://native.example", generation: 1 } }));
+  expect(resolveEnvironmentBinding(selected)).toBeUndefined();
+  expect(await loadConfig()).toMatchObject({ runtimeSource: "native", active: { endpoint: "https://native.example", generation: 1 } });
+  const persisted = JSON.parse(await readFile(getConfigPath(), "utf8")) as Record<string, unknown>;
+  expect(persisted.runtimeSource).toBe("native");
+  expect(JSON.stringify(persisted)).not.toContain("old-environment-key");
+});
+
+test("environment URL prefills omit invalid values that could expose userinfo", async () => {
+  await isolated();
+  process.env.OMP_OMNIROUTE_BASE_URL = "https://user:embedded-secret@gateway.example";
+  expect(resolveEnvironmentEndpointPrefill({})).toBeUndefined();
+  process.env.OMP_OMNIROUTE_BASE_URL = "https://gateway.example/prefix/v1/";
+  expect(resolveEnvironmentEndpointPrefill({})).toBe("https://gateway.example/prefix");
+  expect(resolveEnvironmentEndpointPrefill({ runtimeSource: "native" })).toBeUndefined();
+});
+
+test("optional environment credentials follow a native endpoint only with matching runtime URL evidence", async () => {
+  await isolated();
+  const native = { runtimeSource: "native" as const };
+  process.env.OMP_OMNIROUTE_METADATA_API_KEY = "optional-metadata-key";
+  process.env.OMP_OMNIROUTE_BASE_URL = "https://old.example/v1/";
+  expect(allowsEnvironmentOptionalCredentials(native, "https://old.example")).toBe(true);
+  expect(allowsEnvironmentOptionalCredentials(native, "https://new.example")).toBe(false);
+  process.env.OMP_OMNIROUTE_BASE_URL = "not-a-valid-url";
+  expect(allowsEnvironmentOptionalCredentials(native, "https://native.example")).toBe(false);
+  delete process.env.OMP_OMNIROUTE_BASE_URL;
+  delete process.env.OMP_OMNIROUTE_API_KEY;
+  expect(allowsEnvironmentOptionalCredentials(native, "https://native.example")).toBe(true);
 });
 
 test("profile writes use a private directory and atomic private file", async () => {

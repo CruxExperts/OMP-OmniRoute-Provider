@@ -1,6 +1,15 @@
 schema_version: 1
 root: docs
 documents:
+  - id: branding
+    path: docs/branding.md
+    title: Branding and Naming Policy
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-21"
+    doc_type: policy
+    tags: [branding, identity, commands, compatibility, media]
   - id: installation
     path: docs/installation.md
     title: Installation and Guided Setup

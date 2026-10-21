@@ -58,7 +58,8 @@ function parseInput(input: unknown): unknown {
   return input;
 }
 
-function credentialFromEnvironment(options: AdminToolsOptions): void {
+async function credentialFromEnvironment(options: AdminToolsOptions): Promise<void> {
+  if (options.ui.allowEnvironmentCredentials && !(await options.ui.allowEnvironmentCredentials())) return;
   const endpoint = options.endpoint ?? options.ui.endpoint;
   if (!endpoint) return;
   const apiKey = process.env.OMP_OMNIROUTE_ADMIN_API_KEY?.trim();
@@ -93,7 +94,7 @@ async function executeRead(options: AdminToolsOptions, operationId: string, inpu
   try {
     await options.syncBinding?.();
     if (!options.isEnabled()) return content(safeText({ code: "credential-disabled", operationId, correlationId: "redacted" }));
-    if (adapter.descriptor.auth.domain === "management") credentialFromEnvironment(options);
+    if (adapter.descriptor.auth.domain === "management") await credentialFromEnvironment(options);
     const result = await options.executor.read(operationId, parseInput(input), {
       confirmed: true,
       headless: false,
@@ -116,12 +117,12 @@ async function executePlan(options: AdminToolsOptions, operationId: string, inpu
     return content(safeText({ code: "operation-unavailable", operationId, correlationId: "redacted", reason: adapter.eligibility.reason }));
   }
   if (adapter.descriptor.secrets.inputFields.length > 0) {
-    return content(safeText({ code: "confirmation-required", operationId, correlationId: "redacted", message: "secret-bearing inputs are human-only and must be entered in /cruxomni-admin" }));
+    return content(safeText({ code: "confirmation-required", operationId, correlationId: "redacted", message: "secret-bearing inputs are human-only and must be entered in /omniroute-admin" }));
   }
   try {
     await options.syncBinding?.();
     if (!options.isEnabled()) return content(safeText({ code: "credential-disabled", operationId, correlationId: "redacted" }));
-    if (adapter.descriptor.auth.domain === "management") credentialFromEnvironment(options);
+    if (adapter.descriptor.auth.domain === "management") await credentialFromEnvironment(options);
     const validated = adapter.validate(parseInput(input));
     const plan = await options.executor.plan(operationId, validated, {
       ...(options.endpoint ?? options.ui.endpoint ? { endpoint: options.endpoint ?? options.ui.endpoint } : {}),
@@ -136,7 +137,7 @@ async function executePlan(options: AdminToolsOptions, operationId: string, inpu
       target: { profileId: plan.auth.profileId, endpoint: plan.auth.endpoint },
       expiresAt: plan.expiresAt,
       preview: plan.preview,
-      next: "/cruxomni-admin apply",
+      next: "/omniroute-admin apply",
     }));
   } catch (error) {
     return content(safeText(errorOutput(error, operationId)));
