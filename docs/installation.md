@@ -6,7 +6,8 @@
   [generated compatibility reference](reference/generated.md) for pinned source
   versions; release qualification requires fresh evidence for the latest stable host.
 - Bun `>=1.4.2` when installing from source or running package checks.
-- An OmniRoute-compatible HTTPS endpoint and a runtime API key.
+- An OmniRoute-compatible HTTPS endpoint and a runtime API key. Remote HTTP is
+  available only through an explicit choice and warning.
 
 The plugin display name is **OMP OmniRoute Provider**. OMP's `/login` provider
 selector shows **Crux OmniRoute Provider**. The package identity remains
@@ -15,10 +16,10 @@ preserving model names and native credential identity.
 
 ## Install the GitHub release
 
-Install the pinned `1.0.1` GitHub source tag through OMP's native plugin installer:
+Install the pinned `1.0.2` GitHub source tag through OMP's native plugin installer:
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.1
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.2
 ```
 
 Restart OMP and run `/omniroute setup`. This command installs from GitHub; it does
@@ -61,10 +62,22 @@ Run this command in an interactive OMP terminal:
 The wizard has independent sections:
 
 1. **Connection** asks for a gateway URL and runtime API key. The key is
-   entered in a masked prompt and handed to OMP's native credential store. If
-   runtime environment variables are active, the wizard asks for confirmation
-   after you enter the target URL and key. Approving selects the profile's
-   native connection without changing environment variables.
+   entered in a masked prompt. Endpoint input accepts a domain, a single-label
+   host, IPv4, or bracketed IPv6, with an optional port and base path. For
+   example: `llm.example.com`, `gateway:8443/base`, `localhost:20128`,
+   `192.0.2.10`, or `[2001:db8::1]:8443/base`. Omitted schemes default to
+   HTTPS; enter `http://` explicitly to request HTTP. A remote HTTP endpoint
+   needs a separate warning confirmation, and the client never retries over
+   HTTP after HTTPS fails. A trailing `/v1` is optional and normalized away.
+   Query strings, fragments, userinfo, malformed ports, traversal paths, and
+   unbracketed IPv6 are rejected. The prompt's `https://llm.example.com`
+   example is neutral guidance, not an active or preselected gateway. After
+   you enter the target URL and key, the client checks the key against
+   OmniRoute's protected authentication endpoint and loads the live model
+   catalog before activation. The key is handed to OMP's native credential
+   store only after those checks succeed. If runtime environment variables are
+   active, the wizard asks for confirmation before selecting the profile's
+   native connection; environment variables remain unchanged.
 2. **Metadata (optional)** stores a separate API key or keeps it session-only.
 3. **Catalogs (optional)** opts into Models.dev or OpenRouter metadata without
    sharing a runtime, metadata, or administration credential.
@@ -75,11 +88,16 @@ The wizard has independent sections:
 6. **Summary** reports state without revealing secrets.
 
 Save and activation are transactional. A cancelled section does not discard
-earlier saved sections. An offline or malformed endpoint cannot be reported as
-success; a URL-only draft may be saved without a runtime key for later setup.
-Native login activates a connection only after the key is persisted and live
-validation succeeds. An interrupted pending login remains auth-only and needs
-a fresh sign-in; `/omniroute refresh` forces rediscovery of an active connection.
+earlier saved sections. An offline endpoint, failed authentication check, or
+malformed catalog cannot be saved as a successful connection; setup does not
+offer an unverified or URL-only connection save. A key accepted by the
+protected authentication endpoint but paired with an empty or incompatible
+catalog is reported as “key verified, no compatible chat models available”
+in the informational `no-models` state. While verification and discovery
+are pending, OMP reports a checking state; a completed empty catalog is never
+presented as a healthy model list. An interrupted pending login remains
+auth-only and needs a fresh sign-in; `/omniroute refresh` forces rediscovery of
+an active connection.
 Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.

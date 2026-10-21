@@ -7,8 +7,11 @@ import {
   clearPendingConfig,
   commitPendingConfig,
   allowsEnvironmentOptionalCredentials,
+  ENDPOINT_EXAMPLE,
+  ENDPOINT_INPUT_HELP,
   getConfigPath,
   loadConfig,
+  normalizeEndpointInput,
   resolveEnvironmentBinding,
   resolveEnvironmentEndpointPrefill,
   savePendingConfig,
@@ -65,6 +68,54 @@ test("normalizes root and /v1 endpoints while rejecting URL authority escapes", 
   expect(() => validateEndpoint("ftp://gateway.example")).toThrow();
   expect(() => validateEndpoint("http://gateway.example")).toThrow();
   expect(validateEndpoint("http://gateway.example", true)).toBe("http://gateway.example");
+});
+
+test("interactive endpoint input defaults to HTTPS across documented host forms", () => {
+  const examples: ReadonlyArray<readonly [string, string]> = [
+    ["llm.example.com", "https://llm.example.com"],
+    ["gateway:8443/base/v1", "https://gateway:8443/base"],
+    ["localhost:20128/v1/", "https://localhost:20128"],
+    ["192.0.2.10", "https://192.0.2.10"],
+    ["127.0.0.1:20128/v1", "https://127.0.0.1:20128"],
+    ["[2001:db8::1]:8443/base/v1", "https://[2001:db8::1]:8443/base"],
+    ["https://llm.example.com/prefix", "https://llm.example.com/prefix"],
+    ["http://localhost:20128", "http://localhost:20128"],
+  ];
+  for (const [input, expected] of examples) {
+    expect(normalizeEndpointInput(input)).toBe(expected);
+  }
+  expect(ENDPOINT_EXAMPLE).toBe("https://llm.example.com");
+  expect(ENDPOINT_INPUT_HELP).toContain("HTTPS is added when you omit a scheme");
+  expect(ENDPOINT_INPUT_HELP).toContain("IPv6 addresses in brackets");
+  expect(() => validateEndpoint("llm.example.com")).toThrow();
+});
+
+test("interactive endpoint input rejects ambiguous or unsafe authority and path forms", () => {
+  const rejected = [
+    "",
+    "https:llm.example.com",
+    "ftp://llm.example.com",
+    "gateway:abc",
+    "gateway:",
+    "gateway:65536",
+    "llm.example.com?key=secret",
+    "llm.example.com#fragment",
+    "https://user:pass@llm.example.com",
+    "llm.example.com/a/../b",
+    "llm.example.com/%2e%2e/b",
+    "llm.example.com/%252e%252e/b",
+    "llm.example.com/%255c..%255cb",
+    "llm.example.com/%GG",
+    "llm.example.com/%3fsecret",
+    "2001:db8::1",
+    "https://2001:db8::1",
+    "llm.example.com\\@other.example",
+    "llm.example.com\n",
+    "bad..domain",
+  ];
+  for (const input of rejected) expect(() => normalizeEndpointInput(input)).toThrow();
+  expect(() => normalizeEndpointInput("http://llm.example.com")).toThrow("remote HTTP");
+  expect(normalizeEndpointInput("http://llm.example.com", true)).toBe("http://llm.example.com");
 });
 
 test("environment bindings require the branded URL and key pair before profile access", async () => {

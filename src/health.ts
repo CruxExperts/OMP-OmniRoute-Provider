@@ -1,6 +1,6 @@
 import type { CatalogProjection, EndpointApi } from "./catalog.ts";
 
-export type HealthState = "unconfigured" | "ready" | "degraded" | "offline" | "unauthorized";
+export type HealthState = "unconfigured" | "checking" | "ready" | "no-models" | "degraded" | "offline" | "unauthorized";
 
 export interface DiscoveryBinding {
 	readonly endpoint: string;
@@ -12,6 +12,8 @@ export interface HealthSnapshot {
 	state: HealthState;
 	generation: number;
 	modelCount: number;
+	/** Count of valid live rows before chat compatibility filtering. */
+	rawModelCount: number;
 	stale: boolean;
 	lastError?: string;
 }
@@ -30,7 +32,7 @@ export interface RefreshOptions {
 }
 
 interface ClassifiedError {
-	state: Exclude<HealthState, "unconfigured" | "ready">;
+	state: Exclude<HealthState, "unconfigured" | "checking" | "ready" | "no-models">;
 	code: string;
 }
 
@@ -75,7 +77,7 @@ export class DiscoveryManager {
 	private current: DiscoveryResult | undefined;
 	private readonly modelApis = new Map<string, EndpointApi>();
 	private lastSuccessAt: number | undefined;
-	private snapshot: HealthSnapshot = { state: "unconfigured", generation: 0, modelCount: 0, stale: false };
+	private snapshot: HealthSnapshot = { state: "unconfigured", generation: 0, modelCount: 0, rawModelCount: 0, stale: false };
 	private readonly listeners = new Set<HealthListener>();
 
 	constructor(private readonly discover: DiscoverFn, listeners?: Iterable<HealthListener>) {
@@ -127,13 +129,13 @@ export class DiscoveryManager {
 
 		if (!normalizedEndpoint || !normalizedCredential) {
 			this.binding = undefined;
-			this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false }, true);
+			this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, rawModelCount: 0, stale: false }, true);
 			return true;
 		}
 
 		this.binding = Object.freeze({ endpoint: normalizedEndpoint, credential: normalizedCredential, generation: this.generation });
 		if (!this.stopped) this.generationController = new AbortController();
-		this.setSnapshot({ state: "degraded", generation: this.generation, modelCount: 0, stale: false }, true);
+		this.setSnapshot({ state: "checking", generation: this.generation, modelCount: 0, rawModelCount: 0, stale: false }, true);
 		return true;
 	}
 
@@ -146,7 +148,7 @@ export class DiscoveryManager {
 		this.setCurrentResult(undefined);
 		this.lastSuccessAt = undefined;
 		this.generation++;
-		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false }, true);
+		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, rawModelCount: 0, stale: false }, true);
 	}
 
 	async refresh(options: RefreshOptions = {}): Promise<DiscoveryResult | undefined> {
@@ -156,7 +158,7 @@ export class DiscoveryManager {
 		const generation = this.generation;
 		const signal = this.generationController?.signal;
 		if (!binding || !signal || signal.aborted) {
-			this.setSnapshot({ state: "unconfigured", generation, modelCount: 0, stale: false });
+			this.setSnapshot({ state: "unconfigured", generation, modelCount: 0, rawModelCount: 0, stale: false });
 			return undefined;
 		}
 
@@ -180,7 +182,7 @@ export class DiscoveryManager {
 			this.setCurrentResult(accepted);
 			this.lastGood = accepted;
 			this.lastSuccessAt = Date.now();
-			this.setSnapshot({ state: "ready", generation, modelCount: accepted.projection.models.length, stale: false }, true);
+			this.setSnapshot({ state: accepted.projection.models.length > 0 ? "ready" : "no-models", generation, modelCount: accepted.projection.models.length, rawModelCount: accepted.projection.rows.size, stale: false }, true);
 			if (accepted.enrichment) this.trackEnrichment(generation, binding, signal, accepted.projection, accepted.enrichment);
 			return accepted;
 		}).catch(error => {
@@ -190,21 +192,21 @@ export class DiscoveryManager {
 				this.setCurrentResult(undefined);
 				this.lastGood = undefined;
 				this.lastSuccessAt = undefined;
-				this.setSnapshot({ state: "unauthorized", generation, modelCount: 0, stale: false, lastError: failure.code }, true);
+				this.setSnapshot({ state: "unauthorized", generation, modelCount: 0, rawModelCount: 0, stale: false, lastError: failure.code }, true);
 				throw error;
 			}
 
 			if (failure.state === "offline" && this.lastGood) {
 				const retained: DiscoveryResult = { ...this.lastGood, projection: staleProjection(this.lastGood.projection), stale: true };
 				this.setCurrentResult(retained);
-				this.setSnapshot({ state: failure.state, generation, modelCount: retained.projection.models.length, stale: true, lastError: failure.code }, true);
+				this.setSnapshot({ state: failure.state, generation, modelCount: retained.projection.models.length, rawModelCount: retained.projection.rows.size, stale: true, lastError: failure.code }, true);
 				return retained;
 			}
 
 			this.setCurrentResult(undefined);
 			this.lastGood = undefined;
 			this.lastSuccessAt = undefined;
-			this.setSnapshot({ state: failure.state, generation, modelCount: 0, stale: false, lastError: failure.code }, true);
+			this.setSnapshot({ state: failure.state, generation, modelCount: 0, rawModelCount: 0, stale: false, lastError: failure.code }, true);
 			throw error;
 		}).finally(() => {
 			if (this.flight === request) this.flight = undefined;
@@ -223,7 +225,7 @@ export class DiscoveryManager {
 		this.setCurrentResult(undefined);
 		this.lastSuccessAt = undefined;
 		this.generation++;
-		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, stale: false }, true);
+		this.setSnapshot({ state: "unconfigured", generation: this.generation, modelCount: 0, rawModelCount: 0, stale: false }, true);
 	}
 
 	resume(): void {
@@ -278,7 +280,7 @@ export class DiscoveryManager {
 			const enriched: DiscoveryResult = { ...current, projection };
 			this.setCurrentResult(enriched);
 			this.lastGood = enriched;
-			this.setSnapshot({ ...this.snapshot, modelCount: projection.models.length }, true);
+			this.setSnapshot({ ...this.snapshot, modelCount: projection.models.length, rawModelCount: projection.rows.size }, true);
 		}, () => {
 			const current = this.current;
 			if (
@@ -294,7 +296,7 @@ export class DiscoveryManager {
 			const diagnosticResult: DiscoveryResult = { ...current, projection: diagnosticProjection };
 			this.setCurrentResult(diagnosticResult);
 			this.lastGood = diagnosticResult;
-			this.setSnapshot({ ...this.snapshot, modelCount: diagnosticProjection.models.length }, true);
+			this.setSnapshot({ ...this.snapshot, modelCount: diagnosticProjection.models.length, rawModelCount: diagnosticProjection.rows.size }, true);
 		});
 	}
 

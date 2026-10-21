@@ -7,6 +7,7 @@ import { clearPendingCandidate, recoverPendingAfterPersistence, registerNativeLo
 import { commitPendingConfig, getConfigPath, loadConfig, setAgentDirResolverForTests, updateConfig, validateEndpoint } from "../src/config.ts";
 import { OptionalCredentials } from "../src/credentials.ts";
 import { createSetupWizard, setupConnection, type SetupServices } from "../src/setup.ts";
+import { TransportError } from "../src/transport.ts";
 
 let root: string | undefined;
 const savedEnvironment = { ...process.env };
@@ -32,6 +33,7 @@ function context<TLogin>(
   selections: string[] = [],
   promptObservations?: Array<{ initial: string; masked: boolean }>,
   confirmedMessages?: string[],
+  promptRenders?: string[][],
 ) {
   return {
     mode: "tui", hasUI: true, cwd: "/fixture/project",
@@ -48,8 +50,10 @@ function context<TLogin>(
           onSubmit(value: string): void;
           getValue?: () => string;
           mask?: boolean;
+          render?(width: number): readonly string[];
         };
         promptObservations?.push({ initial: component.getValue?.() ?? "", masked: component.mask === true });
+        promptRenders?.push([...(component.render?.(80) ?? [])]);
         const value = values.shift() ?? "";
         component.setValue(value);
         component.onSubmit(value);
@@ -67,9 +71,14 @@ function nativeLoginHandler() {
   return registerNativeLogin({
     load: loadConfig,
     request: async (target, credential) => {
-      if (typeof target !== "string") throw new Error("unexpected request target");
-      expect(target).toMatch(/\/v1\/models$/);
+      if (typeof target === "string") throw new Error("unexpected request target");
       expect(credential).toBe("fixture-native-runtime-key");
+      if (target.path === "/api/cloud/auth") {
+        expect(target.method).toBe("POST");
+        expect(target.body).toBeUndefined();
+        return { connections: [], modelAliases: {} };
+      }
+      expect(target.path).toBe("/v1/models");
       return { data: [{ id: "fixture-model" }] };
     },
   });
@@ -107,6 +116,19 @@ test("connection cancellation is byte-preserving and never invokes native login"
   expect(await readFile(getConfigPath(), "utf8")).toBe(before);
 });
 
+test("gateway help wraps above a usable 80-column URL input", async () => {
+  await isolated();
+  const rendered: string[][] = [];
+  const ctx = context(["gateway.example"], [], [], async () => { throw new Error("login should not run"); }, [], undefined, undefined, rendered);
+  await setupConnection(ctx, services());
+  const lines = rendered[0] ?? [];
+  expect(lines.length).toBeGreaterThan(2);
+  expect(lines.join(" ")).toContain("llm.example.com");
+  expect(lines.join(" ")).toContain("localhost");
+  expect(lines.at(-1)).toContain("Gateway URL: ");
+  expect(lines.at(-1)).toContain("\x1b[7m");
+});
+
 test("completed connection never serializes or announces the runtime key", async () => {
   await isolated();
   const secret = "fixture-runtime-secret";
@@ -124,6 +146,22 @@ test("completed connection never serializes or announces the runtime key", async
   expect(await readFile(getConfigPath(), "utf8")).not.toContain(secret);
   expect(notices.join("\n")).not.toContain(secret);
   expect((await loadConfig()).active?.endpoint).toBe(endpoint);
+});
+
+test("wizard reports pending recovery when native persistence fails after staging", async () => {
+  await isolated();
+  const notices: string[] = [];
+  const endpoint = "https://gateway.example";
+  const ctx = context([endpoint, "fixture-runtime-secret"], [true], notices, async () => {
+    await updateConfig(current => ({ ...current, runtimeSource: "native", pending: { endpoint, generation: 1, status: "validated" } }));
+    throw new Error("native credential write interrupted");
+  });
+  await setupConnection(ctx, services());
+  expect((await loadConfig()).pending?.endpoint).toBe(endpoint);
+  expect(notices.join(" ")).toContain("activation may be pending");
+  expect(notices.join(" ")).toContain("Sign in again");
+  expect(notices.join(" ")).not.toContain("Existing connection retained");
+  expect(notices.join(" ")).not.toContain("fixture-runtime-secret");
 });
 
 test("native login switches from environment to a persisted profile credential and survives restart", async () => {
@@ -244,9 +282,119 @@ test("failed native candidate validation does not select the native source", asy
   await expect(provider.login({
     async onConfirm() { return true; },
     async onPrompt(options) { return options.secret ? "fixture-native-runtime-key" : "https://native.example"; },
-  })).rejects.toMatchObject({ code: "validation-failed" });
+  })).rejects.toMatchObject({ code: "invalid-response" });
   expect(await readFile(getConfigPath(), "utf8")).toBe(before);
   expect((await loadConfig()).runtimeSource).toBeUndefined();
+});
+
+test("a public model catalog cannot validate a rejected API key", async () => {
+  await isolated();
+  await updateConfig(current => ({ ...current, active: { endpoint: "https://existing.example", generation: 3 } }));
+  const before = await readFile(getConfigPath(), "utf8");
+  const paths: string[] = [];
+  const provider = registerNativeLogin({ request: async target => {
+    if (typeof target === "string") throw new Error("expected structured request");
+    paths.push(target.path ?? "");
+    if (target.path === "/api/cloud/auth") throw new TransportError("http", "rejected", 401);
+    return { data: [{ id: "public-model" }] };
+  } });
+  await expect(provider.login({ onPrompt: options => options.secret ? "wrong-key" : "gateway.example" })).rejects.toMatchObject({ code: "unauthorized" });
+  expect(paths).toEqual(["/api/cloud/auth"]);
+  expect(await readFile(getConfigPath(), "utf8")).toBe(before);
+});
+
+test("unavailable or malformed key verification never stages a connection", async () => {
+  for (const scenario of [
+    { response: () => { throw new TransportError("http", "missing route", 404); }, code: "verification-unavailable" },
+    { response: () => { throw new TransportError("redirect", "redirect", 302); }, code: "verification-unavailable" },
+    { response: () => { throw new TransportError("network", "offline"); }, code: "network-failure" },
+    { response: () => ({ unrelated: true }), code: "invalid-response" },
+  ]) {
+    await isolated();
+    await updateConfig(current => ({ ...current, active: { endpoint: "https://existing.example", generation: 3 } }));
+    const before = await readFile(getConfigPath(), "utf8");
+    const provider = registerNativeLogin({ request: async target => {
+      if (typeof target === "string" || target.path !== "/api/cloud/auth") throw new Error("catalog requested without key proof");
+      return scenario.response();
+    } });
+    await expect(provider.login({ onPrompt: options => options.secret ? "candidate-key" : "gateway.example" })).rejects.toMatchObject({ code: scenario.code });
+    expect(await readFile(getConfigPath(), "utf8")).toBe(before);
+    setAgentDirResolverForTests(undefined);
+    await rm(root!, { recursive: true, force: true });
+    root = undefined;
+  }
+});
+
+test("verified keys with empty or specialty-only catalogs stage an honest zero-chat connection", async () => {
+  for (const data of [[], [{ id: "image-only", supported_endpoints: ["images"] }]]) {
+    await isolated();
+    const messages: string[] = [];
+    const provider = registerNativeLogin({ request: async target => {
+      if (typeof target === "string") throw new Error("expected structured request");
+      if (target.path === "/api/cloud/auth") return { connections: [], modelAliases: {} };
+      if (target.path === "/v1/models") return { data };
+      throw new Error("unexpected route");
+    } });
+    expect(await provider.login({
+      onPrompt: options => options.secret ? "verified-key" : "gateway.example",
+      onMessage: message => { messages.push(message); },
+    })).toBe("verified-key");
+    expect((await loadConfig()).pending).toMatchObject({ endpoint: "https://gateway.example", status: "validated" });
+    expect(messages.join(" ")).toContain("no chat-compatible models");
+    setAgentDirResolverForTests(undefined);
+    await rm(root!, { recursive: true, force: true });
+    root = undefined;
+  }
+});
+
+test("a verified key with a malformed live catalog does not stage or return a key", async () => {
+  await isolated();
+  await updateConfig(current => ({ ...current, active: { endpoint: "https://existing.example", generation: 3 } }));
+  const before = await readFile(getConfigPath(), "utf8");
+  const provider = registerNativeLogin({ request: async target => {
+    if (typeof target === "string") throw new Error("expected structured request");
+    if (target.path === "/api/cloud/auth") return { connections: [], modelAliases: {} };
+    return { data: [{ id: "" }] };
+  } });
+  await expect(provider.login({ onPrompt: options => options.secret ? "candidate-key" : "gateway.example" })).rejects.toMatchObject({ code: "invalid-catalog" });
+  expect(await readFile(getConfigPath(), "utf8")).toBe(before);
+});
+
+test("a /v1 endpoint verifies and loads models from the same base path", async () => {
+  await isolated();
+  const targets: string[] = [];
+  const provider = registerNativeLogin({ request: async target => {
+    if (typeof target === "string") throw new Error("expected structured request");
+    targets.push(`${target.endpoint}${target.path}`);
+    return target.path === "/api/cloud/auth"
+      ? { connections: [], modelAliases: {} }
+      : { data: [{ id: "chat", supported_endpoints: ["chat"] }] };
+  } });
+  await provider.login({ onPrompt: options => options.secret ? "verified-key" : "gateway.example/base/v1" });
+  expect(targets).toEqual([
+    "https://gateway.example/base/api/cloud/auth",
+    "https://gateway.example/base/v1/models",
+  ]);
+});
+
+test("cancelling during live catalog validation leaves config and native key untouched", async () => {
+  await isolated();
+  await updateConfig(current => ({ ...current, active: { endpoint: "https://existing.example", generation: 3 } }));
+  const before = await readFile(getConfigPath(), "utf8");
+  const controller = new AbortController();
+  let staged = false;
+  const provider = registerNativeLogin({
+    onSetupComplete: () => { staged = true; },
+    request: async target => {
+      if (typeof target === "string") throw new Error("expected structured request");
+      if (target.path === "/api/cloud/auth") return { connections: [], modelAliases: {} };
+      controller.abort();
+      return { data: [{ id: "live" }] };
+    },
+  });
+  await expect(provider.login({ signal: controller.signal, onPrompt: options => options.secret ? "candidate-key" : "gateway.example" })).rejects.toMatchObject({ code: "cancelled" });
+  expect(staged).toBe(false);
+  expect(await readFile(getConfigPath(), "utf8")).toBe(before);
 });
 
 test("setup uses one switch confirmation, prefills only the URL, and masks the new key", async () => {

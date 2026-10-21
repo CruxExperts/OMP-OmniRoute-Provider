@@ -1,7 +1,8 @@
-import { Input } from "@oh-my-pi/pi-tui";
+import { Input, col, text, wrapTextWithAnsi, type DescribeContext, type NativeNode } from "@oh-my-pi/pi-tui";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { DISPLAY_NAME } from "./identity.ts";
-import { allowsEnvironmentOptionalCredentials, isEnvironmentRuntimeSelected, loadConfig, updateConfig, resolveEnvironmentBinding, resolveEnvironmentEndpointPrefill, validateEndpoint, type CredentialDomain } from "./config.ts";
+import { AuthError } from "./auth.ts";
+import { ENDPOINT_EXAMPLE, ENDPOINT_INPUT_HELP, allowsEnvironmentOptionalCredentials, isEnvironmentRuntimeSelected, loadConfig, updateConfig, resolveEnvironmentBinding, resolveEnvironmentEndpointPrefill, normalizeEndpointInput, validateEndpoint, type CredentialDomain } from "./config.ts";
 import { OptionalCredentials, type CredentialBinding, type OptionalCredential } from "./credentials.ts";
 import { readSellerPricing } from "./pricing.ts";
 import { CATALOG_SOURCE_IDS, getCatalogSourceStatus, type CatalogSourceId } from "./catalog-sources.ts";
@@ -13,11 +14,26 @@ export interface SetupServices {
   status(): string;
 }
 
-export function promptSetup(context: ExtensionContext, prompt: string, secret = false, initial = ""): Promise<string | undefined> {
+class GuidedInput extends Input {
+  helpLines: readonly string[] = [];
+
+  override render(width: number): readonly string[] {
+    return [...this.helpLines.flatMap(line => wrapTextWithAnsi(line, width)), ...super.render(width)];
+  }
+
+  override describe(context: DescribeContext): NativeNode {
+    return this.helpLines.length === 0
+      ? super.describe(context)
+      : col([...this.helpLines.map(line => text(line)), super.describe(context)], { gap: "sm" });
+  }
+}
+
+export function promptSetup(context: ExtensionContext, prompt: string, secret = false, initial = "", helpLines: readonly string[] = []): Promise<string | undefined> {
   if (context.mode !== "tui") return Promise.resolve(undefined);
   return context.ui.custom<string | undefined>((_tui, _theme, _keys, done) => {
-    const input = new Input();
+    const input = new GuidedInput();
     input.prompt = `${prompt}: `;
+    input.helpLines = helpLines;
     input.mask = secret;
     if (initial && !secret) input.setValue(initial);
     const finish = (value: string | undefined) => { input.setValue(""); done(value); };
@@ -43,9 +59,12 @@ export async function setupConnection(context: ExtensionContext, services: Setup
     : environmentSelected
       ? resolveEnvironmentEndpointPrefill(config) ?? config.setupDraft ?? config.active?.endpoint ?? ""
       : config.setupDraft ?? config.active?.endpoint ?? "";
-  const endpoint = await promptSetup(context, "Gateway URL", false, endpointInitial);
-  if (!endpoint) return;
-  validateEndpoint(endpoint, true);
+  const enteredEndpoint = await promptSetup(context, "Gateway URL", false, endpointInitial, [
+    ENDPOINT_INPUT_HELP,
+    `Example: ${ENDPOINT_EXAMPLE}${endpointInitial ? ". Current gateway URL is prefilled below." : "."}`,
+  ]);
+  if (!enteredEndpoint) return;
+  const endpoint = normalizeEndpointInput(enteredEndpoint, true);
   let key = await promptSetup(context, "Runtime API key", true);
   if (!key) return;
   let insecureConsent = config.allowInsecureHttp;
@@ -55,6 +74,7 @@ export async function setupConnection(context: ExtensionContext, services: Setup
       : `Validate ${endpoint} and remember the runtime key using OMP's native credential store?`;
     if (!(await context.ui.confirm(environmentSelected ? "Replace environment connection" : "Save connection and continue", detail))) return;
     const switchApproved = environmentSelected;
+    info(context, "Checking API key and live models…");
     await context.modelRegistry.authStorage.oauth.login("omniroute", {
       onAuth() {},
       onPrompt: async prompt => {
@@ -64,12 +84,10 @@ export async function setupConnection(context: ExtensionContext, services: Setup
             insecureConsent = await context.ui.confirm("Insecure transport", prompt.message);
             return insecureConsent ? "yes" : "no";
           }
-          // The setup flow does not silently accept an unverified endpoint.
-          if (prompt.message.includes("unreachable")) return "no";
           throw new Error("unsupported native sign-in confirmation");
         }
         if (prompt.secret) return key!;
-        if (prompt.message === "OmniRoute base URL") return endpoint;
+        if (prompt.message.startsWith("OmniRoute base URL")) return endpoint;
         throw new Error("unsupported native sign-in prompt");
       },
     });
@@ -79,11 +97,17 @@ export async function setupConnection(context: ExtensionContext, services: Setup
     await updateConfig(current => { const next = { ...current, invitationDismissed: true }; delete next.setupDraft; return next; });
     info(context, `Connection saved. ${services.status()}`);
   } catch (error) {
-    info(context, `Connection not completed (${errorCode(error)}). Environment values were not changed; pending native persistence remains fail-closed until a fresh sign-in.`, true);
-    const current = await loadConfig();
-    if (!current.pending && errorCode(error) === "network-failure" && await context.ui.confirm("Save URL draft", "Save only this URL for a later attempt? No runtime key will be saved by this draft.")) {
-      await updateConfig(value => ({ ...value, allowInsecureHttp: insecureConsent, setupDraft: validateEndpoint(endpoint, insecureConsent) }));
-    }
+    const detail = error instanceof AuthError ? error.message : "Check the gateway and try again";
+    let recovery = "Connection state could not be confirmed; inspect /omniroute status before retrying.";
+    try {
+      const current = await loadConfig();
+      recovery = current.pending
+        ? "Connection activation may be pending after native credential persistence. Sign in again to recover or replace it."
+        : current.revision === config.revision
+          ? "Existing profile configuration was retained."
+          : "Connection state changed; inspect /omniroute status before retrying.";
+    } catch { /* Keep the conservative message when state cannot be read. */ }
+    info(context, `Connection not completed (${errorCode(error)}): ${detail}. ${recovery}`, true);
   } finally { key = undefined; }
 }
 

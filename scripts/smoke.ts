@@ -603,6 +603,14 @@ async function startFixtureServer(): Promise<FixtureServer> {
         fixtureResponse(response, 200, { status: "ok", server: "fixture-omniroute" });
         return;
       }
+      if (path === "/api/cloud/auth") {
+        if (request.method !== "POST" || body.length !== 0 || request.headers.authorization !== `Bearer ${runtimeKey}`) {
+          fixtureResponse(response, 401, { error: "invalid_api_key" });
+          return;
+        }
+        fixtureResponse(response, 200, { connections: [], modelAliases: {} });
+        return;
+      }
       if (path === "/v1/models") {
         if (modelsStatus !== 200) {
           fixtureResponse(response, modelsStatus, { error: "fixture_model_discovery_unavailable" });
@@ -1743,6 +1751,8 @@ export async function runSmoke(): Promise<SmokeResult> {
       throw new Error("fixture server observed a non-fixture credential");
     }
     const modelDiscoveryGets = fixture.requests.filter(request => request.method === "GET" && request.path === "/v1/models").length;
+    const keyVerificationPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/api/cloud/auth" && request.status === 200).length;
+    if (keyVerificationPosts === 0) throw new Error("native setup did not verify the API key on the protected OmniRoute route");
     const failedDiscoveryGets = fixture.requests.filter(request => request.method === "GET" && request.path === "/v1/models" && request.status === 503).length;
     const responsesPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/v1/responses").length;
     const chatCompletionsPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/v1/chat/completions").length;

@@ -153,6 +153,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const oauth: NonNullable<ProviderConfig["oauth"]> = {
 		name: nativeLogin.name,
 		login: callbacks => nativeLogin.login({
+			...(callbacks.signal ? { signal: callbacks.signal } : {}),
 			onPrompt: async options => callbacks.onPrompt({
 				message: options.message,
 				...(options.placeholder === undefined ? {} : { placeholder: options.placeholder }),
@@ -163,7 +164,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					message: `${options.message}${options.detail ? `\n${options.detail}` : ""}`,
 					placeholder: "yes/no",
 				});
-				return /^(?:y|yes)$/i.test(answer.trim());
+				return typeof answer === "string" && /^(?:y|yes)$/i.test(answer.trim());
 			},
 			onMessage: message => callbacks.onProgress?.(message),
 		}),
@@ -304,8 +305,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		const changed = snapshot.state !== lastNotifiedState;
 		lastNotifiedState = snapshot.state;
 		if (!changed || !transitionNotifications || stopped || snapshot.state === "unconfigured") return;
-		const kind = snapshot.state === "ready" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
-		notify(context, `omniroute: state ${snapshot.state}; models=${snapshot.modelCount}${snapshot.lastError ? `; detail=${snapshot.lastError}` : ""}`, kind);
+		if (snapshot.state === "checking") {
+			notify(context, "omniroute: checking connection…", "info");
+			return;
+		}
+		const kind = snapshot.state === "ready" || snapshot.state === "no-models" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
+		notify(context, `omniroute: state ${snapshot.state}; chat models=${snapshot.modelCount}; live rows=${snapshot.rawModelCount}${snapshot.state === "no-models" ? "; no chat-compatible models" : ""}${snapshot.lastError ? `; detail=${snapshot.lastError}` : ""}`, kind);
 	}]);
 	const runtimeProviderConfig = (
 		endpoint?: string,
@@ -574,7 +579,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		try {
 			if (!synchronized.pendingValidated) await manager.refresh({ force: manual });
 			const result = manager.currentResult;
-			if (manual && result) notify(ctx, `omniroute: refreshed ${result.projection.models.length} live models${result.stale ? " (stale same-generation rows)" : ""}`, result.stale ? "warning" : "info");
+			if (manual && result) notify(ctx, `omniroute: refreshed ${result.projection.models.length} chat models from ${result.projection.rows.size} live rows${result.stale ? " (stale same-generation rows)" : result.projection.models.length === 0 ? "; no chat-compatible models" : ""}`, result.stale ? "warning" : "info");
 		} catch (error) {
 			if (manual) notify(ctx, `omniroute: refresh failed; no new catalog accepted (${safeDetail(error)})`, "warning");
 		}
@@ -584,7 +589,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const setup = createSetupWizard({
 		credentials: optionalCredentials,
 		refresh: ctx => refresh(ctx, true),
-		status: () => `${manager.status.state}; models=${manager.status.modelCount}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
+		status: () => manager.status.state === "checking"
+			? `checking connection; metadata=${metadataState}; catalogs=${catalogStatus()}`
+			: `${manager.status.state}; chat models=${manager.status.modelCount}; live rows=${manager.status.rawModelCount}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
 		synchronizeAdmin: async ctx => {
 			setContext(ctx);
 			await synchronizeAdministration(await loadConfig());
@@ -610,7 +617,11 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				else notify(ctx, `omniroute pricing: ${pricingCurrent ? "current file" : "unavailable"}; ${PRICING_WARNING}`);
 			} else {
 				const status: HealthSnapshot = manager.status;
-				notify(ctx, `omniroute: ${status.state}; models=${status.modelCount}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}; catalogs=${catalogStatus()}`);
+				if (status.state === "checking") {
+					notify(ctx, `omniroute: checking connection; catalogs=${catalogStatus()}`);
+					return;
+				}
+				notify(ctx, `omniroute: ${status.state}; chat models=${status.modelCount}; live rows=${status.rawModelCount}${status.state === "no-models" ? "; no chat-compatible models" : ""}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}; catalogs=${catalogStatus()}`);
 			}
 		},
 	};

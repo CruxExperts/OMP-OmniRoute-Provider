@@ -1,6 +1,6 @@
 {
   "name": "@cruxexperts/cruxomni-omp-client",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "OMP OmniRoute Provider for Oh My Pi with guided setup, live discovery, and verified administration",
   "repository": {
     "type": "git",

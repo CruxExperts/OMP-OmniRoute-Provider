@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 export type TransportErrorCode =
   | "network"
+  | "tls"
   | "timeout"
   | "aborted"
   | "http"
@@ -140,6 +141,18 @@ function abortReason(signal: AbortSignal | undefined, timedOut: boolean): Transp
   if (signal?.aborted) return new TransportError("aborted", "request cancelled");
   if (timedOut) return new TransportError("timeout", "request timed out");
   return new TransportError("network", "request failed");
+}
+
+function isTlsFailure(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth++) {
+    const value = current as { code?: unknown; cause?: unknown };
+    const code = value.code;
+    if (typeof code === "string" && (/^(?:ERR_TLS_|ERR_SSL_|CERT_)/.test(code)
+      || ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN"].includes(code))) return true;
+    current = value.cause;
+  }
+  return false;
 }
 
 function validateDepth(value: unknown, maxDepth: number, depth = 0, seen = new Set<object>()): void {
@@ -282,6 +295,7 @@ async function attempt(target: NormalizedTarget, credential: TransportCredential
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
     if (error instanceof TransportError) throw error;
+    if (!signal?.aborted && !timedOut && isTlsFailure(error)) throw new TransportError("tls", "TLS connection failed");
     throw abortReason(signal, timedOut);
   }
 

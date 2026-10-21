@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.1">Download v1.0.1</a> ·
+  <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.2">Download v1.0.2</a> ·
   <a href="docs/installation.md">Set up</a> ·
   <a href="docs/first-use.md">Everyday use</a> ·
   <a href="docs/administration.md">Administration</a> ·
@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/workflows/ci.yml"><img src="https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.1"><img src="https://img.shields.io/badge/release-1.0.1-39b7aa" alt="GitHub release 1.0.1"></a>
+  <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.2"><img src="https://img.shields.io/badge/release-1.0.2-39b7aa" alt="GitHub release 1.0.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/source-MIT-blue" alt="Source license: MIT"></a>
 </p>
 
@@ -40,7 +40,7 @@ Connect once, then work with the models your server actually exposes. Optional c
 Install the released GitHub tag through OMP's native plugin installer, then restart your OMP session:
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.1
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.2
 ```
 
 In an interactive OMP terminal, run `/omniroute setup` and enter your OmniRoute endpoint and runtime API key in the guided prompts. The key is handled through OMP's native credential storage. If runtime environment variables are already active, setup asks before switching this OMP profile to a native connection; it never changes those variables. In OMP's `/login` provider selector, this provider appears as **Crux OmniRoute Provider**; model IDs and stored credentials continue to use `omniroute`. Metadata catalogs, pricing, and administration are optional.
@@ -52,7 +52,7 @@ omp models --json
 omp --model omniroute/<live-model-id>
 ```
 
-The [GitHub v1.0.1 release](https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.1) includes the versioned release assets. The command above installs from the GitHub source tag; it does not use the npm registry. See [installation and guided setup](docs/installation.md) for configuration and host-specific details.
+The [GitHub v1.0.2 release](https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.2) includes the versioned release assets. The command above installs from the GitHub source tag; it does not use the npm registry. See [installation and guided setup](docs/installation.md) for configuration and host-specific details.
 
 ## Develop from source
 
@@ -99,7 +99,7 @@ Administration covers the qualified subset of OmniRoute's API; other operations 
 
 | | Current repository state |
 | --- | --- |
-| GitHub release and source version | `1.0.1` |
+| GitHub release and source version | `1.0.2` |
 | Declared OMP host range | `>=18.12.2 <19` |
 | Distribution | GitHub release assets and tagged GitHub source; no npm registry publication |
 

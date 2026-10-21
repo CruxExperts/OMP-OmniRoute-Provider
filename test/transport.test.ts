@@ -68,3 +68,18 @@ test("stream responses remain bounded and cancellation is typed", async () => {
   controller.abort();
   await expectTransport(requestJson(endpoint, "secret", undefined, controller.signal), "aborted");
 });
+
+test("TLS failures are classified without exposing certificate details", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = Object.assign(async () => {
+    throw Object.assign(new TypeError("private gateway hostname"), {
+      cause: Object.assign(new Error("private certificate detail"), { code: "ERR_TLS_CERT_ALTNAME_INVALID" }),
+    });
+  }, { preconnect: original.preconnect });
+  try {
+    await expect(requestJson("https://llm.example.com/api/cloud/auth", "fixture-key"))
+      .rejects.toMatchObject({ code: "tls", message: "TLS connection failed" });
+  } finally {
+    globalThis.fetch = original;
+  }
+});

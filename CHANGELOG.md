@@ -2,6 +2,32 @@
 
 All notable changes to OMP OmniRoute Provider are recorded here.
 
+## 1.0.2 — 2026-10-21
+
+- Guided setup and native sign-in use a neutral `https://llm.example.com`
+  example. Interactive gateway addresses accept an omitted HTTPS scheme,
+  local names, IP addresses, ports, and base paths; existing profile URLs
+  appear only as clearly labeled prefilled values.
+- Runtime API keys are verified through OmniRoute's protected cloud-auth route
+  before the live model catalog is checked or any pending profile state is
+  staged. Rejected keys, unavailable verification, malformed responses, failed
+  catalogs, and cancelled checks leave the previous connection in place. A
+  verified key may still connect when its valid live catalog has no
+  chat-compatible models, which is reported separately from the live row count.
+- Connection health shows `checking` during initial discovery and `no-models`
+  for a verified connection without selectable chat models. It reports live
+  rows separately from selectable chat models. A delayed healthy gateway
+  no longer emits an initial degraded/error transition.
+- OMP may still display its host-owned “Starting OAuth flow…” line in native
+  sign-in. This plugin uses an API key; `/omniroute setup` uses API-key wording.
+- This GitHub-only patch retains the operation and platform limits disclosed
+  below. It does not publish to npm or claim full administration coverage or
+  eight-platform qualification.
+
+```text
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.2
+```
+
 ## 1.0.1 — 2026-10-21
 
 - The OMP `/login` provider selector now labels this entry **Crux OmniRoute

@@ -446,8 +446,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/93f1ca5de0530438e5a0a45379b7a17d33fc3cbd6a090f1b4bbfad90dd9ea238.json",
-        "caseSha256": "f6a4d9e8b5ae6e24503e20c0f4dfb7124e8bd8ff02cabccc5793a79dfc43ccc7",
+        "observedOutcome": "provenance/qualification/fdec73180a207cd2140d34e3105d93e448bc93b6cbf7a3d778d5dccc19ee18e5.json",
+        "caseSha256": "42b8af74b4237ce77cc58522594b3d10cb9220bf9b3a39e7e3191f94b23ed119",
         "outcomeSha256": "973c4e8db6b9a56b1d54d7ee95a24543afe2581a8ec2b3068f7880f1fc215a65"
       },
       "evidence": [
@@ -1121,8 +1121,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/ef31412dc297f73e1de8d3ef52f7e961fa52c882cd3c344373f693c9845d2e38.json",
-        "caseSha256": "588b0ea916215271f79890ec93bace10e1ff837e3ed8f676870eb5ac20404ae6",
+        "observedOutcome": "provenance/qualification/47c45a6d89a584be96ee5f4ea52a9eb10b04a837ad6db1e6b2ee57f80873ad04.json",
+        "caseSha256": "a6dd56addf4551d6b3fff3d6846fa02f3aecaae15db2c6b74e63ff9df35fbc5f",
         "outcomeSha256": "3d51f5c05aec50ddac818d78c6dffc9269141be0f14dfb52796243936651297a"
       },
       "evidence": [
@@ -1747,8 +1747,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/5dc499646ef42bcb916335bb591017fdf03a9ca67cc8b0391b56107c7bac8456.json",
-        "caseSha256": "b8334035039637d1697b64966a2c7f58cd66bcf79cc5ea60ed001a9f08ed634d",
+        "observedOutcome": "provenance/qualification/9887e9800b0cbfc02d721540f85d84b564ad6dfee2e48a51455e18c813d2112f.json",
+        "caseSha256": "350da51e9c840bf54e4d684a3cf1b9a1880b4f236567ef41b3aa5a1eca84f043",
         "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
       },
       "evidence": [
@@ -2068,8 +2068,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/669400daf4378fe924b82d4c4256e89499f086390bd2ddf7bdd817ec681adb35.json",
-        "caseSha256": "2073247507f797a9b6115eea61a7eed7dec3f47f5748f18b2fa895ec4b1b3d73",
+        "observedOutcome": "provenance/qualification/ab607f5897543d19f846f3c7c172414ed9273b4c7a1b00cd0296cccb56971e7e.json",
+        "caseSha256": "3ae21031eb2d19caadde4a12bec182cdbd3cd7999c89e59bf58b0c8d320225b7",
         "outcomeSha256": "60581f12596f76b999060d7d606a6b6505d7d6d90c7c7cc8822dd0a0dfb56ab8"
       },
       "evidence": [
@@ -2389,8 +2389,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/fca06df8c71a3c106c12883fd87eefa4d7c403a00bf635e87444570cb6cda760.json",
-        "caseSha256": "2073247507f797a9b6115eea61a7eed7dec3f47f5748f18b2fa895ec4b1b3d73",
+        "observedOutcome": "provenance/qualification/6b7e52479c467c50b2371153a7b13bc4b56e100076fd5e8d8e681307d3cf5c50.json",
+        "caseSha256": "3ae21031eb2d19caadde4a12bec182cdbd3cd7999c89e59bf58b0c8d320225b7",
         "outcomeSha256": "95f8ecb15a9c5a99d3beae9ed6582d4892d749cbcb5256ec31871b950189885b"
       },
       "evidence": [
@@ -5517,8 +5517,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/5fe1e492efc5986eac15b9b0c1ac4c61a31369f42165e777ba579b854d621c10.json",
-        "caseSha256": "f6a4d9e8b5ae6e24503e20c0f4dfb7124e8bd8ff02cabccc5793a79dfc43ccc7",
+        "observedOutcome": "provenance/qualification/91ef7bcb1bfc9ef43fb2d0d4b4a8df2cab949c3942587682210f81af754c67c7.json",
+        "caseSha256": "42b8af74b4237ce77cc58522594b3d10cb9220bf9b3a39e7e3191f94b23ed119",
         "outcomeSha256": "9a57391dc51139e4fc19130b24e00eecbdc25b3ac413339aee0b039430596eec"
       },
       "evidence": [
@@ -8489,8 +8489,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/6ad4ea4c0f01548321c9ae9d434bcbbdce187e8c03afa4779fd90edb5c3627f6.json",
-        "caseSha256": "f6a4d9e8b5ae6e24503e20c0f4dfb7124e8bd8ff02cabccc5793a79dfc43ccc7",
+        "observedOutcome": "provenance/qualification/6a6a2e127efcaab47cf9d6f83c1c8fcadcd9529126be0088f0f57111672a6e97.json",
+        "caseSha256": "42b8af74b4237ce77cc58522594b3d10cb9220bf9b3a39e7e3191f94b23ed119",
         "outcomeSha256": "1b07ad539b80bf722c6bef481631e9faa4463bebcc6801a3bd3649f12585040e"
       },
       "evidence": [
@@ -9773,8 +9773,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/8d4968d43737523792c64753d9ea5b496224f0cc3d092340e805edcd7404f368.json",
-        "caseSha256": "f6a4d9e8b5ae6e24503e20c0f4dfb7124e8bd8ff02cabccc5793a79dfc43ccc7",
+        "observedOutcome": "provenance/qualification/b63c204c98426aca5c8eb7f454ff0705e416cc9a074df5f9f81c95a4d1146fe8.json",
+        "caseSha256": "42b8af74b4237ce77cc58522594b3d10cb9220bf9b3a39e7e3191f94b23ed119",
         "outcomeSha256": "3fab89c117ca965da64a495b1096089b9088c943408f7ce46efb8c612b05605a"
       },
       "evidence": [
@@ -10710,8 +10710,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/8cb8acdf6213a484ff9135a21298bbedb84fd4b20425dc6717a5ad3be7728364.json",
-        "caseSha256": "f6a4d9e8b5ae6e24503e20c0f4dfb7124e8bd8ff02cabccc5793a79dfc43ccc7",
+        "observedOutcome": "provenance/qualification/28728a2a8c41208056ec8f452458c727d3fd3991f90d741539d557188ef92d6b.json",
+        "caseSha256": "42b8af74b4237ce77cc58522594b3d10cb9220bf9b3a39e7e3191f94b23ed119",
         "outcomeSha256": "756cbc013f51cb12e2ec46df5c309225ad067e79b597caa35ea77305e4ed3a5a"
       },
       "evidence": [
@@ -13288,8 +13288,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/706d9b037998d5ccd035d29775e001ba7dee519fe5c7d584d37030d468e39fdb.json",
-        "caseSha256": "f6a4d9e8b5ae6e24503e20c0f4dfb7124e8bd8ff02cabccc5793a79dfc43ccc7",
+        "observedOutcome": "provenance/qualification/e0be277b62e99a777e6024038bf049b84a5f7a3769c0d2b5a50c620f664b630f.json",
+        "caseSha256": "42b8af74b4237ce77cc58522594b3d10cb9220bf9b3a39e7e3191f94b23ed119",
         "outcomeSha256": "f19d2898034cc9e289241fe0fa1519055433d20cbb97aa65ffd214cfa9e8ca12"
       },
       "evidence": [
@@ -13784,8 +13784,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/38f4cbe7dbf3327fac2dbe729eee2394e5cb1e6a364cfdd557daea432b03c3d6.json",
-        "caseSha256": "588b0ea916215271f79890ec93bace10e1ff837e3ed8f676870eb5ac20404ae6",
+        "observedOutcome": "provenance/qualification/0b469448a5fa84013a436fc1d8de1f668d5f6af1f1b772cba92b50c706f0bdb0.json",
+        "caseSha256": "a6dd56addf4551d6b3fff3d6846fa02f3aecaae15db2c6b74e63ff9df35fbc5f",
         "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
       },
       "evidence": [
@@ -14469,8 +14469,8 @@
       },
       "test": {
         "id": "test/admin-model-capability-overrides.test.ts",
-        "observedOutcome": "provenance/qualification/a46b9c8ac28a73e04e2484cfc30bee18ca96213f3644bfadd545d40b3f912b35.json",
-        "caseSha256": "3ad7efdf6ce4bc8a52ad5c297e10219c52382e3178d730487d4ed28502471260",
+        "observedOutcome": "provenance/qualification/f11e01414db63676f89f8b455647ec87bd8844f2c16e6aa7d2b9cfc4677cd138.json",
+        "caseSha256": "58dbf6ca4175a47722033f590e816638ed60602f6c67ff776b7c08247a6d9169",
         "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
       },
       "evidence": [
@@ -15119,8 +15119,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/41cb37104a0696b3393ff483240ee40932ab2a4f1c81fb4f79c0c93503ff441f.json",
-        "caseSha256": "b8334035039637d1697b64966a2c7f58cd66bcf79cc5ea60ed001a9f08ed634d",
+        "observedOutcome": "provenance/qualification/69258c1fcac30f3418aa3ffaa5e449234112e8f6971b3dd0c555b5a58fc0f16d.json",
+        "caseSha256": "350da51e9c840bf54e4d684a3cf1b9a1880b4f236567ef41b3aa5a1eca84f043",
         "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
       },
       "evidence": [
@@ -15671,8 +15671,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/48bc0f96497755403d9b3691d4667d04fa16ca31f8174cb4f83ed90aaa3069af.json",
-        "caseSha256": "b8334035039637d1697b64966a2c7f58cd66bcf79cc5ea60ed001a9f08ed634d",
+        "observedOutcome": "provenance/qualification/2c835f844758076fbefea39e326b1dcecba6e2b94a83c61c141e66e39f681851.json",
+        "caseSha256": "350da51e9c840bf54e4d684a3cf1b9a1880b4f236567ef41b3aa5a1eca84f043",
         "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
       },
       "evidence": [
@@ -16198,8 +16198,8 @@
       },
       "test": {
         "id": "test/admin-provider-nodes.test.ts",
-        "observedOutcome": "provenance/qualification/d45a9093c538b1ecadfdecca89813022274d86ecc38b6e7eac33278a0999001c.json",
-        "caseSha256": "979f5545001ed33d7e2e15b3a48ae6a819445807689c21192794eebd63717ee7",
+        "observedOutcome": "provenance/qualification/432610bf4967c5405f0e0796572ba05e2708921997fe20ebc72e4c86744c4ba3.json",
+        "caseSha256": "a15321fc147d6e4087418c19bde3882c323f36a096f78537ecc266e89c4985fa",
         "outcomeSha256": "d83054ea9b4f8b49e830f947fb6cfe9f1f3890183bbb76d9896137a266015f2c"
       },
       "evidence": [
@@ -16596,8 +16596,8 @@
       },
       "test": {
         "id": "test/admin-provider-family.test.ts",
-        "observedOutcome": "provenance/qualification/55e9833583aaca8ff288fb0f02f2c91d448ff8b960078235b5d462feb580e965.json",
-        "caseSha256": "8bb64c010320a38fa317acb5a965682bd980d2faad65c0887c1fae9b7fc5133a",
+        "observedOutcome": "provenance/qualification/1c727040cc190c443567579b4c48ba2d09f3f14ac22c2151fb45657963560544.json",
+        "caseSha256": "4d979ac01b6d7af4b32a7f9163b512ea1cb321382120a7907ed627cd6e430921",
         "outcomeSha256": "d419646f848b42986a1f96e6e027582904b69856bc2ebe0fb0f6b267b89201f0"
       },
       "evidence": [
@@ -16898,8 +16898,8 @@
       },
       "test": {
         "id": "test/admin-provider-cc-alias.test.ts",
-        "observedOutcome": "provenance/qualification/a2b409f44fe855c4ac72b85162bc28f6f1c444f1f52309397d68c40ab98ef38d.json",
-        "caseSha256": "d6d5974d5a1c50e33ecf97a39d54bf90e27670d218ef56e8b13d5df3b50af6e2",
+        "observedOutcome": "provenance/qualification/f12b4e29310e49b6d111f4acf82d32ee5687404f8617e158665d3195e04ec833.json",
+        "caseSha256": "7f88ff0bdc831a11e90bebb4d2d42e4ed8403bc14954da95946bd267f3ec7266",
         "outcomeSha256": "0262e43fb048ac1cfe8997d2eb5d6ed3ef4b5c99d0a8e24a2f7d7765d77f0e1d"
       },
       "evidence": [
@@ -17247,8 +17247,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/c3a17ef7f1b532816310f5dbc18c4c9d330d177dc5027a74090cd86060625850.json",
-        "caseSha256": "2073247507f797a9b6115eea61a7eed7dec3f47f5748f18b2fa895ec4b1b3d73",
+        "observedOutcome": "provenance/qualification/d790611ad66a7c4e2627fbe07bd9b0293c913c509463d2b469cb862dfc89f841.json",
+        "caseSha256": "3ae21031eb2d19caadde4a12bec182cdbd3cd7999c89e59bf58b0c8d320225b7",
         "outcomeSha256": "0154ae64f1f17233c168e3c0e92a225d07c709ef4c0121f5f0efef36a03b5e7c"
       },
       "evidence": [
@@ -17606,8 +17606,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/73f2b1928a0f8298743878eb02f743177810fc5181d5e873cea303aa233f4256.json",
-        "caseSha256": "2073247507f797a9b6115eea61a7eed7dec3f47f5748f18b2fa895ec4b1b3d73",
+        "observedOutcome": "provenance/qualification/ae95d1910f3fe9fe7f865dc3fb715ba1fc467e22c0387d88ef2f948d08ea9f35.json",
+        "caseSha256": "3ae21031eb2d19caadde4a12bec182cdbd3cd7999c89e59bf58b0c8d320225b7",
         "outcomeSha256": "31e114922c376536bdefa69966f5c9dd6ecb5c6c9ad4cc85f8bb68c664e1b5f7"
       },
       "evidence": [
@@ -18352,8 +18352,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/2fae79859474bad45a9e351ee760f66280d36cfff944736f5f49ba36aa01090f.json",
-        "caseSha256": "588b0ea916215271f79890ec93bace10e1ff837e3ed8f676870eb5ac20404ae6",
+        "observedOutcome": "provenance/qualification/5cb3f3edecb3a4e4111926f8e25ec521b7634741f4e45defb9da337e546b66c0.json",
+        "caseSha256": "a6dd56addf4551d6b3fff3d6846fa02f3aecaae15db2c6b74e63ff9df35fbc5f",
         "outcomeSha256": "437a3316e80cdf8bee19e76308767fc3d898d0fbafb85dd9df9b4c834376e0fd"
       },
       "evidence": [
@@ -19245,8 +19245,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/7126ac84dd79babef99a245ad839d94d9c02731412fd9d9754e8e8702f25bb3e.json",
-        "caseSha256": "b8334035039637d1697b64966a2c7f58cd66bcf79cc5ea60ed001a9f08ed634d",
+        "observedOutcome": "provenance/qualification/128893773a1090361c0e177d160c419f0ff7f4736398c5022bb9779ca86c4363.json",
+        "caseSha256": "350da51e9c840bf54e4d684a3cf1b9a1880b4f236567ef41b3aa5a1eca84f043",
         "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
       },
       "evidence": [
@@ -20204,8 +20204,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/46f99a94a80fcf8e964b9edc15ad73cf59e26aae1dc09f3148310d32e7e08d02.json",
-        "caseSha256": "b8334035039637d1697b64966a2c7f58cd66bcf79cc5ea60ed001a9f08ed634d",
+        "observedOutcome": "provenance/qualification/c0995c49c8ecf0ba0210b7af2cbf3d58df3ab33c596199aef6167e6b7f3e180f.json",
+        "caseSha256": "350da51e9c840bf54e4d684a3cf1b9a1880b4f236567ef41b3aa5a1eca84f043",
         "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
       },
       "evidence": [
@@ -20730,8 +20730,8 @@
       },
       "test": {
         "id": "test/admin-provider-cc-alias.test.ts",
-        "observedOutcome": "provenance/qualification/d71c68f4fa72f0157ffb37cb33c3ccc4ec53bcdf96db7b2612332e00bc2bfa8b.json",
-        "caseSha256": "d6d5974d5a1c50e33ecf97a39d54bf90e27670d218ef56e8b13d5df3b50af6e2",
+        "observedOutcome": "provenance/qualification/67e579ae0df41fb9a5add3e3360600a17461a6a1ca8baf96c348aa1ad3b94273.json",
+        "caseSha256": "7f88ff0bdc831a11e90bebb4d2d42e4ed8403bc14954da95946bd267f3ec7266",
         "outcomeSha256": "4a8955531d111135933fe0f7374bd628f9390a63bc4328642ae7b8b2cdf3c798"
       },
       "evidence": [
@@ -21246,8 +21246,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/ca250326dea506297777f18bd5f6de6a6f127d5edced22ce6743d3eaa6eef037.json",
-        "caseSha256": "2073247507f797a9b6115eea61a7eed7dec3f47f5748f18b2fa895ec4b1b3d73",
+        "observedOutcome": "provenance/qualification/d26137bfb06e01d95710d294b3eef7b556c3bba464b9e35a5972468af85a9f9d.json",
+        "caseSha256": "3ae21031eb2d19caadde4a12bec182cdbd3cd7999c89e59bf58b0c8d320225b7",
         "outcomeSha256": "97ef6353cdcbb5abce564c5a7fdb4739b00e37237f3ba20a08018049bb7f6939"
       },
       "evidence": [
@@ -21762,8 +21762,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/6f395ef5c1381706a8ccd8e8a46b6255d529e942ffad86b881a07b31f6c62c5e.json",
-        "caseSha256": "2073247507f797a9b6115eea61a7eed7dec3f47f5748f18b2fa895ec4b1b3d73",
+        "observedOutcome": "provenance/qualification/6e55ecddaf6888939fcc795f03b15130e753dd3119c42fc7177ef8fa85e58d85.json",
+        "caseSha256": "3ae21031eb2d19caadde4a12bec182cdbd3cd7999c89e59bf58b0c8d320225b7",
         "outcomeSha256": "fa3f91fcc36b8993e00ef1cce6ed4c772dfa7dd769b462bdbf6e56392af88750"
       },
       "evidence": [

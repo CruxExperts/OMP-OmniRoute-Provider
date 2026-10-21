@@ -14,8 +14,25 @@ discovery.
 ## Environment binding is rejected
 
 Verify that `OMP_OMNIROUTE_BASE_URL` and `OMP_OMNIROUTE_API_KEY` are both set.
-Userinfo, query strings, fragments, unsupported schemes, and unapproved remote
-HTTP are rejected.
+The environment URL must be an absolute HTTP or HTTPS URL; environment values
+do not receive the interactive HTTPS default. Userinfo, query strings,
+fragments, malformed hosts or ports, path traversal, unsupported schemes, and
+unapproved remote HTTP are rejected. A trailing `/v1` is optional. Interactive
+setup also accepts a bare domain or IP with an optional port and base path, but
+bare input always means HTTPS. IPv6 literals must be enclosed in brackets.
+For example, enter `https://llm.example.com` or
+`[2001:db8::1]:8443/base`; do not enter a bare `2001:db8::1`.
+
+## HTTPS or HTTP endpoint input
+
+The setup prompt uses `https://llm.example.com` as neutral guidance; it does not
+select that server for you. When a scheme is omitted, HTTPS is added. To request
+HTTP, type `http://` explicitly. Remote HTTP requires its own confirmation and
+is never attempted automatically after an HTTPS failure. If HTTPS reports a
+certificate or connection problem, correct the hostname, certificate, port,
+or base path instead of removing TLS protection by accident. Query strings,
+fragments, embedded credentials, malformed ports, and paths containing `.` or
+`..` traversal segments are not valid endpoint input.
 
 ## Replace an environment-configured connection
 
@@ -35,13 +52,29 @@ optional environment credentials.
 Use `/omniroute` to inspect connection state. The former `/cruxomni`,
 `/cruxomni-admin`, and `/cruxomni-pricing` commands still work as aliases.
 
-## Setup saved a draft or remains auth-only
+## Setup did not activate or remains auth-only
 
-This means endpoint reachability, native persistence, readback, or activation
-did not complete. A URL-only draft never contains a runtime key. Sign in again
-through OMP's native masked prompt, then run `/omniroute refresh`; do not test a
-new key against an old endpoint manually. A pending marker after process exit
-is deliberately fail-closed and requires fresh sign-in.
+This means the protected key check, live catalog check, native persistence,
+readback, or activation did not complete. Setup does not save an offline or
+unverified connection. Sign in again through OMP's native masked prompt, then
+run `/omniroute refresh`; do not test a new key against an old endpoint
+manually. A pending marker after process exit is deliberately fail-closed and
+requires fresh sign-in.
+
+If the key check succeeds but setup reports no compatible chat models, the
+credential was verified and the current `/v1/models` response did not yield a
+runnable chat model. Check the route prefix and model availability separately;
+do not treat that result as a rejected key. While the endpoint is checking,
+wait for verification and catalog discovery to finish before selecting a
+model. A completed empty catalog is not reported as a ready model list.
+
+## OMP displays generic OAuth wording
+
+The native `/login` selector and its initial progress text belong to OMP; the
+host may show “Starting OAuth flow…” even though this provider uses an API key.
+That host-owned wording does not mean the plugin opens a browser or requests an
+OAuth token. Use `/omniroute setup` for provider-specific API-key prompts and
+verification messages.
 
 ## Models are stale or missing
 

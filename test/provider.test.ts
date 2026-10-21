@@ -115,6 +115,25 @@ test("source generations are compared independently from manager epochs", () => 
 	expect(manager.setBinding("https://one.example", "key", 901)).toBe(true);
 });
 
+test("binding reports checking until delayed discovery succeeds, with separate live and chat counts", async () => {
+	const delayed = Promise.withResolvers<{ projection: CatalogProjection }>();
+	const states: Array<{ state: string; raw: number; chat: number }> = [];
+	const manager = new DiscoveryManager(async () => delayed.promise, [snapshot => {
+		states.push({ state: snapshot.state, raw: snapshot.rawModelCount, chat: snapshot.modelCount });
+	}]);
+	manager.setBinding("https://gateway.example", "key", 1);
+	const flight = manager.refresh();
+	expect(manager.status.state).toBe("checking");
+	expect(states).toEqual([{ state: "checking", raw: 0, chat: 0 }]);
+	delayed.resolve({ projection: projectCatalog({ data: [
+		{ id: "chat", supported_endpoints: ["chat"] },
+		{ id: "image", supported_endpoints: ["images"] },
+	] }) });
+	await flight;
+	expect(manager.status).toMatchObject({ state: "ready", modelCount: 1, rawModelCount: 2 });
+	expect(states.map(value => value.state)).toEqual(["checking", "ready"]);
+});
+
 test("unauthorized discovery clears runnable authority while valid empty catalogs remain successful", async () => {
 	let unauthorizedStatus = 401;
 	let unauthorized = false;
@@ -128,7 +147,7 @@ test("unauthorized discovery clears runnable authority while valid empty catalog
 	expect(manager.getModelApi("live")).toBe("openai-responses");
 	empty = true;
 	await manager.refresh({ force: true });
-	expect(manager.status.state).toBe("ready");
+	expect(manager.status.state).toBe("no-models");
 	expect(manager.currentResult?.projection.models).toEqual([]);
 	expect(manager.getModelApi("live")).toBeUndefined();
 	empty = false;

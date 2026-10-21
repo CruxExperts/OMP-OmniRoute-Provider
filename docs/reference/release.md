@@ -18,7 +18,7 @@ again as an extra bump on the next plan.
 
 ## 1.0.x GitHub distribution
 
-Versions `1.0.0` and `1.0.1` are distributed through GitHub Releases and signed
+Versions `1.0.0`, `1.0.1`, and `1.0.2` are distributed through GitHub Releases and signed
 GitHub source tags. Neither publishes to npm or claims complete operation and
 eight-platform qualification. The original `v1.0.0` tag and its release assets
 are immutable. Version `1.0.1` changes the OMP `/login` provider selector label
@@ -28,9 +28,13 @@ makes `/omniroute`, `/omniroute-admin`, and `/omniroute-pricing` the primary
 commands while keeping the former names as aliases. Model names and native
 credentials continue to use provider ID `omniroute`.
 
+Version `1.0.2` validates API keys through the protected authentication route,
+accepts guided endpoint input for local and remote hosts, and separates initial
+checking and verified catalogs without compatible chat models from failures.
+
 The 1.0.x release notes disclose the limited qualified operation set and
-platform evidence. Version `1.0.1` carries no eight-platform qualification
-receipt: evidence for the exact `v1.0.0` source and package archive does not qualify a `v1.0.1`
+platform evidence. Version `1.0.2` carries no eight-platform qualification
+receipt: evidence for earlier source and package archives does not qualify a new
 archive. The operation eligibility guards stay enabled, and the current coverage
 limits must remain visible in release notes.
 

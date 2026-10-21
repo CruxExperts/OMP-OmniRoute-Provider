@@ -8,7 +8,7 @@ Administration qualification is being rebuilt after a mutation-safety contract
 migration. Reviewed reads, provider configuration, fallback chains, provider
 aliases, and model mappings have regained qualification with the limits below. Other examples describe intended workflows; use the
 generated inventory to check availability before trying them. Unqualified calls
-remain blocked. Version 1.0.1 does not expand the qualified operation set; the
+remain blocked. Version 1.0.2 does not expand the qualified operation set; the
 current release limits remain documented in the changelog and generated inventory.
 
 ## Start with read access

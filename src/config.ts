@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
+import { isIP } from "node:net";
 import { chmod, mkdir, open, readFile, rename, stat, lstat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
@@ -7,6 +8,12 @@ import type { CatalogSourceId } from "./catalog-sources.ts";
 
 export const PROVIDER_ID = "omniroute";
 export const CONFIG_VERSION = 2 as const;
+export const ENDPOINT_EXAMPLE = "https://llm.example.com";
+export const ENDPOINT_INPUT_HELP = [
+  "Enter a domain or IP with an optional :port and /base-path, such as llm.example.com, gateway:8443/base, localhost:20128, 192.0.2.10, or [2001:db8::1]:8443/base.",
+  "HTTPS is added when you omit a scheme. To use HTTP, enter http:// explicitly; remote HTTP needs a separate confirmation.",
+  "Put IPv6 addresses in brackets. A trailing /v1 is optional.",
+].join(" ");
 
 export type ConfigErrorCode =
   | "invalid-config"
@@ -88,6 +95,7 @@ const CONFIG_DIR_NAME = "omniroute";
 const CONFIG_FILE_NAME = "config.json";
 const MAX_CONFIG_BYTES = 64 * 1024;
 const ENDPOINT_PATH = /^(?:\/[^?#]*)?$/;
+const ABSOLUTE_ENDPOINT = /^https?:\/\/([^/?#]*)([^?#]*)$/i;
 
 type AgentDirResolver = () => string;
 
@@ -369,26 +377,70 @@ export async function updateConfig(change: (current: PluginConfig) => PluginConf
 }
 
 export function validateEndpoint(input: string, allowInsecureHttp = false): string {
-  if (typeof input !== "string" || input.trim() !== input || input.length === 0 || /[\u0000-\u001f\u007f]/.test(input)) {
+  if (typeof input !== "string" || input.trim() !== input || input.length === 0
+    || /[\u0000-\u001f\u007f]/.test(input) || input.includes("\\")) {
     throw new ConfigError("invalid-endpoint", "endpoint must be a trimmed URL");
   }
-  const authorityMarker = input.indexOf("://");
-  const authorityTail = authorityMarker >= 0 ? input.slice(authorityMarker + 3) : "";
-  const slash = authorityTail.indexOf("/");
-  const rawPath = slash >= 0 ? (authorityTail.slice(slash).split(/[?#]/, 1)[0] ?? "") : "/";
+  const absoluteMatch = ABSOLUTE_ENDPOINT.exec(input);
+  if (!absoluteMatch) throw new ConfigError("invalid-endpoint", "endpoint must be an absolute HTTP or HTTPS URL");
+  const authority = absoluteMatch[1] ?? "";
+  const rawPath = absoluteMatch[2] || "/";
+  if (!authority || authority.includes("@") || /[?#]/.test(input)) {
+    throw new ConfigError("invalid-endpoint", "endpoint authority, query, or fragment is invalid");
+  }
+  let authorityHost: string;
+  let port: string | undefined;
+  if (authority.startsWith("[")) {
+    const match = /^\[([^\]]+)\](?::(\d+))?$/.exec(authority);
+    if (!match || isIP(match[1] ?? "") !== 6) throw new ConfigError("invalid-endpoint", "IPv6 endpoint hosts must be valid bracketed literals");
+    authorityHost = match[1] ?? "";
+    port = match[2];
+  } else {
+    const colon = authority.indexOf(":");
+    if (colon !== authority.lastIndexOf(":")) throw new ConfigError("invalid-endpoint", "IPv6 endpoint hosts must be enclosed in brackets");
+    authorityHost = colon < 0 ? authority : authority.slice(0, colon);
+    if (colon >= 0) port = authority.slice(colon + 1);
+    if (!authorityHost || (colon >= 0 && !/^\d+$/.test(port ?? ""))) {
+      throw new ConfigError("invalid-endpoint", "endpoint port is invalid");
+    }
+  }
+  if (port !== undefined && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65_535)) {
+    throw new ConfigError("invalid-endpoint", "endpoint port must be between 1 and 65535");
+  }
   let rawDecodedPath: string;
-  try { rawDecodedPath = decodeURIComponent(rawPath); } catch (error) { throw new ConfigError("invalid-endpoint", "endpoint path encoding is invalid", { cause: error }); }
-  if (rawDecodedPath.split("/").some((part) => part === "." || part === "..")) {
-    throw new ConfigError("invalid-endpoint", "endpoint path is invalid");
+  if (/%(?![0-9a-f]{2})/i.test(rawPath)) throw new ConfigError("invalid-endpoint", "endpoint path encoding is invalid");
+  rawDecodedPath = rawPath;
+  for (let depth = 0; depth < 8; depth++) {
+    if (/[\\?#]/.test(rawDecodedPath)) throw new ConfigError("invalid-endpoint", "endpoint path contains a forbidden delimiter");
+    if (rawDecodedPath.split("/").some((part) => part === "." || part === "..")) {
+      throw new ConfigError("invalid-endpoint", "endpoint path traversal is forbidden");
+    }
+    if (!/%[0-9a-f]{2}/i.test(rawDecodedPath)) break;
+    try { rawDecodedPath = decodeURIComponent(rawDecodedPath); }
+    catch (error) { throw new ConfigError("invalid-endpoint", "endpoint path encoding is invalid", { cause: error }); }
+    if (depth === 7 && /%[0-9a-f]{2}/i.test(rawDecodedPath)) {
+      throw new ConfigError("invalid-endpoint", "endpoint path encoding is too deeply nested");
+    }
   }
   let url: URL;
   try { url = new URL(input); } catch (error) { throw new ConfigError("invalid-endpoint", "endpoint is not a URL", { cause: error }); }
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new ConfigError("invalid-endpoint", "endpoint protocol must be HTTP or HTTPS");
   if (url.username || url.password) throw new ConfigError("invalid-endpoint", "endpoint userinfo is forbidden");
-  if (url.search || url.hash) throw new ConfigError("invalid-endpoint", "endpoint query and fragment are forbidden");
-  let decodedPath: string;
-  try { decodedPath = decodeURIComponent(url.pathname); } catch (error) { throw new ConfigError("invalid-endpoint", "endpoint path encoding is invalid", { cause: error }); }
-  if (!url.hostname || !ENDPOINT_PATH.test(url.pathname) || decodedPath.split("/").some((part) => part === ".." || part === ".")) {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  const ipVersion = isIP(hostname);
+  if (ipVersion === 4) {
+    const octets = authorityHost.split(".");
+    if (octets.length !== 4 || octets.some(part => !/^(?:0|[1-9]\d{0,2})$/.test(part) || Number(part) > 255)
+      || octets.join(".") !== hostname) throw new ConfigError("invalid-endpoint", "IPv4 endpoint hosts must use four decimal octets");
+  } else if (ipVersion !== 6) {
+    const dnsName = hostname.toLowerCase().replace(/\.$/, "");
+    const labels = dnsName.split(".");
+    if (dnsName.length > 253 || labels.some(label => label.length === 0 || label.length > 63
+      || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))) {
+      throw new ConfigError("invalid-endpoint", "endpoint host must be a domain, single-label host, or IP address");
+    }
+  }
+  if (!url.hostname || !ENDPOINT_PATH.test(url.pathname)) {
     throw new ConfigError("invalid-endpoint", "endpoint path is invalid");
   }
   if (url.protocol === "http:" && !isLoopback(url.hostname) && !allowInsecureHttp) {
@@ -399,6 +451,23 @@ export function validateEndpoint(input: string, allowInsecureHttp = false): stri
   else if (pathname.endsWith("/v1")) pathname = pathname.slice(0, -3).replace(/\/+$/, "");
   url.pathname = pathname || "/";
   return url.toString().replace(/\/$/, "");
+}
+
+/** Normalize interactive input while leaving persisted and environment URLs strict. */
+export function normalizeEndpointInput(input: string, allowInsecureHttp = false): string {
+  if (typeof input !== "string" || /[\u0000-\u001f\u007f]/.test(input)) {
+    throw new ConfigError("invalid-endpoint", "endpoint input contains invalid characters");
+  }
+  const value = input.trim();
+  if (!value) throw new ConfigError("invalid-endpoint", "endpoint is required");
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(value)) return validateEndpoint(value, allowInsecureHttp);
+  if (value.startsWith("//")) throw new ConfigError("invalid-endpoint", "enter a host or an absolute HTTP(S) URL");
+  const authority = value.split(/[/?#]/, 1)[0] ?? "";
+  const colonCount = (authority.match(/:/g) ?? []).length;
+  if (colonCount > 1 && !authority.startsWith("[")) {
+    throw new ConfigError("invalid-endpoint", "IPv6 endpoint hosts must be enclosed in brackets");
+  }
+  return validateEndpoint(`https://${value}`, allowInsecureHttp);
 }
 
 function isLoopback(hostname: string): boolean {
