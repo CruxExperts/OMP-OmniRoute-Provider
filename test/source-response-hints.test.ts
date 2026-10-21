@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as ts from "typescript";
-import { collectManagementPolicyResponses, collectSourceResponseEvidence } from "../scripts/source-response-hints.ts";
+import { collectManagementPolicyResponses, collectSourceResponseEvidence, collectValidatedJsonBodyFailureResponses } from "../scripts/source-response-hints.ts";
 
 function parseFixture(text: string): ts.SourceFile {
   return ts.createSourceFile("fixture.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -197,6 +197,84 @@ describe("source response hint collector", () => {
     expect(retired.map(call => ({ importedName: call.importedName, moduleSpecifier: call.moduleSpecifier }))).toEqual([
       { importedName: "rejectRetiredCommonChatGptWebProvider", moduleSpecifier: "@/lib/providers/chatgptWebRetirementResponse" },
     ]);
+  });
+
+  test("follows only an adjacent immutable imported validation result returned on its failure branch", () => {
+    const source = parseFixture(`
+      import { validatedJsonBody as parseJson } from "@/shared/validation/helpers";
+      export async function POST(request: Request) {
+        const parsed = await parseJson(request, schema);
+        if (!parsed.success) { return parsed.response; }
+        return Response.json({ ok: true }, { status: 201 });
+      }
+    `);
+    expect(collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts").returnedImportedResponseMembers).toEqual([
+      { localName: "parseJson", importedName: "validatedJsonBody", moduleSpecifier: "@/shared/validation/helpers", member: "response" },
+    ]);
+    expect(collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts").returnedImportedCalls).toEqual([]);
+  });
+
+  test("does not infer the helper response from an unawaited Promise", () => {
+    const source = parseFixture(`
+      import { validatedJsonBody } from "@/shared/validation/helpers";
+      export async function POST(request: Request) {
+        const parsed = validatedJsonBody(request, schema);
+        if (!parsed.success) return parsed.response;
+      }
+    `);
+    expect(collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts").returnedImportedResponseMembers).toEqual([]);
+  });
+
+  test("rejects non-failure, unused, mutated, shadowed, and non-response validation results", () => {
+    const cases = [
+      "if (parsed.success) return parsed.response;",
+      "if (!parsed.success) return parsed.error;",
+      "if (!parsed.success) return Response.json({ error: true });",
+      "const unused = parsed.data; if (!parsed.success) return parsed.response;",
+      "parsed.response = Response.json({ override: true }); if (!parsed.success) return parsed.response;",
+      "parsed = await parseJson(request, schema); if (!parsed.success) return parsed.response;",
+      "if (!parsed.success) { const parsed = { response: Response.json({ fake: true }) }; return parsed.response; }",
+    ];
+    for (const branch of cases) {
+      const source = parseFixture(`
+        import { validatedJsonBody as parseJson } from "@/shared/validation/helpers";
+        export async function POST(request: Request) {
+          const parsed = await parseJson(request, schema);
+          ${branch}
+        }
+      `);
+      expect(collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts").returnedImportedResponseMembers).toEqual([]);
+    }
+    for (const importLine of [
+      'import { validatedJsonBody as parseJson } from "@/other/helpers";',
+      'import { validateBody as parseJson } from "@/shared/validation/helpers";',
+    ]) {
+      const source = parseFixture(`${importLine}\nexport async function POST(request: Request) {
+        const parsed = await parseJson(request, schema);
+        if (!parsed.success) return parsed.response;
+      }`);
+      expect(collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts").returnedImportedResponseMembers).toEqual([]);
+    }
+  });
+
+  test("derives failure status from the helper's returned response bytes and rejects uncertain shapes", () => {
+    const helper = (status: string, response = "NextResponse.json({ error: true }, { status: " + status + " })") => parseFixture(`
+      import { NextResponse as JsonResponse } from "next/server";
+      export async function validatedJsonBody(request: Request) {
+        try { await request.json(); } catch {
+          return { success: false, response: ${response.replaceAll("NextResponse", "JsonResponse")} };
+        }
+        return { success: true, data: {} };
+      }
+    `);
+    expect(collectValidatedJsonBodyFailureResponses(helper("422"), "src/shared/validation/helpers.ts", "POST")).toEqual([
+      { method: "POST", statusCode: "422", mediaType: "application/json", sourceFile: "src/shared/validation/helpers.ts" },
+    ]);
+    expect(collectValidatedJsonBodyFailureResponses(helper("dynamicStatus"), "fixture.ts", "POST")).toEqual([]);
+    expect(collectValidatedJsonBodyFailureResponses(helper("400", "makeResponse()"), "fixture.ts", "POST")).toEqual([]);
+    expect(collectValidatedJsonBodyFailureResponses(helper("400", "JsonResponse.json({}, { ...options, status: 400 })"), "fixture.ts", "POST")).toEqual([]);
+    const privateHelper = parseFixture(helper("400").text.replace("export async function validatedJsonBody", "async function validatedJsonBody"));
+    expect(collectValidatedJsonBodyFailureResponses(privateHelper, "fixture.ts", "POST")).toEqual([]);
   });
   test("enumerates only finite literal leaves in returned management rejection statuses", () => {
     const fixture = `

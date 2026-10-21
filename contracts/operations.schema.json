@@ -191,11 +191,20 @@
         "omniroute-v3.8.52.combos.duplicate",
         "omniroute-v3.8.52.combos.reorder",
         "omniroute-v3.8.52.combos.test",
-        "omniroute-v3.8.52.combos.list-query"
+        "omniroute-v3.8.52.combos.list-query",
+        "omniroute-v3.8.52.model-combo-mappings.list-query",
+        "omniroute-v3.8.52.model-combo-mappings.create",
+        "omniroute-v3.8.52.model-combo-mappings.update"
       ]
     },
     "sourceStateView": {
-      "enum": ["omniroute-v3.8.52.provider-interception-rules", "omniroute-v3.8.52.provider-param-filters"]
+      "enum": [
+        "omniroute-v3.8.52.provider-interception-rules",
+        "omniroute-v3.8.52.provider-param-filters",
+        "omniroute-v3.8.52.model-combo-mappings.create-reconcile",
+        "omniroute-v3.8.52.model-combo-mappings.update-reconcile",
+        "omniroute-v3.8.52.model-combo-mappings.delete-reconcile"
+      ]
     },
     "request": {
       "type": "object",
@@ -304,7 +313,10 @@
                 "omniroute-v3.8.52.combos.item-delete-reconcile",
                 "omniroute-v3.8.52.combos.reorder-reconcile",
                 "omniroute-v3.8.52.combos.metrics-reset-reconcile",
-                "omniroute-v3.8.52.provider-cc-alias.selected-override"
+                "omniroute-v3.8.52.provider-cc-alias.selected-override",
+                "omniroute-v3.8.52.model-combo-mappings.create-reconcile",
+                "omniroute-v3.8.52.model-combo-mappings.update-reconcile",
+                "omniroute-v3.8.52.model-combo-mappings.delete-reconcile"
               ]
             },
             "inputs": {"type": "array", "items": {"$ref": "#/$defs/fieldMapping"}},

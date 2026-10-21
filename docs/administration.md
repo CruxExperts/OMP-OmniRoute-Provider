@@ -34,6 +34,20 @@ Model-visible results omit configured private diagnostic fields while retaining
 typed token limits and reasoning settings. Target checks use the original private
 state, so hiding a field from the preview does not hide its changes from the plan.
 
+## Route model patterns to combos
+
+Search for `/api/model-combo-mappings` to list mappings, inspect one mapping,
+or create, update, and delete a mapping. Each mapping connects a model-name
+pattern to a stored combo, with a priority and an enabled flag.
+
+The server trims a pattern when creating a mapping, after validating the raw
+input. A whitespace-only create therefore stores an empty pattern; reads retain
+that value. Updates preserve the pattern exactly as supplied. A partial update
+retains fields you leave out. The client checks the selected mapping before
+writing and uses the expected persisted state to reconcile a lost response
+without repeating the request. External writers can still race between that
+check and the write because these routes provide no atomic conditional update.
+
 ## Review changes before applying
 
 Choose an operation and provide its required inputs in the interactive

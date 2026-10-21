@@ -49,6 +49,17 @@ import {
   type ComboSourceNormalizationId,
   type ComboSourceRelationViewId,
 } from "./source-combos.ts";
+import {
+  isModelComboMappingRelationViewId,
+  isModelComboMappingRequestCodecId,
+  modelComboMappingCodecBinding,
+  modelComboMappingRelationExpectedPayload,
+  modelComboMappingRelationSnapshot,
+  modelComboMappingRelationViewMatches,
+  normalizeModelComboMappingRequest,
+  type ModelComboMappingRelationViewId,
+  type ModelComboMappingRequestCodecId,
+} from "./source-model-combo-mappings.ts";
 
 /** Closed request transforms and state views derived from pinned OmniRoute 3.8.52 handlers. */
 export type SourceStateViewId =
@@ -88,12 +99,14 @@ const SOURCE_NORMALIZATION_BINDINGS = Object.freeze({
   }),
 }) satisfies Readonly<Record<string, SourceNormalizationBinding>>;
 
-export type SourceNormalizationId = keyof typeof SOURCE_NORMALIZATION_BINDINGS | ComboSourceNormalizationId;
+export type SourceNormalizationId = keyof typeof SOURCE_NORMALIZATION_BINDINGS | ComboSourceNormalizationId | ModelComboMappingRequestCodecId;
 
 /** Return a closed immutable route binding, without echoing unknown input. */
 export function sourceNormalizationBinding(id: unknown): SourceNormalizationBinding | undefined {
   const combo = comboSourceNormalizationBinding(id);
   if (combo) return combo;
+  const mapping = modelComboMappingCodecBinding(id);
+  if (mapping) return mapping;
   if (typeof id !== "string" || !Object.hasOwn(SOURCE_NORMALIZATION_BINDINGS, id)) return undefined;
   return SOURCE_NORMALIZATION_BINDINGS[id as keyof typeof SOURCE_NORMALIZATION_BINDINGS];
 }
@@ -105,7 +118,7 @@ export function sourceStateViewBinding(id: unknown): SourceStateViewBinding | un
 }
 
 export type ProviderCcAliasRelationViewId = "omniroute-v3.8.52.provider-cc-alias.selected-override";
-export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ProviderCcAliasRelationViewId;
+export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ModelComboMappingRelationViewId | ProviderCcAliasRelationViewId;
 
 const PROVIDER_CC_ALIAS_GET = "GET /api/providers/{id}/cc-alias";
 const PROVIDER_CC_ALIAS_PUT = "PUT /api/providers/{id}/cc-alias";
@@ -213,6 +226,9 @@ export function sourceRelationViewMatches(
   if (isComboRelationViewId(id)) {
     return comboSourceRelationViewMatches(id, operationId, targetReadId, reconciliationId, outcomeKind);
   }
+  if (isModelComboMappingRelationViewId(id)) {
+    return modelComboMappingRelationViewMatches(id, operationId, targetReadId, reconciliationId, outcomeKind);
+  }
   if (id === "omniroute-v3.8.52.provider-cc-alias.selected-override") {
     return operationId === PROVIDER_CC_ALIAS_PUT
       && targetReadId === PROVIDER_CC_ALIAS_GET
@@ -227,6 +243,7 @@ export function sourceRelationViewMatches(
 
 export function sourceRelationSnapshot(id: SourceRelationViewId, payload: ValidatedOperationInput, response: unknown): JsonValue {
   if (isComboRelationViewId(id)) return comboRelationSnapshot(id, payload, response);
+  if (isModelComboMappingRelationViewId(id)) return modelComboMappingRelationSnapshot(id, payload, response);
   switch (id) {
     case "omniroute-v3.8.52.provider-cc-alias.selected-override":
       return ccAliasSelectedOverrideSnapshot(payload, response);
@@ -244,6 +261,7 @@ export function sourceRelationExpectedPayload(
   originalSnapshot: JsonValue,
 ): ValidatedOperationInput {
   if (isComboRelationViewId(id)) return comboRelationExpectedPayload(id, payload, originalSnapshot);
+  if (isModelComboMappingRelationViewId(id)) return modelComboMappingRelationExpectedPayload(id, payload, originalSnapshot);
   switch (id) {
     case "omniroute-v3.8.52.provider-cc-alias.selected-override":
       return ccAliasExpectedPayload(payload, originalSnapshot);
@@ -400,6 +418,7 @@ function normalizeParamFilterRule(value: JsonValue): JsonValue {
 /** Apply only the request transforms performed by the pinned route's Zod schemas. */
 export function normalizeSourceRequest(id: SourceNormalizationId, value: JsonValue): JsonValue {
   if (isComboNormalizationId(id)) return normalizeComboRequest(id, value);
+  if (isModelComboMappingRequestCodecId(id)) return normalizeModelComboMappingRequest(id, value);
   if (id === "omniroute-v3.8.52.model-capability-overrides.patch") {
     const result = normalizeModelCapabilityOverrideRequest(value);
     if (!result.ok) throw new Error("source model-capability override request is invalid");

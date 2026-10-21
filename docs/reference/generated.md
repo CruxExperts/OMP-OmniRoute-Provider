@@ -83,7 +83,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/middleware | 0 | 5 | 0 |
 | api/modality-bridge | 0 | 6 | 0 |
 | api/model-capability-overrides | 3 | 0 | 0 |
-| api/model-combo-mappings | 0 | 5 | 0 |
+| api/model-combo-mappings | 5 | 0 | 0 |
 | api/models | 0 | 9 | 0 |
 | api/monitoring | 0 | 3 | 0 |
 | api/network | 0 | 1 | 0 |

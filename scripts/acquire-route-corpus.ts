@@ -7,6 +7,7 @@ import {
   collectManagementPolicyResponses,
   collectPipelineRejectionWitness,
   collectSourceResponseEvidence,
+  collectValidatedJsonBodyFailureResponses,
   type ManagementPolicyResponse,
   type PipelineResponseWitness,
   type SourceJsonResponse,
@@ -649,7 +650,7 @@ function sourceJsonResponses(file: string, exportName: string, publicMethod: Htt
   const add = (hint: SourceJsonResponse): void => {
     results.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
   };
-  let evidence: SourceResponseEvidence = { jsonResponses: [], returnedImportedCalls: [], returnedLocalCalls: [] };
+  let evidence: SourceResponseEvidence = { jsonResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [] };
   if (!localAliasAmbiguous) {
     evidence = collectSourceResponseEvidence(source, localHandlerName ?? exportName, publicMethod, rel(absolute));
   }
@@ -675,6 +676,13 @@ function sourceJsonResponses(file: string, exportName: string, publicMethod: Htt
     for (const statusCode of response.statusCodes) {
       add({ method: publicMethod, statusCode, mediaType: "application/json", sourceFile: response.sourceFile });
     }
+  }
+  for (const member of evidence.returnedImportedResponseMembers) {
+    if (member.moduleSpecifier !== "@/shared/validation/helpers" || member.importedName !== "validatedJsonBody"
+      || member.member !== "response") continue;
+    const helperPath = resolveLocalModule(member.moduleSpecifier, absolute);
+    if (!helperPath || rel(helperPath) !== "src/shared/validation/helpers.ts") continue;
+    for (const hint of collectValidatedJsonBodyFailureResponses(readSource(helperPath).source, rel(helperPath), publicMethod)) add(hint);
   }
   return [...results.values()].sort((left, right) =>
     compareText(left.statusCode, right.statusCode) || compareText(left.mediaType, right.mediaType) || compareText(left.sourceFile, right.sourceFile));

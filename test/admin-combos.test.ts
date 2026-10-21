@@ -12,18 +12,12 @@ import { createPinnedManagementAuthorization, type PinnedManagementAuthorization
 import {
   COMBO_OPERATION_IDS, COMBO_SOURCE_CONTRACTS, COMBO_TEST_ID, CombosHttpFixture, buildComboFixtureRegistry, comboAdapterDescriptor,
 } from "./fixtures/combos.fixture.ts";
-import {
-  MODEL_COMBO_MAPPING_OPERATION_IDS,
-  ModelComboMappingsHttpFixture,
-} from "./fixtures/model-combo-mappings.fixture.ts";
-import type { MappingRow } from "./fixtures/pinned-combo-handlers.fixture.ts";
 import { comboRelationSnapshot, isComboRelationViewId } from "../src/admin/source-combos.ts";
 
 const TEST_ID = COMBO_TEST_ID;
 const PROFILE_ID = "combos-pinned-fixture";
 const MANAGE_KEY = "fixture-combos-manage";
 const READ_KEY = "fixture-combos-read";
-const NOW = "2026-10-19T12:00:00.000Z";
 const registry = buildComboFixtureRegistry();
 type ResponseObservation = { status: number; body: unknown };
 type Observation = { before: unknown; after: unknown; result: { status: number; body: unknown } };
@@ -33,7 +27,6 @@ const fixtures: FixturePair[] = [];
 const executors: AdminExecutor[] = [];
 const observations = new Map<string, Observation>();
 const completedCases = new Map<string, Set<string>>();
-const mappingFixtures: ModelComboMappingsHttpFixture[] = [];
 const REQUIRED_CASES = ["authorized-source-http-semantics", "safe-projection-and-state-observation", "denied-management-boundary"] as const;
 let allAssertionsPassed = false;
 
@@ -167,7 +160,6 @@ async function apply(harness: Harness, operationId: string, input: unknown, lose
 
 afterEach(async () => {
   for (const executor of executors.splice(0)) executor.shutdown();
-  for (const fixture of mappingFixtures.splice(0)) fixture.close();
   await Promise.all(fixtures.splice(0).map(async pair => { pair.route.close(); }));
 });
 afterAll(async () => {
@@ -397,73 +389,5 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
     expect(sourceCreated.models[0]).toMatchObject({ kind: "model", model: "fixture/source-model", providerId: "fixture" });
     expect(COMBO_OPERATION_IDS.every(id => observations.has(id))).toBe(true);
     allAssertionsPassed = true;
-  });
-});
-
-describe("pinned OmniRoute v3.8.52 model-combo mapping route semantics", () => {
-  test("executes receipt-verified collection and item handlers against an in-memory repository", async () => {
-    const authorization = sourceAuthorization();
-    const fixture = new ModelComboMappingsHttpFixture({
-      auth: authorization,
-      comboNames: { "combo-existing": "Existing combo" },
-      initial: [{ id: "mapping-1", pattern: "^gpt-", comboId: "combo-existing", priority: 10 }],
-      now: () => NOW,
-    });
-    mappingFixtures.push(fixture);
-    const request = async (operationId: string, options: { bearer?: string; body?: unknown } = {}) => {
-      const split = operationId.indexOf(" ");
-      const method = operationId.slice(0, split);
-      let path = operationId.slice(split + 1);
-      if (path === "/api/model-combo-mappings/{id}") path = "/api/model-combo-mappings/mapping-1";
-      const headers = new Headers();
-      if (options.bearer !== undefined) headers.set("authorization", `Bearer ${options.bearer}`);
-      if (options.body !== undefined) headers.set("content-type", "application/json");
-      return fetch(`${fixture.endpoint}${path}`, { method, headers, ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }) });
-    };
-
-    const ids = new Set(MODEL_COMBO_MAPPING_OPERATION_IDS);
-    expect(ids).toEqual(new Set([
-      "GET /api/model-combo-mappings",
-      "POST /api/model-combo-mappings",
-      "GET /api/model-combo-mappings/{id}",
-      "PUT /api/model-combo-mappings/{id}",
-      "DELETE /api/model-combo-mappings/{id}",
-    ]));
-
-    const unauthenticated = await request("GET /api/model-combo-mappings");
-    expect(unauthenticated.status).toBe(401);
-    const list = await request("GET /api/model-combo-mappings", { bearer: MANAGE_KEY });
-    expect(list.status).toBe(200);
-    expect(await list.json()).toMatchObject({ mappings: [{ id: "mapping-1", comboName: "Existing combo" }], total: 1 });
-
-    const createdResponse = await request("POST /api/model-combo-mappings", {
-      bearer: MANAGE_KEY,
-      body: { pattern: "  ^claude-.*  ", comboId: "combo-existing" },
-    });
-    expect(createdResponse.status).toBe(201);
-    const createdBody = await createdResponse.json() as { mapping: MappingRow };
-    expect(createdBody.mapping).toMatchObject({ pattern: "^claude-.*", comboId: "combo-existing", priority: 0, enabled: true, description: "" });
-    expect(createdBody.mapping).not.toHaveProperty("comboName");
-    const createdId = createdBody.mapping.id;
-
-    const item = await request(`GET /api/model-combo-mappings/{id}`.replace("{id}", createdId), { bearer: MANAGE_KEY });
-    expect(item.status).toBe(200);
-    expect((await item.json() as { mapping: MappingRow }).mapping).toMatchObject({ id: createdId, comboName: "Existing combo" });
-
-    const invalidUpdate = await request(`PUT /api/model-combo-mappings/{id}`.replace("{id}", createdId), { bearer: MANAGE_KEY, body: { pattern: "" } });
-    expect(invalidUpdate.status).toBe(400);
-    const updated = await request(`PUT /api/model-combo-mappings/{id}`.replace("{id}", createdId), { bearer: MANAGE_KEY, body: { enabled: false, priority: 4, comboId: "combo-missing" } });
-    expect(updated.status).toBe(200);
-    const updatedMapping = (await updated.json() as { mapping: MappingRow }).mapping;
-    expect(updatedMapping).toMatchObject({ enabled: false, priority: 4, comboId: "combo-missing" });
-    expect(updatedMapping).not.toHaveProperty("comboName");
-
-    const deniedCreate = await request("POST /api/model-combo-mappings", { bearer: READ_KEY, body: { pattern: "x", comboId: "combo-x" } });
-    expect(deniedCreate.status).toBe(403);
-    const deleted = await request(`DELETE /api/model-combo-mappings/{id}`.replace("{id}", createdId), { bearer: MANAGE_KEY });
-    expect(deleted.status).toBe(200);
-    const missing = await request(`GET /api/model-combo-mappings/{id}`.replace("{id}", createdId), { bearer: MANAGE_KEY });
-    expect(missing.status).toBe(404);
-    expect(fixture.counts).toMatchObject({ collectionGet: 2, post: 2, itemGet: 2, put: 2, delete: 1 });
   });
 });

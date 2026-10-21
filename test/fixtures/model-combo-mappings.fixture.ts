@@ -10,6 +10,7 @@ import {
   type OperationResponseVariant,
 } from "../../src/admin/registry.ts";
 import type { JsonValue } from "../../src/admin/types.ts";
+import type { Database } from "bun:sqlite";
 import { fixtureRegistry } from "./admin-qualification.fixture.ts";
 import {
   MODEL_COMBO_MAPPING_COLLECTION_PATH,
@@ -38,7 +39,18 @@ export interface ModelComboMappingFixtureRow {
 }
 
 export interface ModelComboMappingFixtureState {
-  readonly mappings: readonly ModelComboMappingFixtureRow[];
+  readonly mappings: readonly ModelComboMappingPersistedRow[];
+}
+
+export interface ModelComboMappingPersistedRow {
+  readonly id: string;
+  readonly pattern: string;
+  readonly combo_id: string;
+  readonly priority: number;
+  readonly enabled: number;
+  readonly description: string;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 export interface ModelComboMappingsHttpFixtureOptions {
@@ -46,6 +58,7 @@ export interface ModelComboMappingsHttpFixtureOptions {
   readonly initial?: readonly Partial<ModelComboMappingFixtureRow>[];
   readonly comboNames?: Readonly<Record<string, string>>;
   readonly now?: () => string;
+  readonly uuid?: () => string;
 }
 
 export interface ModelComboMappingFixtureCounts {
@@ -106,7 +119,7 @@ const STRING_ERROR_SCHEMA: JsonSchema = {
 
 const mappingProperties: Record<string, JsonSchema> = {
   id: NONEMPTY_STRING,
-  pattern: { type: "string", minLength: 1, maxLength: 500 },
+  pattern: { type: "string", maxLength: 500 },
   comboId: NONEMPTY_STRING,
   comboName: STRING,
   priority: INTEGER,
@@ -158,7 +171,7 @@ const DELETE_SUCCESS_SCHEMA: JsonSchema = {
 const QUERY_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
-    offset: { type: "integer", minimum: 0 },
+    offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
     limit: { type: "integer", minimum: 0, maximum: 200 },
   },
   additionalProperties: false,
@@ -175,18 +188,22 @@ const CREATE_BODY_SCHEMA: JsonSchema = {
   properties: {
     pattern: { type: "string", minLength: 1, maxLength: 500 },
     comboId: NONEMPTY_STRING,
-    priority: INTEGER,
+    priority: { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
     enabled: { type: "boolean" },
     description: { type: "string", maxLength: 1000 },
   },
   additionalProperties: true,
 };
+
+const LIST_QUERY_NORMALIZER = "omniroute-v3.8.52.model-combo-mappings.list-query" as const;
+const CREATE_NORMALIZER = "omniroute-v3.8.52.model-combo-mappings.create" as const;
+const UPDATE_NORMALIZER = "omniroute-v3.8.52.model-combo-mappings.update" as const;
 const UPDATE_BODY_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     pattern: { type: "string", minLength: 1, maxLength: 500 },
     comboId: NONEMPTY_STRING,
-    priority: INTEGER,
+    priority: { type: "integer", minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER },
     enabled: { type: "boolean" },
     description: { type: "string", maxLength: 1000 },
   },
@@ -229,20 +246,12 @@ function sourceResponseContract(
       content: variant.content.map(content => ({ ...content, schema })),
     };
   });
-  if (!variants.some(variant => variant.statusCode === "400") && statusSchemas["400"]) {
-    variants.push({
-      statusCode: "400",
-      content: [{ mediaType: "application/json", schema: statusSchemas["400"], sourceFile: routeFile }],
-      headers: {},
-      sourceFiles: [routeFile, "src/shared/validation/helpers.ts"],
-    });
-  }
   const union = Object.values(statusSchemas).filter((schema, index, all) => all.indexOf(schema) === index);
   return {
     ...base,
     schema: { oneOf: union },
     variants,
-    statusCodes: [...new Set([...base.statusCodes, ...Object.keys(statusSchemas)])].sort((left, right) => Number(left) - Number(right)),
+    statusCodes: variants.map(variant => variant.statusCode),
   };
 }
 
@@ -303,7 +312,10 @@ function sourceReconciliation(operationId: ModelComboMappingFixtureOperationId):
   };
   if (operationId === "POST /api/model-combo-mappings") {
     return {
-      targetRead: collectionRead,
+      targetRead: {
+        ...collectionRead,
+        sourceView: "omniroute-v3.8.52.model-combo-mappings.create-reconcile",
+      },
       reconcile: {
         operationId: "GET /api/model-combo-mappings",
         inputs: [],
@@ -318,7 +330,10 @@ function sourceReconciliation(operationId: ModelComboMappingFixtureOperationId):
   }
   if (operationId === "PUT /api/model-combo-mappings/{id}") {
     return {
-      targetRead: pathRead,
+      targetRead: {
+        ...pathRead,
+        sourceView: "omniroute-v3.8.52.model-combo-mappings.update-reconcile",
+      },
       reconcile: {
         operationId: pathRead.operationId,
         inputs: pathRead.inputs,
@@ -340,7 +355,10 @@ function sourceReconciliation(operationId: ModelComboMappingFixtureOperationId):
       },
     };
     return {
-      targetRead: selectedCollectionRead,
+      targetRead: {
+        ...selectedCollectionRead,
+        sourceView: "omniroute-v3.8.52.model-combo-mappings.delete-reconcile",
+      },
       reconcile: {
         operationId: collectionRead.operationId,
         inputs: [],
@@ -363,6 +381,9 @@ function sourceContract(operationId: ModelComboMappingFixtureOperationId): Opera
     pathSchema: item ? ITEM_PATH_SCHEMA : { type: "object", properties: {}, additionalProperties: false } satisfies JsonSchema,
     querySchema: list ? QUERY_SCHEMA : { type: "object", properties: {}, additionalProperties: false } satisfies JsonSchema,
     body: bodySchema ? requestBody(bodySchema, base.request) : null,
+    ...(!list && !create && !update ? {} : {
+      sourceNormalizer: list ? LIST_QUERY_NORMALIZER : create ? CREATE_NORMALIZER : UPDATE_NORMALIZER,
+    }),
   };
   const mutation = operationId !== "GET /api/model-combo-mappings" && operationId !== "GET /api/model-combo-mappings/{id}";
   return {
@@ -389,10 +410,6 @@ export const MODEL_COMBO_MAPPING_SOURCE_CONTRACTS: Readonly<Record<ModelComboMap
   Object.fromEntries(MODEL_COMBO_MAPPING_OPERATION_IDS.map(operationId => [operationId, sourceContract(operationId)])) as Record<ModelComboMappingFixtureOperationId, OperationSourceContract>,
 );
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status });
 }
@@ -414,6 +431,7 @@ export class ModelComboMappingsHttpFixture {
       ...(options.initial === undefined ? {} : { initial: options.initial }),
       ...(options.comboNames === undefined ? {} : { comboNames: options.comboNames }),
       ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.uuid === undefined ? {} : { uuid: options.uuid }),
     });
     this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => this.#handle(request) });
   }
@@ -424,12 +442,23 @@ export class ModelComboMappingsHttpFixture {
     return { ...this.#counts };
   }
 
+  get database(): Database {
+    return this.#routes.db;
+  }
+
+  resolveComboForModel(model: string): Promise<Record<string, unknown> | null> {
+    return this.#routes.repository.resolveForModel(model);
+  }
+
   get state(): ModelComboMappingFixtureState {
-    return { mappings: [...this.#routes.rows.values()].map(row => clone(row)).sort((left, right) => left.id.localeCompare(right.id)) };
+    const mappings = this.#routes.db.prepare(`SELECT id, pattern, combo_id, priority, enabled, description, created_at, updated_at
+      FROM model_combo_mappings ORDER BY id`).all() as ModelComboMappingPersistedRow[];
+    return { mappings };
   }
 
   close(): void {
     this.#server.stop(true);
+    this.#routes.db.close();
   }
 
   async #handle(request: Request): Promise<Response> {

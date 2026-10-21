@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1006,
-    "invokableOperations": 21,
+    "invokableOperations": 26,
     "methodCounts": {
       "DELETE": 108,
       "GET": 467,
@@ -18,14 +18,14 @@
     "routeFiles": 759,
     "sourceOperations": 1234,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1197
+    "unqualifiedOperations": 1192
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "2228ca4f054de5ccbc97bc6b836c6bb36aaf30bd85539272adcac7c30af3badc",
+    "eligibilitySha256": "8c3d0fbc4e96b4c5f97ca31e601126b8f230dff8c0e1c92ce7f5ea0b36aa7223",
     "manifest": "provenance/route-sources.json",
-    "manifestSha256": "2578bbd9741fb318546ad8173a82f7f2638f0699760f85ea1567ee4b5a05765d",
+    "manifestSha256": "2ee8f6d2b7c6fc09b6799d807c568fd4a9c2201f21c5363185ae4dc45530b2e4",
     "sourceCorpusFileCount": 4470
   },
   "operations": [
@@ -5769,7 +5769,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "973c4e8db6b9a56b1d54d7ee95a24543afe2581a8ec2b3068f7880f1fc215a65"
         }
@@ -6205,7 +6205,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "4f00b6a0d160cb7bacb068ceafba0c9d248c0ce5af36ef43999782a1d02fbe99"
         }
@@ -7485,7 +7485,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "0239cc2ac0edc6bab6265bb4c5045f20b4743676188368f5babf8dd22679cf87",
+          "caseSha256": "8ac757b89892f2f92153a9cfb886765775955d4e9579869da352e5a5a4f0d160",
           "id": "test/admin-fallback-chains.test.ts",
           "outcomeSha256": "ef42ef9ac764a6e9a02051a75ed25022412f8b723b02abd0de82014281d6665a"
         }
@@ -10986,7 +10986,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "61318ead4f3d9ffee6994a3393b2d716b17dc122423b1d59b1f45664c23b4535",
+          "caseSha256": "3edcc354334c7345358d426f6130b0cce9eff0191646233976671e6cb2453fd0",
           "id": "test/admin-model-capability-overrides.test.ts",
           "outcomeSha256": "02d9afa0c5d9a71d6f5e47329a593455237696b209cf08f1c5109a52c0fe25b6"
         }
@@ -11757,20 +11757,49 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "write"
+            },
+            {
+              "kind": "trusted-local",
+              "loopbackOnly": true
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "requireManagementAuth",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.52",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
+        "reason": "Human confirmation is required before creating, updating, or deleting a model-combo mapping.",
         "required": true
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.delete.api.model.combo.mappings.id",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -11783,7 +11812,101 @@
         "parameters": []
       },
       "pathTemplate": "/api/model-combo-mappings/{id}",
-      "reconciliation": null,
+      "qualification": {
+        "binding": {
+          "authSha256": "818852d43c07d0486109b1637fcf91a84c941ac0b1ee5c10fce9ec420d0b6018",
+          "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75",
+          "handlerGitBlobSha": "750c10ccccb695dd9eaa345050773b74c83d51e2",
+          "handlerSha256": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+          "operationSemanticsSha256": "7482453d834a788de61f4ccc5d87dc18a5356c072a6b3be4f1c387810fc742a4",
+          "requestSchemaSha256": "e4a0f488a31773213a722d14ea91f590cd106680885eeef70fdfa648319e3dec",
+          "responseProjectionSha256": "cac1c3c1af920f2061425664c7300902aae3308f30789844581ccfaa0130ef37",
+          "routeImportsSha256": "f9ec1174d01ee24b84cd8f273956c1afdb8954d8616a169824b29612f37869d9",
+          "sideEffect": "mutation",
+          "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
+        },
+        "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "test": {
+          "caseSha256": "4cbc5d3625b7caf6bfd1025537056c349e17e621667bc61e6ca3218ec2321e21",
+          "id": "test/admin-model-combo-mappings.test.ts",
+          "outcomeSha256": "cc421a036385e12ac49bb56b327bfc077016646c8d615acfc394b6c6db327fce"
+        }
+      },
+      "reconciliation": {
+        "reconcile": {
+          "inputs": [],
+          "operationId": "GET /api/model-combo-mappings",
+          "outcome": {
+            "identityFields": [
+              "id"
+            ],
+            "kind": "absent",
+            "stateFields": []
+          }
+        },
+        "targetRead": {
+          "inputs": [],
+          "operationId": "GET /api/model-combo-mappings",
+          "snapshot": {
+            "collectionPath": [
+              "mappings"
+            ],
+            "identity": [
+              {
+                "name": "id",
+                "path": [
+                  "id"
+                ]
+              }
+            ],
+            "kind": "collection",
+            "selection": {
+              "input": {
+                "path": [
+                  "id"
+                ],
+                "section": "path"
+              },
+              "rowPath": [
+                "id"
+              ]
+            },
+            "state": [
+              {
+                "name": "pattern",
+                "path": [
+                  "pattern"
+                ]
+              },
+              {
+                "name": "comboId",
+                "path": [
+                  "comboId"
+                ]
+              },
+              {
+                "name": "priority",
+                "path": [
+                  "priority"
+                ]
+              },
+              {
+                "name": "enabled",
+                "path": [
+                  "enabled"
+                ]
+              },
+              {
+                "name": "description",
+                "path": [
+                  "description"
+                ]
+              }
+            ]
+          },
+          "sourceView": "omniroute-v3.8.52.model-combo-mappings.delete-reconcile"
+        }
+      },
       "request": {
         "body": null,
         "parameters": [],
@@ -11817,7 +11940,72 @@
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "success": {
+                  "const": true,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "success"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {},
+                    "message": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "invalid_request",
+                        "not_found",
+                        "conflict",
+                        "server_error"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "requestId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error",
+                "requestId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "401",
@@ -11831,7 +12019,19 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "success": {
+                      "const": true,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -11845,7 +12045,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -11867,7 +12103,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -11889,7 +12161,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -11903,7 +12186,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -11917,7 +12211,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -11946,7 +12276,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "mutation",
       "source": {
         "export": "direct",
         "file": "src/app/api/model-combo-mappings/[id]/route.ts",
@@ -12011,8 +12341,8 @@
         "path": "/api/model-combo-mappings/{id}"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
@@ -37095,7 +37425,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "9a57391dc51139e4fc19130b24e00eecbdc25b3ac413339aee0b039430596eec"
         }
@@ -40269,7 +40599,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "3fab89c117ca965da64a495b1096089b9088c943408f7ce46efb8c612b05605a"
         }
@@ -41602,7 +41932,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "756cbc013f51cb12e2ec46df5c309225ad067e79b597caa35ea77305e4ed3a5a"
         }
@@ -42583,7 +42913,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "f19d2898034cc9e289241fe0fa1519055433d20cbb97aa65ffd214cfa9e8ca12"
         }
@@ -45205,7 +45535,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "1b07ad539b80bf722c6bef481631e9faa4463bebcc6801a3bd3649f12585040e"
         }
@@ -55474,7 +55804,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "0239cc2ac0edc6bab6265bb4c5045f20b4743676188368f5babf8dd22679cf87",
+          "caseSha256": "8ac757b89892f2f92153a9cfb886765775955d4e9579869da352e5a5a4f0d160",
           "id": "test/admin-fallback-chains.test.ts",
           "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
         }
@@ -69851,7 +70181,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "61318ead4f3d9ffee6994a3393b2d716b17dc122423b1d59b1f45664c23b4535",
+          "caseSha256": "3edcc354334c7345358d426f6130b0cce9eff0191646233976671e6cb2453fd0",
           "id": "test/admin-model-capability-overrides.test.ts",
           "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
         }
@@ -70505,20 +70835,49 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "read"
+            },
+            {
+              "kind": "trusted-local",
+              "loopbackOnly": true
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "requireManagementAuth",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.52",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "Source-defined ordinary mapping read; the management authorization boundary remains enforced.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.api.model.combo.mappings",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -70527,10 +70886,33 @@
       "method": "GET",
       "operationId": "GET /api/model-combo-mappings",
       "pagination": {
-        "mode": "none",
-        "parameters": []
+        "mode": "offset",
+        "parameters": [
+          "limit",
+          "offset"
+        ]
       },
       "pathTemplate": "/api/model-combo-mappings",
+      "qualification": {
+        "binding": {
+          "authSha256": "eae30e955813c11730cb2e2b7146667ed8e4c8a1854be03c6609594b60c10e2e",
+          "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75",
+          "handlerGitBlobSha": "0d7605b5296ab835ab90eaa536462d83258b3cb8",
+          "handlerSha256": "138658e09787bc715fa360c2edead37f0e63f3bfc13027185bc292b7a29dd137",
+          "operationSemanticsSha256": "5371fcb5a9c76e67b4fd6043feae57cf1e5b7f6c3ab637e496fb0d1b25219cbd",
+          "requestSchemaSha256": "49c1a4f6d7983174866aefea82d96152cabb85dce92d8e9d3cd06cd51639ab2b",
+          "responseProjectionSha256": "fcb70caf972d015b08d159c9b2f01890f95a4477e1ef993f8291478c179b2e4d",
+          "routeImportsSha256": "5ca857092663d703fdee6ed1a36cb3e516f62c4ffbecb075313b39ae9a9bf362",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "test": {
+          "caseSha256": "4cbc5d3625b7caf6bfd1025537056c349e17e621667bc61e6ca3218ec2321e21",
+          "id": "test/admin-model-combo-mappings.test.ts",
+          "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -70543,14 +70925,191 @@
         },
         "querySchema": {
           "additionalProperties": false,
-          "properties": {},
+          "properties": {
+            "limit": {
+              "maximum": 200,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
           "type": "object"
         },
+        "sourceNormalizer": "omniroute-v3.8.52.model-combo-mappings.list-query",
         "specificationDocumented": true
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "mappings": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "comboId": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "comboName": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "description": {
+                        "maxLength": 1000,
+                        "type": "string"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "pattern": {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      "priority": {
+                        "type": "integer"
+                      },
+                      "updatedAt": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "pattern",
+                      "comboId",
+                      "priority",
+                      "enabled",
+                      "description",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "total": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "mappings",
+                "total"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "keys": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "message"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "details"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {},
+                    "message": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "invalid_request",
+                        "not_found",
+                        "conflict",
+                        "server_error"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "requestId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error",
+                "requestId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "400",
@@ -70564,7 +71123,72 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "mappings": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "comboId": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "comboName": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "description": {
+                            "maxLength": 1000,
+                            "type": "string"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "id": {
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "pattern": {
+                            "maxLength": 500,
+                            "type": "string"
+                          },
+                          "priority": {
+                            "type": "integer"
+                          },
+                          "updatedAt": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "pattern",
+                          "comboId",
+                          "priority",
+                          "enabled",
+                          "description",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "total": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "mappings",
+                    "total"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/route.ts"
               }
             ],
@@ -70578,7 +71202,53 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "keys": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "message"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/route.ts"
               }
             ],
@@ -70592,7 +71262,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -70614,7 +71320,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -70636,7 +71378,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/route.ts"
               }
             ],
@@ -70650,7 +71403,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -70679,7 +71468,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/api/model-combo-mappings/route.ts",
@@ -70739,26 +71528,55 @@
         "path": "/api/model-combo-mappings"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "read"
+            },
+            {
+              "kind": "trusted-local",
+              "loopbackOnly": true
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "requireManagementAuth",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.52",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "Source-defined ordinary mapping read; the management authorization boundary remains enforced.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.api.model.combo.mappings.id",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -70771,6 +71589,26 @@
         "parameters": []
       },
       "pathTemplate": "/api/model-combo-mappings/{id}",
+      "qualification": {
+        "binding": {
+          "authSha256": "eae30e955813c11730cb2e2b7146667ed8e4c8a1854be03c6609594b60c10e2e",
+          "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75",
+          "handlerGitBlobSha": "750c10ccccb695dd9eaa345050773b74c83d51e2",
+          "handlerSha256": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+          "operationSemanticsSha256": "ebd8c08bfff5e07d22989950801b1d20ce2380e5919234bae26575f19b2d2e7f",
+          "requestSchemaSha256": "e4a0f488a31773213a722d14ea91f590cd106680885eeef70fdfa648319e3dec",
+          "responseProjectionSha256": "5cfc96981098f06bb5a77f88ad1d2dd0292edbf4231d52ac62973e12d35395b4",
+          "routeImportsSha256": "f9ec1174d01ee24b84cd8f273956c1afdb8954d8616a169824b29612f37869d9",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "test": {
+          "caseSha256": "4cbc5d3625b7caf6bfd1025537056c349e17e621667bc61e6ca3218ec2321e21",
+          "id": "test/admin-model-combo-mappings.test.ts",
+          "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -70805,7 +71643,117 @@
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "mapping": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "comboId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "comboName": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "description": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "pattern": {
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "updatedAt": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "pattern",
+                    "comboId",
+                    "priority",
+                    "enabled",
+                    "description",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "mapping"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {},
+                    "message": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "invalid_request",
+                        "not_found",
+                        "conflict",
+                        "server_error"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "requestId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error",
+                "requestId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "401",
@@ -70819,7 +71767,64 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "mapping": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "comboId": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "comboName": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "description": {
+                          "maxLength": 1000,
+                          "type": "string"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "pattern": {
+                          "maxLength": 500,
+                          "type": "string"
+                        },
+                        "priority": {
+                          "type": "integer"
+                        },
+                        "updatedAt": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "pattern",
+                        "comboId",
+                        "priority",
+                        "enabled",
+                        "description",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "mapping"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -70833,7 +71838,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -70855,7 +71896,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -70877,7 +71954,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -70891,7 +71979,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -70905,7 +72004,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -70934,7 +72069,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/api/model-combo-mappings/[id]/route.ts",
@@ -70999,8 +72134,8 @@
         "path": "/api/model-combo-mappings/{id}"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
@@ -80656,7 +81791,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "86a08f860baa6582bb332f3ad931e81c896dac243e3571a724541a388e3f4922",
+          "caseSha256": "ad74ad76a5edd4e10d56d526975d007ac19c1ed43c6e9a925b7c8cf969e07c29",
           "id": "test/admin-provider-cc-alias.test.ts",
           "outcomeSha256": "0dfaa021a6f7130e5cc4d59187a12c334a62e924081f0c8b0497a75001315c90"
         }
@@ -145430,7 +146565,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "03c898f119e2a7af715b2a2bc2ba389d957ef09a3c03d871ae92abf4ec96470b"
         }
@@ -152043,7 +153178,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "61318ead4f3d9ffee6994a3393b2d716b17dc122423b1d59b1f45664c23b4535",
+          "caseSha256": "3edcc354334c7345358d426f6130b0cce9eff0191646233976671e6cb2453fd0",
           "id": "test/admin-model-capability-overrides.test.ts",
           "outcomeSha256": "ea7fa79606a21b83ce4f2e96cbc8eebec379e06c35241fe7d96a05da2eca64ce"
         }
@@ -156499,6 +157634,7 @@
         "schema": null,
         "statusCodes": [
           "200",
+          "400",
           "401",
           "403",
           "503"
@@ -156517,6 +157653,21 @@
               "src/app/api/settings/reasoning-routing-rules/[id]/route.ts"
             ],
             "statusCode": "200"
+          },
+          {
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": null,
+                "sourceFile": "src/shared/validation/helpers.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/settings/reasoning-routing-rules/[id]/route.ts",
+              "src/shared/validation/helpers.ts"
+            ],
+            "statusCode": "400"
           },
           {
             "content": [
@@ -156613,6 +157764,11 @@
             "authority": "source",
             "code": "source-response-status-or-media-not-documented",
             "detail": "src/app/api/settings/reasoning-routing-rules/[id]/route.ts establishes HTTP 200 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/settings/reasoning-routing-rules/[id]/route.ts, src/shared/validation/helpers.ts establishes HTTP 400 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           },
           {
             "authority": "source",
@@ -167157,7 +168313,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "a83d56f6d4724fb996724b412e4c34492b51164535e2532c1e72c8d1ea54e6b2"
         }
@@ -172852,7 +174008,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "93576b7b8c5e6cd4310a3708fa7693139784e2927b823cc58f6a2d8ddc0b32e5"
         }
@@ -176159,7 +177315,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "b8ceb41a5d8fb7c3553551ef6da9100cb8a3993b83b45d73e2b8a5783bb6c616"
         }
@@ -179387,7 +180543,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "8cb206d612f055bd414195d31f94fddab94abefab34136ace10652b587aaf728"
         }
@@ -185123,7 +186279,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "0239cc2ac0edc6bab6265bb4c5045f20b4743676188368f5babf8dd22679cf87",
+          "caseSha256": "8ac757b89892f2f92153a9cfb886765775955d4e9579869da352e5a5a4f0d160",
           "id": "test/admin-fallback-chains.test.ts",
           "outcomeSha256": "14f7653df733a3888757c16334c9c7d191e84b59724bf218a3e799f79fe5bc46"
         }
@@ -195416,23 +196572,52 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "write"
+            },
+            {
+              "kind": "trusted-local",
+              "loopbackOnly": true
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "requireManagementAuth",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.52",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
+        "reason": "Human confirmation is required before creating, updating, or deleting a model-combo mapping.",
         "required": true
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.post.api.model.combo.mappings",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
-        "request": null,
+        "request": "application/json",
         "response": "application/json"
       },
       "method": "POST",
@@ -195442,9 +196627,215 @@
         "parameters": []
       },
       "pathTemplate": "/api/model-combo-mappings",
-      "reconciliation": null,
+      "qualification": {
+        "binding": {
+          "authSha256": "818852d43c07d0486109b1637fcf91a84c941ac0b1ee5c10fce9ec420d0b6018",
+          "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75",
+          "handlerGitBlobSha": "0d7605b5296ab835ab90eaa536462d83258b3cb8",
+          "handlerSha256": "138658e09787bc715fa360c2edead37f0e63f3bfc13027185bc292b7a29dd137",
+          "operationSemanticsSha256": "81bf4afdb0a0294114ec0eb83ce63e66a2c56c101b603f2f8fc4050c0f6fc0df",
+          "requestSchemaSha256": "233349f11dfa55001e52a46018280263ccd8d0b84b4d2f2260c445cf082bb140",
+          "responseProjectionSha256": "cd22f41c06943d90e662c03e7d4a42fa311502b5581f58f3120921c7d727c993",
+          "routeImportsSha256": "5ca857092663d703fdee6ed1a36cb3e516f62c4ffbecb075313b39ae9a9bf362",
+          "sideEffect": "mutation",
+          "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
+        },
+        "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "test": {
+          "caseSha256": "4cbc5d3625b7caf6bfd1025537056c349e17e621667bc61e6ca3218ec2321e21",
+          "id": "test/admin-model-combo-mappings.test.ts",
+          "outcomeSha256": "1e65bd9de552d2333f2d2cd7a7c184988a0b4ea55e5629c6a5e48d1cc672f3de"
+        }
+      },
+      "reconciliation": {
+        "reconcile": {
+          "inputs": [],
+          "operationId": "GET /api/model-combo-mappings",
+          "outcome": {
+            "expectedFromInput": [
+              {
+                "name": "pattern",
+                "source": {
+                  "path": [
+                    "pattern"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "comboId",
+                "source": {
+                  "path": [
+                    "comboId"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "priority",
+                "source": {
+                  "path": [
+                    "priority"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "enabled",
+                "source": {
+                  "path": [
+                    "enabled"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "description",
+                "source": {
+                  "path": [
+                    "description"
+                  ],
+                  "section": "body"
+                }
+              }
+            ],
+            "identityFields": [
+              "id"
+            ],
+            "kind": "exists",
+            "stateFields": [
+              "pattern",
+              "comboId",
+              "priority",
+              "enabled",
+              "description"
+            ]
+          }
+        },
+        "targetRead": {
+          "inputs": [],
+          "operationId": "GET /api/model-combo-mappings",
+          "snapshot": {
+            "collectionPath": [
+              "mappings"
+            ],
+            "identity": [
+              {
+                "name": "id",
+                "path": [
+                  "id"
+                ]
+              }
+            ],
+            "kind": "collection",
+            "state": [
+              {
+                "name": "pattern",
+                "path": [
+                  "pattern"
+                ]
+              },
+              {
+                "name": "comboId",
+                "path": [
+                  "comboId"
+                ]
+              },
+              {
+                "name": "priority",
+                "path": [
+                  "priority"
+                ]
+              },
+              {
+                "name": "enabled",
+                "path": [
+                  "enabled"
+                ]
+              },
+              {
+                "name": "description",
+                "path": [
+                  "description"
+                ]
+              }
+            ]
+          },
+          "sourceView": "omniroute-v3.8.52.model-combo-mappings.create-reconcile"
+        }
+      },
       "request": {
-        "body": null,
+        "body": {
+          "contentVariants": [
+            {
+              "mediaType": "application/json",
+              "schema": {
+                "additionalProperties": true,
+                "properties": {
+                  "comboId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "description": {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "pattern": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "priority": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "pattern",
+                  "comboId"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "mediaType": "application/json",
+          "required": true,
+          "schema": {
+            "additionalProperties": true,
+            "properties": {
+              "comboId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "pattern": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              "priority": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "pattern",
+              "comboId"
+            ],
+            "type": "object"
+          }
+        },
         "parameters": [],
         "pathParameters": [],
         "pathSchema": {
@@ -195457,14 +196848,170 @@
           "properties": {},
           "type": "object"
         },
+        "sourceNormalizer": "omniroute-v3.8.52.model-combo-mappings.create",
         "specificationDocumented": true
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "mapping": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "comboId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "description": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "pattern": {
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "updatedAt": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "pattern",
+                    "comboId",
+                    "priority",
+                    "enabled",
+                    "description",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "mapping"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "keys": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "message"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "details"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {},
+                    "message": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "invalid_request",
+                        "not_found",
+                        "conflict",
+                        "server_error"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "requestId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error",
+                "requestId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "201",
+          "400",
           "401",
           "403",
           "500",
@@ -195480,7 +197027,61 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "mapping": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "comboId": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "description": {
+                          "maxLength": 1000,
+                          "type": "string"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "pattern": {
+                          "maxLength": 500,
+                          "type": "string"
+                        },
+                        "priority": {
+                          "type": "integer"
+                        },
+                        "updatedAt": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "pattern",
+                        "comboId",
+                        "priority",
+                        "enabled",
+                        "description",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "mapping"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/route.ts"
               }
             ],
@@ -195494,7 +197095,104 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "keys": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "message"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
+                "sourceFile": "src/shared/validation/helpers.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/model-combo-mappings/route.ts",
+              "src/shared/validation/helpers.ts"
+            ],
+            "statusCode": "400"
+          },
+          {
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -195516,7 +197214,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -195538,7 +197272,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/route.ts"
               }
             ],
@@ -195552,7 +197297,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -195581,7 +197362,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "mutation",
       "source": {
         "export": "direct",
         "file": "src/app/api/model-combo-mappings/route.ts",
@@ -195594,6 +197375,11 @@
             "authority": "source",
             "code": "source-response-status-or-media-not-documented",
             "detail": "src/app/api/model-combo-mappings/route.ts establishes HTTP 201 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/model-combo-mappings/route.ts, src/shared/validation/helpers.ts establishes HTTP 400 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           },
           {
             "authority": "source",
@@ -195636,8 +197422,8 @@
         "path": "/api/model-combo-mappings"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
@@ -238000,7 +239786,8 @@
             ],
             "headers": {},
             "sourceFiles": [
-              "src/app/api/settings/reasoning-routing-rules/route.ts"
+              "src/app/api/settings/reasoning-routing-rules/route.ts",
+              "src/shared/validation/helpers.ts"
             ],
             "statusCode": "400"
           },
@@ -238103,6 +239890,11 @@
           {
             "authority": "source",
             "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/settings/reasoning-routing-rules/route.ts, src/shared/validation/helpers.ts establishes HTTP 400 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
             "detail": "src/app/api/settings/reasoning-routing-rules/route.ts, src/lib/api/errorResponse.ts, src/lib/api/requireManagementAuth.ts establishes HTTP 401 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           },
           {
@@ -238190,6 +239982,7 @@
         "schema": null,
         "statusCodes": [
           "200",
+          "400",
           "401",
           "403",
           "404",
@@ -238209,6 +240002,21 @@
               "src/app/api/settings/reasoning-routing-rules/simulate/route.ts"
             ],
             "statusCode": "200"
+          },
+          {
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": null,
+                "sourceFile": "src/shared/validation/helpers.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/settings/reasoning-routing-rules/simulate/route.ts",
+              "src/shared/validation/helpers.ts"
+            ],
+            "statusCode": "400"
           },
           {
             "content": [
@@ -238314,6 +240122,11 @@
             "authority": "source",
             "code": "source-response-status-or-media-not-documented",
             "detail": "src/app/api/settings/reasoning-routing-rules/simulate/route.ts establishes HTTP 200 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/settings/reasoning-routing-rules/simulate/route.ts, src/shared/validation/helpers.ts establishes HTTP 400 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           },
           {
             "authority": "source",
@@ -264647,7 +266460,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
+          "caseSha256": "b38cfb32b7c872c989cd777d9c92f9b555dd0ecdcc36f527bbc3ff8bdb68552a",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "ac70c8f39a2624af874307551a821ac367d1fcf2f7522685fd31fe6afdc25985"
         }
@@ -273699,23 +275512,52 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "write"
+            },
+            {
+              "kind": "trusted-local",
+              "loopbackOnly": true
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "requireManagementAuth",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.52",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
+        "reason": "Human confirmation is required before creating, updating, or deleting a model-combo mapping.",
         "required": true
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.put.api.model.combo.mappings.id",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
-        "request": null,
+        "request": "application/json",
         "response": "application/json"
       },
       "method": "PUT",
@@ -273725,9 +275567,236 @@
         "parameters": []
       },
       "pathTemplate": "/api/model-combo-mappings/{id}",
-      "reconciliation": null,
+      "qualification": {
+        "binding": {
+          "authSha256": "818852d43c07d0486109b1637fcf91a84c941ac0b1ee5c10fce9ec420d0b6018",
+          "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75",
+          "handlerGitBlobSha": "750c10ccccb695dd9eaa345050773b74c83d51e2",
+          "handlerSha256": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+          "operationSemanticsSha256": "09680491284d9c081c68fe3a43f80f3e32f1a60ac9e7316215cba8be5711165b",
+          "requestSchemaSha256": "2f49db55dd389d2524ae83f3d12342e3e61e09076c201a9f4793c452f67e9f6c",
+          "responseProjectionSha256": "e57ffc3496f9118730368f96b4abe10b9f8a83a2518475c767638237662b64ca",
+          "routeImportsSha256": "f9ec1174d01ee24b84cd8f273956c1afdb8954d8616a169824b29612f37869d9",
+          "sideEffect": "mutation",
+          "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
+        },
+        "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "test": {
+          "caseSha256": "4cbc5d3625b7caf6bfd1025537056c349e17e621667bc61e6ca3218ec2321e21",
+          "id": "test/admin-model-combo-mappings.test.ts",
+          "outcomeSha256": "d2a87d0dd2a2ccba7ce51c0494af733ed88d5486aef2020073900ed47f3a9146"
+        }
+      },
+      "reconciliation": {
+        "reconcile": {
+          "inputs": [
+            {
+              "source": {
+                "path": [
+                  "id"
+                ],
+                "section": "path"
+              },
+              "target": {
+                "field": "id",
+                "section": "path"
+              }
+            }
+          ],
+          "operationId": "GET /api/model-combo-mappings/{id}",
+          "outcome": {
+            "expectedFromInput": [
+              {
+                "name": "pattern",
+                "source": {
+                  "path": [
+                    "pattern"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "comboId",
+                "source": {
+                  "path": [
+                    "comboId"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "priority",
+                "source": {
+                  "path": [
+                    "priority"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "enabled",
+                "source": {
+                  "path": [
+                    "enabled"
+                  ],
+                  "section": "body"
+                }
+              },
+              {
+                "name": "description",
+                "source": {
+                  "path": [
+                    "description"
+                  ],
+                  "section": "body"
+                }
+              }
+            ],
+            "identityFields": [
+              "id"
+            ],
+            "kind": "matches",
+            "stateFields": [
+              "pattern",
+              "comboId",
+              "priority",
+              "enabled",
+              "description"
+            ]
+          }
+        },
+        "targetRead": {
+          "inputs": [
+            {
+              "source": {
+                "path": [
+                  "id"
+                ],
+                "section": "path"
+              },
+              "target": {
+                "field": "id",
+                "section": "path"
+              }
+            }
+          ],
+          "operationId": "GET /api/model-combo-mappings/{id}",
+          "snapshot": {
+            "identity": [
+              {
+                "name": "id",
+                "path": [
+                  "mapping",
+                  "id"
+                ]
+              }
+            ],
+            "kind": "resource",
+            "state": [
+              {
+                "name": "pattern",
+                "path": [
+                  "mapping",
+                  "pattern"
+                ]
+              },
+              {
+                "name": "comboId",
+                "path": [
+                  "mapping",
+                  "comboId"
+                ]
+              },
+              {
+                "name": "priority",
+                "path": [
+                  "mapping",
+                  "priority"
+                ]
+              },
+              {
+                "name": "enabled",
+                "path": [
+                  "mapping",
+                  "enabled"
+                ]
+              },
+              {
+                "name": "description",
+                "path": [
+                  "mapping",
+                  "description"
+                ]
+              }
+            ]
+          },
+          "sourceView": "omniroute-v3.8.52.model-combo-mappings.update-reconcile"
+        }
+      },
       "request": {
-        "body": null,
+        "body": {
+          "contentVariants": [
+            {
+              "mediaType": "application/json",
+              "schema": {
+                "additionalProperties": true,
+                "properties": {
+                  "comboId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "description": {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "pattern": {
+                    "maxLength": 500,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "priority": {
+                    "maximum": 9007199254740991,
+                    "minimum": -9007199254740991,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          ],
+          "mediaType": "application/json",
+          "required": true,
+          "schema": {
+            "additionalProperties": true,
+            "properties": {
+              "comboId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "description": {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "pattern": {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              "priority": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          }
+        },
         "parameters": [],
         "pathParameters": [
           {
@@ -273755,11 +275824,169 @@
           "properties": {},
           "type": "object"
         },
+        "sourceNormalizer": "omniroute-v3.8.52.model-combo-mappings.update",
         "specificationDocumented": true
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "mapping": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "comboId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "comboName": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "description": {
+                      "maxLength": 1000,
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "pattern": {
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "type": "integer"
+                    },
+                    "updatedAt": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "pattern",
+                    "comboId",
+                    "priority",
+                    "enabled",
+                    "description",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "mapping"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "type": "string"
+                          },
+                          "keys": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "message"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "details"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "details": {},
+                    "message": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "enum": [
+                        "invalid_request",
+                        "not_found",
+                        "conflict",
+                        "server_error"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "requestId": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error",
+                "requestId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "400",
@@ -273774,7 +276001,64 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "mapping": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "comboId": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "comboName": {
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "description": {
+                          "maxLength": 1000,
+                          "type": "string"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "id": {
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "pattern": {
+                          "maxLength": 500,
+                          "type": "string"
+                        },
+                        "priority": {
+                          "type": "integer"
+                        },
+                        "updatedAt": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "pattern",
+                        "comboId",
+                        "priority",
+                        "enabled",
+                        "description",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "mapping"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -273788,7 +276072,53 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "keys": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "message"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -273802,7 +276132,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -273824,7 +276190,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -273846,7 +276248,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -273860,7 +276273,18 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
               }
             ],
@@ -273874,7 +276298,43 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {},
+                        "message": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "enum": [
+                            "invalid_request",
+                            "not_found",
+                            "conflict",
+                            "server_error"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "type"
+                      ],
+                      "type": "object"
+                    },
+                    "requestId": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "requestId"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/lib/api/errorResponse.ts"
               }
             ],
@@ -273903,7 +276363,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "mutation",
       "source": {
         "export": "direct",
         "file": "src/app/api/model-combo-mappings/[id]/route.ts",
@@ -273973,8 +276433,8 @@
         "path": "/api/model-combo-mappings/{id}"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
@@ -275941,7 +278401,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "86a08f860baa6582bb332f3ad931e81c896dac243e3571a724541a388e3f4922",
+          "caseSha256": "ad74ad76a5edd4e10d56d526975d007ac19c1ed43c6e9a925b7c8cf969e07c29",
           "id": "test/admin-provider-cc-alias.test.ts",
           "outcomeSha256": "8773a585c1fb943b467c8a3235c4d1ac023e589fd88b458717c3dbe5b70159a4"
         }

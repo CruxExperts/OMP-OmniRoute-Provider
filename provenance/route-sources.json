@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "recordKind": "omniroute-content-addressed-source",
-  "rootSha256": "2578bbd9741fb318546ad8173a82f7f2638f0699760f85ea1567ee4b5a05765d",
+  "rootSha256": "2ee8f6d2b7c6fc09b6799d807c568fd4a9c2201f21c5363185ae4dc45530b2e4",
   "root": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "schemaVersion": 2,
@@ -96181,6 +96181,12 @@
           },
           {
             "method": "POST",
+            "statusCode": "400",
+            "mediaType": "application/json",
+            "sourceFile": "src/shared/validation/helpers.ts"
+          },
+          {
+            "method": "POST",
             "statusCode": "401",
             "mediaType": "application/json",
             "sourceFile": "src/lib/api/requireManagementAuth.ts"
@@ -178907,6 +178913,12 @@
           },
           {
             "method": "PATCH",
+            "statusCode": "400",
+            "mediaType": "application/json",
+            "sourceFile": "src/shared/validation/helpers.ts"
+          },
+          {
+            "method": "PATCH",
             "statusCode": "401",
             "mediaType": "application/json",
             "sourceFile": "src/lib/api/requireManagementAuth.ts"
@@ -179191,6 +179203,12 @@
           },
           {
             "method": "POST",
+            "statusCode": "400",
+            "mediaType": "application/json",
+            "sourceFile": "src/shared/validation/helpers.ts"
+          },
+          {
+            "method": "POST",
             "statusCode": "401",
             "mediaType": "application/json",
             "sourceFile": "src/lib/api/requireManagementAuth.ts"
@@ -179374,6 +179392,12 @@
             "statusCode": "200",
             "mediaType": "application/json",
             "sourceFile": "src/app/api/settings/reasoning-routing-rules/simulate/route.ts"
+          },
+          {
+            "method": "POST",
+            "statusCode": "400",
+            "mediaType": "application/json",
+            "sourceFile": "src/shared/validation/helpers.ts"
           },
           {
             "method": "POST",

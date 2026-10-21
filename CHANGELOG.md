@@ -6,9 +6,9 @@ All notable changes to CruxOmni-OMP-Client are recorded here.
 
 - Prepare the 1.0.0 release while retaining the current source version until
   complete operation and native-platform qualification is accepted.
-- Qualify combo, fallback-chain, model-capability-override and provider-alias
+- Qualify combo, fallback-chain, model-capability-override, model-combo-mapping and provider-alias
   handlers against pinned source, schemas and management authorization. Publish
-  twenty-one reviewed
+  twenty-six reviewed
   content-addressed observations; other operations stay unavailable.
 - Serialize administration applies through preflight, dispatch and reconciliation;
   reject changed alias targets and reconcile lost responses without replay.

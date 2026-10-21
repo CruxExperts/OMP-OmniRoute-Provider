@@ -230,7 +230,7 @@ function validateBody(codecId: ModelComboMappingRequestCodecId, value: unknown):
 
   if (create || (Object.hasOwn(body, "priority") && body.priority !== undefined)) {
     const priority = create && body.priority === undefined ? 0 : body.priority;
-    if (typeof priority !== "number" || !Number.isFinite(priority) || !Number.isInteger(priority)) {
+    if (typeof priority !== "number" || !Number.isSafeInteger(priority)) {
       issues.push(issue("priority", `Expected integer, received ${received(priority)}`));
     } else output.priority = priority;
   }
@@ -263,7 +263,7 @@ function validateListQuery(value: unknown): ModelComboMappingValidationResult {
       continue;
     }
     const number = Number(raw);
-    if (!Number.isFinite(number) || !Number.isInteger(number) || number < 0 || (maximum !== undefined && number > maximum)) {
+    if (!Number.isSafeInteger(number) || number < 0 || (maximum !== undefined && number > maximum)) {
       issues.push(issue(field, maximum === undefined
         ? "Expected a nonnegative integer"
         : "Expected a nonnegative integer no greater than 200"));
@@ -302,9 +302,7 @@ export function normalizeModelComboMappingRequest(value: unknown, input: unknown
   if (validation.kind !== "valid") throw new TypeError(validation.kind === "unbound"
     ? "unknown model-combo-mapping codec"
     : "invalid model-combo-mapping request");
-  if (value !== CREATE_ID) return validation.data;
-  const data = validation.data as JsonObject;
-  return canonicalJson({ ...data, pattern: String(data.pattern).trim() });
+  return validation.data;
 }
 
 function objectAt(value: unknown, field: string): Record<string, unknown> {
@@ -406,7 +404,9 @@ export function modelComboMappingRelationExpectedPayload(
   const body = payloadObject(payload, "body");
   const codecId = value === "omniroute-v3.8.52.model-combo-mappings.create-reconcile" ? CREATE_ID : UPDATE_ID;
   const normalized = normalizeModelComboMappingRequest(codecId, body) as JsonObject;
-  if (value === "omniroute-v3.8.52.model-combo-mappings.create-reconcile") return { ...payload, body: normalized };
+  if (value === "omniroute-v3.8.52.model-combo-mappings.create-reconcile") {
+    return { ...payload, body: canonicalJson({ ...normalized, pattern: String(normalized.pattern).trim() }) as JsonObject };
+  }
 
   const before = snapshot(originalSnapshot);
   const id = requiredString(payloadObject(payload, "path").id, "path.id");

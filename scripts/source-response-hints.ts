@@ -14,9 +14,14 @@ export type ReturnedImportedCall = {
   moduleSpecifier: string;
 };
 
+export type ReturnedImportedResponseMember = ReturnedImportedCall & {
+  member: "response";
+};
+
 export type SourceResponseEvidence = {
   jsonResponses: SourceJsonResponse[];
   returnedImportedCalls: ReturnedImportedCall[];
+  returnedImportedResponseMembers: ReturnedImportedResponseMember[];
   returnedLocalCalls: string[];
 };
 
@@ -193,6 +198,68 @@ export function collectPipelineRejectionWitness(source: ts.SourceFile, sourceFil
   return { mediaType: "application/json", sourceFile, line: responseLine };
 }
 
+/** Proves the failure member returned by the pinned validatedJsonBody helper is literal JSON. */
+export function collectValidatedJsonBodyFailureResponses(
+  source: ts.SourceFile,
+  sourceFile: string,
+  publicMethod: SourceResponseMethod,
+): SourceJsonResponse[] {
+  const responseName = importedLocalName(source, "next/server", "NextResponse");
+  const helper = findHandler(source, "validatedJsonBody");
+  if (!responseName || !helper || !ts.isFunctionDeclaration(helper)
+    || !helper.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    || !helper.body || !ts.isBlock(helper.body)
+    || topLevelBindingCounts(source).get("validatedJsonBody") !== 1
+    || topLevelBindingCounts(source).get(responseName) !== 1 || reassignedBindings(source).has(responseName)) return [];
+  const shadowed = new Set(helper.parameters.flatMap(parameter => bindingNames(parameter.name)));
+  const visitBindings = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isVariableDeclaration(node)) for (const name of bindingNames(node.name)) shadowed.add(name);
+    if (ts.isClassDeclaration(node) && node.name) shadowed.add(node.name.text);
+    ts.forEachChild(node, visitBindings);
+  };
+  visitBindings(helper.body);
+  if (shadowed.has(responseName)) return [];
+
+  const hints = new Map<string, SourceJsonResponse>();
+  let failureReturns = 0;
+  let invalid = false;
+  const visitReturns = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      const returned = unwrapExpression(node.expression);
+      if (!ts.isObjectLiteralExpression(returned)) return;
+      const properties = new Map<string, ts.Expression>();
+      for (const property of returned.properties) {
+        if (!ts.isPropertyAssignment(property) || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+          || properties.has(property.name.text)) { invalid = true; return; }
+        properties.set(property.name.text, property.initializer);
+      }
+      if (properties.get("success")?.kind !== ts.SyntaxKind.FalseKeyword) return;
+      failureReturns += 1;
+      const response = properties.get("response");
+      const call = response && unwrapExpression(response);
+      if (!call || !ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression)
+        || !ts.isIdentifier(call.expression.expression) || call.expression.expression.text !== responseName
+        || call.expression.name.text !== "json" || call.arguments.length !== 2) { invalid = true; return; }
+      const options = call.arguments[1];
+      if (!options || !ts.isObjectLiteralExpression(options) || options.properties.length !== 1) { invalid = true; return; }
+      const status = options.properties[0];
+      if (!status || !ts.isPropertyAssignment(status)
+        || !(ts.isIdentifier(status.name) || ts.isStringLiteral(status.name)) || status.name.text !== "status"
+        || !ts.isNumericLiteral(status.initializer)) { invalid = true; return; }
+      const code = Number(status.initializer.text);
+      if (!Number.isInteger(code) || code < 400 || code > 599) { invalid = true; return; }
+      const hint = { method: publicMethod, statusCode: String(code), mediaType: "application/json", sourceFile };
+      hints.set(hint.statusCode, hint);
+      return;
+    }
+    ts.forEachChild(node, visitReturns);
+  };
+  visitReturns(helper.body);
+  return invalid || failureReturns === 0 ? [] : [...hints.values()].sort((a, b) => Number(a.statusCode) - Number(b.statusCode));
+}
+
 type Handler = ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction | ts.MethodDeclaration;
 
 type ImportedBinding = {
@@ -347,9 +414,10 @@ function collectHandlerEvidence(
   constructors: ReadonlySet<string>,
   importedBindings: ReadonlyMap<string, ImportedBinding>,
   safeLocalNames: ReadonlySet<string>,
+  safeImportedNames: ReadonlySet<string>,
 ): SourceResponseEvidence {
   const body = handler.body;
-  if (!body) return { jsonResponses: [], returnedImportedCalls: [], returnedLocalCalls: [] };
+  if (!body) return { jsonResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [] };
   const shadowed = new Set(handler.parameters.flatMap(parameter => bindingNames(parameter.name)));
   if (ts.isFunctionExpression(handler) && handler.name) shadowed.add(handler.name.text);
 
@@ -399,7 +467,44 @@ function collectHandlerEvidence(
 
   const jsonResponses = new Map<string, SourceJsonResponse>();
   const returnedCalls = new Set<string>();
+  const returnedResponseMembers = new Set<string>();
   const returnedLocals = new Set<string>();
+
+  const visitAdjacentFailureReturn = (node: ts.Node): void => {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isBlock(node)) {
+      for (let index = 0; index + 1 < node.statements.length; index++) {
+        const declarationStatement = node.statements[index];
+        const branch = node.statements[index + 1];
+        if (!declarationStatement || !branch || !ts.isVariableStatement(declarationStatement) || (declarationStatement.declarationList.flags & ts.NodeFlags.Const) === 0
+          || declarationStatement.declarationList.declarations.length !== 1 || !ts.isIfStatement(branch) || branch.elseStatement) continue;
+        const declaration = declarationStatement.declarationList.declarations[0];
+        if (!declaration || !ts.isIdentifier(declaration.name) || !declaration.initializer
+          || writtenNames.has(declaration.name.text)) continue;
+        if (!ts.isAwaitExpression(declaration.initializer)) continue;
+        const initializer = unwrapExpression(declaration.initializer.expression);
+        if (!ts.isCallExpression(initializer) || !ts.isIdentifier(initializer.expression)) continue;
+        const callName = initializer.expression.text;
+        if (!safeImportedNames.has(callName) || shadowed.has(callName)) continue;
+        const condition = unwrapExpression(branch.expression);
+        if (!ts.isPrefixUnaryExpression(condition) || condition.operator !== ts.SyntaxKind.ExclamationToken) continue;
+        const predicate = unwrapExpression(condition.operand);
+        if (!ts.isPropertyAccessExpression(predicate) || !ts.isIdentifier(predicate.expression)
+          || predicate.expression.text !== declaration.name.text || predicate.name.text !== "success") continue;
+        const returned = ts.isBlock(branch.thenStatement)
+          ? branch.thenStatement.statements.length === 1 ? branch.thenStatement.statements[0] : undefined
+          : branch.thenStatement;
+        if (!returned || !ts.isReturnStatement(returned) || !returned.expression) continue;
+        const value = unwrapExpression(returned.expression);
+        if (ts.isPropertyAccessExpression(value) && ts.isIdentifier(value.expression)
+          && value.expression.text === declaration.name.text && value.name.text === "response") {
+          returnedResponseMembers.add(callName);
+        }
+      }
+    }
+    ts.forEachChild(node, visitAdjacentFailureReturn);
+  };
+  if (ts.isBlock(body)) visitAdjacentFailureReturn(body);
 
   const addJsonResponse = (input: ts.Expression): void => {
     const expression = unwrapExpression(input);
@@ -480,6 +585,10 @@ function collectHandlerEvidence(
       const binding = importedBindings.get(localName);
       return binding ? [{ localName, ...binding }] : [];
     }),
+    returnedImportedResponseMembers: [...returnedResponseMembers].sort().flatMap(localName => {
+      const binding = importedBindings.get(localName);
+      return binding ? [{ localName, ...binding, member: "response" as const }] : [];
+    }),
     returnedLocalCalls: [...returnedLocals].sort(),
   };
 }
@@ -523,15 +632,19 @@ export function collectSourceResponseEvidence(
   }
 
   const handler = findHandler(source, handlerName);
-  if (!handler) return { jsonResponses: [], returnedImportedCalls: [], returnedLocalCalls: [] };
+  if (!handler) return { jsonResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [] };
 
   const localDeclarations = localFunctionDeclarations(source);
   const topLevelBindings = topLevelBindingCounts(source);
   const reassigned = reassignedBindings(source);
+  const safeImportedNames = new Set([...importedBindings].flatMap(([name, binding]) =>
+    binding.moduleSpecifier === "@/shared/validation/helpers" && binding.importedName === "validatedJsonBody"
+      && topLevelBindings.get(name) === 1 && !reassigned.has(name) ? [name] : []));
   const safeLocalNames = new Set([...localDeclarations].flatMap(([name, declarations]) =>
     declarations.length === 1 && topLevelBindings.get(name) === 1 && !reassigned.has(name) ? [name] : []));
   const jsonResponses = new Map<string, SourceJsonResponse>();
   const returnedImportedCalls = new Map<string, ReturnedImportedCall>();
+  const returnedImportedResponseMembers = new Map<string, ReturnedImportedResponseMember>();
   const visited = new Set<Handler>([handler]);
   const queue: Array<{ handler: Handler; depth: number }> = [{ handler, depth: 0 }];
   const maxDepth = 16;
@@ -540,12 +653,13 @@ export function collectSourceResponseEvidence(
   while (queue.length > 0) {
     const current = queue.shift()!;
     const evidence = collectHandlerEvidence(
-      current.handler, sourceFile, publicMethod, constructors, importedBindings, safeLocalNames,
+      current.handler, sourceFile, publicMethod, constructors, importedBindings, safeLocalNames, safeImportedNames,
     );
     for (const hint of evidence.jsonResponses) {
       jsonResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
     }
     for (const call of evidence.returnedImportedCalls) returnedImportedCalls.set(call.localName, call);
+    for (const member of evidence.returnedImportedResponseMembers) returnedImportedResponseMembers.set(member.localName, member);
     for (const localName of evidence.returnedLocalCalls) {
       const declaration = localDeclarations.get(localName)?.[0];
       if (!declaration || visited.has(declaration)) continue;
@@ -560,6 +674,7 @@ export function collectSourceResponseEvidence(
     jsonResponses: [...jsonResponses.values()].sort((left, right) =>
       left.statusCode.localeCompare(right.statusCode) || left.mediaType.localeCompare(right.mediaType) || left.sourceFile.localeCompare(right.sourceFile)),
     returnedImportedCalls: [...returnedImportedCalls.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
+    returnedImportedResponseMembers: [...returnedImportedResponseMembers.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
     returnedLocalCalls: [],
   };
 }

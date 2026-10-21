@@ -1,9 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { hydrateSourceCompatibleProviderCreation, normalizeSourceRequest, sourceStateView, type SourceNormalizationId } from "../src/admin/source-normalization.ts";
+import {
+  hydrateSourceCompatibleProviderCreation,
+  normalizeSourceRequest,
+  sourceNormalizationBinding,
+  sourceRelationExpectedPayload,
+  sourceRelationSnapshot,
+  sourceRelationViewMatches,
+  sourceStateView,
+  type SourceNormalizationId,
+} from "../src/admin/source-normalization.ts";
 import type { JsonValue } from "../src/admin/types.ts";
 
 const INTERCEPTION: SourceNormalizationId = "omniroute-v3.8.52.provider-interception-rules";
 const PARAM_FILTERS: SourceNormalizationId = "omniroute-v3.8.52.provider-param-filters";
+const MAPPING_QUERY: SourceNormalizationId = "omniroute-v3.8.52.model-combo-mappings.list-query";
+const MAPPING_CREATE: SourceNormalizationId = "omniroute-v3.8.52.model-combo-mappings.create";
+const MAPPING_UPDATE: SourceNormalizationId = "omniroute-v3.8.52.model-combo-mappings.update";
 
 function record(value: JsonValue): Record<string, JsonValue> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("expected object");
@@ -169,5 +181,65 @@ describe("pinned provider configuration normalization", () => {
     const unknown = "omniroute-v3.8.52.provider-other" as SourceNormalizationId;
     expect(() => normalizeSourceRequest(unknown, {})).toThrow("unsupported source normalization");
     expect(() => sourceStateView(unknown, {})).toThrow("unsupported source normalization");
+  });
+});
+
+describe("pinned model-combo mapping codecs and relation views", () => {
+  test("binds mapping codecs to their exact operation context and applies upstream defaults", () => {
+    expect(sourceNormalizationBinding(MAPPING_QUERY)).toMatchObject({
+      pathTemplate: "/api/model-combo-mappings",
+      methods: ["GET"],
+      section: "query",
+    });
+    expect(sourceNormalizationBinding(MAPPING_CREATE)).toMatchObject({
+      pathTemplate: "/api/model-combo-mappings",
+      methods: ["POST"],
+      section: "body",
+    });
+    expect(sourceNormalizationBinding(MAPPING_UPDATE)).toMatchObject({
+      pathTemplate: "/api/model-combo-mappings/{id}",
+      methods: ["PUT"],
+      section: "body",
+    });
+    expect(normalizeSourceRequest(MAPPING_QUERY, { limit: "2", offset: "0" })).toEqual({ limit: 2, offset: 0 });
+    expect(normalizeSourceRequest(MAPPING_QUERY, { offset: String(Number.MAX_SAFE_INTEGER) })).toEqual({ offset: Number.MAX_SAFE_INTEGER });
+    expect(normalizeSourceRequest(MAPPING_CREATE, { pattern: "  vendor/*  ", comboId: "combo-a", ignored: "field" })).toEqual({
+      pattern: "  vendor/*  ",
+      comboId: "combo-a",
+      priority: 0,
+      enabled: true,
+      description: "",
+    });
+    expect(normalizeSourceRequest(MAPPING_UPDATE, { priority: 3 })).toEqual({ priority: 3 });
+    expect(normalizeSourceRequest(MAPPING_UPDATE, { pattern: "  vendor/*  " })).toEqual({ pattern: "  vendor/*  " });
+    expect(() => normalizeSourceRequest(MAPPING_QUERY, { limit: "201" })).toThrow("invalid model-combo-mapping request");
+    expect(() => normalizeSourceRequest(MAPPING_QUERY, { offset: "9007199254740992" })).toThrow("invalid model-combo-mapping request");
+    expect(() => normalizeSourceRequest(MAPPING_CREATE, { pattern: "x", comboId: "combo-a", priority: 1.5 })).toThrow("invalid model-combo-mapping request");
+    expect(() => normalizeSourceRequest(MAPPING_CREATE, { pattern: "x", comboId: "combo-a", priority: Number.MAX_SAFE_INTEGER + 1 })).toThrow("invalid model-combo-mapping request");
+  });
+
+  test("binds create, partial update, and delete relation views to their source list/item reads", () => {
+    const createView = "omniroute-v3.8.52.model-combo-mappings.create-reconcile" as const;
+    const updateView = "omniroute-v3.8.52.model-combo-mappings.update-reconcile" as const;
+    const deleteView = "omniroute-v3.8.52.model-combo-mappings.delete-reconcile" as const;
+    expect(sourceRelationViewMatches(createView, "POST /api/model-combo-mappings", "GET /api/model-combo-mappings", "GET /api/model-combo-mappings", "exists")).toBe(true);
+    expect(sourceRelationViewMatches(updateView, "PUT /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings/{id}", "matches")).toBe(true);
+    expect(sourceRelationViewMatches(deleteView, "DELETE /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings", "GET /api/model-combo-mappings", "absent")).toBe(true);
+    expect(sourceRelationViewMatches(deleteView, "DELETE /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings", "absent")).toBe(false);
+
+    const payload = { path: { id: "mapping-a" }, query: {}, body: { priority: 9 } } as const;
+    const before = {
+      kind: "resource",
+      entries: [{ identity: { id: "mapping-a" }, state: { pattern: "vendor/*", comboId: "combo-a", priority: 1, enabled: true, description: "before" } }],
+    } satisfies JsonValue;
+    expect(sourceRelationExpectedPayload(updateView, payload, before)).toEqual({
+      path: { id: "mapping-a" },
+      query: {},
+      body: { pattern: "vendor/*", comboId: "combo-a", priority: 9, enabled: true, description: "before" },
+    });
+    expect(sourceRelationSnapshot(deleteView, payload, { mappings: [{ id: "mapping-a", pattern: "vendor/*", comboId: "combo-a", priority: 1, enabled: true, description: "before" }] })).toEqual({
+      kind: "collection",
+      entries: [{ identity: { id: "mapping-a" }, state: { pattern: "vendor/*", comboId: "combo-a", priority: 1, enabled: true, description: "before" } }],
+    });
   });
 });

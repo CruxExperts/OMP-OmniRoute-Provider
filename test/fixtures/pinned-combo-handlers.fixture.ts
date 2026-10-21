@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import {
   createPinnedManagementAuthorization,
+  createPinnedFixtureDate,
   loadExtractedPinnedDeclarations,
   loadPinnedModule,
   readPinnedSource,
@@ -42,8 +43,8 @@ export interface PinnedMappingHandlers {
   readonly authorization: PinnedManagementAuthorization;
   readonly collection: PinnedExports;
   readonly item: PinnedExports;
-  readonly rows: Map<string, MappingRow>;
-  readonly counts: { collectionGet: number; itemGet: number; post: number; put: number; delete: number };
+  readonly db: Database;
+  readonly repository: MappingRepository;
 }
 
 export interface ComboStore {
@@ -723,11 +724,32 @@ export function createPinnedComboHandlers(options: {
   return { authorization: options.authorization, routes: loaded.routes, metrics: loaded.metrics };
 }
 
-function loadMappingHandlers(
-  authorization: PinnedManagementAuthorization,
-  repository: MappingRepository,
-): { collection: PinnedExports; item: PinnedExports } {
-  const auth = { requireManagementAuth: (request: Request) => authorization.requireManagementAuth(request) };
+function isMappingRepository(value: unknown): value is MappingRepository {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return ["list", "findById", "create", "update", "deleteById", "resolveForModel"]
+    .every(name => typeof candidate[name] === "function");
+}
+
+function loadMappingHandlers(options: {
+  readonly authorization: PinnedManagementAuthorization;
+  readonly db: Database;
+  readonly uuid: () => string;
+  readonly date: DateConstructor;
+}): { collection: PinnedExports; item: PinnedExports; repository: MappingRepository } {
+  const globPattern = loadPinnedModule("src/shared/utils/globPattern.ts", specifier => {
+    throw new Error(`Unapproved pinned model-mapping glob import: ${specifier}`);
+  });
+  const repositoryModule = loadPinnedModule("src/lib/db/repositories/sqliteModelComboMappingRepository.ts", specifier => {
+    if (specifier === "uuid") return { v4: options.uuid };
+    if (specifier === "@/shared/utils/globPattern") return globPattern;
+    if (specifier === "../core") return { getDbInstance: () => options.db };
+    throw new Error(`Unapproved pinned SQLite model-mapping import: ${specifier}`);
+  }, { date: options.date });
+  const repository = repositoryModule.sqliteModelComboMappingRepository;
+  if (!isMappingRepository(repository)) throw new Error("Pinned SQLite model-mapping repository omitted CRUD methods");
+
+  const auth = { requireManagementAuth: (request: Request) => options.authorization.requireManagementAuth(request) };
   const helpers = loadPinnedModule("src/shared/validation/helpers.ts", specifier => {
     if (specifier === "next/server") return { NextResponse: nextResponse };
     throw new Error(`Unapproved pinned mapping-validation import: ${specifier}`);
@@ -743,6 +765,10 @@ function loadMappingHandlers(
     }
     throw new Error(`Unapproved pinned model-mapping persistence import: ${specifier}`);
   });
+  const facadeExports = ["getModelComboMappings", "getModelComboMappingById", "createModelComboMapping", "updateModelComboMapping", "deleteModelComboMapping", "resolveComboForModel"];
+  if (facadeExports.some(name => typeof db[name] !== "function")) {
+    throw new Error("Pinned model-combo-mapping facade omitted an expected export");
+  }
   const routeRequire = (specifier: string): unknown => {
     if (specifier === "next/server") return { NextResponse: nextResponse };
     if (specifier === "@/lib/api/requireManagementAuth") return auth;
@@ -754,6 +780,7 @@ function loadMappingHandlers(
   return {
     collection: loadPinnedModule("src/app/api/model-combo-mappings/route.ts", routeRequire),
     item: loadPinnedModule("src/app/api/model-combo-mappings/[id]/route.ts", routeRequire),
+    repository,
   };
 }
 
@@ -762,77 +789,47 @@ export function createPinnedMappingHandlers(options: {
   readonly initial?: readonly Partial<MappingRow>[];
   readonly comboNames?: Readonly<Record<string, string>>;
   readonly now?: () => string;
+  readonly uuid?: () => string;
 }): PinnedMappingHandlers {
-  const rows = new Map<string, MappingRow>();
-  const names = options.comboNames ?? {};
-  const baseTime = options.now ?? (() => "2026-10-19T12:00:00.000Z");
-  let timestamp = 0;
-  const clock = () => {
-    const next = Math.max(new Date(baseTime()).getTime(), timestamp + 1);
-    timestamp = next;
-    return new Date(next).toISOString();
-  };
-  const joined = (row: MappingRow): MappingRow => {
-    const { comboName: _storedComboName, ...stored } = row;
-    const comboName = names[row.comboId];
-    return { ...stored, ...(comboName ? { comboName } : {}) };
-  };
-  for (const seed of options.initial ?? []) {
-    const id = seed.id ?? randomUUID();
-    const createdAt = seed.createdAt ?? clock();
-    rows.set(id, {
-      id,
-      pattern: seed.pattern ?? `^${id}`,
-      comboId: seed.comboId ?? "combo-fixture",
-      priority: seed.priority ?? 0,
-      enabled: seed.enabled ?? true,
-      description: seed.description ?? "",
-      createdAt,
-      updatedAt: seed.updatedAt ?? createdAt,
-    });
+  const db = new Database(":memory:");
+  const coreSource = readPinnedSource("src/lib/db/core.ts");
+  const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(coreSource)?.[1];
+  const comboTable = schema && /CREATE TABLE IF NOT EXISTS combos\s*\([\s\S]*?\n\s*\);/i.exec(schema)?.[0];
+  if (!comboTable) throw new Error("Receipt-verified upstream core schema omitted the combos table");
+  db.exec(comboTable);
+  db.exec(readPinnedSource("src/lib/db/migrations/010_model_combo_mappings.sql"));
+
+  const baseTime = options.now?.() ?? "2026-10-19T12:00:00.000Z";
+  const insertCombo = db.prepare("INSERT INTO combos (id, name, data, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)");
+  for (const [index, [id, name]] of Object.entries(options.comboNames ?? {}).entries()) {
+    insertCombo.run(id, name, JSON.stringify({ id, name, models: [], isActive: true }), index, baseTime, baseTime);
   }
-  const repository: MappingRepository = {
-    async list(options) {
-      const sorted = [...rows.values()].sort((left, right) => right.priority - left.priority || left.createdAt.localeCompare(right.createdAt));
-      const offset = options?.offset ?? 0;
-      const items = options?.limit === undefined ? sorted.slice(offset) : sorted.slice(offset, offset + options.limit);
-      return { items: structuredClone(items.map(joined)), total: sorted.length };
-    },
-    async findById(id) {
-      const row = rows.get(id);
-      return row ? structuredClone(joined(row)) : null;
-    },
-    async create(data) {
-      const now = clock();
-      const row: MappingRow = {
-        id: randomUUID(),
-        pattern: data.pattern,
-        comboId: data.comboId,
-        priority: data.priority ?? 0,
-        enabled: data.enabled ?? true,
-        description: data.description ?? "",
-        createdAt: now,
-        updatedAt: now,
-      };
-      rows.set(row.id, row);
-      return structuredClone(row);
-    },
-    async update(id, data) {
-      const current = rows.get(id);
-      if (!current) return null;
-      const row: MappingRow = {
-        ...current,
-        ...data,
-        updatedAt: clock(),
-      };
-      delete row.comboName;
-      rows.set(id, row);
-      return structuredClone(joined(row));
-    },
-    async deleteById(id) { return rows.delete(id); },
-    async resolveForModel() { return null; },
-  };
-  const { collection, item } = loadMappingHandlers(options.authorization, repository);
-  const counts = { collectionGet: 0, itemGet: 0, post: 0, put: 0, delete: 0 };
-  return { authorization: options.authorization, collection, item, rows, counts };
+
+  let generatedId = 0;
+  const uuid = options.uuid ?? (() => `00000000-0000-4000-8000-${String(++generatedId).padStart(12, "0")}`);
+  const insertMapping = db.prepare(`INSERT INTO model_combo_mappings
+    (id, pattern, combo_id, priority, enabled, description, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const seed of options.initial ?? []) {
+    const id = seed.id ?? uuid();
+    const createdAt = seed.createdAt ?? baseTime;
+    insertMapping.run(
+      id,
+      seed.pattern ?? `^${id}`,
+      seed.comboId ?? "combo-fixture",
+      seed.priority ?? 0,
+      seed.enabled === false ? 0 : 1,
+      seed.description ?? "",
+      createdAt,
+      seed.updatedAt ?? createdAt,
+    );
+  }
+
+  const loaded = loadMappingHandlers({
+    authorization: options.authorization,
+    db,
+    uuid,
+    date: createPinnedFixtureDate(baseTime),
+  });
+  return { authorization: options.authorization, collection: loaded.collection, item: loaded.item, db, repository: loaded.repository };
 }
