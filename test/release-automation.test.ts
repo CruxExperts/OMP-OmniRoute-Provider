@@ -862,10 +862,9 @@ describe("release automation", () => {
     expect(planVersion(touchedRoot)).toMatchObject({ bump: "minor", excluded: { revert: 0 } });
   });
 
-  it("exports only fresh manifest files and preserves the prior output when a rebuild fails", async () => {
+  it("exports into ignored source output, blocks unrelated source drift, and preserves the prior output when a rebuild fails", async () => {
     const root = await fixtureRepo();
-    const outputParent = await temporaryDirectory("cruxomni-release-output-");
-    const output = join(outputParent, "release");
+    const output = join(root, "release");
     await mkdir(output);
     await writeFile(join(output, "stale.txt"), "must be replaced after successful build\n");
     await exportFixture(root, output);
@@ -882,6 +881,14 @@ describe("release automation", () => {
     expect(await readFile(join(output, "OMP-OmniRoute-Provider-v0.1.1-release-notes.md"))).toEqual(await readFile(join(root, "CHANGELOG.md")));
 
     const before = new Map(await Promise.all(names.map(async name => [name, await readFile(join(output, name))] as const)));
+    const unrelatedChange = join(root, "unrelated-source-change.txt");
+    await expect(exportRelease({ root, outputDirectory: output, packageVerifier: async () => {
+      await writeFile(unrelatedChange, "unrelated source drift during export\n");
+      return fakePackageEvidence(root);
+    } })).rejects.toThrow("release source changed during export");
+    for (const [name, bytes] of before) expect(await readFile(join(output, name))).toEqual(bytes);
+    await rm(unrelatedChange, { force: true });
+
     await expect(exportRelease({ root, outputDirectory: output, packageVerifier: async () => { throw new Error("synthetic package verification failure"); } })).rejects.toThrow("synthetic package verification failure");
     for (const [name, bytes] of before) expect(await readFile(join(output, name))).toEqual(bytes);
   });

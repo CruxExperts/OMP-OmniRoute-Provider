@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { REPOSITORY_SLUG } from "../src/identity.ts";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
@@ -64,10 +64,20 @@ async function copyReviewed(root: string, paths: string[], destination: string, 
   }
 }
 
-async function assertReviewedHead(root: string, sourceRevision: string): Promise<void> {
+async function assertReviewedHead(root: string, sourceRevision: string, ownedTemporaryDirectory?: string): Promise<void> {
+  const gitRoot = (await commandOutput("git", ["rev-parse", "--show-toplevel"], root)).trim();
+  const statusArgs = ["status", "--porcelain=v1", "--untracked-files=all"];
+  if (ownedTemporaryDirectory) {
+    const temporaryInfo = await lstat(ownedTemporaryDirectory);
+    if (!temporaryInfo.isDirectory() || temporaryInfo.isSymbolicLink()) throw new Error("release temporary build path is no longer a regular directory");
+    const temporaryRelative = relative(gitRoot, ownedTemporaryDirectory);
+    if (!temporaryRelative || temporaryRelative === ".." || temporaryRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(temporaryRelative)) throw new Error("release temporary build path is outside its Git worktree");
+    const temporaryPath = temporaryRelative.replaceAll("\\", "/");
+    statusArgs.push("--", ".", `:(exclude,literal)${temporaryPath}`);
+  }
   const [currentRevision, status] = await Promise.all([
-    commandOutput("git", ["rev-parse", "HEAD"], root),
-    commandOutput("git", ["status", "--porcelain=v1", "--untracked-files=all"], root),
+    commandOutput("git", ["rev-parse", "HEAD"], gitRoot),
+    commandOutput("git", statusArgs, gitRoot),
   ]);
   if (currentRevision.trim() !== sourceRevision || status.trim()) {
     throw new Error("release source changed during export; discard the staged build and retry from a clean reviewed HEAD");
@@ -113,7 +123,8 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
   const sourceInsideOutput = relative(output, root);
   const separator = process.platform === "win32" ? "\\" : "/";
   if (sourceInsideOutput === "" || (sourceInsideOutput !== ".." && !sourceInsideOutput.startsWith(`..${separator}`))) throw new Error("release output directory cannot contain or replace the package source tree");
-  if (outputInsideSource !== ".." && !outputInsideSource.startsWith(`..${separator}`)) {
+  const outputWithinSource = outputInsideSource !== "" && outputInsideSource !== ".." && !outputInsideSource.startsWith(`..${separator}`) && !isAbsolute(outputInsideSource);
+  if (outputWithinSource) {
     try {
       await command("git", ["check-ignore", "--quiet", "--", outputInsideSource], root);
     } catch {
@@ -171,7 +182,7 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
     const expectedOutput = [...names, "SHA256SUMS.txt", "release-manifest.json"].sort();
     const actualOutput = await directoryNames(stage);
     if (JSON.stringify(actualOutput) !== JSON.stringify(expectedOutput)) throw new Error("release output contains files outside the exact artifact manifest and its receipts");
-    await assertReviewedHead(root, reviewed.sourceRevision);
+    await assertReviewedHead(root, reviewed.sourceRevision, outputWithinSource ? temporary : undefined);
     await replaceOutput(stage, output);
     return { directory: output, sourceRevision: reviewed.sourceRevision, artifacts: names };
   } finally {
