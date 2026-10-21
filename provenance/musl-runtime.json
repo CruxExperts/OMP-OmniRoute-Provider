@@ -1,0 +1,1289 @@
+{
+  "schemaVersion": 1,
+  "recordKind": "cruxomni-musl-runtime-provenance",
+  "baseImage": {
+    "repository": "oven/bun",
+    "tag": "1.4.2-alpine",
+    "registry": "docker.io",
+    "multiArchitectureIndexDigest": "sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f",
+    "alpineVersion": "3.22.5",
+    "bunVersion": "1.4.2",
+    "targets": {
+      "linux-x64-musl": {
+        "dockerPlatform": "linux/amd64",
+        "dockerArchitecture": "amd64",
+        "alpineArchitecture": "x86_64",
+        "baseManifestDigest": "sha256:d73746a3e6cd8de6d7abff1c4c678028b6fe25e0c39808f9a71214589fa8b023",
+        "baseLayers": [
+          {
+            "digest": "sha256:f7ee36c9aa34bbb665f975c76e5c0d1607f0674b94c84cfb0061f87006ea5d10",
+            "sizeBytes": 3787595
+          },
+          {
+            "digest": "sha256:d28b3003702bebbef1fed310357a0fec59c367dc94f32f02b6aa9601fd6ebb98",
+            "sizeBytes": 34837303
+          },
+          {
+            "digest": "sha256:adfaec35b0743e1bf814545feaa26fd2dcb7ef73797978ef9eba608268e1eb71",
+            "sizeBytes": 298
+          },
+          {
+            "digest": "sha256:bfd10df2905c603069023451fbf585dc0a779104bc63784a69afa3cd16d856d4",
+            "sizeBytes": 185
+          },
+          {
+            "digest": "sha256:fc5ac4e6215149f9f224f1113bc7fc90636ac2d988e5984c30bf789c3fa6b746",
+            "sizeBytes": 3661843
+          },
+          {
+            "digest": "sha256:b216aceff86f6de8a6d89c1f2fe6f9836cce4753f4ddb9e3721034514a1ef9b2",
+            "sizeBytes": 145
+          }
+        ],
+        "apkIndex": {
+          "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/APKINDEX.tar.gz",
+          "sha256": "f3438b09cd7fa0648d0bc9747aa3a019f89586bc209ecb3463a35222dcf491a6",
+          "signatureMemberSha256": "b97585ad0f8dcdb78f9dbd50858934d437b0191f7a79b5c8aab3ee1d8793901f",
+          "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+          "signerKeySha256": "207e4696d3c05f7cb05966aee557307151f1f00217af4143c1bcaf33b8df733f",
+          "keyOriginBaseLayerDigest": "sha256:f7ee36c9aa34bbb665f975c76e5c0d1607f0674b94c84cfb0061f87006ea5d10",
+          "signatureVerifiedDuringReview": true
+        },
+        "packages": [
+          {
+            "name": "brotli-libs",
+            "version": "1.1.0-r2",
+            "architecture": "x86_64",
+            "sizeBytes": 414597,
+            "sha256": "a693524543421b3a90f163ccb48d5ad0f5fd773b5c3b640acc461eace2cb01b6",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/brotli-libs-1.1.0-r2.apk",
+            "signedIndexControlSha1Base64": "iJ+gLF983ZAoPOK2iVnpxE5d+/I=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "b0f3cab8549d6c9f7519c7f3ffb33ec3ab5cbd88ba657d59bb4e2b51b333ad46",
+            "expandedDataTarBytes": 952320,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "c-ares",
+            "version": "1.34.8-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 109507,
+            "sha256": "1397ec9682ff6153e5d037965c76408e570ae6535ce479cc2af37436fdea52ce",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/c-ares-1.34.8-r0.apk",
+            "signedIndexControlSha1Base64": "/D5MqJk6/qwKVGpFBl8u0w88IZU=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "67bdd827c6015820f331aff76fd0593cb1afda4dbd7d1747cf570bcddbed906a",
+            "expandedDataTarBytes": 256000,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "gdbm",
+            "version": "1.24-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 31061,
+            "sha256": "cb524a457ffbd9c79c6711d9ee883a64a5a9bc6aec4f4b4d047ee67527ac6e6d",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/gdbm-1.24-r0.apk",
+            "signedIndexControlSha1Base64": "JI4PzOIzV0CK+luCE36Xt4Hst5A=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "9dd9d52f63589a407793d5801de10e05d0bee317dcdad9beb9b70f49c61af0cd",
+            "expandedDataTarBytes": 81920,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "git",
+            "version": "2.49.1-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 3411448,
+            "sha256": "42f4573799ffce0c7dd4954d2247eb882eb87360dc18637930624484ecfd1c90",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/git-2.49.1-r0.apk",
+            "signedIndexControlSha1Base64": "4Au4Rf/McykusEgS2lNv61JSoLI=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "44d1d0cb4b40c3fc65539bad2f5bc9cd56c1919b4f6ebb7d2aa872af8d24f150",
+            "expandedDataTarBytes": 7045120,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "libbz2",
+            "version": "1.0.8-r6",
+            "architecture": "x86_64",
+            "sizeBytes": 32847,
+            "sha256": "0c98810f9332bf1bb1b0acc64eaac4b101036689bffba9ea621416b4b3c190cd",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libbz2-1.0.8-r6.apk",
+            "signedIndexControlSha1Base64": "HIcyIU0JR828qLeQVXbA0Lw96zs=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "772f6b347ea7a9f1c95c8000b94665ed1e3c10f474c0d6541c9d632f972878eb",
+            "expandedDataTarBytes": 81920,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libcrypto3",
+            "version": "3.5.9-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 1986879,
+            "sha256": "3f5825ced5fde1c66a5376a3f6076b3c08538ad52d9ef23f069857e212d9175a",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libcrypto3-3.5.9-r0.apk",
+            "signedIndexControlSha1Base64": "oh3VN2UxBgaVmtvnt5CjXfB97sk=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "780418a23ea5c0e452a39e1766c5255a5ca697b7d204ab16514a6d3d980379be",
+            "expandedDataTarBytes": 5263360,
+            "selectionReason": "required-security-upgrade"
+          },
+          {
+            "name": "libcurl",
+            "version": "8.14.1-r4",
+            "architecture": "x86_64",
+            "sizeBytes": 331304,
+            "sha256": "3887f3b2e66b513cb0f8211af6369a0ffaf87270c05ed1f18f7313eddc6b3660",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libcurl-8.14.1-r4.apk",
+            "signedIndexControlSha1Base64": "CawSI0mm8JCnWVhJowj+qYSz9BI=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "aaeee781fd910a68a8407a69068610f90f60a3b34ac9623d2c70a8eb867c4730",
+            "expandedDataTarBytes": 696320,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libexpat",
+            "version": "2.9.0-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 62174,
+            "sha256": "4c9fb621d455d12475767e261821a4be7b4e91e2ba19c20a02e7fa99189b0d6d",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libexpat-2.9.0-r0.apk",
+            "signedIndexControlSha1Base64": "eBf5kOjFcDpvbzk6zSTubstxKKw=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "18c0395a3464384174fd31dcd942fbe0ed23b6bd65ccbbc9addb61e5c067fe4f",
+            "expandedDataTarBytes": 153600,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libffi",
+            "version": "3.4.8-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 18222,
+            "sha256": "9a75cb9024693c1e52c3d8d7c9afb7c79e6e20f6c08df28effdb8dd816095083",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libffi-3.4.8-r0.apk",
+            "signedIndexControlSha1Base64": "5dARGPWtAIuy3wdjWvNkkztP8g8=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "8e4ef899e1b3ba59de7fb9e63b86f3f2f343128e2fd34613021608dee17ee0be",
+            "expandedDataTarBytes": 51200,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libidn2",
+            "version": "2.3.7-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 104435,
+            "sha256": "515cfe061176c7456ea3548651d0014084d77dd3774b78e2c944404ae75a41ff",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libidn2-2.3.7-r0.apk",
+            "signedIndexControlSha1Base64": "4uk7JHGHoVohZPS35fSnJaO11Ig=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "e7e05a8cfc26710d1d43cc4fef579e25be0e03870132eb4f81317ff5ecd99f2e",
+            "expandedDataTarBytes": 215040,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libncursesw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 159016,
+            "sha256": "aeafdfca68147b014705b4e2564639ade6345198debb522f2c6c51d32e417651",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libncursesw-6.5_p20250503-r0.apk",
+            "signedIndexControlSha1Base64": "QpAfFSg5nWfgfhQIXuU/GjabJAo=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "16ed3592ceed37c233ff7caa1f4d17308721d9ac2109d1f92c781f943e70682d",
+            "expandedDataTarBytes": 358400,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libpanelw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 5651,
+            "sha256": "046257a4535a9ced124595a33053948f6bf8b2f02988fefd1108f514d213ad4b",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libpanelw-6.5_p20250503-r0.apk",
+            "signedIndexControlSha1Base64": "paVFJz3mCd/0r4+ApLdqyNB7184=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "d649090933a5fad471053302c5eb76fdd20f675e8c5bfcbe2039b58f90a5061b",
+            "expandedDataTarBytes": 30720,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libpsl",
+            "version": "0.21.5-r3",
+            "architecture": "x86_64",
+            "sizeBytes": 54710,
+            "sha256": "1e79da4fa1364b7153b8950a363a6de0bef1d1b48d46fcb3b850cd4f233727b2",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libpsl-0.21.5-r3.apk",
+            "signedIndexControlSha1Base64": "NRrhI+v3BfCQxD/Hk5ltui+iHrs=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "c863a4ccc4dd7127d437e4379453e5c538a75bb1764e102cb4c1b5dedaeb4afc",
+            "expandedDataTarBytes": 92160,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libssl3",
+            "version": "3.5.9-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 383680,
+            "sha256": "6801c740b9760b5b08da8db6367ebc18b2cc4dbaf371f7148429538b8bb04e23",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libssl3-3.5.9-r0.apk",
+            "signedIndexControlSha1Base64": "vg55k+/1wPY5bIUvUA2ERnX9nTc=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "6b5443a2884eb422bf07dd57d0f81225ba02aec6977d41088c6d0dbab7e20231",
+            "expandedDataTarBytes": 860160,
+            "selectionReason": "required-security-upgrade"
+          },
+          {
+            "name": "libunistring",
+            "version": "1.3-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 733791,
+            "sha256": "989640e58f7646c0495c3950df36eb7b4df152d8150c2c888f8ab954fed8c908",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/libunistring-1.3-r0.apk",
+            "signedIndexControlSha1Base64": "lHLZqytjSmGtXtybR1T9seNL3vk=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "571a701eed90227d366a984a54692dd325c13e9c733fb0ef3343b4831de61429",
+            "expandedDataTarBytes": 1914880,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "mpdecimal",
+            "version": "4.0.1-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 79004,
+            "sha256": "28f3d868efbc1e9093b95f4a3f6e74393acd4a37292fcb5c0e0e0612fe83fff3",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/mpdecimal-4.0.1-r0.apk",
+            "signedIndexControlSha1Base64": "DaY2XA6SZQMo/hdsv2XDXE8EIfA=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "e0512ff61a20689d6cc5bcd9bcbc8aa587aecd2891e74c97c013eb55659f2808",
+            "expandedDataTarBytes": 204800,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "ncurses-terminfo-base",
+            "version": "6.5_p20250503-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 21767,
+            "sha256": "0815a5f0403974bb9c34d456e71dc9c0222cb5455d393bc63c44b573da3d7fe0",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/ncurses-terminfo-base-6.5_p20250503-r0.apk",
+            "signedIndexControlSha1Base64": "/qLMCI8C3y/rXacY5wEjZH8O+Pc=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "ad35871e8f9e77d55ae6902368ab0ce3f8980d351a2a7a66ce7ec40099e0b30e",
+            "expandedDataTarBytes": 194560,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "nghttp2-libs",
+            "version": "1.69.0-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 63198,
+            "sha256": "d6ee515d30d703e94b55ef9c0a02aea053313f654acbd2c655d18e3907ecb66a",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/nghttp2-libs-1.69.0-r0.apk",
+            "signedIndexControlSha1Base64": "fwuEkacafZMCRajgY76tWWnN+tk=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "71a471d7dba8eea0f28ebb8e0f3aef8d55469dab2ddc58ad9b38fb8600882ef4",
+            "expandedDataTarBytes": 153600,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "openssl",
+            "version": "3.5.9-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 341112,
+            "sha256": "7bcae61e09fd231b13fa3bb03684938abfe51729d32c7a0c3212eddacd738965",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/openssl-3.5.9-r0.apk",
+            "signedIndexControlSha1Base64": "2BMLkH1q0FiQrK6E1n1zezIWbxQ=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "269440720376abedaecf13aed24a8805778d509663a177816e3228e9c207e549",
+            "expandedDataTarBytes": 829440,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "pcre2",
+            "version": "10.46-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 314267,
+            "sha256": "cfb8ad103a101fa6a31769e50e188dab9c60124705682d01b3de268795db58ad",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/pcre2-10.46-r0.apk",
+            "signedIndexControlSha1Base64": "gjdyS9xQxXwW5k6w1SLYWrxQDRA=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "4ba16bfbc509daf428cf7e07a998e68e266f76f8b2c78629acaa2b2e72dafe20",
+            "expandedDataTarBytes": 798720,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "python3",
+            "version": "3.12.15-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 8078995,
+            "sha256": "65abdc4bef40a80beb0cad8238c984937d334cfcdd2719651fe7c3a3f6c909e8",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/python3-3.12.15-r0.apk",
+            "signedIndexControlSha1Base64": "DiUH/6LER8o7OsAhlwv+MONZKGc=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "181b5d9ce6a8087d657ac2cf2b93c976df80b5a244c0048f6d864a89c3c2381f",
+            "expandedDataTarBytes": 25395200,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "readline",
+            "version": "8.2.13-r1",
+            "architecture": "x86_64",
+            "sizeBytes": 120574,
+            "sha256": "520fa586c689144928191bee13e2c85ff4e170ad87d1471ec48e3e97611673d8",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/readline-8.2.13-r1.apk",
+            "signedIndexControlSha1Base64": "0wVkASF5P9eadjbtEPzGyxAVXjg=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "b3ad45ec07fd1aacae0c4c86cdb709a8c517ff25dda16fc1d9b6787dd23cd9cb",
+            "expandedDataTarBytes": 307200,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "sqlite-libs",
+            "version": "3.49.2-r1",
+            "architecture": "x86_64",
+            "sizeBytes": 843561,
+            "sha256": "7af9a58595642de91ea35d3d070cd38d969680a720ce76b14966859e6fb4af99",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/sqlite-libs-3.49.2-r1.apk",
+            "signedIndexControlSha1Base64": "yzGtJ1KT/55wX0HRyGJudxpYnkU=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "00339eeacd082d5d8515b2ce998b18bd3231d9c1f6a8855385e482c4375dbd14",
+            "expandedDataTarBytes": 1607680,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "xz-libs",
+            "version": "5.8.4-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 118297,
+            "sha256": "37e169b7b400304fa7027cab79f9c1c7a280e83acf6c95463384b8abb7ebb254",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/xz-libs-5.8.4-r0.apk",
+            "signedIndexControlSha1Base64": "X0YmFl0cO3oZ7tOFPfzKPT6m0kU=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "51465e2a86815f0e82ceda553981802c52bcab91e83574750abc4a3575193181",
+            "expandedDataTarBytes": 245760,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "zlib",
+            "version": "1.3.2-r1",
+            "architecture": "x86_64",
+            "sizeBytes": 55457,
+            "sha256": "af24e502645e2b392cae833856d776691ac21655362e5db69d7b89f147f76216",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/zlib-1.3.2-r1.apk",
+            "signedIndexControlSha1Base64": "/4h5E7MrlBVDXCCuIDGXwWkzrzs=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "0f8c1fbf439dfa8e54dc9c421def342ef66f1b3cb8ec5145a7bce3e7d8c4f16c",
+            "expandedDataTarBytes": 112640,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "zstd-libs",
+            "version": "1.5.7-r0",
+            "architecture": "x86_64",
+            "sizeBytes": 377569,
+            "sha256": "1bdd6e57cfbfbfd6e8481cad37ddd5d199950715bec1879b3afb600272dbb09e",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/x86_64/zstd-libs-1.5.7-r0.apk",
+            "signedIndexControlSha1Base64": "UMgxErVhn0jTbWkZCky3xx8Vx9I=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "53cb38486fe0a9266b3b66e99c9329241e3a6b82d1c1abb69b1be4e72da42a1e",
+            "expandedDataTarBytes": 727040,
+            "selectionReason": "signed-index-dependency-closure"
+          }
+        ],
+        "finalInstalledInventory": [
+          {
+            "name": "alpine-baselayout",
+            "version": "3.7.0-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "alpine-baselayout-data",
+            "version": "3.7.0-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "alpine-keys",
+            "version": "2.5-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "alpine-release",
+            "version": "3.22.5-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "apk-tools",
+            "version": "2.14.10-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "brotli-libs",
+            "version": "1.1.0-r2",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "busybox",
+            "version": "1.37.0-r20",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "busybox-binsh",
+            "version": "1.37.0-r20",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "c-ares",
+            "version": "1.34.8-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "ca-certificates-bundle",
+            "version": "20260611-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "gdbm",
+            "version": "1.24-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "git",
+            "version": "2.49.1-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libapk2",
+            "version": "2.14.10-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libbz2",
+            "version": "1.0.8-r6",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libcrypto3",
+            "version": "3.5.9-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libcurl",
+            "version": "8.14.1-r4",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libexpat",
+            "version": "2.9.0-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libffi",
+            "version": "3.4.8-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libgcc",
+            "version": "14.2.0-r6",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libidn2",
+            "version": "2.3.7-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libncursesw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libpanelw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libpsl",
+            "version": "0.21.5-r3",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libssl3",
+            "version": "3.5.9-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libstdc++",
+            "version": "14.2.0-r6",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "libunistring",
+            "version": "1.3-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "mpdecimal",
+            "version": "4.0.1-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "musl",
+            "version": "1.2.5-r12",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "musl-utils",
+            "version": "1.2.5-r12",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "ncurses-terminfo-base",
+            "version": "6.5_p20250503-r0",
+            "architecture": "noarch"
+          },
+          {
+            "name": "nghttp2-libs",
+            "version": "1.69.0-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "openssl",
+            "version": "3.5.9-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "pcre2",
+            "version": "10.46-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "python3",
+            "version": "3.12.15-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "readline",
+            "version": "8.2.13-r1",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "scanelf",
+            "version": "1.3.8-r1",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "sqlite-libs",
+            "version": "3.49.2-r1",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "ssl_client",
+            "version": "1.37.0-r20",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "xz-libs",
+            "version": "5.8.4-r0",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "zlib",
+            "version": "1.3.2-r1",
+            "architecture": "x86_64"
+          },
+          {
+            "name": "zstd-libs",
+            "version": "1.5.7-r0",
+            "architecture": "x86_64"
+          }
+        ],
+        "finalInstalledPackageCount": 41
+      },
+      "linux-arm64-musl": {
+        "dockerPlatform": "linux/arm64",
+        "dockerArchitecture": "arm64",
+        "alpineArchitecture": "aarch64",
+        "baseManifestDigest": "sha256:df7bf53d29008d89d195925aad82ca7e51dad114c6cd65b32cf8c3e0c186bb30",
+        "baseLayers": [
+          {
+            "digest": "sha256:738128faa30f570583b0e57efd831e0e6a2a9aacf1be88c8f4c1ef8a5b7033cc",
+            "sizeBytes": 4120486
+          },
+          {
+            "digest": "sha256:7d978ccf94a3e2be75b3c62be60ffa86de6f4e0fe1a092812a69e8ff46446955",
+            "sizeBytes": 35298460
+          },
+          {
+            "digest": "sha256:bb74cd0bf924a1c027feba78ae0bf074594d227014cb3f855282bb834af29cc8",
+            "sizeBytes": 297
+          },
+          {
+            "digest": "sha256:b6cdeedd0611482e4d44c812b4f63a8b3a0c7b18f597f410162d1725c0ad2c84",
+            "sizeBytes": 185
+          },
+          {
+            "digest": "sha256:b2337d4db50678944f87de8418b252f8410f3b36540f091c65b5f1845ccc9c91",
+            "sizeBytes": 3597588
+          },
+          {
+            "digest": "sha256:9a10ea355f032da1d24835d300316d7aca2f57ed6687da64b5f2f2256aea64c0",
+            "sizeBytes": 145
+          }
+        ],
+        "apkIndex": {
+          "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/APKINDEX.tar.gz",
+          "sha256": "0120660b3ce6b7422c20211a98022988577e3e3e12280957cd964c120265fc45",
+          "signatureMemberSha256": "cc30d1033c922d4a5b7eab1aeb7f1027af63cd10267f2659d8d68b6d6a9b4eac",
+          "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+          "signerKeySha256": "d11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d",
+          "keyOriginBaseLayerDigest": "sha256:738128faa30f570583b0e57efd831e0e6a2a9aacf1be88c8f4c1ef8a5b7033cc",
+          "signatureVerifiedDuringReview": true
+        },
+        "packages": [
+          {
+            "name": "brotli-libs",
+            "version": "1.1.0-r2",
+            "architecture": "aarch64",
+            "sizeBytes": 404239,
+            "sha256": "b05f9d2839bb89f28325890ffbd7d94025af6b301344ae0255f08617a6036c65",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/brotli-libs-1.1.0-r2.apk",
+            "signedIndexControlSha1Base64": "MSQkrKIfvW0SKblSYp9kfM0kXRo=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "b7b2fc4a247faa781e72cb10eac76e2051180dfa3ccfca4ba71a4d1a51fc822e",
+            "expandedDataTarBytes": 942080,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "c-ares",
+            "version": "1.34.8-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 109275,
+            "sha256": "e293f056615fff3cf6050a423c090179daf48516317912daf1e133a1095a2f65",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/c-ares-1.34.8-r0.apk",
+            "signedIndexControlSha1Base64": "JNjGZ0WPHH+VvWu/eeEdA8yyijY=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "24684588b7b4d6096c02d4fda31e325645c77fcf0fa409576e12796986ca133a",
+            "expandedDataTarBytes": 276480,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "gdbm",
+            "version": "1.24-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 33055,
+            "sha256": "dd9525bc443d995b86bc0671f6ac4384cff9e3e3d28822ac6279d08796ed7acc",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/gdbm-1.24-r0.apk",
+            "signedIndexControlSha1Base64": "zmGlh77Pgu6M9Pgl6iEMQNUSBzQ=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "cbd075c008baee0fcda31c6f43d3c7330f53c90ee10c0bd1be5846f3d20e4438",
+            "expandedDataTarBytes": 153600,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "git",
+            "version": "2.49.1-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 3453676,
+            "sha256": "9d27f0e5e57b234e6d6a8a2b635ba82286e1dd441ea26c280aba4c8e416b4f60",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/git-2.49.1-r0.apk",
+            "signedIndexControlSha1Base64": "0i6xCA5O6ll2MMAKE71bM/wbTs8=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "f8ddcba06195b2db0de917b97289f16435b1546c9fbeb6200fe1e40d26956bc6",
+            "expandedDataTarBytes": 7311360,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "libbz2",
+            "version": "1.0.8-r6",
+            "architecture": "aarch64",
+            "sizeBytes": 35391,
+            "sha256": "1d588037cc45108acafdbb1507e9f683019a8816fb74d9aba9b0a2dc099463c4",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libbz2-1.0.8-r6.apk",
+            "signedIndexControlSha1Base64": "RCSiyyDV+oISVSGFDCOPrSRS3bs=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "5f5ebba426bb37528f5f4e258e2771e019f2d152660cedbea2320bc7313d2a28",
+            "expandedDataTarBytes": 81920,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libcrypto3",
+            "version": "3.5.9-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 2293157,
+            "sha256": "ede2ef7eca3b65a42e902aaf7890f9c5647dca0c55123a817179ad9f3bc6ef24",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libcrypto3-3.5.9-r0.apk",
+            "signedIndexControlSha1Base64": "Zp4sXyU0mSuWZ2JfwbJEUtstLN8=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "9d4445887a5e0b64ec276038cab7b44db6c1a3b1281c578f59a29c25414e3ab3",
+            "expandedDataTarBytes": 5058560,
+            "selectionReason": "required-security-upgrade"
+          },
+          {
+            "name": "libcurl",
+            "version": "8.14.1-r4",
+            "architecture": "aarch64",
+            "sizeBytes": 329994,
+            "sha256": "99768d3f61dc96ac3b35049a0df4107d9cc6c51e118e865628fa8fa781e0b419",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libcurl-8.14.1-r4.apk",
+            "signedIndexControlSha1Base64": "sezvz6IYYgXNhaPHlZ9o8vMoMgU=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "c01605a88b5d255bf542b0897470a2593fb9c6b48d881d3105252877515f9f26",
+            "expandedDataTarBytes": 737280,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libexpat",
+            "version": "2.9.0-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 62150,
+            "sha256": "3a53825b470556ebd0c08b27dd6c23f6b039232f27951ca983f1b1540edf8d1b",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libexpat-2.9.0-r0.apk",
+            "signedIndexControlSha1Base64": "AFLWv8tBpdkawzZShoIXaR3bDTs=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "b8c37094d2f0802d2c4f059802a39b4daa5ea132337cf49887ab0adb32ae50a9",
+            "expandedDataTarBytes": 215040,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libffi",
+            "version": "3.4.8-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 17599,
+            "sha256": "9391f60a14c146655deaf65115563bc8dcd749cf0f93ec567e6443f2ed7d3bfc",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libffi-3.4.8-r0.apk",
+            "signedIndexControlSha1Base64": "q+9OCyehyHODbm71gRN5RkK7eY8=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "86bb9d0ed3df7b4338a13df012a45d7cb98f66e4243e24ea211a30c4407b5c1a",
+            "expandedDataTarBytes": 81920,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libidn2",
+            "version": "2.3.7-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 105191,
+            "sha256": "9ddc248988707da96752077d05bacbda751d46cc1f7aa1460b3a40c4fbf66a6e",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libidn2-2.3.7-r0.apk",
+            "signedIndexControlSha1Base64": "46jXg1uHMNmdXuA6hJd1EdOSbw0=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "1b9e8793562888fbffb07d926630d77c3bbd3f97ccd177755fc9623491d4fe6e",
+            "expandedDataTarBytes": 215040,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libncursesw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 161279,
+            "sha256": "419b375e8a4345e7172b1f0f3a3c57db61374f5408cdb875d9e860bd4c243aca",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libncursesw-6.5_p20250503-r0.apk",
+            "signedIndexControlSha1Base64": "eN0aix+QSEdxEBdhzpINhIYfU34=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "d27125d1b509ab1d695fc65a128e31e94245b7a5cc9703e3aa5ca913ba9f5aa1",
+            "expandedDataTarBytes": 409600,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libpanelw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 5966,
+            "sha256": "e09049ba44385a53ad9c39386a1868ef677c025859ea38fe286072263799537c",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libpanelw-6.5_p20250503-r0.apk",
+            "signedIndexControlSha1Base64": "LHccUHQpPuyI3Xxne3rm4vavhx8=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "99b63f507976ce7ea385c1f93ccbf841658ee397c1b42d5edaa3e02c0d875709",
+            "expandedDataTarBytes": 81920,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libpsl",
+            "version": "0.21.5-r3",
+            "architecture": "aarch64",
+            "sizeBytes": 55377,
+            "sha256": "b9f7270cb2980876f57360f38ca11093aefaf7f5eb4b777dfbc4e5738449e438",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libpsl-0.21.5-r3.apk",
+            "signedIndexControlSha1Base64": "gvngljfHxRyQux53UvZ0S6UjICU=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "eb9fac38b34e61fc8500cb9c8e03816e9b7fa9cbbceccc6b501e2d05a670d10b",
+            "expandedDataTarBytes": 143360,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "libssl3",
+            "version": "3.5.9-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 374074,
+            "sha256": "338c9f6154582b4b76455a59f95538bcea8df039c5c72916dd2d8d0d844c9583",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libssl3-3.5.9-r0.apk",
+            "signedIndexControlSha1Base64": "TmET5Txc34/gM7tK2OnG7wp7aOg=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "486d31369f36fe2b41cad39e5d57961ed3ad72e6c1a50547abec5f4714d3d1e3",
+            "expandedDataTarBytes": 880640,
+            "selectionReason": "required-security-upgrade"
+          },
+          {
+            "name": "libunistring",
+            "version": "1.3-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 739708,
+            "sha256": "6b6631284b25fa28bb9e63f9d423145e96d0f7aeb55a592f5cd5d54fb39380f7",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/libunistring-1.3-r0.apk",
+            "signedIndexControlSha1Base64": "OE/xoMAHqByd/0KhQee/Dc82lSg=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "7ad25d0085fbaf13b063ef9251ac78eeb65fbb87b3dbcd901eeaee8a334b85ad",
+            "expandedDataTarBytes": 1976320,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "mpdecimal",
+            "version": "4.0.1-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 81395,
+            "sha256": "c299cd2c5d39c452054257965fb13e307562038f948b761030abbc55d1346223",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/mpdecimal-4.0.1-r0.apk",
+            "signedIndexControlSha1Base64": "OpwlnaSHFblbZ27YOIBPUc2huu8=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "dd562241a55590c33bed1750bc53af1bf0739ab4379c16bc264cc94af63374da",
+            "expandedDataTarBytes": 286720,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "ncurses-terminfo-base",
+            "version": "6.5_p20250503-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 21749,
+            "sha256": "3d37403e0b5ab9eb0c1ce269444e4a385faec9fe6af452c1c6956806b13d2bd6",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/ncurses-terminfo-base-6.5_p20250503-r0.apk",
+            "signedIndexControlSha1Base64": "1Yrfe1KShgLsmr6BN7B/JKdEVBg=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "4f087ed4d1bee890461f98eca44c61144278ca106eddc201873af4ca22909f79",
+            "expandedDataTarBytes": 194560,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "nghttp2-libs",
+            "version": "1.69.0-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 63594,
+            "sha256": "19db967a36f1e041e96240484d94063354f5c837e36d50daa017c2e96393a5e7",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/nghttp2-libs-1.69.0-r0.apk",
+            "signedIndexControlSha1Base64": "GcbUfgcs4svIujfznR1hv4GqDgM=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "b25ce7bccda7ec79dccb4b843d6f2bf996fc75c2dfc3072db48c7d4f206a8884",
+            "expandedDataTarBytes": 215040,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "openssl",
+            "version": "3.5.9-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 332065,
+            "sha256": "a7d5b0233cefe16cbbbbd864cd9f4277e0459899c5bf81a9993574bfa5867928",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/openssl-3.5.9-r0.apk",
+            "signedIndexControlSha1Base64": "eScYRXm/3ntSMb5Eqj632fBQf6A=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "2adb29f481d328bf367008608e5de33097a844d4286e08f1fa4e35533b0fd91f",
+            "expandedDataTarBytes": 829440,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "pcre2",
+            "version": "10.46-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 295514,
+            "sha256": "62fdc4a3d6b48ca211cf6480c5da55664b489ec2b192ca8942e5b1d60ebe9496",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/pcre2-10.46-r0.apk",
+            "signedIndexControlSha1Base64": "2YIcAqQrxHM3uSWIzNRpWJ0NFyM=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "3e8f4d1424a420d3998a84a66edceda631fb61c52ca9f532655a6b1c326b523a",
+            "expandedDataTarBytes": 808960,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "python3",
+            "version": "3.12.15-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 8092333,
+            "sha256": "553d2d36b845d9c1174f9bfa3fccd9d17f51c3df79375971a4c94ab3d3b11887",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/python3-3.12.15-r0.apk",
+            "signedIndexControlSha1Base64": "Wdzd9uvPKc4WRzb5I1dz2q2bCIM=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "517ccc54cb5b9d9677c5219e71c51cf738499102d21421eae06c77ffb1fba74e",
+            "expandedDataTarBytes": 28149760,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "readline",
+            "version": "8.2.13-r1",
+            "architecture": "aarch64",
+            "sizeBytes": 123568,
+            "sha256": "334af29dbf6b5a71a87af4d6a58e2967a8f711a51d00093de0e1498daf83ceb2",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/readline-8.2.13-r1.apk",
+            "signedIndexControlSha1Base64": "1P7g/8LJDb/cao/Qy5MSOuLJMss=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "8ed4b079c50c321b2372c4ff79842141fbf0ab5ae42d6c1598d9a9638ce8cfad",
+            "expandedDataTarBytes": 368640,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "sqlite-libs",
+            "version": "3.49.2-r1",
+            "architecture": "aarch64",
+            "sizeBytes": 825441,
+            "sha256": "204910bcbb13df4d517cb01acb178ebe14f12ff0e55a04b38d1565941780ee29",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/sqlite-libs-3.49.2-r1.apk",
+            "signedIndexControlSha1Base64": "Ki7cn/Rfz/pm+ffGaO+09QGmBc0=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "6219bcee96b3ff9a44335c871abad2d407afd5a7530429f0b957d666cf20799e",
+            "expandedDataTarBytes": 1536000,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "xz-libs",
+            "version": "5.8.4-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 117354,
+            "sha256": "8a64b55223f29e24f934ccbc8167d535b913bf923dab5e14de7946a7c36091a7",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/xz-libs-5.8.4-r0.apk",
+            "signedIndexControlSha1Base64": "pf2JUBbDyZV3zAcAgdPTv4LHc60=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "51fbdad460c2668d2df4c5c34cdcd884a81da64bb3c73c188eadadca068aac12",
+            "expandedDataTarBytes": 276480,
+            "selectionReason": "signed-index-dependency-closure"
+          },
+          {
+            "name": "zlib",
+            "version": "1.3.2-r1",
+            "architecture": "aarch64",
+            "sizeBytes": 54452,
+            "sha256": "2d274cb1b2a36d0e8347d802e6dea8648cab952ea5fae1989ab72e725842a2c3",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/zlib-1.3.2-r1.apk",
+            "signedIndexControlSha1Base64": "B2OtvCCCPVaxhorsLOsoS1EFABA=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "38f4cee031f8a5cd219e2a13d0057652e0ba9dba562d64b6cce66de452271ec3",
+            "expandedDataTarBytes": 143360,
+            "selectionReason": "direct-root"
+          },
+          {
+            "name": "zstd-libs",
+            "version": "1.5.7-r0",
+            "architecture": "aarch64",
+            "sizeBytes": 362854,
+            "sha256": "a0e92d2225941a514eb0b2325b137fe6444ef9171627aae8129b74a6ad934ac4",
+            "url": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main/aarch64/zstd-libs-1.5.7-r0.apk",
+            "signedIndexControlSha1Base64": "pY1EMMkasJle7uz+Pc0lNsql++4=",
+            "signerKeyName": "alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub",
+            "signatureVerifiedDuringReview": true,
+            "dataTarSha256": "bf147fd56eb725fddcc1174ead2d65446e149838a592c7939fb1fc0f2b9f92a4",
+            "expandedDataTarBytes": 665600,
+            "selectionReason": "signed-index-dependency-closure"
+          }
+        ],
+        "finalInstalledInventory": [
+          {
+            "name": "alpine-baselayout",
+            "version": "3.7.0-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "alpine-baselayout-data",
+            "version": "3.7.0-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "alpine-keys",
+            "version": "2.5-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "alpine-release",
+            "version": "3.22.5-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "apk-tools",
+            "version": "2.14.10-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "brotli-libs",
+            "version": "1.1.0-r2",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "busybox",
+            "version": "1.37.0-r20",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "busybox-binsh",
+            "version": "1.37.0-r20",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "c-ares",
+            "version": "1.34.8-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "ca-certificates-bundle",
+            "version": "20260611-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "gdbm",
+            "version": "1.24-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "git",
+            "version": "2.49.1-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libapk2",
+            "version": "2.14.10-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libbz2",
+            "version": "1.0.8-r6",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libcrypto3",
+            "version": "3.5.9-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libcurl",
+            "version": "8.14.1-r4",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libexpat",
+            "version": "2.9.0-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libffi",
+            "version": "3.4.8-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libgcc",
+            "version": "14.2.0-r6",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libidn2",
+            "version": "2.3.7-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libncursesw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libpanelw",
+            "version": "6.5_p20250503-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libpsl",
+            "version": "0.21.5-r3",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libssl3",
+            "version": "3.5.9-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libstdc++",
+            "version": "14.2.0-r6",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "libunistring",
+            "version": "1.3-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "mpdecimal",
+            "version": "4.0.1-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "musl",
+            "version": "1.2.5-r12",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "musl-utils",
+            "version": "1.2.5-r12",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "ncurses-terminfo-base",
+            "version": "6.5_p20250503-r0",
+            "architecture": "noarch"
+          },
+          {
+            "name": "nghttp2-libs",
+            "version": "1.69.0-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "openssl",
+            "version": "3.5.9-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "pcre2",
+            "version": "10.46-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "python3",
+            "version": "3.12.15-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "readline",
+            "version": "8.2.13-r1",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "scanelf",
+            "version": "1.3.8-r1",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "sqlite-libs",
+            "version": "3.49.2-r1",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "ssl_client",
+            "version": "1.37.0-r20",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "xz-libs",
+            "version": "5.8.4-r0",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "zlib",
+            "version": "1.3.2-r1",
+            "architecture": "aarch64"
+          },
+          {
+            "name": "zstd-libs",
+            "version": "1.5.7-r0",
+            "architecture": "aarch64"
+          }
+        ],
+        "finalInstalledPackageCount": 41
+      }
+    }
+  },
+  "apkClosure": {
+    "repository": "https://dl-cdn.alpinelinux.org/alpine/v3.22/main",
+    "closureSha256": "af7273ffb7808c4ff399bea3a98a1e9f6a2bcc3ffcc23308196eb09b0197d7b5",
+    "reviewedAtUtc": "2026-10-21T03:41:35.705341+00:00",
+    "rootPackages": [
+      "git",
+      "openssl",
+      "python3",
+      "zlib"
+    ],
+    "forcedSecurityUpgrades": [
+      "libcrypto3",
+      "libssl3",
+      "openssl",
+      "zlib"
+    ],
+    "packageCountPerArchitecture": 26,
+    "signatureMethod": "Alpine APK signatures verified by apk verify against the key embedded in the exact pinned architecture-specific base image; apk add re-verifies during installation."
+  },
+  "recipe": {
+    "version": 1,
+    "downloadHosts": [
+      "dl-cdn.alpinelinux.org"
+    ],
+    "baseReferenceTemplate": "oven/bun@{baseManifestDigest}",
+    "dockerBuildNetwork": "none",
+    "apkInstallCommand": "apk add --no-network --no-cache --no-scripts --repositories-file /dev/null /tmp/pinned-apks/*.apk",
+    "apkVerifyCommand": "apk verify --keys-dir /etc/apk/keys /tmp/pinned-apks/*.apk",
+    "repositories": [],
+    "packageScripts": false,
+    "removeDownloadedApksAfterInstall": true,
+    "preSmokeVerification": "Create a stopped container from the built image, copy /lib/apk/db/installed without starting it, and require exact equality to finalInstalledInventory.",
+    "nativeArchitectureRequirement": "Docker daemon architecture, runner architecture, and image architecture must all match the target; QEMU emulation is not accepted.",
+    "targetSmokeNetwork": "The smoke runs with ordinary job networking for frozen Bun dependency installation and the pinned public OMP release download. The runtime image build and APK installation are network-disabled; no network-isolated smoke claim is made."
+  },
+  "review": {
+    "sources": [
+      "OSV (A)",
+      "GitHub Advisory Database (B)",
+      "NVD (C)",
+      "CISA KEV (D)",
+      "Alpine security database"
+    ],
+    "coverage": "Bounded to the pinned Alpine runtime inventory and the recorded advisory-source snapshot; this does not establish absence of every vulnerability."
+  }
+}

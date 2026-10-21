@@ -98,6 +98,13 @@ status, captured output, and matching output digests. The target-specific run
 must retain the native outputs so the receipt can be checked against their
 actual bytes.
 
+The two Linux musl evidence files also require a strict `runtime` binding.
+It binds the source revision and package archive to the exact runtime-provenance
+file, architecture-specific base digest, built image ID, signature-check
+count, installed APK database hash, and canonical package inventory. The
+standalone release gate and the workflow aggregator use the same validator;
+missing, extra, mismatched, or incomplete runtime fields block approval.
+
 The qualification bundle is uploaded as the exact artifact
 `cruxomni-release-qualification` from the successful same-repository
 `release-qualification` workflow at `.github/workflows/qualification.yml` for
@@ -118,28 +125,54 @@ output. The aggregate step validates the output bytes and identity before it
 writes the receipt and evidence bundle. The release gate also checks the
 successful workflow run and all eight native job names.
 
-The workflow currently fails closed on `linux-x64-musl` and
-`linux-arm64-musl`. The official Bun 1.4.2 Alpine image has been inspected by
-immutable layer digest on both architectures. Its original OpenSSL and zlib
-packages have known advisories, so that unmodified image is unsuitable for
-qualification. The image also lacks Git and Python, which the qualification
-scripts require.
+The two musl jobs rebuild the runtime from the immutable architecture-specific
+Bun 1.4.2 Alpine child-image digests and the frozen package list in
+`provenance/musl-runtime.json`. Each APK download must match its recorded URL,
+size, and SHA-256, and `apk verify` checks every package signature against the
+key in that exact base image. Image construction and package installation have
+network access disabled; package scripts are disabled and no repositories are
+configured. Before starting a runtime container, the job copies its installed
+APK database from a created, unstarted container and requires the exact
+41-package name, version, and architecture inventory recorded in provenance.
+Runner, Docker daemon, and image architecture must all be native and agree.
 
-A remediation candidate uses authenticated Alpine package indexes and frozen
-package archives for the required tools and fixes. Its proposed final inventory
-has been checked against OSV, National Vulnerability Database records for the
-original findings, and the CISA Known Exploited Vulnerabilities catalog, with
-Alpine's security database providing fixed-version evidence. These checks have
-different coverage and do not establish the absence of every vulnerability.
-An isolated x64 build installs without network access or package scripts; its
-actual installed inventory matches the reviewed package closure. This is
-runtime preparation, not client or platform qualification.
+Only after those checks does the job run the existing target qualification in
+the rebuilt image against the same archive prepared by the workflow. The
+qualifier fetches the exact manifest source commit into a fresh shallow
+repository, validates its Git tree bytes against that commit, and confirms the
+snapshot has no links, remotes, alternates, private Git configuration, ignored
+state, or additional files. After validation it adds one empty `node_modules`
+mount point for a writable temporary dependency filesystem. It mounts this
+isolated snapshot and the release archive read-only; package dependencies,
+temporary files, and target output use separate writable mounts. It never
+mounts the live runner checkout. The smoke
+container has a unique task name, owner label, and cidfile. Cleanup verifies
+those identities, stops or escalates the owned container, removes it before
+releasing mounted paths, and removes only its unique image tag. If Docker cannot
+confirm removal, the mounted paths stay in place for safe recovery. The
+container receives only the source revision and workflow identity needed by
+the existing qualifier, with no GitHub token or Docker socket. The smoke
+container uses ordinary job networking to install the frozen Bun dependencies
+and download the pinned public OMP binary. This workflow does not claim a
+network-isolated smoke.
 
-The jobs remain blocked until the immutable runtime inputs and their verification
-are integrated into the owning workflow, and both architectures run the same
-prepared client archive natively. The jobs cannot produce passing evidence
-until those checks execute. Synthetic test fixtures and a successful image
-build do not qualify a release.
+The advisory review is bounded to the recorded Alpine runtime inventory and
+the source snapshots named in provenance; those sources have different
+coverage and do not establish the absence of every vulnerability. A verified
+runtime build is only a prerequisite. It does not qualify either platform by
+itself. An initial local x64 attempt failed because Docker's temporary
+filesystem blocked loading OMP's embedded native addon. Offline probes using
+the exact pinned musl binary loaded that addon successfully when the temporary
+mount explicitly allowed execution; the qualifier now uses that mount option.
+The loader's `releases/latest` URL was a manual recovery hint, not an automatic
+download. A local x64 development smoke passed against source revision
+`570b0c1c0072cebeefb726031abd7ecece50241e` using a package archive packed from
+that same snapshot (`de76624e73e355e44a47cbfa1ce4c7a6e90f26c86be2de99cc7cb6b576f14923`).
+The run verified the musl platform, installed package bytes, and plugin lifecycle;
+its detailed output remains in the private task record. This development run is
+not a trusted platform receipt. There has been no local arm64 runtime run.
+Trusted platform qualification still requires the same-archive workflow and its
+validated receipt.
 
 Operation coverage is read from `contracts/operations.json` and
 `contracts/release-eligibility.json`, not inferred from a short list in the

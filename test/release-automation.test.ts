@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { exportRelease } from "../scripts/export-release.ts";
-import { validateNativeSmokeOutput } from "../scripts/qualify-release.ts";
+import { createQualificationSourceSnapshot, DockerCommandError, prepareQualificationDependencyMount, runBoundedQualificationCommand, runOwnedMuslDockerTask, validateNativeSmokeOutput, type OwnedMuslDockerResources } from "../scripts/qualify-release.ts";
+import { validateMuslRuntimeEvidence } from "../scripts/musl-runtime.ts";
 import { createReleaseApprovalReceipt, verifyQualificationRunMetadata, verifyReleaseApproval, verifyReleaseEnvironmentMetadata } from "../scripts/release-gate.ts";
 import { cleanEnvironment } from "../scripts/smoke.ts";
 import { checkVersion, planVersion, setVersion } from "../scripts/version.ts";
@@ -43,8 +44,55 @@ async function temporaryDirectory(prefix: string): Promise<string> {
   return path;
 }
 
+async function commandFailure(promise: Promise<string>): Promise<DockerCommandError> {
+  try {
+    await promise;
+    throw new Error("qualification command unexpectedly succeeded");
+  } catch (error) {
+    if (!(error instanceof DockerCommandError)) throw error;
+    return error;
+  }
+}
+
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+async function muslRuntimeFixture(targetId: "linux-x64-musl" | "linux-arm64-musl", archiveSha256 = hashA, sourceRevision = gitHash): Promise<Record<string, unknown>> {
+  const provenance = JSON.parse(await readFile(join(import.meta.dir, "../provenance/musl-runtime.json"), "utf8")) as {
+    baseImage: { targets: Record<string, { baseManifestDigest: string; dockerPlatform: string; dockerArchitecture: string; apkIndex: { sha256: string; signerKeySha256: string }; finalInstalledInventory: Array<{ name: string; version: string; architecture: string }> }> };
+  };
+  const target = provenance.baseImage.targets[targetId]!;
+  const inventory = [...target.finalInstalledInventory].sort((left, right) => left.name.localeCompare(right.name));
+  const provenanceSha256 = createHash("sha256").update(await readFile(join(import.meta.dir, "../provenance/musl-runtime.json"))).digest("hex");
+  const architecture = targetId.includes("x64") ? "x64" : "arm64";
+  return {
+    schemaVersion: 1,
+    recordKind: "cruxomni-musl-runtime-verification",
+    status: "verified",
+    targetId,
+    sourceRevision,
+    archiveSha256,
+    provenanceSha256,
+    baseImageReference: `oven/bun@${target.baseManifestDigest}`,
+    baseManifestDigest: target.baseManifestDigest,
+    dockerPlatform: target.dockerPlatform,
+    runnerArchitecture: architecture,
+    daemonArchitecture: architecture,
+    imageId: `sha256:${"d".repeat(64)}`,
+    imageArchitecture: target.dockerArchitecture,
+    buildNetwork: "none",
+    apkInstallNetwork: "none",
+    apkScripts: false,
+    repositories: [],
+    signedIndexSha256: target.apkIndex.sha256,
+    signerKeySha256: target.apkIndex.signerKeySha256,
+    verifiedApkCount: 26,
+    installedDatabaseSha256: hashB,
+    installedInventorySha256: createHash("sha256").update(JSON.stringify(inventory)).digest("hex"),
+    installedPackageCount: inventory.length,
+    installedInventory: inventory,
+  };
 }
 
 function unsignedCommit(root: string, message: string): string {
@@ -178,6 +226,9 @@ async function qualificationFor(output: string, root: string, skipGateHash = fal
       archiveSha256: packageArchiveSha256,
       producer: { ...producer, jobName: id },
       host: targetHosts[id],
+      ...(id === "linux-x64-musl" || id === "linux-arm64-musl"
+        ? { runtime: await muslRuntimeFixture(id, packageArchiveSha256, manifest.sourceRevision) }
+        : {}),
       smoke: {
         command: `bun run qualification:target --package ${packageArchive.name}`,
         exitCode: 0,
@@ -238,6 +289,315 @@ afterEach(async () => {
 });
 
 describe("release automation", () => {
+  it("builds a shallow source snapshot from the exact commit without checkout-local state", async () => {
+    const source = await temporaryDirectory("cruxomni-musl-snapshot-source-");
+    git(source, "init", "-b", "main");
+    git(source, "config", "user.name", "Unsigned Snapshot Fixture");
+    git(source, "config", "user.email", "snapshot@example.invalid");
+    await put(source, ".gitignore", ".agents/\n.env\n.gitconfig\n.bash_history\n");
+    await put(source, "tracked.txt", "first committed bytes\n");
+    const olderRevision = unsignedCommit(source, "chore: snapshot fixture baseline");
+    await put(source, "tracked.txt", "exact committed bytes\n");
+    await put(source, "src/index.ts", "export const fixture = true;\n");
+    const expectedRevision = unsignedCommit(source, "chore: snapshot fixture update");
+    expect(expectedRevision).not.toBe(olderRevision);
+    git(source, "config", "remote.origin.url", "https://private.invalid/checkout.git");
+    git(source, "config", "core.hooksPath", "/private/hooks");
+    git(source, "checkout", "--detach", expectedRevision);
+    await put(source, ".agents/state/private.json", "private ignored state\n");
+    await put(source, ".env", "PRIVATE_SENTINEL=do-not-copy\n");
+    await put(source, ".gitconfig", "[credential]\n\thelper = store\n");
+    await put(source, ".bash_history", "private shell history\n");
+
+    const destination = join(await temporaryDirectory("cruxomni-musl-snapshot-output-"), "workspace");
+    await createQualificationSourceSnapshot(source, expectedRevision, destination);
+    expect(git(destination, "rev-parse", "HEAD")).toBe(expectedRevision);
+    expect(git(destination, "rev-parse", "--is-shallow-repository")).toBe("true");
+    expect(git(destination, "rev-list", "--count", "HEAD")).toBe("1");
+    expect(() => git(destination, "rev-parse", "HEAD^" )).toThrow();
+    expect(git(destination, "remote")).toBe("");
+    expect(git(destination, "config", "--local", "--name-only", "--list").split(/\r?\n/).sort()).toEqual([
+      "core.bare",
+      "core.filemode",
+      "core.logallrefupdates",
+      "core.repositoryformatversion",
+    ]);
+    expect(await lstat(join(destination, ".git", "objects", "info", "alternates")).catch(() => undefined)).toBeUndefined();
+    expect(await readFile(join(destination, "tracked.txt"), "utf8")).toBe("exact committed bytes\n");
+    expect(await readFile(join(destination, "src/index.ts"), "utf8")).toBe("export const fixture = true;\n");
+    for (const privatePath of [".agents", ".env", ".gitconfig", ".bash_history"]) {
+      expect(await lstat(join(destination, privatePath)).catch(() => undefined)).toBeUndefined();
+    }
+
+    const objectFiles = async (directory: string): Promise<Array<{ dev: number; ino: number }>> => {
+      const result: Array<{ dev: number; ino: number }> = [];
+      const visit = async (current: string): Promise<void> => {
+        for (const entry of await readdir(current, { withFileTypes: true })) {
+          const path = join(current, entry.name);
+          const info = await lstat(path);
+          if (info.isDirectory()) await visit(path);
+          else if (info.isFile()) result.push({ dev: info.dev, ino: info.ino });
+          else throw new Error("fixture object directory contains an unsupported entry");
+        }
+      };
+      await visit(directory);
+      return result;
+    };
+    const sourceObjects = await objectFiles(join(source, ".git/objects"));
+    const snapshotObjects = await objectFiles(join(destination, ".git/objects"));
+    expect(snapshotObjects.length).toBeGreaterThan(0);
+    expect(snapshotObjects.some(snapshot => sourceObjects.some(original => original.dev === snapshot.dev && original.ino === snapshot.ino))).toBe(false);
+    const dependencyMount = await prepareQualificationDependencyMount(destination);
+    expect(dependencyMount).toBe(join(destination, "node_modules"));
+    expect((await lstat(dependencyMount)).isDirectory()).toBe(true);
+    expect(await readdir(dependencyMount)).toEqual([]);
+    await expect(prepareQualificationDependencyMount(destination)).rejects.toThrow("already contains a node_modules path");
+    await expect(createQualificationSourceSnapshot(source, olderRevision, join(await temporaryDirectory("cruxomni-musl-snapshot-wrong-") , "workspace"))).rejects.toThrow("checkout HEAD does not match");
+  });
+
+  it("cleans only the task-owned musl container and image tag after timeout or interruption", async () => {
+    for (const termination of ["timeout", "interrupted"] as const) {
+      const root = await temporaryDirectory(`cruxomni-musl-lifecycle-${termination}-`);
+      const ownerToken = "123e4567-e89b-42d3-a456-426614174000";
+      const containerName = `cruxomni-musl-x64-${ownerToken}`;
+      const imageTag = `cruxomni-musl-x64:${ownerToken}`;
+      const containerId = "a".repeat(64);
+      const imageId = `sha256:${"b".repeat(64)}`;
+      const unrelatedImageTag = "unrelated-application:kept";
+      const resources: OwnedMuslDockerResources = {
+        containerName,
+        ownerToken,
+        cidFile: join(root, "container.cid"),
+        imageTag,
+        imageId,
+        imageTagOwned: true,
+      };
+      await writeFile(resources.cidFile, `${containerId}\n`);
+      let containerPresent = true;
+      let containerRunning = true;
+      const imageTags = new Map([[imageTag, imageId], [unrelatedImageTag, imageId]]);
+      const events: string[] = [];
+      const fakeDocker = async (args: string[]): Promise<string> => {
+        const [category, action, ...rest] = args;
+        if (category === "container" && action === "ls") {
+          events.push("container-list");
+          return containerPresent ? containerId : "";
+        }
+        if (category === "container" && action === "inspect") {
+          events.push("container-inspect");
+          return `${containerId}|/${containerName}|${containerRunning}|${ownerToken}`;
+        }
+        if (category === "container" && action === "stop") {
+          events.push("container-stop");
+          if (termination === "timeout") throw new Error("simulated stop timeout");
+          containerRunning = false;
+          return containerId;
+        }
+        if (category === "container" && action === "kill") {
+          events.push("container-kill");
+          containerRunning = false;
+          return containerId;
+        }
+        if (category === "container" && action === "rm") {
+          expect(rest).toContain(containerId);
+          events.push("container-remove");
+          containerPresent = false;
+          containerRunning = false;
+          return containerId;
+        }
+        if (category === "image" && action === "ls") {
+          const tag = rest.at(-1)!;
+          events.push(`image-list:${tag}`);
+          return imageTags.get(tag) ?? "";
+        }
+        if (category === "image" && action === "rm") {
+          const tag = rest[0]!;
+          events.push(`image-remove:${tag}`);
+          if (tag === imageId || tag !== imageTag) throw new Error("cleanup attempted to remove a non-owned image reference");
+          imageTags.delete(tag);
+          return "Untagged: ";
+        }
+        throw new Error(`unexpected fake docker command: ${args.join(" ")}`);
+      };
+      const failure = new DockerCommandError(`simulated ${termination}`, "smoke output", "smoke error", null, termination);
+      await expect(runOwnedMuslDockerTask(resources, async () => { throw failure; }, fakeDocker, async () => { events.push("release-mounts"); })).rejects.toBe(failure);
+      expect(events.indexOf("container-remove")).toBeGreaterThan(-1);
+      expect(events.indexOf("container-remove")).toBeLessThan(events.indexOf(`image-remove:${imageTag}`));
+      expect(events.indexOf(`image-remove:${imageTag}`)).toBeLessThan(events.indexOf("release-mounts"));
+      expect(imageTags.get(unrelatedImageTag)).toBe(imageId);
+      expect(events.some(event => event === `image-remove:${imageId}`)).toBe(false);
+      if (termination === "timeout") expect(events).toContain("container-kill");
+      else expect(events).not.toContain("container-kill");
+    }
+  });
+
+  it("reconciles an absent tag before build and a created tag after a failed build", async () => {
+    for (const imageCreated of [false, true]) {
+      const root = await temporaryDirectory("cruxomni-musl-build-cleanup-");
+      const ownerToken = "123e4567-e89b-42d3-a456-426614174000";
+      const imageId = `sha256:${"b".repeat(64)}`;
+      const resources: OwnedMuslDockerResources = {
+        containerName: `cruxomni-musl-x64-${ownerToken}`,
+        ownerToken,
+        cidFile: join(root, "container.cid"),
+        imageTag: `cruxomni-musl-x64:${ownerToken}`,
+        imageTagOwned: true,
+      };
+      let tagPresent = imageCreated;
+      let mountsReleased = false;
+      const commands: string[] = [];
+      const fakeDocker = async (args: string[]): Promise<string> => {
+        commands.push(args.join(" "));
+        if (args[0] === "container" && args[1] === "ls") return "";
+        if (args[0] === "image" && args[1] === "ls") return tagPresent ? imageId : "";
+        if (args[0] === "image" && args[1] === "rm" && args[2] === resources.imageTag) {
+          tagPresent = false;
+          return resources.imageTag;
+        }
+        throw new Error(`unexpected cleanup command: ${args.join(" ")}`);
+      };
+      const failedBuild = new Error(imageCreated ? "build failed after image creation" : "download failed before build");
+      await expect(runOwnedMuslDockerTask(resources, async () => { throw failedBuild; }, fakeDocker, async () => { mountsReleased = true; })).rejects.toBe(failedBuild);
+      expect(mountsReleased).toBe(true);
+      expect(tagPresent).toBe(false);
+      expect(resources.imageId).toBe(imageCreated ? imageId : undefined);
+      expect(commands.some(command => command.startsWith("image rm "))).toBe(imageCreated);
+      expect(commands.some(command => command.includes(`image rm ${imageId}`))).toBe(false);
+    }
+  });
+
+  it("reclaims a named verifier container after interruption before any image build", async () => {
+    const root = await temporaryDirectory("cruxomni-musl-verifier-cleanup-");
+    const ownerToken = "123e4567-e89b-42d3-a456-426614174000";
+    const containerId = "c".repeat(64);
+    const resources: OwnedMuslDockerResources = {
+      containerName: `cruxomni-musl-x64-${ownerToken}`,
+      ownerToken,
+      cidFile: join(root, "container.cid"),
+      imageTag: `cruxomni-musl-x64:${ownerToken}`,
+      imageTagOwned: true,
+    };
+    await writeFile(resources.cidFile, `${containerId}\n`);
+    let containerPresent = true;
+    let containerRunning = true;
+    let released = false;
+    const events: string[] = [];
+    const fakeDocker = async (args: string[]): Promise<string> => {
+      const [category, action] = args;
+      if (category === "container" && action === "ls") return containerPresent ? containerId : "";
+      if (category === "container" && action === "inspect") return `${containerId}|/${resources.containerName}|${containerRunning}|${ownerToken}`;
+      if (category === "container" && action === "stop") {
+        events.push("stop");
+        containerRunning = false;
+        return containerId;
+      }
+      if (category === "container" && action === "rm") {
+        events.push("remove");
+        containerPresent = false;
+        return containerId;
+      }
+      if (category === "image" && action === "ls") return "";
+      throw new Error(`unexpected verifier cleanup command: ${args.join(" ")}`);
+    };
+    const interrupted = new DockerCommandError("verifier interrupted", "", "", null, "interrupted");
+    await expect(runOwnedMuslDockerTask(resources, async () => { throw interrupted; }, fakeDocker, async () => { events.push("release"); released = true; })).rejects.toBe(interrupted);
+    expect(events).toEqual(["stop", "remove", "release"]);
+    expect(released).toBe(true);
+  });
+
+  it("bounds real child-process output and handles timeout and abort", async () => {
+    const outputChunks: Buffer[] = [];
+    const overLimit = runBoundedQualificationCommand(process.execPath, ["-e", "process.stdout.write('x'.repeat(200000)); process.stderr.write('y'.repeat(200000))"], {
+      maxBuffer: 4096,
+      timeout: 10_000,
+      onOutput: (_stream, chunk) => outputChunks.push(chunk),
+    });
+    const overflow = await commandFailure(overLimit);
+    expect(overflow).toBeInstanceOf(DockerCommandError);
+    expect(overflow.termination).toBe("output-limit");
+    expect(Buffer.byteLength(overflow.stdout) + Buffer.byteLength(overflow.stderr)).toBeLessThanOrEqual(4096);
+    expect(outputChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBeLessThanOrEqual(4096);
+
+    const timeout = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { timeout: 100, maxBuffer: 1024 }));
+    expect(timeout).toBeInstanceOf(DockerCommandError);
+    expect(timeout.termination).toBe("timeout");
+
+    const controller = new AbortController();
+    const interruption = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", "process.stdout.write('ready'); setInterval(() => {}, 1000)"], {
+      timeout: 10_000,
+      maxBuffer: 1024,
+      signal: controller.signal,
+      onOutput: () => controller.abort(),
+    }));
+    expect(interruption).toBeInstanceOf(DockerCommandError);
+    expect(interruption.termination).toBe("interrupted");
+  });
+
+  it("preserves mount paths when owned-container removal cannot be confirmed", async () => {
+    const root = await temporaryDirectory("cruxomni-musl-cleanup-uncertain-");
+    const ownerToken = "123e4567-e89b-42d3-a456-426614174000";
+    const resources: OwnedMuslDockerResources = {
+      containerName: `cruxomni-musl-arm64-${ownerToken}`,
+      ownerToken,
+      cidFile: join(root, "container.cid"),
+      imageTag: `cruxomni-musl-arm64:${ownerToken}`,
+      imageId: `sha256:${"c".repeat(64)}`,
+      imageTagOwned: true,
+    };
+    const containerId = "d".repeat(64);
+    await writeFile(resources.cidFile, `${containerId}\n`);
+    let released = false;
+    const events: string[] = [];
+    const fakeDocker = async (args: string[]): Promise<string> => {
+      if (args[0] === "container" && args[1] === "ls") return containerId;
+      if (args[0] === "container" && args[1] === "inspect") return `${containerId}|/${resources.containerName}|true|${ownerToken}`;
+      if (args[0] === "container" && args[1] === "stop") return "";
+      if (args[0] === "container" && args[1] === "kill") {
+        events.push("container-kill");
+        return "";
+      }
+      if (args[0] === "container" && args[1] === "rm") {
+        events.push("container-remove-unconfirmed");
+        throw new Error("Docker removal result is uncertain");
+      }
+      events.push(`unexpected:${args.join(" ")}`);
+      throw new Error("unexpected docker cleanup command");
+    };
+    await expect(runOwnedMuslDockerTask(resources, async () => "failed smoke", fakeDocker, async () => { released = true; }))
+      .rejects.toThrow("mounted paths were preserved");
+    expect(events).toEqual(["container-kill", "container-remove-unconfirmed"]);
+    expect(released).toBe(false);
+  });
+
+  it("preserves mount paths when a cidfile container no longer has its owned name", async () => {
+    const root = await temporaryDirectory("cruxomni-musl-renamed-container-");
+    const ownerToken = "123e4567-e89b-42d3-a456-426614174000";
+    const containerId = "e".repeat(64);
+    const resources: OwnedMuslDockerResources = {
+      containerName: `cruxomni-musl-x64-${ownerToken}`,
+      ownerToken,
+      cidFile: join(root, "container.cid"),
+      imageTag: `cruxomni-musl-x64:${ownerToken}`,
+      imageTagOwned: true,
+    };
+    await writeFile(resources.cidFile, `${containerId}\n`);
+    let released = false;
+    const commands: string[] = [];
+    const fakeDocker = async (args: string[]): Promise<string> => {
+      commands.push(args.join(" "));
+      if (args[0] === "container" && args[1] === "ls" && args.includes(`name=^/${resources.containerName}$`)) return "";
+      if (args[0] === "container" && args[1] === "ls" && args.includes(`id=${containerId}`)) return containerId;
+      throw new Error(`unexpected mutation or image cleanup: ${args.join(" ")}`);
+    };
+    await expect(runOwnedMuslDockerTask(resources, async () => "completed", fakeDocker, async () => { released = true; }))
+      .rejects.toThrow("mounted paths were preserved");
+    expect(commands).toEqual([
+      `container ls --all --quiet --no-trunc --filter name=^/${resources.containerName}$`,
+      `container ls --all --quiet --no-trunc --filter id=${containerId}`,
+    ]);
+    expect(released).toBe(false);
+  });
+
   it("accepts only a named GitHub environment with configured required reviewers", () => {
     const environment = {
       id: 42,
@@ -311,7 +671,7 @@ describe("release automation", () => {
     expect(environment.OMP_OMNIROUTE_API_KEY).toBeUndefined();
   });
 
-  it("makes the qualification workflow fail closed for unverified musl images and incomplete native smoke output", async () => {
+  it("rebuilds exact native musl runtimes and fails closed on incomplete native smoke output", async () => {
     const workflow = await readFile(join(import.meta.dir, "../.github/workflows/qualification.yml"), "utf8");
     const provenance = JSON.parse(await readFile(join(import.meta.dir, "../provenance/release-artifacts.json"), "utf8")) as { artifacts: Array<{ upstream: string; release_tag: string; url: string; sha256: string; peeled_commit: string }> };
     const pins = JSON.parse(await readFile(join(import.meta.dir, "../provenance/upstreams.json"), "utf8")) as { upstreams: Array<{ id: string; release: { version: string; tag: string } }> };
@@ -329,7 +689,30 @@ describe("release automation", () => {
     expect(workflow).toContain("macos-15");
     expect(workflow).toContain("windows-2025");
     expect(workflow).toContain("windows-11-arm");
-    expect(workflow.match(/BLOCKED: linux-(?:x64|arm64)-musl qualification requires an architecture-native Alpine image pinned by a verified digest/g)?.length).toBe(2);
+    expect(workflow).toContain("runs-on: ubuntu-24.04");
+    expect(workflow).toContain("runs-on: ubuntu-24.04-arm");
+    expect(workflow).toContain("musl-target --id \"$QUALIFICATION_TARGET\"");
+    expect(workflow).toContain("qualification-evidence-linux-x64-musl");
+    expect(workflow).toContain("qualification-evidence-linux-arm64-musl");
+    expect(workflow).not.toContain("BLOCKED: linux-x64-musl");
+    expect(workflow).not.toContain("BLOCKED: linux-arm64-musl");
+
+    const runtime = await muslRuntimeFixture("linux-x64-musl");
+    expect(await validateMuslRuntimeEvidence(runtime, "linux-x64-musl", hashA, gitHash)).toMatchObject({
+      status: "verified",
+      targetId: "linux-x64-musl",
+      installedPackageCount: 41,
+      verifiedApkCount: 26,
+    });
+    expect(runtime.installedInventory).toContainEqual({ name: "ncurses-terminfo-base", version: "6.5_p20250503-r0", architecture: "noarch" });
+    expect(() => validateMuslRuntimeEvidence({ ...runtime, daemonArchitecture: "arm64" }, "linux-x64-musl", hashA, gitHash)).toThrow("native offline build");
+    expect(() => validateMuslRuntimeEvidence({ ...runtime, provenanceSha256: hashB }, "linux-x64-musl", hashA, gitHash)).toThrow("native offline build");
+    const alteredInventory = structuredClone(runtime) as { installedInventory: Array<{ name: string; version: string; architecture: string }>; installedInventorySha256: string };
+    alteredInventory.installedInventory[0]!.version = "0.0.0-forged";
+    alteredInventory.installedInventorySha256 = createHash("sha256").update(JSON.stringify(alteredInventory.installedInventory)).digest("hex");
+    expect(() => validateMuslRuntimeEvidence(alteredInventory, "linux-x64-musl", hashA, gitHash)).toThrow("differs from the reviewed 41-package closure");
+    expect(() => validateMuslRuntimeEvidence({ ...runtime, unexpected: true }, "linux-x64-musl", hashA, gitHash)).toThrow("missing or unexpected fields");
+    expect(() => validateMuslRuntimeEvidence(runtime, "linux-x64-musl", hashB, gitHash)).toThrow("not bound to the reviewed native offline build");
 
     const actualSmokeShape = {
       status: "verified",
@@ -492,6 +875,35 @@ describe("release automation", () => {
     const evidencePath = join(dirname(qualification.path), receipt.targets[0]!.evidenceRef);
     await writeFile(evidencePath, "tampered target evidence\n");
     await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("evidence hash does not match its file");
+  });
+
+  it("requires musl runtime inventory evidence in the standalone release gate", async () => {
+    const root = await fixtureRepo();
+    const output = join(await temporaryDirectory("cruxomni-musl-runtime-gate-output-"), "release");
+    await exportFixture(root, output);
+    const qualification = await qualificationFor(output, root, true);
+    const receipt = JSON.parse(await readFile(qualification.path, "utf8")) as { targets: Array<{ id: string; evidenceRef: string; evidenceSha256: string }> };
+    const target = receipt.targets.find(item => item.id === "linux-x64-musl")!;
+    const evidencePath = join(dirname(qualification.path), target.evidenceRef);
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as { runtime?: Record<string, unknown> };
+    delete evidence.runtime;
+    const evidenceBytes = Buffer.from(JSON.stringify(evidence));
+    await writeFile(evidencePath, evidenceBytes);
+    target.evidenceSha256 = createHash("sha256").update(evidenceBytes).digest("hex");
+    await writeFile(qualification.path, JSON.stringify(receipt));
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("musl runtime evidence must be an object");
+
+    const refreshed = await qualificationFor(output, root, true);
+    const secondReceipt = JSON.parse(await readFile(refreshed.path, "utf8")) as { targets: Array<{ id: string; evidenceRef: string; evidenceSha256: string }> };
+    const secondTarget = secondReceipt.targets.find(item => item.id === "linux-arm64-musl")!;
+    const secondEvidencePath = join(dirname(refreshed.path), secondTarget.evidenceRef);
+    const secondEvidence = JSON.parse(await readFile(secondEvidencePath, "utf8")) as { runtime: Record<string, unknown> };
+    secondEvidence.runtime.archiveSha256 = hashB;
+    const secondBytes = Buffer.from(JSON.stringify(secondEvidence));
+    await writeFile(secondEvidencePath, secondBytes);
+    secondTarget.evidenceSha256 = createHash("sha256").update(secondBytes).digest("hex");
+    await writeFile(refreshed.path, JSON.stringify(secondReceipt));
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: refreshed.path })).rejects.toThrow("not bound to the reviewed native offline build");
   });
 
   it("requires the named qualification producer and complete native smoke evidence", async () => {

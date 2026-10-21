@@ -1,10 +1,12 @@
-import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
+import { isMuslTarget, muslRuntimeProvenanceSha256, muslTargetProvenance, sortMuslInventory, validateMuslRuntimeEvidence, type MuslInventoryEntry } from "./musl-runtime.ts";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(import.meta.dir, "..");
@@ -184,6 +186,617 @@ async function downloadOmp(target: TargetId, destination: string): Promise<strin
   return path;
 }
 
+function normalizedArchitecture(value: string): "x64" | "arm64" | undefined {
+  if (["x64", "x86_64", "amd64", "X64"].includes(value)) return "x64";
+  if (["arm64", "aarch64", "ARM64"].includes(value)) return "arm64";
+  return undefined;
+}
+
+type DockerOptions = { cwd?: string; timeout?: number; maxBuffer?: number; signal?: AbortSignal; onOutput?: (stream: "stdout" | "stderr", chunk: Buffer) => void };
+type DockerRunner = (args: string[], options?: DockerOptions) => Promise<string>;
+
+export class DockerCommandError extends Error {
+  constructor(
+    message: string,
+    readonly stdout: string,
+    readonly stderr: string,
+    readonly exitCode: number | null,
+    readonly termination: "exit" | "timeout" | "interrupted" | "output-limit" | "spawn-error",
+  ) {
+    super(message);
+    this.name = "DockerCommandError";
+  }
+}
+
+export async function runBoundedQualificationCommand(executable: string, commandArgs: string[], options: DockerOptions = {}): Promise<string> {
+  const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024;
+  const timeoutMs = options.timeout ?? 20 * 60 * 1000;
+  const signal = options.signal;
+  if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 0 || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error("qualification command requires bounded output and timeout limits");
+  if (signal?.aborted) throw new DockerCommandError(`${executable} command was interrupted before launch`, "", "", null, "interrupted");
+  return await new Promise<string>((resolvePromise, rejectPromise) => {
+    const child = spawn(executable, commandArgs, {
+      cwd: options.cwd ?? root,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    let retainedBytes = 0;
+    let timedOut = false;
+    let interrupted = false;
+    let outputLimited = false;
+    let settled = false;
+    let escalation: ReturnType<typeof setTimeout> | undefined;
+    const terminate = (): void => {
+      child.kill("SIGTERM");
+      if (escalation === undefined) {
+        escalation = setTimeout(() => child.kill("SIGKILL"), 2_000);
+      }
+    };
+    const onAbort = (): void => {
+      interrupted = true;
+      terminate();
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+    }, timeoutMs);
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      if (escalation !== undefined) clearTimeout(escalation);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const output = (chunks: Buffer[]): string => Buffer.concat(chunks).toString("utf8");
+    const fail = (error: DockerCommandError): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      rejectPromise(error);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    const retain = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+      if (outputLimited || settled) return;
+      const remaining = maxBuffer - retainedBytes;
+      const kept = Buffer.from(chunk.subarray(0, remaining));
+      if (kept.byteLength > 0) {
+        (stream === "stdout" ? stdout : stderr).push(kept);
+        retainedBytes += kept.byteLength;
+        options.onOutput?.(stream, kept);
+      }
+      if (chunk.byteLength > remaining) {
+        outputLimited = true;
+        terminate();
+      }
+    };
+    child.stdout.on("data", (chunk: Buffer) => retain("stdout", chunk));
+    child.stderr.on("data", (chunk: Buffer) => retain("stderr", chunk));
+    child.on("error", error => {
+      fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} could not start: ${error.message}`, output(stdout), output(stderr), null, "spawn-error"));
+    });
+    child.on("close", (code, childSignal) => {
+      if (settled) return;
+      const stdoutText = output(stdout);
+      const stderrText = output(stderr);
+      if (timedOut || interrupted || outputLimited || code !== 0) {
+        const termination = timedOut ? "timeout" : interrupted ? "interrupted" : outputLimited ? "output-limit" : "exit";
+        const detail = stderrText.trim().slice(-4_000);
+        const state = timedOut ? "timed out" : interrupted ? "was interrupted" : outputLimited ? "exceeded its output limit" : `failed (${code ?? childSignal ?? "unknown"})`;
+        fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} ${state}${detail ? `: ${detail}` : ""}`, stdoutText, stderrText, code, termination));
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolvePromise(stdoutText.trim());
+    });
+  });
+}
+
+export const runQualificationDockerCommand = (commandArgs: string[], options: DockerOptions = {}): Promise<string> => runBoundedQualificationCommand("docker", commandArgs, options);
+const docker = runQualificationDockerCommand;
+
+export function createQualificationInterruptSignal(): { signal: AbortSignal; interrupted: () => string | undefined; dispose: () => void } {
+  const controller = new AbortController();
+  let received: string | undefined;
+  const onInterrupt = (name: "SIGINT" | "SIGTERM"): void => {
+    received = name;
+    controller.abort(new Error(`received ${name}`));
+  };
+  const onSigint = (): void => onInterrupt("SIGINT");
+  const onSigterm = (): void => onInterrupt("SIGTERM");
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  return {
+    signal: controller.signal,
+    interrupted: () => received,
+    dispose: () => {
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+    },
+  };
+}
+
+function gitSnapshotEnvironment(): NodeJS.ProcessEnv {
+  return {
+    PATH: process.env.PATH,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+    GIT_CONFIG_COUNT: "0",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ATTR_NOSYSTEM: "1",
+  };
+}
+
+export async function createQualificationSourceSnapshot(sourceRoot: string, expectedRevision: string, destination: string, signal?: AbortSignal): Promise<string> {
+  const revision = expectedRevision;
+  if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("qualification source revision must be a full Git commit ID");
+  const source = resolve(sourceRoot);
+  const target = resolve(destination);
+  if (source === target || target.startsWith(`${source}/`) || source.startsWith(`${target}/`)) throw new Error("qualification source snapshot must use an isolated directory");
+  const destinationInfo = await lstat(target).catch(() => undefined);
+  if (destinationInfo) throw new Error("qualification source snapshot destination must not exist yet");
+  const env = gitSnapshotEnvironment();
+  const git = async (cwd: string, args: string[], timeout = 120_000): Promise<string> => {
+    const result = await execFileAsync("git", args, { cwd, env, timeout, maxBuffer: 4 * 1024 * 1024, signal });
+    return result.stdout.trim();
+  };
+  const current = await git(source, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (current !== revision) throw new Error("qualification source checkout HEAD does not match the prepared package");
+  const template = await mkdtemp(join(tmpdir(), "cruxomni-git-template-"));
+  const isolatedHome = await mkdtemp(join(tmpdir(), "cruxomni-git-home-"));
+  env.HOME = isolatedHome;
+  try {
+    await mkdir(target, { recursive: true });
+    await git(dirname(target), ["init", "--quiet", `--template=${template}`, target]);
+    await git(target, ["-c", "protocol.file.allow=always", "fetch", "--depth=1", "--no-tags", pathToFileURL(source).toString(), revision], 5 * 60 * 1000);
+    const fetched = await git(target, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"]);
+    if (fetched !== revision) throw new Error("qualification source fetch did not resolve the expected Git commit");
+    await git(target, ["checkout", "--force", "--detach", "FETCH_HEAD"]);
+    const gitDirectory = await git(target, ["rev-parse", "--absolute-git-dir"]);
+    if (resolve(gitDirectory) !== join(target, ".git")) throw new Error("qualification source clone must have a private ordinary .git directory");
+    const configPath = join(gitDirectory, "config");
+    const configInfo = await lstat(configPath).catch(() => undefined);
+    if (!configInfo?.isFile() || configInfo.isSymbolicLink()) throw new Error("qualification source clone Git config must be a regular file");
+    await writeFile(configPath, "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n", { mode: 0o600 });
+    const sanitizedConfigKeys = await git(target, ["config", "--local", "--name-only", "--list"]);
+    if (sanitizedConfigKeys.split(/\r?\n/).some(key => key !== "core.repositoryformatversion" && key !== "core.filemode" && key !== "core.bare" && key !== "core.logallrefupdates")) {
+      throw new Error("qualification source clone retained unexpected Git configuration");
+    }
+    if (await git(target, ["remote"]) !== "") throw new Error("qualification source clone must not retain remotes");
+    const alternatesPath = join(gitDirectory, "objects", "info", "alternates");
+    if (await lstat(alternatesPath).catch(() => undefined)) throw new Error("qualification source clone must not retain object alternates");
+    if (await git(target, ["rev-parse", "--is-shallow-repository"]) !== "true" || await git(target, ["rev-list", "--count", "HEAD"]) !== "1") {
+      throw new Error("qualification source clone must contain only the shallow expected commit");
+    }
+    if (await git(target, ["rev-parse", "HEAD"]) !== revision || await git(target, ["status", "--porcelain=v1", "--untracked-files=all"]) !== "") {
+      throw new Error("qualification source snapshot is not a clean checkout of the expected commit");
+    }
+    const committed = await git(target, ["ls-tree", "-rz", "--full-tree", "HEAD"]);
+    const expectedFiles = new Map<string, string>();
+    for (const entry of committed.split("\0").filter(Boolean)) {
+      const match = /^(100644|100755) blob ([0-9a-f]{40})\t(.+)$/.exec(entry);
+      if (!match) throw new Error("qualification source commit contains a non-regular or unsupported tracked entry");
+      const path = match[3]!;
+      if (path.startsWith("/") || path.includes("\\") || path.split("/").some(part => part === "" || part === "." || part === "..")) {
+        throw new Error("qualification source commit contains an unsafe tracked path");
+      }
+      expectedFiles.set(path, match[2]!);
+    }
+    const actualFiles: string[] = [];
+    const visit = async (directory: string, prefix = ""): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (prefix === "" && entry.name === ".git") continue;
+        const relativePath = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+        const path = join(directory, entry.name);
+        const info = await lstat(path);
+        if (info.isSymbolicLink()) throw new Error(`qualification source snapshot contains a symbolic link: ${relativePath}`);
+        if (info.isDirectory()) await visit(path, relativePath);
+        else if (info.isFile()) actualFiles.push(relativePath);
+        else throw new Error(`qualification source snapshot contains an unsupported filesystem entry: ${relativePath}`);
+      }
+    };
+    await visit(target);
+    actualFiles.sort();
+    const expectedPaths = [...expectedFiles.keys()].sort();
+    if (JSON.stringify(actualFiles) !== JSON.stringify(expectedPaths)) throw new Error("qualification source snapshot files do not match the exact committed tree");
+    for (const [path, expectedBlob] of expectedFiles) {
+      const bytes = await readFile(join(target, ...path.split("/")));
+      const actualBlob = createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
+      if (actualBlob !== expectedBlob) throw new Error(`qualification source snapshot bytes differ from the committed tree: ${path}`);
+    }
+    for (const privatePath of [".agents", ".env", ".gitconfig", ".bash_history", ".zsh_history"]) {
+      if (await lstat(join(target, privatePath)).catch(() => undefined)) throw new Error(`qualification source snapshot contains private ignored state: ${privatePath}`);
+    }
+    return target;
+  } catch (error) {
+    await rm(target, { recursive: true, force: true });
+    throw error;
+  } finally {
+    await rm(template, { recursive: true, force: true });
+    await rm(isolatedHome, { recursive: true, force: true });
+  }
+}
+
+export async function prepareQualificationDependencyMount(sourceSnapshot: string): Promise<string> {
+  const snapshot = resolve(sourceSnapshot);
+  const dependencyMount = join(snapshot, "node_modules");
+  if (await lstat(dependencyMount).catch(() => undefined)) {
+    throw new Error("qualification source snapshot already contains a node_modules path");
+  }
+  await mkdir(dependencyMount, { mode: 0o755 });
+  const info = await lstat(dependencyMount);
+  if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(dependencyMount)).length !== 0) {
+    throw new Error("qualification dependency mount point must be a new empty directory");
+  }
+  return dependencyMount;
+}
+
+const ownerLabel = "io.cruxexperts.cruxomni.musl-owner";
+export type OwnedMuslDockerResources = {
+  containerName: string;
+  ownerToken: string;
+  cidFile: string;
+  imageTag: string;
+  imageId?: string;
+  imageTagOwned: boolean;
+};
+
+async function listedDockerIds(args: string[], dockerRunner: DockerRunner): Promise<string[]> {
+  const output = await dockerRunner(args, { timeout: 15_000, maxBuffer: 64 * 1024 });
+  return output.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+}
+
+async function removeOwnedMuslContainer(resources: OwnedMuslDockerResources, dockerRunner: DockerRunner): Promise<void> {
+  if (!/^cruxomni-musl-(?:x64|arm64)-[a-f0-9-]{36}$/.test(resources.containerName)
+    || !/^[a-f0-9-]{36}$/.test(resources.ownerToken)) throw new Error("refusing cleanup for a container without a task-owned identity");
+  const cidInfo = await lstat(resources.cidFile).catch(() => undefined);
+  if (cidInfo && (!cidInfo.isFile() || cidInfo.isSymbolicLink())) throw new Error("task-owned Docker cidfile is not a regular file");
+  const cid = cidInfo ? (await readFile(resources.cidFile, "utf8")).trim() : undefined;
+  if (cid !== undefined && !/^[a-f0-9]{64}$/.test(cid)) throw new Error("task-owned Docker cidfile has an invalid container ID");
+  const containerIds = await listedDockerIds(["container", "ls", "--all", "--quiet", "--no-trunc", "--filter", `name=^/${resources.containerName}$`], dockerRunner);
+  if (containerIds.length === 0) {
+    if (cid !== undefined) {
+      const byId = await listedDockerIds(["container", "ls", "--all", "--quiet", "--no-trunc", "--filter", `id=${cid}`], dockerRunner);
+      if (byId.length !== 0) throw new Error("task-owned Docker cidfile still points to a container without its exact owned name");
+    }
+    return;
+  }
+  if (containerIds.length !== 1 || !/^[a-f0-9]{64}$/.test(containerIds[0]!)) throw new Error("task-owned Docker container lookup was ambiguous");
+  const containerId = containerIds[0]!;
+  if (cid !== undefined && cid !== containerId) throw new Error("task-owned Docker cidfile does not match the named container");
+  const inspect = await dockerRunner([
+    "container", "inspect", "--format",
+    `{{.Id}}|{{.Name}}|{{.State.Running}}|{{index .Config.Labels "${ownerLabel}"}}`, containerId,
+  ], { timeout: 15_000, maxBuffer: 64 * 1024 });
+  const [observedId, observedName, running, observedOwner] = inspect.split("|");
+  if (observedId !== containerId || observedName !== `/${resources.containerName}` || observedOwner !== resources.ownerToken || !["true", "false"].includes(running ?? "")) {
+    throw new Error("refusing to clean a Docker container without the exact task-owned name and label");
+  }
+  if (running === "true") {
+    try { await dockerRunner(["container", "stop", "--time", "10", containerId], { timeout: 15_000, maxBuffer: 64 * 1024 }); }
+    catch { /* Reinspect below and escalate only while this exact owned container still runs. */ }
+  }
+  const afterStop = await dockerRunner([
+    "container", "inspect", "--format", `{{.Id}}|{{.Name}}|{{.State.Running}}|{{index .Config.Labels "${ownerLabel}"}}`, containerId,
+  ], { timeout: 15_000, maxBuffer: 64 * 1024 });
+  const [stoppedId, stoppedName, stillRunning, stoppedOwner] = afterStop.split("|");
+  if (stoppedId !== containerId || stoppedName !== `/${resources.containerName}` || stoppedOwner !== resources.ownerToken) {
+    throw new Error("task-owned Docker container identity changed during cleanup");
+  }
+  if (stillRunning === "true") await dockerRunner(["container", "kill", "--signal", "KILL", containerId], { timeout: 15_000, maxBuffer: 64 * 1024 });
+  await dockerRunner(["container", "rm", "--force", containerId], { timeout: 15_000, maxBuffer: 64 * 1024 });
+  const remaining = await listedDockerIds(["container", "ls", "--all", "--quiet", "--no-trunc", "--filter", `name=^/${resources.containerName}$`], dockerRunner);
+  if (remaining.length !== 0) throw new Error("task-owned Docker container was not removed before releasing mounted paths");
+}
+
+async function removeOwnedMuslImageTag(resources: OwnedMuslDockerResources, dockerRunner: DockerRunner): Promise<void> {
+  if (!resources.imageTagOwned) return;
+  if (!/^cruxomni-musl-(?:x64|arm64):[a-f0-9-]{36}$/.test(resources.imageTag)) throw new Error("refusing cleanup for an image without a task-owned tag");
+  const imageIds = await listedDockerIds(["image", "ls", "--quiet", "--no-trunc", resources.imageTag], dockerRunner);
+  if (imageIds.length === 0) return;
+  if (imageIds.length !== 1 || !/^sha256:[0-9a-f]{64}$/.test(imageIds[0]!)) throw new Error("task-owned Docker image tag has an ambiguous identity");
+  if (resources.imageId !== undefined && imageIds[0] !== resources.imageId) throw new Error("task-owned Docker image tag no longer refers to its recorded image");
+  resources.imageId = imageIds[0]!;
+  await dockerRunner(["image", "rm", resources.imageTag], { timeout: 15_000, maxBuffer: 64 * 1024 });
+  const remaining = await listedDockerIds(["image", "ls", "--quiet", "--no-trunc", resources.imageTag], dockerRunner);
+  if (remaining.length !== 0) throw new Error("task-owned Docker image tag was not removed");
+}
+
+export async function runOwnedMuslDockerTask<T>(
+  resources: OwnedMuslDockerResources,
+  operation: () => Promise<T>,
+  dockerRunner: DockerRunner,
+  releaseMountPaths: (operationSucceeded: boolean) => Promise<void>,
+): Promise<T> {
+  let result: T | undefined;
+  let operationError: unknown;
+  try { result = await operation(); }
+  catch (error) { operationError = error; }
+  try {
+    await removeOwnedMuslContainer(resources, dockerRunner);
+    await removeOwnedMuslImageTag(resources, dockerRunner);
+  } catch (cleanupError) {
+    throw new Error(`owned Docker cleanup failed; mounted paths were preserved (${resources.cidFile})`, {
+      cause: operationError === undefined ? cleanupError : new AggregateError([operationError, cleanupError]),
+    });
+  }
+  await releaseMountPaths(operationError === undefined);
+  if (operationError !== undefined) throw operationError;
+  return result as T;
+}
+
+function parseApkDatabase(text: string, expectedArchitecture: string): MuslInventoryEntry[] {
+  const entries: MuslInventoryEntry[] = [];
+  for (const [index, block] of text.trim().split(/\n\s*\n/).entries()) {
+    const fields = new Map<string, string>();
+    for (const line of block.split(/\r?\n/)) {
+      const match = /^([PVA]):(.*)$/.exec(line);
+      if (!match) continue;
+      if (fields.has(match[1]!)) throw new Error(`APK database record ${index} duplicates field ${match[1]}`);
+      fields.set(match[1]!, match[2]!);
+    }
+    const name = fields.get("P");
+    const version = fields.get("V");
+    const architecture = fields.get("A");
+    if (!name || !version || !architecture) throw new Error(`APK database record ${index} lacks package name, version, or architecture`);
+    if (architecture !== expectedArchitecture && architecture !== "noarch") throw new Error(`APK database package ${name} uses unexpected architecture ${architecture}`);
+    entries.push({ name, version, architecture });
+  }
+  return sortMuslInventory(entries, "created-container APK database");
+}
+
+async function downloadReviewedApks(target: "linux-x64-musl" | "linux-arm64-musl", packagesDirectory: string): Promise<void> {
+  const provenance = muslTargetProvenance(target);
+  const packages = provenance.packages as JsonRecord[];
+  await mkdir(packagesDirectory, { recursive: true });
+  for (const item of packages) {
+    const pkg = object(item, "musl APK package");
+    const url = new URL(nonempty(pkg.url, "musl APK URL"));
+    const expectedDigest = digest(pkg.sha256, "musl APK SHA-256");
+    const expectedSize = Number(pkg.sizeBytes);
+    if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > 64 * 1024 * 1024) throw new Error(`pinned Alpine APK size is outside the allowed range: ${pkg.name}`);
+    const response = await fetch(url, { signal: AbortSignal.timeout(120_000), redirect: "error" });
+    if (!response.ok || !response.body || response.url !== url.toString()) throw new Error(`pinned Alpine APK download failed for ${pkg.name}: HTTP ${response.status}`);
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength !== expectedSize) throw new Error(`pinned Alpine APK length differs from provenance: ${pkg.name}`);
+    const reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > expectedSize) {
+          await reader.cancel();
+          throw new Error(`pinned Alpine APK exceeds its exact size: ${pkg.name}`);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = Buffer.concat(chunks, total);
+    if (bytes.byteLength !== expectedSize || await sha256(bytes) !== expectedDigest) throw new Error(`pinned Alpine APK bytes differ from provenance: ${pkg.name}`);
+    const filename = basename(url.pathname);
+    await writeFile(join(packagesDirectory, filename), bytes, { flag: "wx", mode: 0o600 });
+  }
+}
+
+async function apkDatabaseFromUnstartedContainer(imageId: string, platform: string, destination: string, resources: OwnedMuslDockerResources, signal?: AbortSignal): Promise<Buffer> {
+  const signalOption = signal ? { signal } : {};
+  const containerId = (await docker([
+    "create", "--platform", platform, "--network", "none",
+    "--name", resources.containerName, "--cidfile", resources.cidFile,
+    "--label", `${ownerLabel}=${resources.ownerToken}`, imageId,
+  ], signalOption)).trim();
+  if (!/^[a-f0-9]{64}$/.test(containerId)) throw new Error("Docker did not return an exact created-container ID");
+  const status = await docker(["inspect", "--format", "{{.State.Status}}", containerId], signalOption);
+  if (status !== "created") throw new Error("runtime inventory must be inspected before starting its container");
+  await docker(["cp", `${containerId}:/lib/apk/db/installed`, destination], signalOption);
+  const database = await readFile(destination);
+  await removeOwnedMuslContainer(resources, docker);
+  await rm(resources.cidFile);
+  return database;
+}
+
+export async function buildMuslRuntime(
+  targetId: "linux-x64-musl" | "linux-arm64-musl",
+  archiveSha256: string,
+  sourceRevision: string,
+  work: string,
+  resources: OwnedMuslDockerResources,
+  signal?: AbortSignal,
+): Promise<{ evidence: JsonRecord; imageId: string; imageTag: string }> {
+  const signalOption = signal ? { signal } : {};
+  const provenance = muslTargetProvenance(targetId);
+  const expected = targets[targetId];
+  const imageTag = resources.imageTag;
+  const expectedArch = expected.architecture;
+  if (process.platform !== "linux" || process.arch !== expectedArch) throw new Error(`${targetId} runtime build requires a native Linux ${expectedArch} runner`);
+  if (process.env.GITHUB_ACTIONS === "true" && normalizedArchitecture(process.env.RUNNER_ARCH ?? "") !== expectedArch) {
+    throw new Error(`${targetId} runtime build runner architecture does not match RUNNER_ARCH`);
+  }
+  const daemon = await docker(["info", "--format", "{{.OSType}}|{{.Architecture}}"], signalOption);
+  const [daemonOs, daemonArchName] = daemon.split("|");
+  const daemonArch = normalizedArchitecture(daemonArchName ?? "");
+  if (daemonOs !== "linux" || daemonArch !== expectedArch) throw new Error(`${targetId} runtime build requires an architecture-native Linux Docker daemon`);
+  const baseDigest = nonempty(provenance.baseManifestDigest, `${targetId} base manifest digest`);
+  const baseReference = `oven/bun@${baseDigest}`;
+  const platform = nonempty(provenance.dockerPlatform, `${targetId} Docker platform`);
+  await docker(["pull", "--platform", platform, baseReference], { timeout: 10 * 60 * 1000, ...signalOption });
+  const baseInspection = (await docker(["image", "inspect", "--format", "{{.Id}}|{{.Os}}|{{.Architecture}}|{{json .RepoDigests}}", baseReference], signalOption)).split("|");
+  if (baseInspection.length !== 4 || baseInspection[1] !== "linux" || baseInspection[2] !== nonempty(provenance.dockerArchitecture, `${targetId} Docker architecture`)) {
+    throw new Error(`${targetId} pinned Bun base image is not the expected native platform`);
+  }
+  const baseDigests = JSON.parse(baseInspection[3]!) as unknown;
+  if (!Array.isArray(baseDigests) || !baseDigests.includes(baseReference)) throw new Error(`${targetId} pulled Bun base image does not retain the pinned child digest`);
+
+  const packageDirectory = join(work, "packages");
+  await downloadReviewedApks(targetId, packageDirectory);
+  const verification = await docker([
+    "run", "--network", "none", "--platform", platform,
+    "--name", resources.containerName, "--cidfile", resources.cidFile,
+    "--label", `${ownerLabel}=${resources.ownerToken}`,
+    "--mount", `type=bind,src=${packageDirectory},dst=/tmp/pinned-apks,readonly`,
+    baseReference, "sh", "-ceu", "apk verify --keys-dir /etc/apk/keys /tmp/pinned-apks/*.apk",
+  ], { timeout: 10 * 60 * 1000, ...signalOption });
+  await removeOwnedMuslContainer(resources, docker);
+  await rm(resources.cidFile);
+  const verificationLines = verification.split(/\r?\n/).filter(line => line.trim().length > 0);
+  const verifiedPackageNames = new Set<string>();
+  for (const line of verificationLines) {
+    const match = /^\/tmp\/pinned-apks\/([^/]+\.apk): 0 - OK$/.exec(line);
+    if (!match || verifiedPackageNames.has(match[1]!)) throw new Error(`${targetId} Alpine APK signature verification returned an unexpected result`);
+    verifiedPackageNames.add(match[1]!);
+  }
+  const expectedPackageNames = new Set((provenance.packages as JsonRecord[]).map(item => basename(new URL(String(item.url)).pathname)));
+  if (verificationLines.length !== 26 || verifiedPackageNames.size !== expectedPackageNames.size
+    || [...verifiedPackageNames].some(name => !expectedPackageNames.has(name))) {
+    throw new Error(`${targetId} Alpine APK signature verification did not report 26 successful packages`);
+  }
+  const dockerfile = [
+    `FROM --platform=${platform} ${baseReference}`,
+    "COPY packages/ /tmp/pinned-apks/",
+    "RUN set -eu; apk verify --keys-dir /etc/apk/keys /tmp/pinned-apks/*.apk; apk add --no-network --no-cache --no-scripts --repositories-file /dev/null /tmp/pinned-apks/*.apk; rm -rf /tmp/pinned-apks",
+    "",
+  ].join("\n");
+  await writeFile(join(work, "Dockerfile"), dockerfile, { flag: "wx", mode: 0o600 });
+  const existingImage = await listedDockerIds(["image", "ls", "--quiet", "--no-trunc", imageTag], docker);
+  if (existingImage.length !== 0) throw new Error("unique musl task image tag unexpectedly exists before build");
+  await docker(["build", "--pull=false", "--no-cache", "--network=none", "--platform", platform, "--file", join(work, "Dockerfile"), "--tag", imageTag, work], { timeout: 30 * 60 * 1000, ...signalOption });
+  const imageInspection = (await docker(["image", "inspect", "--format", "{{.Id}}|{{.Os}}|{{.Architecture}}", imageTag], signalOption)).split("|");
+  const imageId = imageInspection[0] ?? "";
+  if (/^sha256:[0-9a-f]{64}$/.test(imageId)) resources.imageId = imageId;
+  if (!/^sha256:[0-9a-f]{64}$/.test(imageId) || imageInspection[1] !== "linux"
+    || imageInspection[2] !== provenance.dockerArchitecture) throw new Error(`${targetId} built musl runtime image has the wrong identity or architecture`);
+  const databasePath = join(work, "apk-installed-db");
+  const database = await apkDatabaseFromUnstartedContainer(imageId, platform, databasePath, resources, signal);
+  const installedInventory = parseApkDatabase(database.toString("utf8"), nonempty(provenance.alpineArchitecture, `${targetId} Alpine architecture`));
+  const expectedInventory = sortMuslInventory(provenance.finalInstalledInventory, `${targetId} expected inventory`);
+  if (installedInventory.length !== 41 || JSON.stringify(installedInventory) !== JSON.stringify(expectedInventory)) {
+    throw new Error(`${targetId} actual installed APK database differs from the reviewed 41-package inventory`);
+  }
+  const apkIndex = object(provenance.apkIndex, `${targetId} APK index`);
+  const evidence: JsonRecord = {
+    schemaVersion: 1,
+    recordKind: "cruxomni-musl-runtime-verification",
+    status: "verified",
+    targetId,
+    sourceRevision,
+    archiveSha256,
+    provenanceSha256: muslRuntimeProvenanceSha256,
+    baseImageReference: baseReference,
+    baseManifestDigest: baseDigest,
+    dockerPlatform: platform,
+    runnerArchitecture: expectedArch,
+    daemonArchitecture: daemonArch,
+    imageId,
+    imageArchitecture: provenance.dockerArchitecture,
+    buildNetwork: "none",
+    apkInstallNetwork: "none",
+    apkScripts: false,
+    repositories: [],
+    signedIndexSha256: apkIndex.sha256,
+    signerKeySha256: apkIndex.signerKeySha256,
+    verifiedApkCount: verificationLines.length,
+    installedDatabaseSha256: await sha256(database),
+    installedInventorySha256: await sha256(Buffer.from(JSON.stringify(installedInventory))),
+    installedPackageCount: installedInventory.length,
+    installedInventory,
+  };
+  await validateMuslRuntimeEvidence(evidence, targetId, archiveSha256, sourceRevision);
+  return { evidence, imageId, imageTag };
+}
+
+async function muslTargetQualification(targetValue: string, releaseDirectory: string, outputDirectory: string): Promise<void> {
+  if (!isMuslTarget(targetValue)) throw new Error(`unsupported musl qualification target: ${targetValue}`);
+  const target = targetValue;
+  const { manifest, archiveSha256 } = await releaseArtifacts(resolve(releaseDirectory));
+  const sourceRevision = nonempty(manifest.sourceRevision, "release source revision");
+  if ((await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim() !== sourceRevision) throw new Error("musl qualification source HEAD does not match the prepared package");
+  const stage = resolve(outputDirectory);
+  const stageInfo = await lstat(stage).catch(() => undefined);
+  if (stageInfo?.isSymbolicLink() || (stageInfo && (!stageInfo.isDirectory() || (await readdir(stage)).length > 0))) {
+    throw new Error("musl target output must be a fresh regular directory");
+  }
+  await mkdir(stage, { recursive: true });
+  const work = await mkdtemp(join(tmpdir(), `cruxomni-musl-runtime-${target}-`));
+  const sourceParent = await mkdtemp(join(tmpdir(), `cruxomni-musl-source-${target}-`));
+  const sourceSnapshot = join(sourceParent, "workspace");
+  const expectedArchitecture = target === "linux-x64-musl" ? "x64" : "arm64";
+  const taskId = randomUUID();
+  const resources: OwnedMuslDockerResources = {
+    containerName: `cruxomni-musl-${expectedArchitecture}-${taskId}`,
+    ownerToken: taskId,
+    cidFile: join(work, "smoke-container.cid"),
+    imageTag: `cruxomni-musl-${expectedArchitecture}:${taskId}`,
+    imageTagOwned: false,
+  };
+  const interrupt = createQualificationInterruptSignal();
+  let complete = false;
+  let mountPathsReleased = false;
+  try {
+    await runOwnedMuslDockerTask(resources, async () => {
+      const existingTag = await listedDockerIds(["image", "ls", "--quiet", "--no-trunc", resources.imageTag], docker);
+      if (existingTag.length !== 0) throw new Error("unique musl task image tag unexpectedly exists before build");
+      resources.imageTagOwned = true;
+      await createQualificationSourceSnapshot(root, sourceRevision, sourceSnapshot, interrupt.signal);
+      const built = await buildMuslRuntime(target, archiveSha256, sourceRevision, work, resources, interrupt.signal);
+      resources.imageId = built.imageId;
+      const runtimePath = join(work, "musl-runtime-evidence.json");
+      await writeFile(runtimePath, `${JSON.stringify(built.evidence, null, 2)}\n`, { flag: "wx", mode: 0o400 });
+      await prepareQualificationDependencyMount(sourceSnapshot);
+      const hostArch = targets[target].architecture === "x64" ? "X64" : "ARM64";
+      const shell = "set -eu; mkdir -p /tmp/musl-home /tmp/bun-cache; bun install --frozen-lockfile --ignore-scripts; bun run scripts/qualify-release.ts target --id \"$QUALIFICATION_TARGET\" --release-dir /release --output-dir /target-output";
+      const env = {
+        QUALIFICATION_TARGET: target,
+        GITHUB_SHA: sourceRevision,
+        GITHUB_REPOSITORY: nonempty(process.env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY"),
+        GITHUB_RUN_ID: nonempty(process.env.GITHUB_RUN_ID, "GITHUB_RUN_ID"),
+        RUNNER_ARCH: hostArch,
+      };
+      const args = [
+        "run", "--platform", nonempty(muslTargetProvenance(target).dockerPlatform, `${target} Docker platform`),
+        "--name", resources.containerName,
+        "--cidfile", resources.cidFile,
+        "--label", `${ownerLabel}=${resources.ownerToken}`,
+        "--mount", `type=bind,src=${sourceSnapshot},dst=/workspace,readonly`,
+        "--mount", `type=bind,src=${resolve(releaseDirectory)},dst=/release,readonly`,
+        "--mount", `type=bind,src=${stage},dst=/target-output`,
+        "--mount", `type=bind,src=${runtimePath},dst=/musl-runtime.json,readonly`,
+        "--tmpfs", "/workspace/node_modules:rw,nosuid,nodev,size=2g",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,exec,size=2g",
+        "--workdir", "/workspace",
+        "--env", "HOME=/tmp/musl-home",
+        "--env", "BUN_INSTALL_CACHE_DIR=/tmp/bun-cache",
+        "--env", "TMPDIR=/tmp",
+        "--env", "GIT_CONFIG_COUNT=1",
+        "--env", "GIT_CONFIG_KEY_0=safe.directory",
+        "--env", "GIT_CONFIG_VALUE_0=/workspace",
+        "--env", "OMP_MUSL_RUNTIME_EVIDENCE_PATH=/musl-runtime.json",
+        ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+        resources.imageTag, "sh", "-ceu", shell,
+      ];
+      return await docker(args, { timeout: 60 * 60 * 1000, maxBuffer: 32 * 1024 * 1024, signal: interrupt.signal });
+    }, docker, async operationSucceeded => {
+      await rm(work, { recursive: true, force: true });
+      await rm(sourceParent, { recursive: true, force: true });
+      if (!operationSucceeded) await rm(stage, { recursive: true, force: true });
+      mountPathsReleased = true;
+    });
+    complete = true;
+    process.stdout.write(`${JSON.stringify({ status: "musl-target-passed", id: target, version: manifest.version, sourceRevision, archiveSha256, imageId: resources.imageId })}\n`);
+  } finally {
+    interrupt.dispose();
+    if (!mountPathsReleased && complete) throw new Error("musl qualification completed without releasing its owned mount paths");
+    if (!mountPathsReleased && !complete) {
+      process.stderr.write(`musl task-owned temporary paths were preserved for safe cleanup: ${work} ${sourceParent}\n`);
+    }
+  }
+}
+
 export function validateNativeSmokeOutput(value: unknown, target: TargetId, archiveSha256: string, expectedPackageVersion?: string): JsonRecord {
   const smoke = object(value, "native smoke output");
   const host = targets[target];
@@ -288,6 +901,14 @@ async function targetQualification(targetValue: string, releaseDirectory: string
     catch { throw new Error("native smoke output was not valid JSON"); }
     const smoke = validateNativeSmokeOutput(parsed, target, archiveSha256, version);
     const smokePlatform = object(smoke.platform, "validated smoke platform");
+    let runtimeEvidence: JsonRecord | undefined;
+    if (isMuslTarget(target)) {
+      const runtimePath = nonempty(process.env.OMP_MUSL_RUNTIME_EVIDENCE_PATH, "OMP_MUSL_RUNTIME_EVIDENCE_PATH");
+      const runtimeBytes = await regularFile(runtimePath, 256 * 1024, "musl runtime evidence");
+      runtimeEvidence = await validateMuslRuntimeEvidence(JSON.parse(runtimeBytes.toString("utf8")) as unknown, target, archiveSha256, sourceRevision);
+    } else if (process.env.OMP_MUSL_RUNTIME_EVIDENCE_PATH !== undefined) {
+      throw new Error("musl runtime evidence must not be supplied for a non-musl target");
+    }
     const installOutput = JSON.stringify(smoke.installation);
     const packageOutput = JSON.stringify({
       status: smoke.status,
@@ -309,6 +930,7 @@ async function targetQualification(targetValue: string, releaseDirectory: string
       archiveSha256,
       producer,
       host: { os: smokePlatform.os, architecture: smokePlatform.architecture, libc: smokePlatform.libc },
+      ...(runtimeEvidence === undefined ? {} : { runtime: runtimeEvidence }),
       smoke: {
         command: `bun run scripts/smoke.ts -- --package ${archiveName}`,
         exitCode: 0,
@@ -373,6 +995,11 @@ async function verifyTargetArtifact(target: TargetId, directory: string, manifes
   const host = object(evidence.host, `${target} host`);
   const expected = targets[target];
   if (host.os !== expected.os || host.architecture !== expected.architecture || host.libc !== expected.libc) throw new Error(`${target} evidence host does not match its native target`);
+  if (isMuslTarget(target)) {
+    await validateMuslRuntimeEvidence(evidence.runtime, target, archiveSha256, sourceRevision);
+  } else if (evidence.runtime !== undefined) {
+    throw new Error(`${target} non-musl evidence must not contain a musl runtime binding`);
+  }
   const smokeEvidence = object(evidence.smoke, `${target} smoke evidence`);
   const output = nonempty(smokeEvidence.output, `${target} smoke output`);
   if (smokeEvidence.exitCode !== 0 || typeof smokeEvidence.command !== "string" || !smokeEvidence.command.includes(`--package cruxexperts-cruxomni-omp-client-${version}.tgz`)
@@ -459,6 +1086,10 @@ async function aggregate(releaseDirectory: string, targetArtifactsDirectory: str
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "musl-target" && args.length === 6 && args[0] === "--id" && args[2] === "--release-dir" && args[4] === "--output-dir") {
+    await muslTargetQualification(args[1]!, args[3]!, args[5]!);
+    return;
+  }
   if (command === "target" && args.length === 6 && args[0] === "--id" && args[2] === "--release-dir" && args[4] === "--output-dir") {
     await targetQualification(args[1]!, args[3]!, args[5]!);
     return;
@@ -467,7 +1098,7 @@ async function main(): Promise<void> {
     await aggregate(args[1]!, args[3]!, args[5]!);
     return;
   }
-  throw new Error("usage: bun run scripts/qualify-release.ts target --id <target> --release-dir <release> --output-dir <target-output> | aggregate --release-dir <release> --target-artifacts-dir <targets> --output-dir <bundle>");
+  throw new Error("usage: bun run scripts/qualify-release.ts target --id <target> --release-dir <release> --output-dir <target-output> | musl-target --id <linux-musl-target> --release-dir <release> --output-dir <target-output> | aggregate --release-dir <release> --target-artifacts-dir <targets> --output-dir <bundle>");
 }
 
 if (import.meta.main) {

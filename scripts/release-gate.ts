@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import { isMuslTarget, validateMuslRuntimeEvidence } from "./musl-runtime.ts";
 
 const execFileAsync = promisify(execFile);
 const defaultRoot = resolve(import.meta.dir, "..");
@@ -418,6 +419,9 @@ async function validateQualification(root: string, manifest: ReleaseManifest, pa
       || evidenceProducer.workflowPath !== producer.workflowPath || evidenceProducer.workflowName !== producer.workflowName
       || evidenceProducer.workflowSha256 !== producer.workflowSha256 || evidenceProducer.jobName !== target.id) {
       throw new Error(`qualification evidence for ${target.id} does not match the named native target producer run`);
+    }
+    if (isMuslTarget(target.id)) {
+      await validateMuslRuntimeEvidence(evidence.runtime, target.id, packageArtifact.sha256, manifest.sourceRevision);
     }
     validateSmokeEvidence(evidence, target.id, packageArtifact);
   }

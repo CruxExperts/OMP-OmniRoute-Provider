@@ -112,23 +112,67 @@ jobs:
     name: linux-x64-musl
     needs: package
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     steps:
-      - name: Block until a provenance-reviewed native Alpine image digest is approved
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Download the exact package built by this run
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "BLOCKED: linux-x64-musl qualification requires an architecture-native Alpine image pinned by a verified digest in the owning supply-chain policy."
-          exit 1
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+      - name: Rebuild the reviewed native x64 musl runtime and qualify the exact archive
+        env:
+          QUALIFICATION_TARGET: linux-x64-musl
+        run: |
+          set -euo pipefail
+          bun run scripts/qualify-release.ts musl-target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/target-output"
+      - name: Upload this native target's observed evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-evidence-linux-x64-musl
+          path: ${{ runner.temp }}/target-output/
+          if-no-files-found: error
+          retention-days: 14
 
   linux-arm64-musl:
     name: linux-arm64-musl
     needs: package
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     steps:
-      - name: Block until a provenance-reviewed native Alpine image digest is approved
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Download the exact package built by this run
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "BLOCKED: linux-arm64-musl qualification requires an architecture-native Alpine image pinned by a verified digest in the owning supply-chain policy."
-          exit 1
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+      - name: Rebuild the reviewed native arm64 musl runtime and qualify the exact archive
+        env:
+          QUALIFICATION_TARGET: linux-arm64-musl
+        run: |
+          set -euo pipefail
+          bun run scripts/qualify-release.ts musl-target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/target-output"
+      - name: Upload this native target's observed evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-evidence-linux-arm64-musl
+          path: ${{ runner.temp }}/target-output/
+          if-no-files-found: error
+          retention-days: 14
 
   aggregate:
     name: aggregate-qualified-targets
