@@ -857,6 +857,18 @@ export function validateNativeSmokeOutput(value: unknown, target: TargetId, arch
   if (toolContinuation.postCount !== 2 || toolContinuation.tool !== "read" || toolContinuation.fileResultObserved !== true || toolContinuation.streamedContinuation !== true) {
     throw new Error("native smoke omitted the tool continuation check");
   }
+  const administration = object(native.administration, "native administration I/O evidence");
+  if (administration.family !== "fallback-chains" || administration.route !== "/api/fallback/chains"
+    || administration.readOperationId !== "GET /api/fallback/chains"
+    || administration.mutationOperationId !== "POST /api/fallback/chains"
+    || administration.cleanupOperationId !== "DELETE /api/fallback/chains"
+    || !Number.isInteger(administration.readRequests) || Number(administration.readRequests) < 3 || Number(administration.readRequests) > 20
+    || administration.mutationRequests !== 1 || administration.cleanupRequests !== 1 || administration.confirmedApplies !== 2
+    || administration.fixtureAuthorization !== true || administration.exactMutationBodies !== true
+    || administration.baselineAbsent !== true || administration.persistedRead !== true || administration.cleanupRead !== true
+    || administration.noUnexpectedAdminRequests !== true) {
+    throw new Error("native smoke omitted exact confirmed administration I/O and cleanup evidence");
+  }
   const bytes = Buffer.from(JSON.stringify(smoke));
   if (bytes.byteLength > 128 * 1024) throw new Error("native smoke output is too large for qualification evidence");
   return smoke;

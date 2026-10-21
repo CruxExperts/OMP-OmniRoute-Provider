@@ -3,6 +3,7 @@ import {
   availableOperationMenuPattern,
   createDialogueScheduler,
   hasNativeAvailableOperationDescription,
+  nativeAdminApplyConfirmationPattern,
   nativeAdminPromptPattern,
   nativePtyDialogueText,
 } from "../scripts/smoke.ts";
@@ -38,8 +39,8 @@ test("composed native menu dialogue cancels after the selected available row", a
       text: "__ESC__",
       afterMs: 0,
     },
-  ], step => {
-    written.push(nativePtyDialogueText(step.text));
+  ], (_step, _index, text) => {
+    written.push(nativePtyDialogueText(text));
     return Promise.resolve();
   });
   expect(scheduler.observe("Operations in api/fallback\nGET /api/fallback/chains · unavailable: no adapter\nPOST /api/fallback/chains · available\n"))
@@ -58,8 +59,8 @@ test("dialogue waits for the delayed write before accepting another prompt", asy
   const scheduler = createDialogueScheduler([
     { when: /same prompt/u, text: "first input", afterMs: 20 },
     { when: /same prompt/u, text: "second input", afterMs: 20 },
-  ], async step => {
-    written.push(step.text);
+  ], async (_step, _index, text) => {
+    written.push(text);
     await new Promise<void>(resolve => writeAcks.push(resolve));
   });
 
@@ -82,4 +83,22 @@ test("dialogue waits for the delayed write before accepting another prompt", asy
   await Bun.sleep(0);
   expect(scheduler.completed).toBe(2);
   scheduler.cancel();
+});
+
+test("dialogue binds an apply command to the plan ID observed in native output", async () => {
+  const written: string[] = [];
+  const scheduler = createDialogueScheduler([
+    { when: /plan ([a-z0-9-]+) created/i, text: match => `/cruxomni-admin apply ${match[1]}\n`, afterMs: 0 },
+  ], async (_step, _index, text) => { written.push(text); });
+  expect(scheduler.observe("plan fixture-a1b2 created")).toBe(true);
+  await Bun.sleep(5);
+  expect(written).toEqual(["/cruxomni-admin apply fixture-a1b2\n"]);
+  expect(scheduler.completed).toBe(1);
+  scheduler.cancel();
+});
+
+test("native apply confirmation matches the full bordered preview before Yes and No", () => {
+  const modal = `╭─ Apply administration plan ─╮\r\r\n│ ${"preview ".repeat(800)} │\r\r\n│  ❯ Yes  │\r\r\n│    No   │`;
+  expect(nativeAdminApplyConfirmationPattern.test(modal)).toBe(true);
+  expect(nativeAdminApplyConfirmationPattern.test(modal.replace("│    No", "│    Cancel"))).toBe(false);
 });

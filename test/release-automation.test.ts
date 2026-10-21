@@ -193,6 +193,46 @@ async function exportFixture(root: string, output: string): Promise<void> {
   await exportRelease({ root, outputDirectory: output, packageVerifier: () => fakePackageEvidence(root) });
 }
 
+async function syntheticNativeSmoke(id: typeof qualificationTargetIds[number], archiveSha256: string, version = "0.1.1") {
+  const provenance = JSON.parse(await readFile(join(import.meta.dir, "../provenance/release-artifacts.json"), "utf8")) as {
+    artifacts: Array<{ upstream: string; release_tag: string; url: string; sha256: string; peeled_commit: string }>;
+  };
+  const pins = JSON.parse(await readFile(join(import.meta.dir, "../provenance/upstreams.json"), "utf8")) as {
+    upstreams: Array<{ id: string; release: { version: string; tag: string } }>;
+  };
+  const omp = pins.upstreams.find(item => item.id === "omp")!.release;
+  const assetNames: Record<typeof qualificationTargetIds[number], string> = {
+    "linux-x64-glibc": "omp-linux-x64", "linux-arm64-glibc": "omp-linux-arm64",
+    "linux-x64-musl": "omp-linux-musl-x64", "linux-arm64-musl": "omp-linux-musl-arm64",
+    "darwin-x64": "omp-darwin-x64", "darwin-arm64": "omp-darwin-arm64",
+    "windows-x64": "omp-windows-x64.exe", "windows-arm64": "omp-windows-arm64.exe",
+  };
+  const asset = provenance.artifacts.find(item => item.upstream === "omp" && item.release_tag === omp.tag && item.url.endsWith(`/${assetNames[id]}`))!;
+  const inference = { modelId: "fixture-model", api: "openai-responses", path: "/v1/responses", postCount: 1, streamedText: true, usageObserved: true };
+  return {
+    status: "verified",
+    platform: { targetId: id, ...targetHosts[id] },
+    host: { mode: "release-asset", version: omp.version, digest: asset.sha256, supportedRange: ">=18.12.2 <19" },
+    upstream: { version: omp.version, commit: asset.peeled_commit, asset: asset.url, digest: asset.sha256 },
+    fixture: { baseUrl: "http://127.0.0.1:12345", requests: 21, failedDiscoveryGets: 1, responsesPosts: 2, chatCompletionsPosts: 2, loopbackOnly: true },
+    installation: { method: "npm", version, archiveSha256, metadataGets: 1, tarballGets: 1, installedFiles: 5, ordinaryDirectory: true, fileDigestsMatched: true, noInstalledHostSdk: true, credentialFreeRegistry: true },
+    pluginLifecycle: { installed: true, disabled: true, enabled: true, uninstalled: true },
+    native: {
+      prompt: true, cancellation: true, wizardRendered: true, wizardCancellation: true, maskedPrompt: true, persisted: true,
+      inference: { startupResponses: inference, startupChatCompletions: inference, persistedChatCompletions: inference },
+      legacyCache: { seeded: true, seederUninstalled: true, modelId: "fixture-legacy-model", api: "openai-responses", liveDiscoveryStatus: 503, selectable: false, inferencePosts: 0 },
+      toolContinuation: { modelId: "fixture-model", api: "openai-completions", postCount: 2, tool: "read", fileResultObserved: true, streamedContinuation: true },
+      administration: {
+        family: "fallback-chains", route: "/api/fallback/chains",
+        readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains",
+        readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedApplies: 2,
+        fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
+        persistedRead: true, cleanupRead: true, noUnexpectedAdminRequests: true,
+      },
+    },
+  };
+}
+
 async function qualificationFor(output: string, root: string, skipGateHash = false): Promise<{ path: string; hash: string }> {
   const manifest = JSON.parse(await readFile(join(output, "release-manifest.json"), "utf8")) as { version: string; sourceRevision: string; artifacts: Array<{ name: string; sha256: string }> };
   const packageArchive = manifest.artifacts.find(item => item.name.endsWith(".tgz"))!;
@@ -209,13 +249,18 @@ async function qualificationFor(output: string, root: string, skipGateHash = fal
   const bundle = join(dirname(root), `${basename(root)}-qualification`);
   await mkdir(join(bundle, "evidence"), { recursive: true });
   const targetEvidence = await Promise.all(qualificationTargetIds.map(async id => {
-    const installOutput = `Installed ${packageArchive.name} on ${id}.\n`;
-    const smokeCheckOutput = `Package smoke passed on ${id}.\n`;
+    const nativeSmoke = await syntheticNativeSmoke(id, packageArchiveSha256, manifest.version);
+    const installOutput = JSON.stringify(nativeSmoke.installation);
+    const smokeCheckOutput = JSON.stringify({
+      status: nativeSmoke.status, platform: nativeSmoke.platform, host: nativeSmoke.host,
+      upstream: nativeSmoke.upstream, fixture: nativeSmoke.fixture, native: nativeSmoke.native,
+      pluginLifecycle: nativeSmoke.pluginLifecycle,
+    });
     const checks = [
       { id: "install-package", status: "passed", output: installOutput, outputSha256: createHash("sha256").update(installOutput).digest("hex") },
       { id: "package-smoke", status: "passed", output: smokeCheckOutput, outputSha256: createHash("sha256").update(smokeCheckOutput).digest("hex") },
     ];
-    const smokeOutput = `${installOutput}${smokeCheckOutput}`;
+    const smokeOutput = JSON.stringify(nativeSmoke);
     const evidence = {
       schemaVersion: 1,
       recordKind: "omniroute-target-qualification",
@@ -734,11 +779,25 @@ describe("release automation", () => {
         }])),
         legacyCache: { seeded: true, seederUninstalled: true, modelId: "fixture-legacy-model", api: "openai-responses", liveDiscoveryStatus: 503, selectable: false, inferencePosts: 0 },
         toolContinuation: { modelId: "fixture-model", api: "openai-completions", postCount: 2, tool: "read", fileResultObserved: true, streamedContinuation: true },
+        administration: {
+          family: "fallback-chains", route: "/api/fallback/chains",
+          readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains",
+          readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedApplies: 2,
+          fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
+          persistedRead: true, cleanupRead: true, noUnexpectedAdminRequests: true,
+        },
       },
     };
     expect(validateNativeSmokeOutput(actualSmokeShape, "linux-x64-glibc", hashA).status).toBe("verified");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, installation: { method: "npm", version: "0.1.1" } }, "linux-x64-glibc", hashA)).toThrow("exact release archive");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { prompt: true } }, "linux-x64-glibc", hashA)).toThrow("required interactive checks");
+    const native = actualSmokeShape.native;
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: undefined } }, "linux-x64-glibc", hashA))
+      .toThrow("native administration I/O evidence");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, mutationRequests: 2 } } }, "linux-x64-glibc", hashA))
+      .toThrow("confirmed administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, cleanupRead: false } } }, "linux-x64-glibc", hashA))
+      .toThrow("confirmed administration I/O");
   });
 
   it("synchronizes VERSION, package.json, and marketplace.json", async () => {
@@ -926,6 +985,43 @@ describe("release automation", () => {
     receipt.targets[0]!.evidenceSha256 = createHash("sha256").update(evidenceBytes).digest("hex");
     await writeFile(qualification.path, JSON.stringify(receipt));
     await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("smoke output must be a non-empty string");
+  });
+
+  it("blocks release approval when a digested native target omits or miscounts administration I/O", async () => {
+    const root = await fixtureRepo();
+    const output = join(await temporaryDirectory("cruxomni-admin-smoke-gate-output-"), "release");
+    await exportFixture(root, output);
+    const qualification = await qualificationFor(output, root, true);
+    const receipt = JSON.parse(await readFile(qualification.path, "utf8")) as { targets: Array<{ evidenceRef: string; evidenceSha256: string }> };
+    const target = receipt.targets[0]!;
+    const evidencePath = join(dirname(qualification.path), target.evidenceRef);
+    const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as {
+      smoke: { output: string; outputSha256: string; checks: Array<{ id: string; output: string; outputSha256: string }> };
+    };
+    const smoke = JSON.parse(evidence.smoke.output) as { native: { administration?: Record<string, unknown> }; [key: string]: unknown };
+    const validAdministration = structuredClone(smoke.native.administration)!;
+    const writeEvidence = async (): Promise<void> => {
+      evidence.smoke.output = JSON.stringify(smoke);
+      evidence.smoke.outputSha256 = createHash("sha256").update(evidence.smoke.output).digest("hex");
+      const check = evidence.smoke.checks.find(item => item.id === "package-smoke")!;
+      check.output = JSON.stringify({
+        status: smoke.status, platform: smoke.platform, host: smoke.host, upstream: smoke.upstream,
+        fixture: smoke.fixture, native: smoke.native, pluginLifecycle: smoke.pluginLifecycle,
+      });
+      check.outputSha256 = createHash("sha256").update(check.output).digest("hex");
+      const bytes = Buffer.from(JSON.stringify(evidence));
+      await writeFile(evidencePath, bytes);
+      target.evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
+      await writeFile(qualification.path, JSON.stringify(receipt));
+    };
+    delete smoke.native.administration;
+    await writeEvidence();
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path }))
+      .rejects.toThrow("native administration I/O evidence");
+    smoke.native.administration = { ...validAdministration, mutationRequests: 2 };
+    await writeEvidence();
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path }))
+      .rejects.toThrow("confirmed administration I/O");
   });
 
   it("accepts only the named qualification run with all eight completed native jobs", () => {

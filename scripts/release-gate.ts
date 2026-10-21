@@ -4,6 +4,7 @@ import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { isMuslTarget, validateMuslRuntimeEvidence } from "./musl-runtime.ts";
+import { validateNativeSmokeOutput } from "./qualify-release.ts";
 
 const execFileAsync = promisify(execFile);
 const defaultRoot = resolve(import.meta.dir, "..");
@@ -216,6 +217,10 @@ function validateSmokeEvidence(evidence: Record<string, unknown>, targetId: stri
     || createHash("sha256").update(output, "utf8").digest("hex") !== smoke.outputSha256) {
     throw new Error(`qualification evidence for ${targetId} must contain successful native smoke output for the exact package archive`);
   }
+  let nativeOutput: unknown;
+  try { nativeOutput = JSON.parse(output) as unknown; }
+  catch { throw new Error(`qualification evidence for ${targetId} has invalid native smoke JSON`); }
+  validateNativeSmokeOutput(nativeOutput, targetId as Parameters<typeof validateNativeSmokeOutput>[1], packageArtifact.sha256, String(evidence.version));
 
   const checks = recordArray(smoke.checks, `${targetId} smoke checks`);
   const expectedChecks = new Set(["install-package", "package-smoke"]);

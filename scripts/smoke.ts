@@ -5,7 +5,7 @@ import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
-import { stripVTControlCharacters } from "node:util";
+import { isDeepStrictEqual, stripVTControlCharacters } from "node:util";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
 
 type JsonObject = Record<string, unknown>;
@@ -16,6 +16,7 @@ type FixtureRequest = {
   authorization: string | undefined;
   startedAt: number;
   body?: JsonObject;
+  responseBody?: JsonObject;
   status?: number;
   completedAt?: number;
   closedAt?: number;
@@ -68,6 +69,9 @@ const toolReplyText = "Fixture tool result received; continuation complete.";
 const toolFileText = "Native tool continuation fixture file content.";
 const toolReadCallId = "call_fixture_native_read";
 const legacyCacheSeederName = "@fixture/omp-legacy-dynamic-cache-seeder";
+const adminFallbackPath = "/api/fallback/chains";
+const adminFallbackModel = "fixture-native-admin-model";
+const adminFallbackChain = [{ provider: "fixture-native-primary", priority: 1, enabled: true }];
 const commandTimeoutMs = 45_000;
 const sensitiveEnvironment = /(api[_-]?key|access[_-]?token|secret|password|credential|authorization|private[_-]?key|openai|anthropic|gemini|aws_|azure_)/i;
 const installedCliMode = "installed-cli";
@@ -550,6 +554,7 @@ function hasNativeReadResult(body: JsonObject): boolean {
 
 async function startFixtureServer(): Promise<FixtureServer> {
   const requests: FixtureRequest[] = [];
+  const fallbackChains: JsonObject = {};
   const metadataWaiters = new Set<() => void>();
   let modelsStatus: 200 | 503 = 200;
   let metadataStalled = false;
@@ -668,6 +673,30 @@ async function startFixtureServer(): Promise<FixtureServer> {
         });
         return;
       }
+      if (path === adminFallbackPath) {
+        if (request.headers.authorization !== `Bearer ${adminKey}`) {
+          fixtureResponse(response, 401, { error: "admin_unauthorized" });
+          return;
+        }
+        if (request.method === "GET" && requestJson === undefined) {
+          record.responseBody = structuredClone(fallbackChains);
+          fixtureResponse(response, 200, record.responseBody);
+          return;
+        }
+        if (request.method === "POST" && isDeepStrictEqual(requestJson, { model: adminFallbackModel, chain: adminFallbackChain })) {
+          fallbackChains[adminFallbackModel] = structuredClone(adminFallbackChain);
+          fixtureResponse(response, 200, { success: true, model: adminFallbackModel });
+          return;
+        }
+        if (request.method === "DELETE" && isDeepStrictEqual(requestJson, { model: adminFallbackModel })) {
+          const removed = Object.hasOwn(fallbackChains, adminFallbackModel);
+          delete fallbackChains[adminFallbackModel];
+          fixtureResponse(response, 200, { success: true, removed });
+          return;
+        }
+        fixtureResponse(response, 400, { error: "unexpected_fallback_request" });
+        return;
+      }
       if (path.startsWith("/api/")) {
         if (request.headers.authorization !== `Bearer ${adminKey}` && request.headers.authorization !== `Bearer ${runtimeKey}` && request.headers.authorization !== `Bearer ${metadataKey}`) {
           fixtureResponse(response, 401, { error: "unauthorized" });
@@ -712,7 +741,7 @@ type CommandOptions = {
   dialogue?: DialogueStep[];
 };
 
-export type DialogueStep = { when: RegExp; text: string; afterMs?: number };
+export type DialogueStep = { when: RegExp; text: string | ((match: RegExpExecArray) => string); afterMs?: number };
 
 /**
  * Drives prompt-based input without treating a prompt redraw as a new prompt
@@ -720,7 +749,7 @@ export type DialogueStep = { when: RegExp; text: string; afterMs?: number };
  */
 export function createDialogueScheduler(
   steps: readonly DialogueStep[],
-  dispatch: (step: DialogueStep, index: number) => Promise<void>,
+  dispatch: (step: DialogueStep, index: number, text: string) => Promise<void>,
   onError: (error: unknown) => void = () => undefined,
 ): { observe(chunk: string): boolean; cancel(): void; readonly completed: number } {
   let completed = 0;
@@ -735,14 +764,15 @@ export function createDialogueScheduler(
     buffer = `${buffer}${chunk}`.slice(-32_768);
     const step = steps[completed]!;
     step.when.lastIndex = 0;
-    if (!step.when.test(stripVTControlCharacters(buffer).replace(/\r\n?/g, "\n"))) return false;
+    const match = step.when.exec(stripVTControlCharacters(buffer).replace(/\r\n?/g, "\n"));
+    if (!match) return false;
 
     pending = true;
     buffer = "";
     const index = completed;
     pendingTimer = setTimeout(() => {
       pendingTimer = undefined;
-      void Promise.resolve().then(() => dispatch(step, index)).then(() => {
+      void Promise.resolve().then(() => dispatch(step, index, typeof step.text === "string" ? step.text : step.text(match))).then(() => {
         if (!cancelled) completed = index + 1;
       }).catch(error => {
         if (cancelled) return;
@@ -786,6 +816,7 @@ export function nativePtyDialogueText(text: string): string {
 }
 
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
+export const nativeAdminApplyConfirmationPattern = /Apply administration plan[\s\S]{0,12000}\bYes\b[\s\S]{0,1000}\bNo\b/i;
 
 export function hasNativeAvailableOperationDescription(output: string, operationId: string): boolean {
   const visible = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
@@ -813,13 +844,13 @@ async function runCommand(command: string, args: string[], options: CommandOptio
       dialogueScheduler.observe(chunk);
     };
     if (options.dialogue) {
-      dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, index) => {
+      dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, index, text) => {
         await new Promise<void>((resolveWrite, rejectWrite) => {
           if (child.stdin.destroyed || child.stdin.writableEnded) {
             rejectWrite(new Error("command input closed before dialogue input was written"));
             return;
           }
-          child.stdin.write(_step.text, error => error ? rejectWrite(error) : resolveWrite());
+          child.stdin.write(text, error => error ? rejectWrite(error) : resolveWrite());
         });
         if (index === options.dialogue!.length - 1) {
           await new Promise<void>(resolveEnd => setTimeout(resolveEnd, 250));
@@ -906,19 +937,19 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     },
   });
   if (options.dialogue) {
-    dialogueScheduler = createDialogueScheduler(options.dialogue, async step => {
-      if (step.text === "__SIGTERM__") {
+    dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, _index, text) => {
+      if (text === "__SIGTERM__") {
         child?.kill("SIGTERM");
         return;
       }
-      if (step.text === "__REFRESH_AND_STOP__") {
+      if (text === "__REFRESH_AND_STOP__") {
         if (terminal.closed) throw new Error("terminal closed before refresh dialogue input was written");
         await writeInput(terminal, "/cruxomni refresh\n");
         setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
         return;
       }
       if (terminal.closed) throw new Error("terminal closed before dialogue input was written");
-      await writeInput(terminal, nativePtyDialogueText(step.text));
+      await writeInput(terminal, nativePtyDialogueText(text));
     }, () => child?.kill("SIGTERM"));
   }
   child = Bun.spawn([binary], {
@@ -1095,6 +1126,104 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
   if (/operation failed|read result for|plan [a-z0-9-]+ created|administration plan applied/i.test(output)) {
     throw new Error("native administration walkthrough progressed beyond the operation browser");
   }
+}
+
+type NativeAdministrationEvidence = {
+  family: "fallback-chains";
+  route: typeof adminFallbackPath;
+  readOperationId: "GET /api/fallback/chains";
+  mutationOperationId: "POST /api/fallback/chains";
+  cleanupOperationId: "DELETE /api/fallback/chains";
+  readRequests: number;
+  mutationRequests: 1;
+  cleanupRequests: 1;
+  confirmedApplies: 2;
+  fixtureAuthorization: true;
+  exactMutationBodies: true;
+  baselineAbsent: true;
+  persistedRead: true;
+  cleanupRead: true;
+  noUnexpectedAdminRequests: true;
+};
+
+async function nativeAdministrationIo(
+  binary: string,
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  fixture: FixtureServer,
+): Promise<NativeAdministrationEvidence> {
+  const start = fixture.requests.length;
+  const readId = "GET /api/fallback/chains";
+  const postId = "POST /api/fallback/chains";
+  const deleteId = "DELETE /api/fallback/chains";
+  const input = (body: JsonObject): string => `${JSON.stringify(body)}\n`;
+  const planCommand = (match: RegExpExecArray): string => {
+    const id = match[1];
+    if (!id || !/^[a-z0-9-]+$/.test(id)) throw new Error("native administration plan ID was not captured");
+    return `/cruxomni-admin apply ${id}\n`;
+  };
+  const dialogue: DialogueStep[] = [
+    { when: nativeAdminPromptPattern, text: "/cruxomni-admin enable\n", afterMs: 6_000 },
+    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
+    { when: /administration enabled for exact endpoint/i, text: `/cruxomni-admin ${readId}\n`, afterMs: 500 },
+    { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
+    { when: /read result for GET \/api\/fallback\/chains/i, text: `/cruxomni-admin ${postId}\n`, afterMs: 500 },
+    { when: /Validated JSON input for POST \/api\/fallback\/chains/i, text: input({ body: { model: adminFallbackModel, chain: adminFallbackChain } }), afterMs: 250 },
+    { when: /plan ([a-z0-9-]+) created/i, text: planCommand, afterMs: 500 },
+    { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
+    { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
+    { when: /administration plan applied:/i, text: `/cruxomni-admin ${readId}\n`, afterMs: 500 },
+    { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
+    { when: new RegExp(`read result for ${escapeRegExp(readId)}:[\\s\\S]{0,1500}${escapeRegExp(adminFallbackModel)}[\\s\\S]{0,1500}${escapeRegExp(adminFallbackChain[0]!.provider)}`, "i"), text: `/cruxomni-admin ${deleteId}\n`, afterMs: 500 },
+    { when: /Validated JSON input for DELETE \/api\/fallback\/chains/i, text: input({ body: { model: adminFallbackModel } }), afterMs: 250 },
+    { when: /plan ([a-z0-9-]+) created/i, text: planCommand, afterMs: 500 },
+    { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
+    { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
+    { when: /administration plan applied:/i, text: `/cruxomni-admin ${readId}\n`, afterMs: 500 },
+    { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
+    { when: /read result for GET \/api\/fallback\/chains/i, text: "__SIGTERM__", afterMs: 500 },
+  ];
+  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey }, timeoutMs: 105_000, dialogue });
+  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).replace(/\r\n?/g, "\n");
+  if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
+  if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
+    throw new Error(`native administration I/O did not complete the read, confirmed mutation, persisted read, cleanup, and final read (dialogue ${result.dialogueCompleted}/${dialogue.length}, exit ${result.code ?? "unknown"})`);
+  }
+  if (/operation failed|administration apply failed|administration plan was not applied|unknown or non-invokable/i.test(output)) {
+    throw new Error("native administration I/O reported a failed operation");
+  }
+  const requests = fixture.requests.slice(start);
+  const adminRequests = requests.filter(request => request.path.startsWith("/api/") && request.path !== "/api/health");
+  if (adminRequests.some(request => request.path !== adminFallbackPath)) throw new Error("native administration I/O sent an unexpected administration request");
+  const fallbackRequests = adminRequests.filter(request => request.path === adminFallbackPath);
+  if (fallbackRequests.some(request => request.authorization !== `Bearer ${adminKey}` || request.status !== 200 || request.failure
+    || request.completedAt === undefined)) throw new Error("native administration I/O request failed or used the wrong fixture credential");
+  const reads = fallbackRequests.filter(request => request.method === "GET");
+  const posts = fallbackRequests.filter(request => request.method === "POST");
+  const deletes = fallbackRequests.filter(request => request.method === "DELETE");
+  if (fallbackRequests.length !== reads.length + posts.length + deletes.length || reads.length < 3 || reads.length > 20
+    || posts.length !== 1 || deletes.length !== 1) throw new Error("native administration I/O used unexpected methods or dispatch counts");
+  if (reads.some(request => request.body !== undefined)
+    || !isDeepStrictEqual(posts[0]!.body, { model: adminFallbackModel, chain: adminFallbackChain })
+    || !isDeepStrictEqual(deletes[0]!.body, { model: adminFallbackModel })) {
+    throw new Error("native administration I/O sent unexpected source-contract request bodies");
+  }
+  const expectedPersisted = { [adminFallbackModel]: adminFallbackChain };
+  const snapshots = reads.map(request => request.responseBody);
+  const baselineIndex = snapshots.findIndex(snapshot => isDeepStrictEqual(snapshot, {}));
+  const persistedIndex = snapshots.findIndex((snapshot, index) => index > baselineIndex && isDeepStrictEqual(snapshot, expectedPersisted));
+  const cleanupIndex = snapshots.findIndex((snapshot, index) => index > persistedIndex && isDeepStrictEqual(snapshot, {}));
+  if (baselineIndex < 0 || persistedIndex < 0 || cleanupIndex < 0 || !isDeepStrictEqual(snapshots.at(-1), {})) {
+    throw new Error("native administration I/O did not prove the exact persisted and cleaned-up fallback state");
+  }
+  if (output.split("administration plan applied:").length - 1 < 2) throw new Error("native administration I/O did not show both confirmed applies");
+  return {
+    family: "fallback-chains", route: adminFallbackPath,
+    readOperationId: readId, mutationOperationId: postId, cleanupOperationId: deleteId,
+    readRequests: reads.length, mutationRequests: 1, cleanupRequests: 1, confirmedApplies: 2,
+    fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
+    persistedRead: true, cleanupRead: true, noUnexpectedAdminRequests: true,
+  };
 }
 
 function requireNativeReply(result: CommandResult, label: string, expectedText: string): void {
@@ -1392,6 +1521,7 @@ export interface SmokeResult {
     };
     legacyCache: LegacyCacheEvidence;
     toolContinuation: ToolContinuationEvidence;
+    administration: NativeAdministrationEvidence;
   };
   installation: NpmInstallationEvidence;
   pluginLifecycle: { installed: true; disabled: true; enabled: true; uninstalled: true };
@@ -1525,6 +1655,7 @@ export async function runSmoke(): Promise<SmokeResult> {
       );
       if (adminRequests.length > 0) throw new Error("native admin browser sent an operation request instead of cancelling at the operation prompt");
     }
+    const administration = await nativeAdministrationIo(binary, workspace, nativeEnvironment, fixture);
 
     const disabled = await runCommand(binary, ["plugin", "disable", packageName], { cwd: workspace, env: environment });
     requireSuccess(disabled, "plugin disable");
@@ -1570,6 +1701,7 @@ export async function runSmoke(): Promise<SmokeResult> {
         inference: { startupResponses, startupChatCompletions, persistedChatCompletions },
         legacyCache,
         toolContinuation,
+        administration,
       },
       installation,
       pluginLifecycle: { installed: true, disabled: true, enabled: true, uninstalled: true },

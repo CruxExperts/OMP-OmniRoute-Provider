@@ -101,6 +101,15 @@ status, captured output, and matching output digests. The target-specific run
 must retain the native outputs so the receipt can be checked against their
 actual bytes.
 
+Every native smoke run must also complete a confirmed administration cycle
+against disposable fallback-chain data: read the absent baseline, create one
+chain through the installed OMP interface, read the persisted value, confirm
+deletion, and read the cleaned state. Both changes require typed confirmation.
+The proof binds authorization, exact request bodies, one dispatch per mutation,
+and absence of unexpected administration requests. The target collector and
+standalone release gate apply the same complete native-output validator; labels
+and output hashes alone cannot qualify a target.
+
 The two Linux musl evidence files also require a strict `runtime` binding.
 It binds the source revision and package archive to the exact runtime-provenance
 file, architecture-specific base digest, built image ID, signature-check
