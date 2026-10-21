@@ -46,11 +46,20 @@ A plan binds its inputs, endpoint, credential identity, and observed target stat
 Expired plans and changed credentials or targets require a new preview. The
 client checks the target again before dispatch. Where the server has no atomic
 conditional write, an external administrator can still change it between that
-check and the write; client serialization cannot lock other server clients.
+check and the write. For provider cc-alias updates, the preview and apply check
+only the selected provider or model override, so unrelated aliases do not stale
+the plan. The client serializes its own mutation plans through preflight,
+dispatch, and outcome reconciliation, but this cannot lock another server
+client or make the upstream PUT atomic.
 
 If the response is lost, the result can remain unknown even when the server
 performed the change. Inspect the current target and reconcile the outcome before
 creating another plan. Repeating the request can duplicate a successful change.
+For cc-alias updates, the client reads the selected override once after a lost
+reply and reports success only when that value equals the requested value; it
+never replays the PUT. The upstream route has no compare-and-set, so an external
+writer can still race after the preflight read and before the PUT reaches the
+server.
 
 ## End an administration session
 

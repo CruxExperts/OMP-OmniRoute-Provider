@@ -303,7 +303,8 @@
                 "omniroute-v3.8.52.combos.item-update-reconcile",
                 "omniroute-v3.8.52.combos.item-delete-reconcile",
                 "omniroute-v3.8.52.combos.reorder-reconcile",
-                "omniroute-v3.8.52.combos.metrics-reset-reconcile"
+                "omniroute-v3.8.52.combos.metrics-reset-reconcile",
+                "omniroute-v3.8.52.provider-cc-alias.selected-override"
               ]
             },
             "inputs": {"type": "array", "items": {"$ref": "#/$defs/fieldMapping"}},

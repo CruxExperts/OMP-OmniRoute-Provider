@@ -333,6 +333,7 @@ export class AdminExecutorImpl implements AdminExecutor {
   readonly #now: () => number;
   readonly #randomId: () => string;
   readonly #plans = new Map<string, InternalPlan>();
+  #applyQueue: Promise<void> = Promise.resolve();
   #credential: InternalCredential | undefined;
   #adminBinding: InternalAdminBinding | undefined;
   #managementEpoch = 0;
@@ -582,9 +583,47 @@ export class AdminExecutorImpl implements AdminExecutor {
   }
 
   async apply(planIdValue: string, authorization: AdminApplyAuthorization): Promise<AdminApplyResult> {
+    const queuedPlan = this.#plans.get(planIdValue);
+    if (!queuedPlan) throw this.#error("plan-not-found", "plan is not available");
+    const operationId = queuedPlan.operation.descriptor.operationId;
+    return this.#serializeApply(operationId, authorization.signal, () => this.#applyUnlocked(planIdValue, authorization));
+  }
+
+  async #serializeApply<T>(operationId: string, signal: AbortSignal | undefined, action: () => Promise<T>): Promise<T> {
+    const predecessor = this.#applyQueue;
+    let release!: () => void;
+    this.#applyQueue = new Promise<void>(resolve => { release = resolve; });
+    let entered = false;
+    let removeAbortListener: (() => void) | undefined;
+    try {
+      if (signal) {
+        throwIfAborted(signal, operationId);
+        const aborted = new Promise<never>((_resolve, reject) => {
+          const onAbort = () => reject(this.#error("plan-invalidated", "operation was cancelled", operationId));
+          signal.addEventListener("abort", onAbort, { once: true });
+          removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+        });
+        await Promise.race([predecessor, aborted]);
+      } else {
+        await predecessor;
+      }
+      removeAbortListener?.();
+      removeAbortListener = undefined;
+      throwIfAborted(signal, operationId);
+      entered = true;
+      return await action();
+    } finally {
+      removeAbortListener?.();
+      if (entered) release();
+      else void predecessor.then(release, release);
+    }
+  }
+
+  async #applyUnlocked(planIdValue: string, authorization: AdminApplyAuthorization): Promise<AdminApplyResult> {
     const plan = this.#plans.get(planIdValue);
     if (!plan) throw this.#error("plan-not-found", "plan is not available");
     const operationId = plan.operation.descriptor.operationId;
+    if (this.#stopped) throw this.#error("shutdown", "administration is shut down", operationId);
     const currentTime = this.#now();
     if (currentTime >= plan.expiresAt && plan.state === "pending") plan.state = "expired";
     if (plan.state === "expired") throw this.#error("plan-expired", "plan has expired", operationId);

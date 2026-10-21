@@ -291,8 +291,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/5babd551ddb6753364b2e366e33124dee0aec21f130705679f5bca9066642154.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/a927a882f49ad81ee299fb971f01a2a62fce6d124a3181126107f31f622df1a8.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "4f00b6a0d160cb7bacb068ceafba0c9d248c0ce5af36ef43999782a1d02fbe99"
       },
       "evidence": [
@@ -676,8 +676,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/6c1b5e84e5942047eb335af72460155fc88ce53e6a685cd48649d4273829aa49.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/9f3485375bce56ff1c0f6b167619409e6cbf1bb257938653838ab9eb4ac89be0.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "973c4e8db6b9a56b1d54d7ee95a24543afe2581a8ec2b3068f7880f1fc215a65"
       },
       "evidence": [
@@ -1296,8 +1296,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/74499d5e6ec20bee4020d6e419a266c08dae9b0c1aa2c036d87b8eb322310049.json",
-        "caseSha256": "4a1a0463d974aeef15454c902c95aa427b7cdac8416881c7bf2f79dde9868603",
+        "observedOutcome": "provenance/qualification/15617911b2a5566364184067cca7e541ab3b8c03fc0ae7ca372522dadeb418bf.json",
+        "caseSha256": "0239cc2ac0edc6bab6265bb4c5045f20b4743676188368f5babf8dd22679cf87",
         "outcomeSha256": "ef42ef9ac764a6e9a02051a75ed25022412f8b723b02abd0de82014281d6665a"
       },
       "evidence": [
@@ -2091,8 +2091,8 @@
       },
       "test": {
         "id": "test/admin-model-capability-overrides.test.ts",
-        "observedOutcome": "provenance/qualification/f205541c342da0997b3dc273f0b8ab6a0be5916fe58e0286a2d1db757eec074b.json",
-        "caseSha256": "3fdf2d4346843387af48f4a97d25639245f900c19de557ceb47fafdfe04720f6",
+        "observedOutcome": "provenance/qualification/a6c3f6ebdcf01c065a13a9cf14c14c0fda9dd0e66657bf4c921f54f131f80b6c.json",
+        "caseSha256": "61318ead4f3d9ffee6994a3393b2d716b17dc122423b1d59b1f45664c23b4535",
         "outcomeSha256": "02d9afa0c5d9a71d6f5e47329a593455237696b209cf08f1c5109a52c0fe25b6"
       },
       "evidence": [
@@ -5217,8 +5217,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/3636bd69be3b312e87bba7349c0da5f0fe3229c855413c8fdf29707585459ad9.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/a1ef61d785d9f3fe0a112779d23142818a4bedf591e094217c3fcb881e0907dd.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "9a57391dc51139e4fc19130b24e00eecbdc25b3ac413339aee0b039430596eec"
       },
       "evidence": [
@@ -8187,8 +8187,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/b2a287370ee5772ad1c7ccca82e884525ba025e199b2fe35a9c64fb837b548e9.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/61f640d9d94c3ddfc013168028e528aa50514b02a3945c0c68537ec4be3bbc9c.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "1b07ad539b80bf722c6bef481631e9faa4463bebcc6801a3bd3649f12585040e"
       },
       "evidence": [
@@ -9469,8 +9469,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/259b3edcefe5df26953d5608ab06fe4f9dd60cec4e17c10a97f6fe9addb9afe9.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/a9b17226aaa134788398f538774f7ab7c1b2032347e20e87eba4d6e47a023048.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "3fab89c117ca965da64a495b1096089b9088c943408f7ce46efb8c612b05605a"
       },
       "evidence": [
@@ -10404,8 +10404,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/d580255649be2621a4be8e1a81183298afdbe6b973d78b026b1ace0ba8329619.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/bcae30f25a294dfbc953faa00e50f7c6060d8955928899fce85b901fbccac5eb.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "756cbc013f51cb12e2ec46df5c309225ad067e79b597caa35ea77305e4ed3a5a"
       },
       "evidence": [
@@ -12980,8 +12980,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/d4142693506192259b1400a141776998735548797296fa62e7c0e009cc8db220.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/14767d8b6c1fbb7ccc75a205cc6fcec9c990e283ce14adfa458b72bfb9bbc7e6.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "f19d2898034cc9e289241fe0fa1519055433d20cbb97aa65ffd214cfa9e8ca12"
       },
       "evidence": [
@@ -13474,8 +13474,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/6e0a0ae43cfa783ab91ab9e80c0076bc784812824d5cb17914735df27ecc7b90.json",
-        "caseSha256": "4a1a0463d974aeef15454c902c95aa427b7cdac8416881c7bf2f79dde9868603",
+        "observedOutcome": "provenance/qualification/a80a1c9a15cfe62e59302812a422303cc385dd9dc76982e146b48fe149f2e225.json",
+        "caseSha256": "0239cc2ac0edc6bab6265bb4c5045f20b4743676188368f5babf8dd22679cf87",
         "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
       },
       "evidence": [
@@ -14157,8 +14157,8 @@
       },
       "test": {
         "id": "test/admin-model-capability-overrides.test.ts",
-        "observedOutcome": "provenance/qualification/0d59c9f6bef059333cc65eba00c378b8d906ede078978620489a7a4b6d4330f2.json",
-        "caseSha256": "3fdf2d4346843387af48f4a97d25639245f900c19de557ceb47fafdfe04720f6",
+        "observedOutcome": "provenance/qualification/4cc1e5c63e823edaadd4e16e1d80e8eafa57c63076bb4b29118a47c6e2aeba62.json",
+        "caseSha256": "61318ead4f3d9ffee6994a3393b2d716b17dc122423b1d59b1f45664c23b4535",
         "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
       },
       "evidence": [
@@ -14173,6 +14173,306 @@
         {
           "kind": "qualification-boundary",
           "detail": "Does not establish live database behavior, session cryptography, IP filtering, body limits or native platform release qualification."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/providers/{id}/cc-alias",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/cc-alias/route.ts",
+        "sha256": "af92d3de950a38ad7acc02659eec0303f736cab1f70275ba75f777a3dc5a5cc0",
+        "gitBlobSha": "cfaf74966276daa53901cef8181096729c6560de"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "provider",
+              "models"
+            ],
+            "properties": {
+              "provider": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "on",
+                  "off",
+                  null
+                ]
+              },
+              "models": {
+                "type": "object",
+                "x-key-role": "identifier",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "off"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "provider",
+                      "models"
+                    ],
+                    "properties": {
+                      "provider": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "on",
+                          "off",
+                          null
+                        ]
+                      },
+                      "models": {
+                        "type": "object",
+                        "x-key-role": "identifier",
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "on",
+                            "off"
+                          ]
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/cc-alias/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/cc-alias/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Read-only provider and model alias overrides."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null
+      },
+      "binding": {
+        "requestSchemaSha256": "e4a0f488a31773213a722d14ea91f590cd106680885eeef70fdfa648319e3dec",
+        "authSha256": "3807761d01c79ce863e69aa24fe86c8c5014b495ad53b4b0552d61b99990c040",
+        "sideEffect": "read",
+        "responseProjectionSha256": "fb22a2e4e63e7c61826616b3d882265d6dfd4d515c377337a1b36aabc0984ea7",
+        "operationSemanticsSha256": "9687fbeba4b1834d35d9fc3ec5ed9581486bec95cafb174053c581d6814ad9d1",
+        "routeImportsSha256": "0491b026e9ec2522db1b475ec618c52c2551489532b537f41434200d0a52437a",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-cc-alias.test.ts",
+        "observedOutcome": "provenance/qualification/dd74a975e36a8968d89ae9d00d342bf3314fce54d385575e461e70aec6e22745.json",
+        "caseSha256": "86a08f860baa6582bb332f3ad931e81c896dac243e3571a724541a388e3f4922",
+        "outcomeSha256": "0dfaa021a6f7130e5cc4d59187a12c334a62e924081f0c8b0497a75001315c90"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider alias handlers, validation, management authorization, SQLite key_value persistence, error formatting and sanitization execute with disposable infrastructure. Assertions cover provider/model isolation, set/clear, selected-state drift, competing plans, credential invalidation, invalid bodies and observed single-dispatch outcomes. Catalog invalidation signals are recorded."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not establish live database or catalog-cache behavior, session cryptography, IP filtering, body limits or native platform qualification. Upstream offers no atomic conditional alias write; external writers can race after the client preflight GET. The non-observable __proto__ model target is rejected."
         }
       ]
     },
@@ -20170,8 +20470,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/397ed175fce5eb74d1f95f6811052c8408c96d49c264bf111d6601078d70b550.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/009311fae5d742e84292bc4003749797f6864cffe64912ff905805118a46b69b.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "03c898f119e2a7af715b2a2bc2ba389d957ef09a3c03d871ae92abf4ec96470b"
       },
       "evidence": [
@@ -20978,8 +21278,8 @@
       },
       "test": {
         "id": "test/admin-model-capability-overrides.test.ts",
-        "observedOutcome": "provenance/qualification/9af1ebb29a50222ed75c5063534935e1428eb453c8ae4e602a64f18694d44dd8.json",
-        "caseSha256": "3fdf2d4346843387af48f4a97d25639245f900c19de557ceb47fafdfe04720f6",
+        "observedOutcome": "provenance/qualification/c7ceb8d6b6e0451cd42eaafc44a4a4f4f2cdb5ac0bdd0d65f2470f48b8a293fd.json",
+        "caseSha256": "61318ead4f3d9ffee6994a3393b2d716b17dc122423b1d59b1f45664c23b4535",
         "outcomeSha256": "ea7fa79606a21b83ce4f2e96cbc8eebec379e06c35241fe7d96a05da2eca64ce"
       },
       "evidence": [
@@ -26622,8 +26922,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/d621f96c8a4d96fc5c107545a52a5c5259e6df55fd684060b46fea82fa5fb53e.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/2ea5d892dfdab9d83eeaa04180b6474aa268773b7e296148fbd66378548411f2.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "a83d56f6d4724fb996724b412e4c34492b51164535e2532c1e72c8d1ea54e6b2"
       },
       "evidence": [
@@ -29873,8 +30173,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/08dd9977e26db9dcec3ee99e502a8555fb95f5b74c23f90d861ad55f3c5706e8.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/240e4c64cdf0a75671d3e684749805d2bcc491ad084911be089efb2001117b72.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "93576b7b8c5e6cd4310a3708fa7693139784e2927b823cc58f6a2d8ddc0b32e5"
       },
       "evidence": [
@@ -33050,8 +33350,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/7e68bb5331789b490c6c09f52d07a414fd09e77731c0867ea0689880823cb9df.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/f08859d3433e498feb98d2761378fc64316d2b1ae875c6d93b84bdc94541a4b9.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "b8ceb41a5d8fb7c3553551ef6da9100cb8a3993b83b45d73e2b8a5783bb6c616"
       },
       "evidence": [
@@ -33912,8 +34212,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/08af774d8204eb487dd194aa8cd29586f5f41cc72d792cae12532a62882b4436.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/4d013030add93d2be334cd2f1fd8a7b661e080be187ad05aaeb41aa86aa72fb1.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "8cb206d612f055bd414195d31f94fddab94abefab34136ace10652b587aaf728"
       },
       "evidence": [
@@ -34603,8 +34903,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/1cded1cf21819687f860eb5b4792ca9ce625c201c533b69f6cfdf74435fe33db.json",
-        "caseSha256": "4a1a0463d974aeef15454c902c95aa427b7cdac8416881c7bf2f79dde9868603",
+        "observedOutcome": "provenance/qualification/9a7defab8540b882f6bc402868bb5063693fd7e4fde447c0f86800f378461904.json",
+        "caseSha256": "0239cc2ac0edc6bab6265bb4c5045f20b4743676188368f5babf8dd22679cf87",
         "outcomeSha256": "14f7653df733a3888757c16334c9c7d191e84b59724bf218a3e799f79fe5bc46"
       },
       "evidence": [
@@ -40616,8 +40916,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/d274ca586882fb41670c72240a3202d74942472214e8777f0aec4fa976469396.json",
-        "caseSha256": "78bdf2a1d177593e62813a6c266e2171c74eac63ac45abe0faa9a043a1f3fe82",
+        "observedOutcome": "provenance/qualification/ce1aca2d2a25e3b129430d1ffa0ca59035af8a13fba18fb70f8580244f8bf233.json",
+        "caseSha256": "3975e81ac8b52cbf4fdbbd1d76746cb8ac814ef9c46f155dae49e4efd49b5a20",
         "outcomeSha256": "ac70c8f39a2624af874307551a821ac367d1fcf2f7522685fd31fe6afdc25985"
       },
       "evidence": [
@@ -40632,6 +40932,483 @@
         {
           "kind": "qualification-boundary",
           "detail": "Does not qualify substituted provider/catalog/filter-policy services, live network providers, external database backends, session cryptography, IP filtering, body limits, elapsed latency/timeouts or native platform release behavior. Clock and UUID inputs are deterministic fixture infrastructure; full observed fields remain recorded. Model-combo mapping operations are not included."
+        }
+      ]
+    },
+    {
+      "operationId": "PUT /api/providers/{id}/cc-alias",
+      "status": "verified",
+      "reason": "Independently reviewed execution of pinned upstream handlers, domain behavior and management authorization with explicit in-memory infrastructure backends.",
+      "source": {
+        "file": "src/app/api/providers/[id]/cc-alias/route.ts",
+        "sha256": "af92d3de950a38ad7acc02659eec0303f736cab1f70275ba75f777a3dc5a5cc0",
+        "gitBlobSha": "cfaf74966276daa53901cef8181096729c6560de"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id"
+            ]
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": {
+            "required": true,
+            "mediaType": "application/json",
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "scope",
+                    "value"
+                  ],
+                  "properties": {
+                    "scope": {
+                      "type": "string",
+                      "const": "provider"
+                    },
+                    "value": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "on",
+                        "off",
+                        null
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "scope",
+                    "modelId",
+                    "value"
+                  ],
+                  "properties": {
+                    "scope": {
+                      "type": "string",
+                      "const": "model"
+                    },
+                    "modelId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "value": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "on",
+                        "off",
+                        null
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "contentVariants": [
+              {
+                "mediaType": "application/json",
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "scope",
+                        "value"
+                      ],
+                      "properties": {
+                        "scope": {
+                          "type": "string",
+                          "const": "provider"
+                        },
+                        "value": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "on",
+                            "off",
+                            null
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "scope",
+                        "modelId",
+                        "value"
+                      ],
+                      "properties": {
+                        "scope": {
+                          "type": "string",
+                          "const": "model"
+                        },
+                        "modelId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "value": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "on",
+                            "off",
+                            null
+                          ]
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "specificationDocumented": true,
+          "normalizations": [
+            {
+              "section": "body",
+              "path": [
+                "modelId"
+              ],
+              "kind": "trim-string"
+            }
+          ]
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.52",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "admin"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "400",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "required": [
+              "success"
+            ],
+            "properties": {
+              "success": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "success"
+                    ],
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/providers/[id]/cc-alias/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/cc-alias/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/providers/[id]/cc-alias/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/providers/[id]/cc-alias/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Writes one provider or model alias override after checking that selected override against the preview. The upstream route has no atomic compare-and-set, so an external writer can still race between the check and PUT; an ambiguous reply is reconciled once and never replayed."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": {
+          "targetRead": {
+            "operationId": "GET /api/providers/{id}/cc-alias",
+            "sourceView": "omniroute-v3.8.52.provider-cc-alias.selected-override",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "snapshot": {
+              "kind": "resource",
+              "identity": [],
+              "state": []
+            }
+          },
+          "reconcile": {
+            "operationId": "GET /api/providers/{id}/cc-alias",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "outcome": {
+              "kind": "matches",
+              "identityFields": [
+                "providerId",
+                "scope",
+                "modelId"
+              ],
+              "stateFields": [
+                "value"
+              ],
+              "expectedFromInput": [
+                {
+                  "name": "value",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "value"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "375bebf4359309e872dbd48f57727c268e4e0b66c1b34d0f8a75894ee71914aa",
+        "authSha256": "a3e8d94484789ed4a33ab81f00f4a600fdcc860fef58905756c4df31c63d73cf",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "af46cd42c4e6e94a96f8d493396a9f88555b81e2254b32eb844e13d5805eb97a",
+        "operationSemanticsSha256": "9a54474b753d5a0e92cc4c2b00596e1f8f8112904f47e0a78e9a3b8460eba254",
+        "routeImportsSha256": "0491b026e9ec2522db1b475ec618c52c2551489532b537f41434200d0a52437a",
+        "frameworkContextSha256": "23c1b6667771473d5ff1ce1e9cedfa5206a46a445993ab666ee94b38dc712f75"
+      },
+      "test": {
+        "id": "test/admin-provider-cc-alias.test.ts",
+        "observedOutcome": "provenance/qualification/19045e4cb09c0d8dfd22892ab9ac5a3a4ec256fdb45658ab4ed776ef6cd480c2.json",
+        "caseSha256": "86a08f860baa6582bb332f3ad931e81c896dac243e3571a724541a388e3f4922",
+        "outcomeSha256": "8773a585c1fb943b467c8a3235c4d1ac023e589fd88b458717c3dbe5b70159a4"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Exact OmniRoute v3.8.52 handlers and relevant domain/schema/auth pipeline modules execute after receipt verification; the server oracle does not reuse client validators or normalizers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Pinned provider alias handlers, validation, management authorization, SQLite key_value persistence, error formatting and sanitization execute with disposable infrastructure. Assertions cover provider/model isolation, set/clear, selected-state drift, competing plans, credential invalidation, invalid bodies and observed single-dispatch outcomes. Catalog invalidation signals are recorded."
+        },
+        {
+          "kind": "qualification-boundary",
+          "detail": "Does not establish live database or catalog-cache behavior, session cryptography, IP filtering, body limits or native platform qualification. Upstream offers no atomic conditional alias write; external writers can race after the client preflight GET. The non-observable __proto__ model target is rejected."
         }
       ]
     }

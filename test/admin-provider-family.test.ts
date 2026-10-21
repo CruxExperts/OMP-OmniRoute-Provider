@@ -29,8 +29,6 @@ const PATCH_PROVIDERS = "PATCH /api/providers";
 const GET_PROVIDERS = "GET /api/providers";
 const POST_PROVIDERS = "POST /api/providers";
 const DELETE_PROVIDERS = "DELETE /api/providers";
-const GET_CC_ALIAS = "GET /api/providers/{id}/cc-alias";
-const PUT_CC_ALIAS = "PUT /api/providers/{id}/cc-alias";
 const FIXTURE_TIME = "2026-10-19T00:00:00.000Z";
 const MANAGEMENT_KEY = "fixture-manage";
 const PROFILE_ID = "provider-family-fixture";
@@ -220,7 +218,6 @@ function createProviderAdminHarness(
     patchDispatches: () => dispatchCounts.get(PATCH_PROVIDERS) ?? 0,
     deleteDispatches: () => dispatchCounts.get(DELETE_PROVIDERS) ?? 0,
     postDispatches: () => dispatchCounts.get(POST_PROVIDERS) ?? 0,
-    aliasPutDispatches: () => dispatchCounts.get(PUT_CC_ALIAS) ?? 0,
     reconciliationReads: () => reconciliationReads,
     reconciliationMatches: () => reconciliationMatches,
     lastResponse: (operationId: string) => lastResponses.get(operationId),
@@ -240,8 +237,6 @@ const REQUIRED_CASES: Readonly<Record<typeof PROVIDER_FAMILY_OPERATION_IDS[numbe
   [POST_PROVIDERS]: ["human-create-redaction", "source-refinement-validation", "conditional-create", "conditional-management-auth"],
   [PATCH_PROVIDERS]: ["human-apply", "duplicate-order", "validation-auth", "target-drift", "cancel", "reconcile", "partial-commit", "conditional-management-auth"],
   [DELETE_PROVIDERS]: ["human-delete", "validation", "conditional-management-auth"],
-  [GET_CC_ALIAS]: ["provider-model-isolation", "conditional-management-auth"],
-  [PUT_CC_ALIAS]: ["human-update-clear", "uncertain-no-replay", "conditional-management-auth"],
 };
 
 const completedCases = new Map<string, Set<string>>();
@@ -291,7 +286,7 @@ afterAll(async () => {
 
 
 describe("pinned `/api/providers` family semantics", () => {
-  test("all six handlers admit anonymous requests only under the source's disabled-auth setting", async () => {
+  test("provider collection handlers admit anonymous requests only under the source's disabled-auth setting", async () => {
     const fixture = new ProviderFamilyFixture(seededConnections(), { clock: () => FIXTURE_TIME });
     fixtures.push(fixture);
     const scenarios = [
@@ -299,8 +294,6 @@ describe("pinned `/api/providers` family semantics", () => {
       { operationId: POST_PROVIDERS, input: { body: { provider: "openai", name: "Anonymous fixture", apiKey: "fixture-source-only-key" } }, status: 201 },
       { operationId: PATCH_PROVIDERS, input: { body: { ids: ["c1"], isActive: true } }, status: 200 },
       { operationId: DELETE_PROVIDERS, input: { body: { ids: ["c2"] } }, status: 200 },
-      { operationId: GET_CC_ALIAS, input: { path: { id: "claude" } }, status: 200 },
-      { operationId: PUT_CC_ALIAS, input: { path: { id: "claude" }, body: { scope: "provider", value: "on" } }, status: 200 },
     ];
     const before = publicProviderState(fixture);
     const request = async (scenario: typeof scenarios[number]) => {
@@ -325,8 +318,6 @@ describe("pinned `/api/providers` family semantics", () => {
     expect(fixture.state.find(connection => connection.id === "c1")?.isActive).toBe(true);
     expect(fixture.state.some(connection => connection.id === "c2")).toBe(false);
     expect(fixture.state.some(connection => connection.name === "Anonymous fixture" && connection.provider === "openai")).toBe(true);
-    const alias = await request(scenarios[4]!);
-    expect(alias.data).toEqual({ provider: "on", models: {} });
     fixture.authRequired = true;
     for (const scenario of scenarios) expect((await request(scenario)).status).toBe(401);
     for (const operationId of PROVIDER_FAMILY_OPERATION_IDS) completeCase(operationId, "conditional-management-auth");
@@ -786,99 +777,5 @@ describe("pinned `/api/providers` family semantics", () => {
     completeCase(DELETE_PROVIDERS, "validation");
   });
 
-  test("cc-alias GET and human PUT preserve provider/model overrides, trimming, clear-to-inherit, and isolation", async () => {
-    const fixture = new ProviderFamilyFixture(seededConnections());
-    fixtures.push(fixture);
-    const harness = createProviderAdminHarness(fixture);
-    const path = { id: "claude" };
-    const initialResult = await harness.executor.read(GET_CC_ALIAS, { path });
-    const initial = responseRecord(initialResult.output);
-    expect(initial).toEqual({ provider: null, models: {} });
-    const initialResponse = harness.lastResponse(GET_CC_ALIAS);
-    if (!initialResponse) throw new Error("cc-alias GET did not record its observed HTTP response");
-    expect(initialResponse.status).toBe(200);
-
-    const unauthenticatedGet = await fetch(`${fixture.endpoint}/api/providers/claude/cc-alias`);
-    expect(unauthenticatedGet.status).toBe(401);
-
-    const denied = await fetch(`${fixture.endpoint}/api/providers/claude/cc-alias`, {
-      method: "PUT",
-      headers: { authorization: "Bearer fixture-no-manage", "content-type": "application/json" },
-      body: JSON.stringify({ scope: "provider", value: "on" }),
-    });
-    expect(denied.status).toBe(403);
-    const unchanged = await harness.executor.read(GET_CC_ALIAS, { path });
-    expect(unchanged.output).toEqual(initial);
-
-    const applyAlias = async (targetPath: { id: string }, body: Record<string, unknown>) => {
-      const beforeDispatches = harness.aliasPutDispatches();
-      const plan = await harness.executor.plan(PUT_CC_ALIAS, { path: targetPath, body });
-      expect(plan.risk).toBe("mutation");
-      expect(plan.preview.confirmationRequired).toBe(true);
-      expect(harness.aliasPutDispatches()).toBe(beforeDispatches);
-      const result = await harness.executor.apply(plan.planId, { confirmed: true });
-      const response = harness.lastResponse(PUT_CC_ALIAS);
-      if (!response) throw new Error("cc-alias PUT did not record its observed HTTP response");
-      return { result, response };
-    };
-
-    const providerEnabled = await applyAlias(path, { scope: "provider", value: "on" });
-    expect(providerEnabled.result.status).toBe("applied");
-    expect(providerEnabled.response.status).toBe(200);
-    const providerEnabledState = responseRecord((await harness.executor.read(GET_CC_ALIAS, { path })).output);
-    expect(providerEnabledState).toEqual({ provider: "on", models: {} });
-    const otherProviderOverride = await applyAlias({ id: "openai" }, {
-      scope: "model", modelId: "model/other", value: "on",
-    });
-    expect(otherProviderOverride.result.status).toBe("applied");
-    const modelDisabled = await applyAlias(path, {
-      scope: "model", modelId: " model/variant ", value: "off",
-    });
-    expect(modelDisabled.result.status).toBe("applied");
-    const withOverridesResult = await harness.executor.read(GET_CC_ALIAS, { path });
-    expect(withOverridesResult.output).toEqual({ provider: "on", models: { "model/variant": "off" } });
-
-    const invalidModelId = await fetch(`${fixture.endpoint}/api/providers/claude/cc-alias`, {
-      method: "PUT",
-      headers: { authorization: `Bearer ${MANAGEMENT_KEY}`, "content-type": "application/json" },
-      body: JSON.stringify({ scope: "model", modelId: "   ", value: "on" }),
-    });
-    expect(invalidModelId.status).toBe(400);
-    const clearProvider = await applyAlias(path, { scope: "provider", value: null });
-    expect(clearProvider.result.status).toBe("applied");
-    expect((await harness.executor.read(GET_CC_ALIAS, { path })).output).toEqual({
-      provider: null, models: { "model/variant": "off" },
-    });
-    const clearModel = await applyAlias(path, {
-      scope: "model", modelId: "model/variant", value: null,
-    });
-    expect(clearModel.result.status).toBe("applied");
-    expect((await harness.executor.read(GET_CC_ALIAS, { path })).output).toEqual({ provider: null, models: {} });
-
-    const dispatchesBeforeUncertain = harness.aliasPutDispatches();
-    harness.loseNextResponse(PUT_CC_ALIAS);
-    const uncertainPlan = await harness.executor.plan(PUT_CC_ALIAS, {
-      path,
-      body: { scope: "model", modelId: "model/uncertain", value: "on" },
-    });
-    const uncertainResult = await harness.executor.apply(uncertainPlan.planId, { confirmed: true });
-    expect(uncertainResult.status).toBe("unknown");
-    expect(harness.aliasPutDispatches()).toBe(dispatchesBeforeUncertain + 1);
-    expect((await harness.executor.read(GET_CC_ALIAS, { path })).output).toEqual({
-      provider: null, models: { "model/uncertain": "on" },
-    });
-
-    observeOperation(GET_CC_ALIAS, "provider-model-isolation", {
-      before: initial,
-      after: initial,
-      result: { status: initialResponse.status, body: initialResponse.body },
-    });
-    observeOperation(PUT_CC_ALIAS, "human-update-clear", {
-      before: initial,
-      after: providerEnabledState,
-      result: { status: providerEnabled.response.status, body: providerEnabled.response.body },
-    });
-    completeCase(PUT_CC_ALIAS, "uncertain-no-replay");
-  });
 
 });

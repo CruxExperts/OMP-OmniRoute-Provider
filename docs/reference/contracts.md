@@ -61,13 +61,15 @@ bun run verify:contracts
 bun run docs:check
 ```
 
-The current reviewed families are combos, fallback chains and model capability
-overrides. Their fixtures execute pinned handlers and management authorization.
+The current reviewed families are combos, fallback chains, model capability
+overrides and provider aliases. Their fixtures execute pinned handlers and management authorization.
 Combo tests also execute the pinned SQLite repository, migrations, compatibility
 facade, virtual builder and metrics code, with configured catalog/policy inputs
 and recorded service effects. Clock and UUID inputs are deterministic; complete
-observed fields remain recorded. The other families use explicit in-memory storage
-backends. These tests do not qualify substituted services, external databases,
+observed fields remain recorded. Provider-alias tests execute SQLite persistence
+and the pinned error formatter and sanitizer; they bind the selected alias through
+preflight and reconciliation. Fallback and capability fixtures use explicit
+in-memory storage backends. These tests do not qualify substituted services, external databases,
 live network providers, session cryptography, IP filtering, body limits, elapsed
 latency/timeouts, or native platforms. Mapping qualification remains unfinished. The
 [generated inventory](generated.md#operation-inventory) owns the current counts.

@@ -98,7 +98,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/provider-models | 0 | 6 | 0 |
 | api/provider-nodes | 0 | 5 | 0 |
 | api/provider-stats | 0 | 1 | 0 |
-| api/providers | 0 | 77 | 0 |
+| api/providers | 2 | 75 | 0 |
 | api/proxy-fallback | 0 | 1 | 0 |
 | api/quota | 0 | 19 | 0 |
 | api/radar | 0 | 26 | 0 |

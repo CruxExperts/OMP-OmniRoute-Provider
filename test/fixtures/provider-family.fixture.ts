@@ -12,8 +12,6 @@ export const PROVIDER_FAMILY_OPERATION_IDS = [
   "POST /api/providers",
   "PATCH /api/providers",
   "DELETE /api/providers",
-  "GET /api/providers/{id}/cc-alias",
-  "PUT /api/providers/{id}/cc-alias",
 ] as const;
 
 const EMPTY_OBJECT_SCHEMA: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
@@ -70,15 +68,6 @@ const PROVIDER_CREATE_RESPONSE_SCHEMA: JsonSchema = {
   type: "object",
   required: ["connection"],
   properties: { connection: CONNECTION_SCHEMA },
-  additionalProperties: false,
-};
-const CC_ALIAS_RESPONSE_SCHEMA: JsonSchema = {
-  type: "object",
-  required: ["provider", "models"],
-  properties: {
-    provider: { type: ["string", "null"], enum: ["on", "off", null] },
-    models: { type: "object", "x-key-role": "identifier", additionalProperties: { type: "string", enum: ["on", "off"] } },
-  },
   additionalProperties: false,
 };
 const SUCCESS_RESPONSE_SCHEMA: JsonSchema = {
@@ -295,47 +284,6 @@ function createSourceReviewedContract(operationId: typeof PROVIDER_FAMILY_OPERAT
         reconciliation: collectionRelation,
       };
     }
-    case "GET /api/providers/{id}/cc-alias": {
-      return {
-        ...common,
-        response: responseContract(template.response, "200", CC_ALIAS_RESPONSE_SCHEMA, ["200", "401", "403", "500", "503"]),
-        secrets: { inputFields: [], outputFields: [] },
-        sideEffect: "read",
-        pagination: { mode: "none", parameters: [] },
-        confirmation: { required: false, reason: "Read-only alias configuration; only allowlisted provider and model overrides are projected." },
-        reconciliation: null,
-      };
-    }
-    case "PUT /api/providers/{id}/cc-alias": {
-      const aliasSchema: JsonSchema = {
-        oneOf: [
-          objectSchema({
-            scope: { type: "string", const: "provider" },
-            value: { type: ["string", "null"], enum: ["on", "off", null] },
-          }, ["scope", "value"]),
-          objectSchema({
-            scope: { type: "string", const: "model" },
-            modelId: { type: "string", minLength: 1, maxLength: 200 },
-            value: { type: ["string", "null"], enum: ["on", "off", null] },
-          }, ["scope", "modelId", "value"]),
-        ],
-      };
-      return {
-        ...common,
-        request: jsonBodyRequest(template.request, aliasSchema, [
-          { section: "body", path: ["modelId"], kind: "trim-string" },
-        ]),
-        response: responseContract(template.response, "200", SUCCESS_RESPONSE_SCHEMA, ["200", "400", "401", "403", "500", "503"]),
-        secrets: { inputFields: [], outputFields: [] },
-        sideEffect: "mutation",
-        pagination: { mode: "none", parameters: [] },
-        confirmation: {
-          required: true,
-          reason: "Sets or clears a provider or dynamically keyed model override. The closed relation contract cannot express the discriminated provider/model compare-and-set; a lost response is reported unknown, inspected by the operator with GET /api/providers/{id}/cc-alias, and never replayed.",
-        },
-        reconciliation: null,
-      };
-    }
   }
 }
 
@@ -369,11 +317,6 @@ const REDACTED_PROVIDER_DATA_KEYS = [
   "codexOriginalIdentityHeaders", "codexTurnStateEcho",
 ] as const;
 
-type AliasValue = "on" | "off";
-
-function isAliasValue(value: unknown): value is AliasValue | null {
-  return value === null || value === "on" || value === "off";
-}
 const FIXTURE_PROVIDER_IDS: Record<string, true> = {
   openai: true,
   anthropic: true,
@@ -427,11 +370,9 @@ function responseConnection(connection: ProviderConnectionFixture): Record<strin
   return result;
 }
 
-/** Source-faithful HTTP fixture for `/api/providers` collection and cc-alias handler cases. */
+/** Source-faithful HTTP fixture for the `/api/providers` collection handlers. */
 export class ProviderFamilyFixture {
   readonly #connections = new Map<string, ProviderConnectionFixture>();
-  readonly #ccAliasProviderSettings = new Map<string, AliasValue>();
-  readonly #ccAliasModelSettings = new Map<string, AliasValue>();
   readonly #server: { readonly url: URL; stop(closeActiveConnections?: boolean): void };
   readonly #clock: () => string;
   readonly #auth: ManagementAuthFixture | undefined;
@@ -512,18 +453,11 @@ export class ProviderFamilyFixture {
   async #handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/api/cli/whoami" && request.method === "GET" && this.#auth) return this.#auth.handle(request);
-    const aliasMatch = /^\/api\/providers\/([^/]+)\/cc-alias$/.exec(url.pathname);
-    if (url.pathname !== "/api/providers" && !aliasMatch) return json({ error: "Not found" }, 404);
+    if (url.pathname !== "/api/providers") return json({ error: "Not found" }, 404);
 
     const authError = this.#authorize(request);
     if (authError) return authError;
 
-    if (aliasMatch) {
-      const providerId = decodeURIComponent(aliasMatch[1] ?? "");
-      if (request.method === "GET") return this.#getCcAlias(providerId);
-      if (request.method === "PUT") return this.#setCcAlias(providerId, request);
-      return json({ error: "Method not allowed" }, 405);
-    }
     if (request.method === "GET") {
       this.#getCount += 1;
       return this.#list(url);
@@ -715,32 +649,4 @@ export class ProviderFamilyFixture {
     return json({ message: `Deleted ${deleted} connection(s)`, deleted }, 200);
   }
 
-  #getCcAlias(providerId: string): Response {
-    const prefix = `${providerId}/`;
-    const models: Record<string, AliasValue> = {};
-    for (const [key, value] of this.#ccAliasModelSettings) {
-      if (key.startsWith(prefix)) models[key.slice(prefix.length)] = value;
-    }
-    return json({ provider: this.#ccAliasProviderSettings.get(providerId) ?? null, models });
-  }
-
-  async #setCcAlias(providerId: string, request: Request): Promise<Response> {
-    const parsed = await this.#readBody(request);
-    if (parsed.error) return parsed.error;
-    const body = parsed.value;
-    if (!isRecord(body) || !isAliasValue(body.value)) return json({ error: "Invalid request" }, 400);
-    if (body.scope === "provider") {
-      if (body.value === null) this.#ccAliasProviderSettings.delete(providerId);
-      else this.#ccAliasProviderSettings.set(providerId, body.value);
-      return json({ success: true });
-    }
-    if (body.scope === "model" && typeof body.modelId === "string" && body.modelId.trim().length > 0
-      && body.modelId.trim().length <= 200) {
-      const key = `${providerId}/${body.modelId.trim()}`;
-      if (body.value === null) this.#ccAliasModelSettings.delete(key);
-      else this.#ccAliasModelSettings.set(key, body.value);
-      return json({ success: true });
-    }
-    return json({ error: "Invalid request" }, 400);
-  }
 }

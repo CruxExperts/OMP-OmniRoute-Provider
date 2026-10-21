@@ -8,6 +8,8 @@
  * - src/lib/providers/compatibleNodeCreation.ts 3b6a0b0b81ddf2eec0492e1eff89a628df13e2da808c345ec2abdecc2bb0f774
  * - src/lib/db/interceptionRules.ts 91a6a28234502f802daba4d07697df172fc73ff429c09c012c2558eba1b20bae
  * - src/lib/db/paramFilters.ts 6f7c53317cd78fdb8d1220f81d8ab8f1b11f486129ff359a18a8ade36c4352d4
+ * - src/app/api/providers/[id]/cc-alias/route.ts af92d3de950a38ad7acc02659eec0303f736cab1f70275ba75f777a3dc5a5cc0
+ * - src/lib/db/ccDiscoveryAliases.ts d1c0aeb199f7d20030c31b887c469b85ec6b4ea5960a0c562ecd3bb8c5c5db2c
  *
  * MIT License
  * Copyright (c) 2026 diegosouzapw
@@ -102,7 +104,103 @@ export function sourceStateViewBinding(id: unknown): SourceStateViewBinding | un
   return SOURCE_STATE_VIEW_BINDINGS[id];
 }
 
-export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId;
+export type ProviderCcAliasRelationViewId = "omniroute-v3.8.52.provider-cc-alias.selected-override";
+export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ProviderCcAliasRelationViewId;
+
+const PROVIDER_CC_ALIAS_GET = "GET /api/providers/{id}/cc-alias";
+const PROVIDER_CC_ALIAS_PUT = "PUT /api/providers/{id}/cc-alias";
+
+function aliasRequest(payload: ValidatedOperationInput): {
+  readonly providerId: string;
+  readonly scope: "provider" | "model";
+  readonly modelId: string | null;
+  readonly value: "on" | "off" | null;
+} {
+  const providerId = payload.path.id;
+  const body = payload.body;
+  if (typeof providerId !== "string" || providerId.length === 0 || !isRecord(body)) {
+    throw new TypeError("cc-alias relation requires a provider path and a source-shaped body");
+  }
+  if (body.scope !== "provider" && body.scope !== "model") {
+    throw new TypeError("cc-alias relation scope is invalid");
+  }
+  const value = body.value;
+  if (value !== null && value !== "on" && value !== "off") {
+    throw new TypeError("cc-alias relation value is invalid");
+  }
+  if (body.scope === "provider") {
+    return { providerId, scope: "provider", modelId: null, value };
+  }
+  const modelId = body.modelId;
+  if (typeof modelId !== "string" || modelId.length === 0 || modelId.length > 200) {
+    throw new TypeError("cc-alias model relation identity is invalid");
+  }
+  // The pinned GET builds `models` with `{}` and assigns string values. An
+  // assignment to this special key is not an own data property, so that GET
+  // cannot distinguish an absent override from a stored one. Never infer null.
+  if (modelId === "__proto__") throw new TypeError("cc-alias model identity is not observable through the pinned GET");
+  return { providerId, scope: "model", modelId, value };
+}
+
+function aliasRelationEntry(
+  identity: { readonly providerId: string; readonly scope: "provider" | "model"; readonly modelId: string | null },
+  value: "on" | "off" | null,
+): JsonValue {
+  return { kind: "resource", entries: [{ identity, state: { value } }] };
+}
+
+function selectedAliasValue(selection: ReturnType<typeof aliasRequest>, response: unknown): "on" | "off" | null {
+  if (!isRecord(response)) throw new TypeError("cc-alias GET response is invalid");
+  if (selection.scope === "provider") {
+    if (!Object.hasOwn(response, "provider")) throw new TypeError("cc-alias GET provider value is missing");
+    const value = response.provider;
+    if (value !== null && value !== "on" && value !== "off") throw new TypeError("cc-alias GET provider value is invalid");
+    return value;
+  }
+  if (!Object.hasOwn(response, "models") || !isRecord(response.models)) {
+    throw new TypeError("cc-alias GET model map is invalid");
+  }
+  const models = response.models;
+  if (!Object.hasOwn(models, selection.modelId!)) return null;
+  const value = models[selection.modelId!];
+  if (value !== "on" && value !== "off") throw new TypeError("cc-alias GET model value is invalid");
+  return value;
+}
+
+function selectedAliasEntry(value: JsonValue): {
+  readonly identity: Record<string, JsonValue>;
+  readonly state: Record<string, JsonValue>;
+} {
+  if (!isRecord(value) || value.kind !== "resource" || !Array.isArray(value.entries) || value.entries.length !== 1) {
+    throw new TypeError("cc-alias selected snapshot is invalid");
+  }
+  const entry = value.entries[0];
+  if (!isRecord(entry) || !isRecord(entry.identity) || !isRecord(entry.state)) {
+    throw new TypeError("cc-alias selected snapshot entry is invalid");
+  }
+  return { identity: entry.identity as Record<string, JsonValue>, state: entry.state as Record<string, JsonValue> };
+}
+
+function ccAliasSelectedOverrideSnapshot(payload: ValidatedOperationInput, response: unknown): JsonValue {
+  const selection = aliasRequest(payload);
+  return aliasRelationEntry(
+    { providerId: selection.providerId, scope: selection.scope, modelId: selection.modelId },
+    selectedAliasValue(selection, response),
+  );
+}
+
+function ccAliasExpectedPayload(payload: ValidatedOperationInput, originalSnapshot: JsonValue): ValidatedOperationInput {
+  const selection = aliasRequest(payload);
+  const entry = selectedAliasEntry(originalSnapshot);
+  if (entry.identity.providerId !== selection.providerId
+    || entry.identity.scope !== selection.scope
+    || entry.identity.modelId !== selection.modelId
+    || !Object.hasOwn(entry.state, "value")
+    || (entry.state.value !== null && entry.state.value !== "on" && entry.state.value !== "off")) {
+    throw new TypeError("cc-alias original snapshot does not bind the selected override");
+  }
+  return payload;
+}
 
 /** Keep contextual map selection separate from context-free field state views. */
 export function sourceRelationViewMatches(
@@ -115,6 +213,12 @@ export function sourceRelationViewMatches(
   if (isComboRelationViewId(id)) {
     return comboSourceRelationViewMatches(id, operationId, targetReadId, reconciliationId, outcomeKind);
   }
+  if (id === "omniroute-v3.8.52.provider-cc-alias.selected-override") {
+    return operationId === PROVIDER_CC_ALIAS_PUT
+      && targetReadId === PROVIDER_CC_ALIAS_GET
+      && reconciliationId === PROVIDER_CC_ALIAS_GET
+      && outcomeKind === "matches";
+  }
   if (id !== FALLBACK_CHAIN_RELATION_VIEW_BINDING.id) return false;
   const expectedKind = operationId === FALLBACK_CHAIN_POST ? "upsert" : operationId === FALLBACK_CHAIN_DELETE ? "absent" : undefined;
   return expectedKind !== undefined && outcomeKind === expectedKind
@@ -124,6 +228,8 @@ export function sourceRelationViewMatches(
 export function sourceRelationSnapshot(id: SourceRelationViewId, payload: ValidatedOperationInput, response: unknown): JsonValue {
   if (isComboRelationViewId(id)) return comboRelationSnapshot(id, payload, response);
   switch (id) {
+    case "omniroute-v3.8.52.provider-cc-alias.selected-override":
+      return ccAliasSelectedOverrideSnapshot(payload, response);
     case "omniroute-v3.8.52.fallback-chains.reconciliation":
       return fallbackChainTargetSnapshot(payload, response);
     default:
@@ -139,6 +245,8 @@ export function sourceRelationExpectedPayload(
 ): ValidatedOperationInput {
   if (isComboRelationViewId(id)) return comboRelationExpectedPayload(id, payload, originalSnapshot);
   switch (id) {
+    case "omniroute-v3.8.52.provider-cc-alias.selected-override":
+      return ccAliasExpectedPayload(payload, originalSnapshot);
     case "omniroute-v3.8.52.fallback-chains.reconciliation":
       return normalizeFallbackChainPayload(FALLBACK_CHAIN_POST, payload);
     default:
@@ -192,7 +300,7 @@ export function hydrateSourceCompatibleProviderCreation(
   };
 }
 
-function isRecord(value: JsonValue | undefined): value is JsonRecord {
+function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 

@@ -425,6 +425,103 @@ test("duplicate applies never replay a write", async () => {
   expect(configured.calls()).toBe(1);
 });
 
+test("queued applies serialize and honor cancellation and expiry before dispatch", async () => {
+  let startDispatch!: () => void;
+  let releaseDispatch!: () => void;
+  const dispatchStarted = new Promise<void>(resolve => { startDispatch = resolve; });
+  const holdDispatch = new Promise<void>(resolve => { releaseDispatch = resolve; });
+  const configured = setup({
+    dispatch: async () => {
+      startDispatch();
+      await holdDispatch;
+      return { ok: true };
+    },
+  });
+  const first = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  const cancelled = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  const firstApply = configured.executor.apply(first.planId, { confirmed: true });
+  await dispatchStarted;
+  const abort = new AbortController();
+  const cancelledApply = configured.executor.apply(cancelled.planId, { confirmed: true, signal: abort.signal });
+  abort.abort();
+  await expect(cancelledApply).rejects.toMatchObject({ code: "plan-invalidated" });
+  expect(configured.calls()).toBe(1);
+  releaseDispatch();
+  expect((await firstApply).status).toBe("applied");
+  expect(configured.calls()).toBe(1);
+
+  let clock = 0;
+  let startExpiryDispatch!: () => void;
+  let releaseExpiryDispatch!: () => void;
+  const expiryStarted = new Promise<void>(resolve => { startExpiryDispatch = resolve; });
+  const holdExpiryDispatch = new Promise<void>(resolve => { releaseExpiryDispatch = resolve; });
+  const expiring = setup({
+    now: () => clock,
+    dispatch: async () => {
+      startExpiryDispatch();
+      await holdExpiryDispatch;
+      return { ok: true };
+    },
+  });
+  const firstExpiry = await expiring.executor.plan(MUTATION, MUTATION_INPUT);
+  const queuedExpiry = await expiring.executor.plan(MUTATION, MUTATION_INPUT);
+  const firstExpiryApply = expiring.executor.apply(firstExpiry.planId, { confirmed: true });
+  await expiryStarted;
+  const queuedExpiryApply = expiring.executor.apply(queuedExpiry.planId, { confirmed: true });
+  clock = queuedExpiry.expiresAt;
+  releaseExpiryDispatch();
+  expect((await firstExpiryApply).status).toBe("applied");
+  await expect(queuedExpiryApply).rejects.toMatchObject({ code: "plan-expired" });
+  expect(expiring.executor.getPlan(queuedExpiry.planId)?.state).toBe("expired");
+  expect(expiring.calls()).toBe(1);
+});
+
+test("queued management apply rechecks plan invalidation after credential rotation", async () => {
+  let startDispatch!: () => void;
+  const dispatchStarted = new Promise<void>(resolve => { startDispatch = resolve; });
+  const configured = setup({
+    dispatch: async (_request, context) => {
+      startDispatch();
+      await new Promise<void>(resolve => context.signal?.addEventListener("abort", () => resolve(), { once: true }));
+      throw Object.assign(new Error("credential changed during transport"), { code: "network-lost-response" });
+    },
+  });
+  const first = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  const queued = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  const firstApply = configured.executor.apply(first.planId, { confirmed: true });
+  await dispatchStarted;
+  const queuedApply = configured.executor.apply(queued.planId, { confirmed: true });
+  configured.executor.bindCredential({ profileId: PROFILE_ID, endpoint: ENDPOINT, apiKey: "rotated-management-secret" });
+  expect((await firstApply).status).toBe("unknown");
+  await expect(queuedApply).rejects.toMatchObject({ code: "plan-invalidated" });
+  expect(configured.calls()).toBe(1);
+  expect(configured.executor.getPlan(queued.planId)?.state).toBe("invalidated");
+});
+
+test("queued apply rechecks executor shutdown before dispatch", async () => {
+  let startDispatch!: () => void;
+  let releaseDispatch!: () => void;
+  const dispatchStarted = new Promise<void>(resolve => { startDispatch = resolve; });
+  const holdDispatch = new Promise<void>(resolve => { releaseDispatch = resolve; });
+  const configured = setup({
+    dispatch: async () => {
+      startDispatch();
+      await holdDispatch;
+      return { ok: true };
+    },
+  });
+  const first = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  const queued = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+  const firstApply = configured.executor.apply(first.planId, { confirmed: true });
+  await dispatchStarted;
+  const queuedApply = configured.executor.apply(queued.planId, { confirmed: true });
+  configured.executor.shutdown();
+  releaseDispatch();
+  expect((await firstApply).status).toBe("unknown");
+  await expect(queuedApply).rejects.toMatchObject({ code: "shutdown" });
+  expect(configured.calls()).toBe(1);
+});
+
 test("lost responses reconcile once and remain unknown", async () => {
   let reconcileCalls = 0;
   const configured = setup({
