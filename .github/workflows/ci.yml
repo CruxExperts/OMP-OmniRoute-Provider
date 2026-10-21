@@ -33,9 +33,14 @@ jobs:
         run: |
           set -euo pipefail
           bun run check:upstreams
-          bun run verify:contracts
+          bun run prepare:upstream
           bun run typecheck
           bun test
+          python3 test/capture-walkthrough.test.py
+          bun run verify:qualification
+          bun run scripts/acquire-route-corpus.ts --check
+          bun run verify:contracts
+          bun run docs:check
           bun run verify:marketplace
           bun run verify:package > "$RUNNER_TEMP/package-verification.json"
           bun run export:release
@@ -57,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        omp: ["18.12.2", "18.12.3"]
+        omp: ["18.12.2", "18.12.5"]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }
@@ -74,8 +79,8 @@ jobs:
           destination="$RUNNER_TEMP/omp-$OMP_VERSION"
           mkdir -p "$destination"
           gh release download "v$OMP_VERSION" --repo can1357/oh-my-pi --pattern omp-linux-x64 --pattern SHA256SUMS.txt --dir "$destination"
-          expected_binary="$(jq -r --arg tag "v$OMP_VERSION" '.artifacts[] | select(.upstream=="omp" and .release_tag==$tag) | .sha256' provenance/release-artifacts.json)"
-          expected_sums="$(jq -r --arg tag "v$OMP_VERSION" '.artifacts[] | select(.upstream=="omp" and .release_tag==$tag) | .checksums_sha256' provenance/release-artifacts.json)"
+          expected_binary="$(jq -r --arg tag "v$OMP_VERSION" '.artifacts[] | select(.upstream=="omp" and .release_tag==$tag and (.url | endswith("/omp-linux-x64"))) | .sha256' provenance/release-artifacts.json)"
+          expected_sums="$(jq -r --arg tag "v$OMP_VERSION" '.artifacts[] | select(.upstream=="omp" and .release_tag==$tag and (.url | endswith("/omp-linux-x64"))) | .checksums_sha256' provenance/release-artifacts.json)"
           test "$(sha256sum "$destination/omp-linux-x64" | cut -d' ' -f1)" = "$expected_binary"
           test "$(sha256sum "$destination/SHA256SUMS.txt" | cut -d' ' -f1)" = "$expected_sums"
           test "$(awk '$2 == "omp-linux-x64" {print $1; exit}' "$destination/SHA256SUMS.txt")" = "$expected_binary"

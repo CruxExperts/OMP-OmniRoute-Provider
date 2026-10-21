@@ -2,8 +2,8 @@
 
 ## The provider does not appear
 
-Check that the package is linked to the OMP profile you actually started and
-restart OMP after changing the link.
+Check that the package is installed and enabled in the OMP profile you actually
+started. For development checkout links, restart OMP after changing the link.
 
 ## `/cruxomni setup` says setup is unavailable
 
@@ -41,7 +41,10 @@ cache rows are not an availability fallback; do not delete or edit OMP's cache
 to repair the connection. Sign in or correct the endpoint, then refresh.
 
 Optional metadata or pricing failures do not make an otherwise valid live
-connection offline. Check their separate diagnostics instead.
+connection offline. Replacing or forgetting a metadata credential cancels only
+its pending metadata request; it does not reset the runtime connection. A late
+response from that credential is discarded. Run `/cruxomni refresh` to retry with
+the current credential, and check the separate metadata diagnostics.
 
 ## An optional catalog is unavailable or its fields are missing
 
@@ -71,6 +74,23 @@ operation registry is visible for audit, but only entries in
 evidence can be read, planned, applied, or dispatched. A valid generic schema
 is not sufficient evidence. No retry or gateway request is made for an
 unavailable operation.
+
+Management API keys and dashboard sessions remain subject to the server's
+permission checks; their names do not prove access. Scoped management tokens
+are checked through the qualified current-credential identity operation and
+the pinned method/path policy. A null scope or authentication-disabled response
+does not prove unrestricted token access. Missing identity-operation evidence
+keeps scoped execution unavailable rather than guessing permissions.
+
+Some management routes also have a source-defined disabled-auth branch, subject
+to both central and handler policy. That conditional server behavior does not
+make the route public, prove a credential's permissions, or enable credential-free
+remote management in this client. Always-protected server routes remain gated.
+
+Returned metadata is recursively projected through the qualified schema.
+Sensitive fields remain absent even from typed object maps; a source-qualified
+identifier map preserves model identifiers without exposing nested credentials.
+Exact sensitive target state stays private to approval and drift checks.
 
 ## Credential or config recovery
 

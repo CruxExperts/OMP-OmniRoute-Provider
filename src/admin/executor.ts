@@ -2,37 +2,49 @@ import { createHash, randomBytes } from "node:crypto";
 import type {
   AdminApplyAuthorization,
   AdminApplyResult,
+  AdminAuthIdentity,
+  AdminAuthorizationAuthority,
+  AdminAuthorizationSummary,
   AdminCredentialBinding,
   AdminCredentialInput,
   AdminDispatch,
   AdminDispatchContext,
   AdminErrorCode,
   AdminExecutorOptions,
+  AdminOperationAuthBinding,
   AdminPlanHandle,
   AdminPreview,
   AdminReadResult,
   AdminReconcileContext,
+  AdminReconcileResult,
   AdminRequest,
   AdminRisk,
   AdminTarget,
   AdminTargetReader,
   JsonObject,
   JsonValue,
+  OMAAuthorityEvidence,
 } from "./types.ts";
 import { AdminError, escapeControls, safeError } from "./types.ts";
 import {
   canonicalizeJson,
-  operationRegistry,
+  getOperationRegistry,
+  RegistryError,
+  type ManagementAuthorizationAlternative,
+  type OMAAccessTokenScope,
   type OperationAdapter,
   type OperationDescriptor,
+  type OperationReconciliationRelation,
   type OperationRegistry,
+  type OperationSourceAuthorizationPolicy,
   type ValidatedOperationInput,
 } from "./registry.ts";
+import { requiredOmaScope } from "./authorization-policy.ts";
+import { mapRelationInput } from "./relations.ts";
 
 export interface AdminPlanOptions {
   readonly profileId?: string;
   readonly endpoint?: string;
-  readonly targetDigest?: string;
   readonly confirmed?: boolean;
   readonly confirm?: boolean;
   readonly headless?: boolean;
@@ -40,10 +52,11 @@ export interface AdminPlanOptions {
 }
 
 export interface AdminExecutor {
-  setAdminBinding(input: { profileId: string; endpoint: string; credentialGeneration: number }, explicitHuman?: boolean): void;
+  setAdminBinding(input: { profileId: string; endpoint: string }, explicitHuman?: boolean): void;
   clearAdminBinding(): void;
   bindCredential(input: AdminCredentialInput): AdminCredentialBinding;
   getCredentialBinding(): AdminCredentialBinding | undefined;
+  clearCredential(): void;
   logout(): void;
   disable(): void;
   shutdown(): void;
@@ -57,9 +70,18 @@ export interface AdminExecutor {
   invalidatePlans(): void;
 }
 
-interface InternalCredential extends AdminCredentialInput {
-  readonly scopes: readonly string[];
-  readonly credentialGeneration: number;
+interface InternalCredential {
+  readonly profileId: string;
+  readonly endpoint: string;
+  readonly apiKey?: string;
+  readonly cookie?: string;
+  readonly epoch: number;
+  readonly enabled: boolean;
+}
+
+interface InternalAdminBinding {
+  readonly profileId: string;
+  readonly endpoint: string;
   readonly enabled: boolean;
 }
 
@@ -68,25 +90,93 @@ interface InternalPlan {
   readonly operation: OperationAdapter;
   readonly input: ValidatedOperationInput;
   readonly payloadDigest: string;
-  readonly targetDigest: string;
-  readonly profileId: string;
-  readonly endpoint: string;
-  readonly credentialGeneration: number;
+  readonly targetDigest: string | null;
+  readonly targetSnapshot: JsonValue | undefined;
+  readonly auth: AdminAuthIdentity;
+  readonly authAuthority: AdminAuthorizationAuthority;
+  readonly targetAuth: AdminAuthIdentity | null;
+  readonly targetAuthAuthority: AdminAuthorizationAuthority | null;
+  readonly relation: OperationReconciliationRelation | null;
+  readonly targetReadOperation: OperationAdapter | undefined;
+  readonly reconciliationOperation: OperationAdapter | undefined;
   readonly createdAt: number;
   readonly expiresAt: number;
   readonly preview: AdminPreview;
   state: AdminPlanHandle["state"];
 }
 
+interface OperationSelection {
+  readonly profileId: string;
+  readonly endpoint: string;
+}
+
+interface LinkedSignal {
+  readonly signal?: AbortSignal;
+  dispose(): void;
+}
+
 const DEFAULT_PLAN_TTL_MS = 60_000;
 const MAX_PLAN_TTL_MS = 300_000;
-const SAFE_READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+const SAFE_READ_METHODS: Readonly<Record<string, true>> = { GET: true, HEAD: true, OPTIONS: true };
+const RELATION_READ_METHODS: Readonly<Record<string, true>> = { GET: true, HEAD: true };
+const LOOPBACK_HOSTS: Readonly<Record<string, true>> = { localhost: true, "127.0.0.1": true, "::1": true, "[::1]": true };
 const MAX_PREVIEW_BYTES = 7_000;
 const MAX_PREVIEW_DEPTH = 32;
+const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+const OMA_SCOPE_RANK: Readonly<Record<OMAAccessTokenScope, number>> = { read: 0, write: 1, admin: 2 };
 
 function throwIfAborted(signal: AbortSignal | undefined, operationId?: string): void {
   if (signal?.aborted) throw new AdminError("plan-invalidated", "operation was cancelled", { correlationId: correlationId(), ...(operationId === undefined ? {} : { operationId }) });
+}
+
+function linkSignals(...signals: (AbortSignal | undefined)[]): LinkedSignal {
+  const sources = [...new Set(signals.filter((signal): signal is AbortSignal => signal !== undefined))];
+  if (sources.length === 0) return { dispose() {} };
+  if (sources.length === 1) {
+    const signal = sources[0];
+    return signal === undefined ? { dispose() {} } : { signal, dispose() {} };
+  }
+  const controller = new AbortController();
+  const listeners = new Map<AbortSignal, () => void>();
+  for (const source of sources) {
+    const abort = () => controller.abort(source.reason);
+    if (source.aborted) {
+      abort();
+      break;
+    }
+    source.addEventListener("abort", abort, { once: true });
+    listeners.set(source, abort);
+  }
+  return {
+    signal: controller.signal,
+    dispose() {
+      for (const [source, listener] of listeners) source.removeEventListener("abort", listener);
+      listeners.clear();
+    },
+  };
+}
+
+function withAuth<T>(
+  auth: AdminOperationAuthBinding,
+  signals: readonly (AbortSignal | undefined)[],
+  operationId: string,
+  action: (boundAuth: AdminOperationAuthBinding, signal?: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const linked = linkSignals(auth.signal, ...signals);
+  const boundAuth: AdminOperationAuthBinding = {
+    ...auth,
+    ...(linked.signal === undefined ? {} : { signal: linked.signal }),
+  };
+  return (async () => {
+    try {
+      throwIfAborted(linked.signal, operationId);
+      const result = await action(boundAuth, linked.signal);
+      throwIfAborted(linked.signal, operationId);
+      return result;
+    } finally {
+      linked.dispose();
+    }
+  })();
 }
 
 function previewDepth(value: unknown, depth = 0): number {
@@ -104,6 +194,15 @@ function privateEndpoint(endpoint: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function validProfileId(profileId: string): boolean {
+  return profileId.length > 0 && !/[\u0000-\u001f\u007f]/.test(profileId);
+}
+
+
+function credentialValueValid(value: string): boolean {
+  return value.length > 0 && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
 function correlationId(): string {
   return `c-${randomBytes(8).toString("hex")}`;
 }
@@ -119,6 +218,7 @@ function digest(value: unknown): string {
 function nowDefault(): number {
   return Date.now();
 }
+
 function boundedPlanTtl(value: number | undefined): number {
   if (value === undefined || !Number.isFinite(value)) return DEFAULT_PLAN_TTL_MS;
   return Math.min(MAX_PLAN_TTL_MS, Math.max(1_000, Math.floor(value)));
@@ -129,7 +229,9 @@ function errorResult(error: AdminError): { code: AdminErrorCode; status?: number
 }
 
 function isSensitive(key: string, descriptor: OperationDescriptor): boolean {
-  return descriptor.secrets.inputFields.some((field) => field.toLowerCase() === key.toLowerCase()) || /(?:secret|password|token|credential|authorization|cookie|api[-_]?key)/i.test(key);
+  return descriptor.secrets.inputFields.some((field) => field.toLowerCase() === key.toLowerCase())
+    || descriptor.secrets.outputFields.some((field) => field.toLowerCase() === key.toLowerCase())
+    || /(?:secret|password|token|credential|authorization|cookie|api[-_]?key)/i.test(key);
 }
 
 function redactInput(value: unknown, descriptor: OperationDescriptor, key?: string): unknown {
@@ -151,53 +253,72 @@ function safeBinding(binding: InternalCredential): AdminCredentialBinding {
   return {
     profileId: binding.profileId,
     endpoint: binding.endpoint,
-    credentialGeneration: binding.credentialGeneration,
-    scopes: [...(binding.scopes ?? [])],
+    epoch: binding.epoch,
+    credentialKind: binding.apiKey === undefined ? "cookie" : "apiKey",
+    authority: binding.apiKey?.startsWith("oma_") === true ? "oma-scope-unverified" : "server-enforced",
     enabled: binding.enabled,
   };
 }
 
-function queryValue(value: JsonValue | undefined): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return canonicalizeJson(value);
+function identityOf(auth: AdminOperationAuthBinding): AdminAuthIdentity {
+  return { domain: auth.domain, profileId: auth.profileId, endpoint: auth.endpoint, epoch: auth.epoch };
 }
+
+function sameIdentity(left: AdminAuthIdentity, right: AdminAuthIdentity): boolean {
+  return left.domain === right.domain && left.profileId === right.profileId && left.endpoint === right.endpoint && left.epoch === right.epoch;
+}
+function sameAuthority(left: AdminAuthorizationAuthority, right: AdminAuthorizationAuthority): boolean {
+  return canonicalizeJson(left) === canonicalizeJson(right);
+}
+
+function endpointIsLoopback(endpoint: string): boolean {
+  return LOOPBACK_HOSTS[new URL(endpoint).hostname] === true;
+}
+
+function scopeSatisfies(actual: OMAAccessTokenScope, minimum: OMAAccessTokenScope): boolean {
+  return OMA_SCOPE_RANK[actual] >= OMA_SCOPE_RANK[minimum];
+}
+
+function authorizationSummary(authority: AdminAuthorizationAuthority): AdminAuthorizationSummary {
+  switch (authority.kind) {
+    case "uncredentialed":
+      return { kind: "not-required", message: "This source-qualified operation requires no credential." };
+    case "server-enforced":
+      return { kind: "server-enforced", message: "The server enforces credential permissions; this preview did not preflight them." };
+    case "oma-access-token":
+      return {
+        kind: "oma-scope-observed",
+        scope: authority.scope,
+        message: "The OMA CLI token scope was observed from the qualified whoami operation for this preview.",
+      };
+    case "oma-whoami-bootstrap":
+      return { kind: "oma-scope-bootstrap", message: "This exact whoami request observes OMA CLI token scope; no scope is assumed before it." };
+  }
+}
+
+
 
 function requestFor(adapter: OperationAdapter, endpoint: string, input: ValidatedOperationInput): AdminRequest {
   const path = adapter.buildPath(input);
-  const sourceQuery = input.query;
-  const query: Record<string, string | number | boolean | undefined> = {};
-  const queryString = Object.keys(sourceQuery).sort().flatMap((key) => {
-    const value = sourceQuery[key];
-    if (Array.isArray(value)) {
-      const encoded = value.map((item) => queryValue(item));
-      query[key] = encoded.join(",");
-      return encoded.map((item) => `${encodeURIComponent(key)}=${encodeURIComponent(item)}`);
-    }
-    const encoded = queryValue(value);
-    query[key] = encoded;
-    return `${encodeURIComponent(key)}=${encodeURIComponent(encoded)}`;
-  }).join("&");
+  const queryParameters = adapter.buildQuery(input);
+  const queryString = queryParameters.map(({ encodedName, encodedValue }) => `${encodedName}=${encodedValue}`).join("&");
   const url = `${endpoint}${path}${queryString ? `?${queryString}` : ""}`;
   return {
     operationId: adapter.descriptor.operationId,
     method: adapter.descriptor.method,
     url,
     path,
-    query,
+    queryParameters,
     operation: adapter.descriptor,
     ...(input.body === undefined ? {} : { body: input.body }),
   };
 }
 
-function targetDigestFrom(value: string | AdminTarget | { readonly digest: string }): string {
-  if (typeof value === "string") return value;
-  return value.digest;
-}
-
-function consequence(descriptor: OperationDescriptor, risk: AdminRisk): string {
+function consequence(descriptor: OperationDescriptor, risk: AdminRisk, relation: OperationReconciliationRelation | null): string {
   if (risk === "read") return "Read-only operation; response is projected through the closed allowlist.";
+  if (relation === null) {
+    return `${descriptor.confirmation.reason} This operation has no verified reconciliation read; at most one dispatch will be attempted, and an ambiguous outcome remains unknown without replay.`;
+  }
   if (risk === "gated-read") return "Nominal read is gated because the pinned source declares possible side effects.";
   return descriptor.confirmation.reason;
 }
@@ -205,15 +326,17 @@ function consequence(descriptor: OperationDescriptor, risk: AdminRisk): string {
 export class AdminExecutorImpl implements AdminExecutor {
   readonly #dispatch: AdminDispatch;
   readonly #readTarget: AdminTargetReader | undefined;
-  readonly #reconcile: ((context: AdminReconcileContext) => Promise<unknown>) | undefined;
+  readonly #reconcile: AdminExecutorOptions["reconcile"];
+  readonly #resolveAuth: AdminExecutorOptions["resolveAuth"];
   readonly #registry: OperationRegistry;
   readonly #planTtlMs: number;
   readonly #now: () => number;
   readonly #randomId: () => string;
   readonly #plans = new Map<string, InternalPlan>();
   #credential: InternalCredential | undefined;
-  #adminBinding: { profileId: string; endpoint: string; credentialGeneration: number; enabled: boolean } | undefined;
-  #generation = 0;
+  #adminBinding: InternalAdminBinding | undefined;
+  #managementEpoch = 0;
+  #managementController = new AbortController();
   #stopped = false;
   #credentialBindingBlocked = false;
 
@@ -221,58 +344,62 @@ export class AdminExecutorImpl implements AdminExecutor {
     this.#dispatch = options.dispatch;
     this.#readTarget = options.readTarget;
     this.#reconcile = options.reconcile;
-    this.#registry = options.registry ?? operationRegistry;
+    this.#resolveAuth = options.resolveAuth;
+    this.#registry = options.registry ?? getOperationRegistry();
     this.#planTtlMs = boundedPlanTtl(options.planTtlMs);
     this.#now = options.now ?? nowDefault;
     this.#randomId = options.randomId ?? planId;
   }
 
-  setAdminBinding(input: { profileId: string; endpoint: string; credentialGeneration: number }, explicitHuman = false): void {
+  setAdminBinding(input: { profileId: string; endpoint: string }, explicitHuman = false): void {
     if (this.#stopped) throw this.#error("shutdown", "administration is shut down");
-    const next = { profileId: input.profileId, endpoint: privateEndpoint(input.endpoint), credentialGeneration: input.credentialGeneration, enabled: true };
+    if (this.#credentialBindingBlocked && !explicitHuman) throw this.#error("credential-disabled", "administration requires an explicit human enable action");
+    if (!validProfileId(input.profileId)) throw this.#error("credential-mismatch", "management binding is invalid");
+    const next = { profileId: input.profileId, endpoint: privateEndpoint(input.endpoint), enabled: true };
     const current = this.#adminBinding;
     if (explicitHuman) this.#credentialBindingBlocked = false;
-    if (current?.enabled && current.profileId === next.profileId && current.endpoint === next.endpoint && current.credentialGeneration === next.credentialGeneration) return;
-    this.invalidatePlans();
+    if (current?.enabled && current.profileId === next.profileId && current.endpoint === next.endpoint) return;
+    this.#invalidateManagementPlans();
+    this.#renewManagementSignal();
     this.#adminBinding = next;
   }
 
   clearAdminBinding(): void {
-    this.invalidatePlans();
+    this.#invalidateManagementPlans();
+    this.#renewManagementSignal();
     this.#adminBinding = undefined;
   }
 
   bindCredential(input: AdminCredentialInput): AdminCredentialBinding {
     if (this.#stopped) throw this.#error("shutdown", "administration is shut down");
     if (this.#credentialBindingBlocked) throw this.#error("credential-disabled", "credential rebinding requires an explicit human enable action");
-    if (/[\u0000-\u001f\u007f]/.test(input.apiKey ?? "") || /[\u0000-\u001f\u007f]/.test(input.cookie ?? "")) throw this.#error("credential-required", "credential binding is invalid");
+    if (!validProfileId(input.profileId) || /[\u0000-\u001f\u007f]/.test(input.apiKey ?? "") || /[\u0000-\u001f\u007f]/.test(input.cookie ?? "")) {
+      throw this.#error("credential-required", "credential binding is invalid");
+    }
     const endpoint = privateEndpoint(input.endpoint);
-    if (!input.profileId || /[\u0000-\u001f\u007f]/.test(input.profileId)) throw this.#error("credential-mismatch", "credential binding is invalid");
-    if ((input.apiKey === undefined) === (input.cookie === undefined) || (input.apiKey !== undefined && input.apiKey.length === 0) || (input.cookie !== undefined && input.cookie.length === 0)) throw this.#error("credential-required", "one management credential is required");
-    const scopes = [...(input.scopes ?? [])];
+    if ((input.apiKey === undefined) === (input.cookie === undefined)
+      || (input.apiKey !== undefined && !credentialValueValid(input.apiKey))
+      || (input.cookie !== undefined && !credentialValueValid(input.cookie))) {
+      throw this.#error("credential-required", "one management credential is required");
+    }
     const current = this.#credential;
     if (current?.enabled && current.profileId === input.profileId && current.endpoint === endpoint
-      && current.apiKey === input.apiKey && current.cookie === input.cookie
-      && current.scopes.length === scopes.length && current.scopes.every((scope, index) => scope === scopes[index])) {
-      this.setAdminBinding({ profileId: current.profileId, endpoint: current.endpoint, credentialGeneration: current.credentialGeneration });
+      && current.apiKey === input.apiKey && current.cookie === input.cookie) {
+      this.setAdminBinding({ profileId: current.profileId, endpoint: current.endpoint });
       return safeBinding(current);
     }
-    const requestedGeneration = input.credentialGeneration;
-    const nextGeneration = requestedGeneration !== undefined && Number.isFinite(requestedGeneration) && requestedGeneration > 0
-      ? Math.max(this.#generation + 1, Math.floor(requestedGeneration))
-      : this.#generation + 1;
-    this.#generation = nextGeneration;
-    this.invalidatePlans();
+
+    this.#invalidateManagementPlans();
+    this.#advanceManagementEpoch();
     this.#credential = {
       profileId: input.profileId,
       endpoint,
       ...(input.apiKey === undefined ? {} : { apiKey: input.apiKey }),
       ...(input.cookie === undefined ? {} : { cookie: input.cookie }),
-      scopes,
-      credentialGeneration: this.#generation,
+      epoch: this.#managementEpoch,
       enabled: true,
     };
-    this.setAdminBinding({ profileId: input.profileId, endpoint, credentialGeneration: this.#generation });
+    this.setAdminBinding({ profileId: input.profileId, endpoint });
     return safeBinding(this.#credential);
   }
 
@@ -280,13 +407,21 @@ export class AdminExecutorImpl implements AdminExecutor {
     return this.#credential ? safeBinding(this.#credential) : undefined;
   }
 
+  clearCredential(): void {
+    if (!this.#credential) return;
+    this.#invalidateManagementPlans();
+    this.#advanceManagementEpoch();
+    this.#credential = undefined;
+  }
+
   logout(): void {
-    this.#generation += 1;
+    this.#advanceManagementEpoch();
     this.invalidatePlans();
     this.#credential = undefined;
     this.#adminBinding = undefined;
     this.#credentialBindingBlocked = true;
   }
+
   clearSession(): void {
     this.logout();
   }
@@ -296,24 +431,23 @@ export class AdminExecutorImpl implements AdminExecutor {
   }
 
   disable(): void {
-    this.#generation += 1;
+    this.#advanceManagementEpoch();
     this.invalidatePlans();
     if (this.#credential) {
       this.#credential = {
         profileId: this.#credential.profileId,
         endpoint: this.#credential.endpoint,
-        scopes: [],
-        credentialGeneration: this.#generation,
+        epoch: this.#managementEpoch,
         enabled: false,
       };
     }
-    if (this.#adminBinding) this.#adminBinding = { ...this.#adminBinding, enabled: false, credentialGeneration: this.#generation };
+    if (this.#adminBinding) this.#adminBinding = { ...this.#adminBinding, enabled: false };
     this.#credentialBindingBlocked = true;
   }
 
   shutdown(): void {
+    this.#advanceManagementEpoch();
     this.#stopped = true;
-    this.#generation += 1;
     this.invalidatePlans();
     this.#credential = undefined;
     this.#adminBinding = undefined;
@@ -324,6 +458,15 @@ export class AdminExecutorImpl implements AdminExecutor {
       if (plan.state === "pending" || plan.state === "applying") plan.state = "invalidated";
     }
   }
+  #invalidateManagementPlans(): void {
+    for (const plan of this.#plans.values()) {
+      if ((plan.state === "pending" || plan.state === "applying")
+        && (plan.auth.domain === "management" || plan.targetAuth?.domain === "management")) {
+        plan.state = "invalidated";
+      }
+    }
+  }
+
   getPlan(planIdValue: string): AdminPlanHandle | undefined {
     const plan = this.#plans.get(planIdValue);
     if (!plan) return undefined;
@@ -333,46 +476,79 @@ export class AdminExecutorImpl implements AdminExecutor {
 
   async read(operationId: string, input: unknown, options: AdminPlanOptions = {}): Promise<AdminReadResult> {
     throwIfAborted(options.signal, operationId);
+    if (this.#stopped) throw this.#error("shutdown", "administration is shut down", operationId);
     const adapter = this.#requireAdapter(operationId);
     const descriptor = adapter.descriptor;
-    if (adapter.risk !== "read" || descriptor.confirmation.required || descriptor.sideEffect !== "read" || !SAFE_READ_METHODS.has(descriptor.method)) {
+    if (adapter.risk !== "read" || descriptor.confirmation.required || descriptor.sideEffect !== "read" || SAFE_READ_METHODS[descriptor.method] !== true) {
       throw this.#error("confirmation-required", "operation requires a human-confirmed plan", operationId);
     }
     const validated = this.#validate(adapter, input);
-    const context = this.#context(options, descriptor);
+    const selection = this.#selection(options);
     this.#assertEligible(adapter);
-    const request = requestFor(adapter, context.endpoint, validated);
-    this.#assertEligible(adapter);
-    const output = await this.#dispatch(request, this.#dispatchContext(context, descriptor, descriptor.retry.allowed && adapter.risk === "read" && SAFE_READ_METHODS.has(descriptor.method), options.signal));
-    return { operationId, output: adapter.project(output), correlationId: correlationId() };
+    const request = requestFor(adapter, selection.endpoint, validated);
+    const auth = await this.#resolveOperationAuth(descriptor, selection, request, options.signal);
+    return withAuth(auth, [options.signal], operationId, async (boundAuth, signal) => {
+      this.#assertEligible(adapter);
+      const context = this.#dispatchContext(boundAuth, descriptor, this.#retryAllowed(adapter), signal);
+      const output = await this.#dispatch(request, context);
+      return { operationId, output: adapter.project(output), correlationId: correlationId() };
+    });
   }
 
   async plan(operationId: string, input: unknown, options: AdminPlanOptions = {}): Promise<AdminPlanHandle> {
     throwIfAborted(options.signal, operationId);
     if (this.#stopped) throw this.#error("shutdown", "administration is shut down", operationId);
     const adapter = this.#requireAdapter(operationId);
+    if (adapter.risk === "read") throw this.#error("confirmation-required", "ordinary reads must use the read operation", operationId);
     const validated = this.#validate(adapter, input);
-    const context = this.#context(options, adapter.descriptor);
+    const selection = this.#selection(options);
+    const relation = this.#relationForPlan(adapter);
     this.#assertEligible(adapter);
-    const target = await this.#targetDigest(context, adapter.descriptor, validated, options.targetDigest, options.signal);
+    const request = requestFor(adapter, selection.endpoint, validated);
+    const auth = await this.#resolveOperationAuth(adapter.descriptor, selection, request, options.signal);
+    let targetDigest: string | null = null;
+    let targetSnapshot: JsonValue | undefined;
+    let targetAuthIdentity: AdminAuthIdentity | null = null;
+    let targetAuthAuthority: AdminAuthorizationAuthority | null = null;
+    let targetReadOperation: OperationAdapter | undefined;
+    let reconciliationOperation: OperationAdapter | undefined;
+    if (relation !== null) {
+      targetReadOperation = this.#requireRelationRead(relation.targetRead.operationId, operationId);
+      reconciliationOperation = this.#requireRelationRead(relation.reconcile.operationId, operationId);
+      if (!this.#readTarget) throw this.#error("target-drift", "reconciliation target reader is unavailable", operationId);
+      const target = await this.#readRelationTarget(adapter, validated, relation, targetReadOperation, selection, auth, options.signal);
+      targetDigest = target.target.digest;
+      targetSnapshot = target.target.snapshot;
+      targetAuthIdentity = identityOf(target.auth);
+      targetAuthAuthority = target.auth.authority;
+
+      const currentOperationAuth = await this.#resolveOperationAuth(adapter.descriptor, selection, request, options.signal);
+      this.#assertAuthUnchanged(auth, currentOperationAuth, adapter.descriptor);
+      const currentTargetAuth = await this.#resolveOperationAuth(targetReadOperation.descriptor, selection, target.request, options.signal);
+      this.#assertAuthUnchanged(target.auth, currentTargetAuth, targetReadOperation.descriptor);
+    } else {
+      // Explicitly non-reconcilable operations intentionally have no target authority or digest.
+      targetDigest = null;
+    }
+
     throwIfAborted(options.signal, operationId);
     const createdAt = this.#now();
     const payloadDigest = digest(validated);
     const previewPayload = redactInput(validated, adapter.descriptor) as ValidatedOperationInput;
-    const request = requestFor(adapter, context.endpoint, validated);
     const previewBase = {
       operationId,
       method: adapter.descriptor.method,
       pathTemplate: adapter.descriptor.pathTemplate,
-      target: { profileId: context.profileId, endpoint: context.endpoint },
+      target: { profileId: auth.profileId, endpoint: auth.endpoint },
       risk: adapter.risk,
-      confirmationRequired: adapter.risk !== "read" || adapter.descriptor.confirmation.required,
       sideEffect: adapter.descriptor.sideEffect,
+      confirmationRequired: true,
+      authorization: authorizationSummary(auth.authority),
       payload: previewPayload,
-      ...(target === "unavailable" ? {} : { projectedTarget: target }),
-      consequence: consequence(adapter.descriptor, adapter.risk),
+      ...(targetSnapshot === undefined ? {} : { projectedTarget: redactInput(targetSnapshot, targetReadOperation?.descriptor ?? adapter.descriptor) }),
+      consequence: consequence(adapter.descriptor, adapter.risk, relation),
       resolvedPath: request.path,
-      query: request.query,
+      queryParameters: request.queryParameters,
     };
     if (previewDepth(previewBase) > MAX_PREVIEW_DEPTH || new TextEncoder().encode(canonicalizeJson(previewBase)).byteLength > MAX_PREVIEW_BYTES) {
       throw this.#error("preview-too-large", "complete redacted preview exceeds the approval limit", operationId);
@@ -383,10 +559,15 @@ export class AdminExecutorImpl implements AdminExecutor {
       operation: adapter,
       input: validated,
       payloadDigest,
-      targetDigest: target,
-      profileId: context.profileId,
-      endpoint: context.endpoint,
-      credentialGeneration: context.credentialGeneration,
+      targetDigest,
+      targetSnapshot,
+      auth: identityOf(auth),
+      authAuthority: auth.authority,
+      targetAuth: targetAuthIdentity,
+      targetAuthAuthority,
+      relation,
+      targetReadOperation,
+      reconciliationOperation,
       createdAt,
       expiresAt: createdAt + this.#planTtlMs,
       preview,
@@ -403,75 +584,142 @@ export class AdminExecutorImpl implements AdminExecutor {
   async apply(planIdValue: string, authorization: AdminApplyAuthorization): Promise<AdminApplyResult> {
     const plan = this.#plans.get(planIdValue);
     if (!plan) throw this.#error("plan-not-found", "plan is not available");
+    const operationId = plan.operation.descriptor.operationId;
     const currentTime = this.#now();
     if (currentTime >= plan.expiresAt && plan.state === "pending") plan.state = "expired";
-    if (plan.state === "expired") throw this.#error("plan-expired", "plan has expired", plan.operation.descriptor.operationId);
-    if (plan.state === "invalidated") throw this.#error("plan-invalidated", "plan is no longer valid", plan.operation.descriptor.operationId);
-    if (plan.state === "applying") throw this.#error("plan-in-progress", "plan application is already in progress", plan.operation.descriptor.operationId);
-    if (plan.state === "applied" || plan.state === "operator-required" || plan.state === "unknown") throw this.#error("plan-already-applied", "plan reached a terminal state", plan.operation.descriptor.operationId);
+    if (plan.state === "expired") throw this.#error("plan-expired", "plan has expired", operationId);
+    if (plan.state === "invalidated") throw this.#error("plan-invalidated", "plan is no longer valid", operationId);
+    if (plan.state === "applying") throw this.#error("plan-in-progress", "plan application is already in progress", operationId);
+    if (plan.state === "applied" || plan.state === "operator-required" || plan.state === "unknown") throw this.#error("plan-already-applied", "plan reached a terminal state", operationId);
     const confirmed = authorization.confirmed === true || authorization.confirm === true;
     if (authorization.headless === true) return this.#denied(plan, "headless-denied", "headless execution is denied");
     if (!confirmed) return this.#denied(plan, "confirmation-required", "human confirmation is required");
-    if (plan.operation.risk !== "read" && !this.#readTarget) throw this.#error("target-drift", "mutable target cannot be re-read", plan.operation.descriptor.operationId);
-    if (this.#stopped) throw this.#error("shutdown", "administration is shut down", plan.operation.descriptor.operationId);
+    if (this.#stopped) throw this.#error("shutdown", "administration is shut down", operationId);
     this.#assertEligible(plan.operation);
-    const credential = this.#credential;
-    if (!credential) throw this.#error("credential-required", "management credential is required", plan.operation.descriptor.operationId);
-    if (!credential.enabled || !this.#adminBinding?.enabled) throw this.#error("credential-disabled", "management credential is disabled", plan.operation.descriptor.operationId);
-    if (credential.profileId !== plan.profileId || credential.endpoint !== plan.endpoint || credential.credentialGeneration !== plan.credentialGeneration) throw this.#error("credential-mismatch", "credential binding changed", plan.operation.descriptor.operationId);
-    for (const scope of plan.operation.descriptor.auth.scopes) if (!credential.scopes.includes(scope)) throw this.#error("missing-scope", "credential lacks required scope", plan.operation.descriptor.operationId);
-    if (authorization.profileId !== undefined && authorization.profileId !== plan.profileId) throw this.#error("credential-mismatch", "profile changed", plan.operation.descriptor.operationId);
-    if (authorization.endpoint !== undefined && privateEndpoint(authorization.endpoint) !== plan.endpoint) throw this.#error("credential-mismatch", "endpoint changed", plan.operation.descriptor.operationId);
-    if (authorization.credentialGeneration !== undefined && authorization.credentialGeneration !== plan.credentialGeneration) throw this.#error("credential-mismatch", "credential generation changed", plan.operation.descriptor.operationId);
-    if (authorization.targetDigest !== undefined && authorization.targetDigest !== plan.targetDigest) throw this.#error("target-drift", "target changed since preview", plan.operation.descriptor.operationId);
-    throwIfAborted(authorization.signal, plan.operation.descriptor.operationId);
+    if (authorization.profileId !== undefined && authorization.profileId !== plan.auth.profileId) throw this.#error("credential-mismatch", "profile changed", operationId);
+    if (authorization.endpoint !== undefined && privateEndpoint(authorization.endpoint) !== plan.auth.endpoint) throw this.#error("credential-mismatch", "endpoint changed", operationId);
+    if (authorization.targetDigest !== undefined && authorization.targetDigest !== plan.targetDigest) throw this.#error("target-drift", "target changed since preview", operationId);
+    throwIfAborted(authorization.signal, operationId);
+
     plan.state = "applying";
-    const currentTarget = await this.#targetDigest({ profileId: plan.profileId, endpoint: plan.endpoint, credentialGeneration: plan.credentialGeneration }, plan.operation.descriptor, plan.input, undefined, authorization.signal);
-    const currentCredential = this.#credential;
-    if (this.#stopped || this.#now() >= plan.expiresAt || authorization.signal?.aborted
-      || !this.#adminBinding?.enabled || !currentCredential?.enabled
-      || currentCredential.profileId !== plan.profileId || currentCredential.endpoint !== plan.endpoint
-      || currentCredential.credentialGeneration !== plan.credentialGeneration) {
-      plan.state = "invalidated";
-      throw this.#error("plan-invalidated", "plan binding changed during final verification", plan.operation.descriptor.operationId);
-    }
-    if (plan.operation.risk !== "read" && (plan.targetDigest === "unavailable" || currentTarget === "unavailable")) {
-      plan.state = "invalidated";
-      throw this.#error("target-drift", "mutable target could not be re-read", plan.operation.descriptor.operationId);
-    }
-    if (plan.targetDigest !== "unavailable" && currentTarget !== plan.targetDigest) {
-      plan.state = "invalidated";
-      throw this.#error("target-drift", "target changed since preview", plan.operation.descriptor.operationId);
-    }
-    const request = requestFor(plan.operation, plan.endpoint, plan.input);
-    this.#assertEligible(plan.operation);
-    // Mark before dispatch: a lost response must never be replayed as a second write.
-    plan.state = "applied";
+    let dispatched = false;
     try {
-      const result = await this.#dispatch(request, this.#dispatchContext({ profileId: plan.profileId, endpoint: plan.endpoint, credentialGeneration: plan.credentialGeneration }, plan.operation.descriptor, plan.operation.descriptor.retry.allowed && plan.operation.risk === "read" && SAFE_READ_METHODS.has(plan.operation.descriptor.method), authorization.signal));
-      if (result && typeof result === "object" && "status" in result && (result as { status?: unknown }).status === "operator-required") {
-        plan.state = "operator-required";
-        return { status: "operator-required", plan: this.#handle(plan), output: result };
+      if (this.#now() >= plan.expiresAt) throw this.#error("plan-expired", "plan has expired", operationId);
+      const selection = { profileId: plan.auth.profileId, endpoint: plan.auth.endpoint };
+      const request = requestFor(plan.operation, selection.endpoint, plan.input);
+      const initialAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, authorization.signal);
+      this.#assertApplyingPlan(plan);
+      this.#assertPlannedAuth(plan.auth, plan.authAuthority, initialAuth, plan.operation.descriptor);
+
+      let currentTargetAuth: AdminOperationAuthBinding | undefined;
+      if (plan.operation.risk !== "read" && plan.relation !== null) {
+        const relation = plan.relation;
+        const readOperation = plan.targetReadOperation;
+        if (!readOperation || !this.#readTarget || plan.targetDigest === null || plan.targetSnapshot === undefined || !plan.targetAuth || !plan.targetAuthAuthority) {
+          throw this.#error("target-drift", "reconciliation target cannot be verified", operationId);
+        }
+        const currentTarget = await this.#readRelationTarget(plan.operation, plan.input, relation, readOperation, selection, initialAuth, authorization.signal);
+        this.#assertApplyingPlan(plan);
+        this.#assertPlannedAuth(plan.targetAuth, plan.targetAuthAuthority, currentTarget.auth, readOperation.descriptor);
+        if (currentTarget.target.digest !== plan.targetDigest) throw this.#error("target-drift", "target changed since preview", operationId);
+        currentTargetAuth = currentTarget.auth;
+
+        const latestTargetAuth = await this.#resolveOperationAuth(readOperation.descriptor, selection, currentTarget.request, authorization.signal);
+        this.#assertApplyingPlan(plan);
+        this.#assertPlannedAuth(plan.targetAuth, plan.targetAuthAuthority, latestTargetAuth, readOperation.descriptor);
+        const latestOperationAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, authorization.signal);
+        this.#assertApplyingPlan(plan);
+        this.#assertPlannedAuth(plan.auth, plan.authAuthority, latestOperationAuth, plan.operation.descriptor);
+        currentTargetAuth = latestTargetAuth;
+      } else if (plan.operation.risk !== "read" && plan.relation === undefined) {
+        throw this.#error("operation-unavailable", "verified reconciliation contract is missing", operationId);
       }
-      return { status: "applied", plan: this.#handle(plan), output: plan.operation.project(result) };
+
+      throwIfAborted(authorization.signal, operationId);
+      if (this.#stopped || this.#now() >= plan.expiresAt) throw this.#error(this.#stopped ? "shutdown" : "plan-expired", this.#stopped ? "administration is shut down" : "plan has expired", operationId);
+      const finalAuth = await this.#resolveOperationAuth(plan.operation.descriptor, selection, request, authorization.signal);
+      this.#assertApplyingPlan(plan);
+      this.#assertPlannedAuth(plan.auth, plan.authAuthority, finalAuth, plan.operation.descriptor);
+      this.#assertEligible(plan.operation);
+
+      // Mark before dispatch: an uncertain result must never cause a second mutation attempt.
+      plan.state = "applied";
+      dispatched = true;
+      return await withAuth(finalAuth, [currentTargetAuth?.signal, authorization.signal], operationId, async (boundAuth, signal) => {
+        const result = await this.#dispatch(request, this.#dispatchContext(boundAuth, plan.operation.descriptor, this.#retryAllowed(plan.operation), signal));
+        if (result && typeof result === "object" && "status" in result && result.status === "operator-required") {
+          plan.state = "operator-required";
+          return { status: "operator-required", plan: this.#handle(plan), output: result };
+        }
+        return { status: "applied", plan: this.#handle(plan), output: plan.operation.project(result) };
+      });
     } catch (error) {
+      if (!dispatched) {
+        const failure = safeError(error);
+        if (failure.status === 401 || failure.status === 403) {
+          plan.state = "invalidated";
+          throw this.#error("unauthorized", "administration request was not authorized", operationId, failure.status);
+        }
+        if (this.#isPlanInvalidated(plan)) {
+          throw this.#error("plan-invalidated", "plan is no longer valid", operationId);
+        }
+        plan.state = error instanceof AdminError && ["credential-mismatch", "credential-disabled", "missing-scope", "unauthorized", "target-drift", "plan-invalidated", "plan-expired", "shutdown"].includes(error.code)
+          ? "invalidated"
+          : "pending";
+        if (plan.state === "pending" && this.#now() >= plan.expiresAt) plan.state = "expired";
+        throw error;
+      }
       const failure = safeError(error);
-      if (failure.status === 401 || failure.status === 403) throw this.#error("unauthorized", "administration request was not authorized", plan.operation.descriptor.operationId, failure.status);
+      if (error instanceof AdminError && error.code === "plan-invalidated") failure.uncertain = true;
+      if (failure.status === 401 || failure.status === 403) {
+        plan.state = "invalidated";
+        throw this.#error("unauthorized", "administration request was not authorized", operationId, failure.status);
+      }
       if (failure.uncertain) {
         plan.state = "unknown";
-        const reconciled = await this.#reconcileOutcome(plan, request, error, authorization.signal);
-        if (reconciled !== undefined) return { status: "unknown", plan: this.#handle(plan), output: reconciled, error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", plan.operation.descriptor.operationId)) };
-        return { status: "unknown", plan: this.#handle(plan), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", plan.operation.descriptor.operationId)) };
+        const reconciled = await this.#reconcileOutcome(plan, requestFor(plan.operation, plan.auth.endpoint, plan.input), error, authorization.signal);
+        if (reconciled.status === "applied") {
+          plan.state = "applied";
+          const output = reconciled.output === undefined || !plan.reconciliationOperation
+            ? undefined
+            : plan.reconciliationOperation.project(reconciled.output);
+          return { status: "applied", plan: this.#handle(plan), ...(output === undefined ? {} : { output }) };
+        }
+        return { status: "unknown", plan: this.#handle(plan), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", operationId)) };
       }
-      throw this.#error("dispatch-failed", "administration request failed", plan.operation.descriptor.operationId, failure.status);
+      plan.state = "invalidated";
+      throw this.#error("dispatch-failed", "administration request failed", operationId, failure.status);
     }
   }
 
   #requireAdapter(operationId: string): OperationAdapter {
     try { return this.#registry.require(operationId); } catch (error) {
-      if (error instanceof Error && "code" in error && typeof (error as { code?: unknown }).code === "string") throw this.#error((error as { code: AdminErrorCode }).code, "operation is not invokable", operationId);
+      if (error instanceof RegistryError) {
+        const code = error.code === "invalid-inventory" || error.code === "non-invokable" ? "operation-unavailable" : error.code;
+        throw this.#error(code, "operation is not invokable", operationId);
+      }
       throw error;
     }
+  }
+
+  #assertApplyingPlan(plan: InternalPlan): void {
+    if (plan.state !== "applying") {
+      throw this.#error("plan-invalidated", "plan is no longer valid", plan.operation.descriptor.operationId);
+    }
+  }
+
+  #isPlanInvalidated(plan: InternalPlan): boolean {
+    return plan.state === "invalidated";
+  }
+
+  #requireRelationRead(operationId: string, ownerOperationId: string): OperationAdapter {
+    const adapter = this.#requireAdapter(operationId);
+    this.#assertEligible(adapter);
+    const descriptor = adapter.descriptor;
+    if (adapter.risk !== "read" || descriptor.sideEffect !== "read" || descriptor.confirmation.required || RELATION_READ_METHODS[descriptor.method] !== true) {
+      throw this.#error("operation-unavailable", "reconciliation relation must name a verified ordinary GET or HEAD read", ownerOperationId);
+    }
+    return adapter;
   }
 
   #assertEligible(adapter: OperationAdapter): void {
@@ -482,74 +730,395 @@ export class AdminExecutorImpl implements AdminExecutor {
 
   #validate(adapter: OperationAdapter, input: unknown): ValidatedOperationInput {
     try { return adapter.validate(input); } catch (error) {
-      if (error instanceof Error && "code" in error && (error as { code?: unknown }).code === "invalid-input") throw this.#error("invalid-input", "operation input is invalid", adapter.descriptor.operationId);
+      if (error instanceof RegistryError && error.code === "invalid-input") {
+        throw this.#error("invalid-input", "operation input is invalid", adapter.descriptor.operationId);
+      }
       throw error;
     }
   }
 
-  #context(options: AdminPlanOptions, descriptor: OperationDescriptor): { profileId: string; endpoint: string; credentialGeneration: number } {
-    const credential = this.#credential;
-    const binding = this.#adminBinding;
-    if (!binding?.enabled) throw this.#error("credential-disabled", "administration is not enabled", descriptor.operationId);
-    if (!credential?.enabled) throw this.#error("credential-required", "management credential is required", descriptor.operationId);
-    const profileId = options.profileId ?? binding.profileId;
-    const endpoint = privateEndpoint(options.endpoint ?? binding.endpoint);
-    const credentialGeneration = credential && credential.profileId === profileId && credential.endpoint === endpoint ? credential.credentialGeneration : this.#generation;
-    if (binding.profileId !== profileId || binding.endpoint !== endpoint || binding.credentialGeneration !== credentialGeneration
-      || credential.profileId !== profileId || credential.endpoint !== endpoint) throw this.#error("credential-mismatch", "management binding changed", descriptor.operationId);
-    if (descriptor.auth.domain === "local") {
-      const host = new URL(endpoint).hostname;
-      if (!LOOPBACK_HOSTS.has(host)) throw this.#error("invalid-endpoint", "local operation requires a loopback endpoint", descriptor.operationId);
+  #selection(options: Pick<AdminPlanOptions, "profileId" | "endpoint">, fallback?: OperationSelection): OperationSelection {
+    const profileId = options.profileId ?? fallback?.profileId ?? this.#adminBinding?.profileId;
+    const endpointInput = options.endpoint ?? fallback?.endpoint ?? this.#adminBinding?.endpoint;
+    if (!profileId || endpointInput === undefined || !validProfileId(profileId)) {
+      throw this.#error("credential-required", "an operation profile and endpoint are required");
     }
-    for (const scope of descriptor.auth.scopes) if (!credential.scopes.includes(scope)) throw this.#error("missing-scope", "credential lacks required scope", descriptor.operationId);
-    return { profileId, endpoint, credentialGeneration };
+    return { profileId, endpoint: privateEndpoint(endpointInput) };
   }
 
-  #dispatchContext(context: { profileId: string; endpoint: string; credentialGeneration: number }, descriptor: OperationDescriptor, retryAllowed: boolean, signal?: AbortSignal): AdminDispatchContext {
-    const bound = this.#credential;
-    const credential = bound && bound.profileId === context.profileId && bound.endpoint === context.endpoint && bound.credentialGeneration === context.credentialGeneration ? bound : undefined;
-    if (!credential) {
+  async #resolveOperationAuth(
+    descriptor: OperationDescriptor,
+    selection: OperationSelection,
+    request: AdminRequest,
+    signal?: AbortSignal,
+  ): Promise<AdminOperationAuthBinding> {
+    if (request.operationId !== descriptor.operationId || request.operation !== descriptor) {
+      throw this.#error("operation-unavailable", "authorization request does not match its source-qualified operation", descriptor.operationId);
+    }
+    throwIfAborted(signal, descriptor.operationId);
+    if (this.#stopped) throw this.#error("shutdown", "administration is shut down", descriptor.operationId);
+    const activation = this.#adminBinding;
+    if (!activation?.enabled || this.#credentialBindingBlocked) throw this.#error("credential-disabled", "optional operations are not enabled", descriptor.operationId);
+    if (activation.profileId !== selection.profileId || activation.endpoint !== selection.endpoint) throw this.#error("credential-mismatch", "operation activation changed", descriptor.operationId);
+    const domain = descriptor.auth.domain;
+    if (domain === "unknown") throw this.#error("credential-required", "operation authentication domain is unknown", descriptor.operationId);
+
+    const policy = this.#sourcePolicy(descriptor);
+    const loopback = endpointIsLoopback(selection.endpoint);
+    if ("localOnly" in policy && policy.localOnly && !loopback) {
+      throw this.#error("invalid-endpoint", "source-qualified operation requires a loopback endpoint", descriptor.operationId);
+    }
+
+    if (domain === "public") {
+      if (policy.routeClass !== "public") throw this.#error("operation-unavailable", "public authentication contract is inconsistent", descriptor.operationId);
       return {
-        ...context,
-        credential: { profileId: context.profileId, endpoint: context.endpoint },
-        retryAllowed,
-        maxAttempts: retryAllowed ? Math.min(2, descriptor.retry.maxAttempts) : 1,
-        ...(signal === undefined ? {} : { signal }),
+        domain,
+        profileId: selection.profileId,
+        endpoint: selection.endpoint,
+        epoch: 0,
+        authority: { kind: "uncredentialed", boundary: "public" },
       };
     }
+
+    if (domain === "management") {
+      if (policy.routeClass !== "management") throw this.#error("operation-unavailable", "management authentication contract is inconsistent", descriptor.operationId);
+      const binding = this.#adminBinding;
+      const credential = this.#credential;
+      if (!binding?.enabled) throw this.#error("credential-disabled", "administration is not enabled", descriptor.operationId);
+      if (binding.profileId !== selection.profileId || binding.endpoint !== selection.endpoint) {
+        throw this.#error("credential-mismatch", "management binding changed", descriptor.operationId);
+      }
+      if (!credential?.enabled) {
+        if (loopback && policy.alternatives.some(alternative => alternative.kind === "trusted-local" && alternative.loopbackOnly)) {
+          return {
+            domain,
+            profileId: selection.profileId,
+            endpoint: selection.endpoint,
+            epoch: this.#managementEpoch,
+            authority: { kind: "uncredentialed", boundary: "loopback" },
+            signal: this.#managementController.signal,
+          };
+        }
+        throw this.#error("credential-required", "management credential is required", descriptor.operationId);
+      }
+      if (credential.profileId !== selection.profileId || credential.endpoint !== selection.endpoint
+        || credential.epoch !== this.#managementEpoch) {
+        throw this.#error("credential-mismatch", "management binding changed", descriptor.operationId);
+      }
+
+      if (credential.apiKey?.startsWith("oma_") === true) {
+        const requiredScope = requiredOmaScope(request.method, request.path);
+        if (request.method === "GET" && request.path === "/api/cli/whoami"
+          && descriptor.operationId === "GET /api/cli/whoami" && policy.bootstrap === "oma-whoami"
+          && policy.alternatives.some(alternative => alternative.kind === "oma-whoami-bootstrap" && alternative.operationId === "GET /api/cli/whoami")) {
+          const evidence = this.#omaAuthorityEvidence(this.#requireAdapter(descriptor.operationId));
+          return {
+            domain,
+            profileId: credential.profileId,
+            endpoint: credential.endpoint,
+            epoch: credential.epoch,
+            authority: { kind: "oma-whoami-bootstrap", evidence },
+            credential: { kind: "apiKey", value: credential.apiKey },
+            signal: this.#managementController.signal,
+          };
+        }
+        if (!policy.alternatives.some(
+          (alternative): alternative is Extract<ManagementAuthorizationAlternative, { readonly kind: "oma-access-token" }> =>
+            alternative.kind === "oma-access-token" && alternative.minimumScope === requiredScope,
+        )) {
+          throw this.#error("operation-unavailable", "OMA source policy does not match the pinned method/path minimum", descriptor.operationId);
+        }
+        const observed = await this.#observeOmaScope(descriptor, selection, credential, signal);
+        if (!scopeSatisfies(observed.scope, requiredScope)) {
+          throw this.#error("missing-scope", "OMA access token scope is insufficient for this operation", descriptor.operationId);
+        }
+        return {
+          domain,
+          profileId: credential.profileId,
+          endpoint: credential.endpoint,
+          epoch: credential.epoch,
+          authority: { kind: "oma-access-token", scope: observed.scope, evidence: observed.evidence },
+          credential: { kind: "apiKey", value: credential.apiKey },
+          signal: this.#managementController.signal,
+        };
+      }
+
+      let resolvedCredential: AdminOperationAuthBinding["credential"];
+      if (credential.apiKey !== undefined) {
+        const acceptsManagementKey = policy.alternatives.some(alternative => alternative.kind === "management-api-key");
+        const acceptsMcpKey = policy.alternatives.some(
+          alternative => alternative.kind === "mcp-connect" && alternative.handlerOptIn && descriptor.pathTemplate.startsWith(alternative.pathPrefix),
+        );
+        if (!acceptsManagementKey && !acceptsMcpKey) throw this.#error("credential-required", "source-qualified policy does not accept this management API key", descriptor.operationId);
+        resolvedCredential = { kind: "apiKey", value: credential.apiKey };
+      } else if (credential.cookie !== undefined) {
+        if (!policy.alternatives.some(alternative => alternative.kind === "dashboard-session")) {
+          throw this.#error("credential-required", "source-qualified policy does not accept a dashboard session", descriptor.operationId);
+        }
+        resolvedCredential = { kind: "cookie", value: credential.cookie };
+      } else {
+        throw this.#error("credential-required", "management credential is unavailable", descriptor.operationId);
+      }
+      return {
+        domain,
+        profileId: credential.profileId,
+        endpoint: credential.endpoint,
+        epoch: credential.epoch,
+        authority: {
+          kind: "server-enforced",
+          credentialKind: resolvedCredential.kind,
+        },
+        credential: resolvedCredential,
+        signal: this.#managementController.signal,
+      };
+    }
+
+    if (domain === "local") {
+      if (policy.routeClass !== "local" || !loopback || !policy.alternatives.some(alternative => alternative.kind === "trusted-local" && alternative.loopbackOnly)) {
+        throw this.#error("invalid-endpoint", "local operation requires its source-qualified loopback boundary", descriptor.operationId);
+      }
+      return {
+        domain,
+        profileId: selection.profileId,
+        endpoint: selection.endpoint,
+        epoch: 0,
+        authority: { kind: "uncredentialed", boundary: "loopback" },
+        signal: this.#managementController.signal,
+      };
+    }
+
+    const requiredAlternative = domain === "runtime" ? "runtime-api-key" : "metadata-api-key";
+    if ((policy.routeClass !== "client-api" && policy.routeClass !== "management")
+      || !policy.alternatives.some(alternative => alternative.kind === requiredAlternative)) {
+      throw this.#error("operation-unavailable", "source-qualified API key policy is unavailable", descriptor.operationId);
+    }
+    if (!this.#resolveAuth) throw this.#error("credential-required", "operation authentication resolver is unavailable", descriptor.operationId);
+    let resolved: AdminOperationAuthBinding | undefined;
+    try {
+      resolved = await this.#resolveAuth(descriptor, {
+        ...selection,
+        ...(signal === undefined ? {} : { signal }),
+      });
+    } catch {
+      throwIfAborted(signal, descriptor.operationId);
+      throw this.#error("credential-required", "operation authentication is unavailable", descriptor.operationId);
+    }
+    throwIfAborted(signal, descriptor.operationId);
+    if (typeof resolved !== "object" || resolved === null) throw this.#error("credential-required", "operation authentication is unavailable", descriptor.operationId);
+    if (resolved.domain !== domain || resolved.profileId !== selection.profileId || !validProfileId(resolved.profileId)) {
+      throw this.#error("credential-mismatch", "operation authentication binding changed", descriptor.operationId);
+    }
+    let endpoint: string;
+    try { endpoint = privateEndpoint(resolved.endpoint); } catch { throw this.#error("invalid-endpoint", "operation authentication endpoint is invalid", descriptor.operationId); }
+    if (endpoint !== selection.endpoint) throw this.#error("credential-mismatch", "operation authentication endpoint changed", descriptor.operationId);
+    if (!Number.isSafeInteger(resolved.epoch) || resolved.epoch < 0) throw this.#error("credential-mismatch", "operation authentication epoch is invalid", descriptor.operationId);
+    if (resolved.authority.kind !== "server-enforced" || resolved.authority.credentialKind !== "apiKey") {
+      throw this.#error("credential-mismatch", "API key authority binding is invalid", descriptor.operationId);
+    }
+
+    if (resolved.credential === undefined || resolved.credential.kind !== "apiKey"
+      || !credentialValueValid(resolved.credential.value)) {
+      throw this.#error("credential-required", "operation requires its own API key", descriptor.operationId);
+    }
     return {
-      ...context,
-      credential,
-      retryAllowed,
-      maxAttempts: retryAllowed ? Math.min(2, descriptor.retry.maxAttempts) : 1,
+      domain,
+      profileId: resolved.profileId,
+      endpoint,
+      epoch: resolved.epoch,
+      authority: resolved.authority,
+      credential: { kind: "apiKey", value: resolved.credential.value },
+      ...(resolved.signal === undefined ? {} : { signal: resolved.signal }),
+    };
+  }
+
+  #sourcePolicy(descriptor: OperationDescriptor): Exclude<OperationSourceAuthorizationPolicy, { readonly status: "unknown" }> {
+    const policy = descriptor.auth.sourcePolicy;
+    if (policy.status !== "qualified") throw this.#error("operation-unavailable", "operation has no source-qualified authorization contract", descriptor.operationId);
+    return policy;
+  }
+
+  #omaAuthorityEvidence(adapter: OperationAdapter): OMAAuthorityEvidence {
+    const receipt = adapter.descriptor.qualification;
+    if (adapter.eligibility.status !== "verified" || !receipt || adapter.descriptor.operationId !== "GET /api/cli/whoami") {
+      throw this.#error("operation-unavailable", "qualified OMA whoami evidence is unavailable", "GET /api/cli/whoami");
+    }
+    return {
+      operationId: adapter.descriptor.operationId,
+      releaseCommit: receipt.releaseCommit,
+      sourceSha256: receipt.binding.handlerSha256,
+      testId: receipt.test.id,
+      caseSha256: receipt.test.caseSha256,
+      outcomeSha256: receipt.test.outcomeSha256,
+    };
+  }
+
+  async #observeOmaScope(
+    descriptor: OperationDescriptor,
+    selection: OperationSelection,
+    credential: InternalCredential,
+    signal?: AbortSignal,
+  ): Promise<{ readonly scope: OMAAccessTokenScope; readonly evidence: OMAAuthorityEvidence }> {
+    const operationId = "GET /api/cli/whoami";
+    const whoami = this.#requireAdapter(operationId);
+    const policy = this.#sourcePolicy(whoami.descriptor);
+    if (policy.routeClass !== "management" || policy.bootstrap !== "oma-whoami"
+      || !policy.alternatives.some(alternative => alternative.kind === "oma-whoami-bootstrap" && alternative.operationId === operationId)) {
+      throw this.#error("operation-unavailable", "source-qualified OMA whoami bootstrap is unavailable", descriptor.operationId);
+    }
+    this.#assertEligible(whoami);
+    if (!credential.apiKey?.startsWith("oma_")) throw this.#error("credential-mismatch", "OMA access token binding changed", descriptor.operationId);
+
+    const evidence = this.#omaAuthorityEvidence(whoami);
+    const auth: AdminOperationAuthBinding = {
+      domain: "management",
+      profileId: credential.profileId,
+      endpoint: credential.endpoint,
+      epoch: credential.epoch,
+      authority: { kind: "oma-whoami-bootstrap", evidence },
+      credential: { kind: "apiKey", value: credential.apiKey },
+      signal: this.#managementController.signal,
+    };
+    const request = requestFor(whoami, selection.endpoint, this.#validate(whoami, {}));
+    let raw: unknown;
+    try {
+      raw = await withAuth(auth, [signal], operationId, async (boundAuth, combinedSignal) => {
+        return this.#dispatch(request, this.#dispatchContext(boundAuth, whoami.descriptor, this.#retryAllowed(whoami), combinedSignal));
+      });
+    } catch (error) {
+      throwIfAborted(signal, descriptor.operationId);
+      if (error instanceof AdminError) throw error;
+      const failure = safeError(error);
+      if (failure.status === 401 || failure.status === 403) {
+        throw this.#error("unauthorized", "OMA access token could not authenticate to qualified whoami", descriptor.operationId, failure.status);
+      }
+      throw this.#error("credential-required", "OMA token scope could not be observed from qualified whoami", descriptor.operationId, failure.status);
+    }
+
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+      throw this.#error("missing-scope", "qualified whoami did not return an authenticated OMA token identity", descriptor.operationId);
+    }
+    let projected: unknown;
+    try { projected = whoami.project(raw); } catch {
+      throw this.#error("missing-scope", "qualified whoami response did not satisfy its source contract", descriptor.operationId);
+    }
+    if (typeof projected !== "object" || projected === null || Array.isArray(projected)) {
+      throw this.#error("missing-scope", "qualified whoami response did not satisfy its source contract", descriptor.operationId);
+    }
+    const response = raw as { readonly authenticated?: unknown; readonly viaAccessToken?: unknown; readonly scope?: unknown };
+    if (response.authenticated !== true || response.viaAccessToken !== true
+      || (response.scope !== "read" && response.scope !== "write" && response.scope !== "admin")) {
+      throw this.#error("missing-scope", "qualified whoami did not prove a valid OMA token scope", descriptor.operationId);
+    }
+    return { scope: response.scope, evidence };
+  }
+
+  #assertAuthUnchanged(before: AdminOperationAuthBinding, after: AdminOperationAuthBinding, descriptor: OperationDescriptor): void {
+    if (!sameIdentity(identityOf(before), identityOf(after)) || !sameAuthority(before.authority, after.authority)) {
+      throw this.#error("credential-mismatch", "operation authentication changed during verification", descriptor.operationId);
+    }
+  }
+
+  #assertPlannedAuth(
+    identity: AdminAuthIdentity,
+    authority: AdminAuthorizationAuthority,
+    current: AdminOperationAuthBinding,
+    descriptor: OperationDescriptor,
+  ): void {
+    if (!sameIdentity(identity, identityOf(current)) || !sameAuthority(authority, current.authority)) {
+      throw this.#error("credential-mismatch", "operation authentication changed since preview", descriptor.operationId);
+    }
+  }
+
+  #relationForPlan(adapter: OperationAdapter): OperationReconciliationRelation | null {
+    const relation = adapter.descriptor.reconciliation;
+    if (relation === undefined) throw this.#error("operation-unavailable", "verified reconciliation contract is missing", adapter.descriptor.operationId);
+    return relation;
+  }
+
+  async #readRelationTarget(
+    operation: OperationAdapter,
+    payload: ValidatedOperationInput,
+    relation: OperationReconciliationRelation,
+    readOperation: OperationAdapter,
+    selection: OperationSelection,
+    mutationAuth: AdminOperationAuthBinding,
+    signal?: AbortSignal,
+  ): Promise<{ target: AdminTarget; auth: AdminOperationAuthBinding; request: AdminRequest }> {
+    if (!this.#readTarget) throw this.#error("target-drift", "reconciliation target reader is unavailable", operation.descriptor.operationId);
+    this.#assertEligible(readOperation);
+    const readInput = readOperation.validate(mapRelationInput(relation.targetRead.inputs, payload));
+    const request = requestFor(readOperation, selection.endpoint, readInput);
+    const auth = await this.#resolveOperationAuth(readOperation.descriptor, selection, request, signal);
+    return withAuth(auth, [mutationAuth.signal, signal], operation.descriptor.operationId, async (boundAuth, combinedSignal) => {
+      const result = await this.#readTarget?.({
+        auth: boundAuth,
+        operation: operation.descriptor,
+        payload,
+        relation: relation.targetRead,
+        readOperation: readOperation.descriptor,
+        ...(combinedSignal === undefined ? {} : { signal: combinedSignal }),
+      });
+      if (!result || typeof result.digest !== "string" || !SHA256_DIGEST.test(result.digest)) {
+        throw this.#error("target-drift", "reconciliation target digest is invalid", operation.descriptor.operationId);
+      }
+      let computedDigest: string;
+      try { computedDigest = digest(result.snapshot); } catch {
+        throw this.#error("target-drift", "reconciliation target snapshot is invalid", operation.descriptor.operationId);
+      }
+      if (computedDigest !== result.digest) throw this.#error("target-drift", "reconciliation target snapshot digest does not match", operation.descriptor.operationId);
+      return { target: { digest: result.digest, snapshot: result.snapshot }, auth, request };
+    });
+  }
+
+  #dispatchContext(auth: AdminOperationAuthBinding, descriptor: OperationDescriptor, retryAllowed: boolean, signal?: AbortSignal): AdminDispatchContext {
+    const canRetry = retryAllowed && descriptor.retry.allowed;
+    return {
+      auth,
+      retryAllowed: canRetry,
+      maxAttempts: canRetry ? Math.min(2, descriptor.retry.maxAttempts) : 1,
       ...(signal === undefined ? {} : { signal }),
     };
   }
 
-  async #targetDigest(context: { profileId: string; endpoint: string; credentialGeneration: number }, descriptor: OperationDescriptor, payload: ValidatedOperationInput, supplied: string | undefined, signal?: AbortSignal): Promise<string> {
-    if (supplied !== undefined) return supplied;
-    if (!this.#readTarget) return "unavailable";
-    const bound = this.#credential;
-    const credential: AdminCredentialInput = bound && bound.profileId === context.profileId && bound.endpoint === context.endpoint && bound.credentialGeneration === context.credentialGeneration
-      ? bound
-      : { profileId: context.profileId, endpoint: context.endpoint };
-    const result = await this.#readTarget({ ...context, credential, operation: descriptor, payload, ...(signal === undefined ? {} : { signal }) });
-    return targetDigestFrom(result);
+  #retryAllowed(adapter: OperationAdapter): boolean {
+    return adapter.risk === "read" && SAFE_READ_METHODS[adapter.descriptor.method] === true;
   }
 
-  async #reconcileOutcome(plan: InternalPlan, request: AdminRequest, originalError: unknown, signal?: AbortSignal): Promise<unknown> {
-    if (!this.#reconcile) return undefined;
-    const context: AdminReconcileContext = {
-      ...this.#dispatchContext({ profileId: plan.profileId, endpoint: plan.endpoint, credentialGeneration: plan.credentialGeneration }, plan.operation.descriptor, false, signal),
-      operation: plan.operation.descriptor,
-      request,
-      originalError,
-    };
+  async #reconcileOutcome(
+    plan: InternalPlan,
+    request: AdminRequest,
+    originalError: unknown,
+    signal?: AbortSignal,
+  ): Promise<AdminReconcileResult> {
+    const relation = plan.relation;
+    const readOperation = plan.reconciliationOperation;
+    const reconcile = this.#reconcile;
+    const originalTarget = plan.targetSnapshot;
+    if (!relation || !readOperation || !reconcile || originalTarget === undefined) return { status: "unknown" };
     try {
-      const result = await this.#reconcile(context);
-      return plan.operation.project(result);
+      this.#assertEligible(readOperation);
+      const selection = { profileId: plan.auth.profileId, endpoint: plan.auth.endpoint };
+      const readInput = readOperation.validate(mapRelationInput(relation.reconcile.inputs, plan.input));
+      const readRequest = requestFor(readOperation, selection.endpoint, readInput);
+      const auth = await this.#resolveOperationAuth(readOperation.descriptor, selection, readRequest, signal);
+      const result = await withAuth(auth, [signal], plan.operation.descriptor.operationId, async (boundAuth, combinedSignal) => {
+        const context: AdminReconcileContext = {
+          auth: boundAuth,
+          operation: plan.operation.descriptor,
+          request,
+          payload: plan.input,
+          relation: relation.reconcile,
+          readOperation: readOperation.descriptor,
+          originalTarget,
+          originalError,
+          ...(combinedSignal === undefined ? {} : { signal: combinedSignal }),
+        };
+        return reconcile(context);
+      });
+      if (result.status === "applied") return result;
+      return { status: "unknown" };
     } catch {
-      return undefined;
+      return { status: "unknown" };
     }
   }
 
@@ -557,22 +1126,32 @@ export class AdminExecutorImpl implements AdminExecutor {
     return {
       planId: plan.planId,
       operationId: plan.operation.descriptor.operationId,
-      profileId: plan.profileId,
-      endpoint: plan.endpoint,
-      credentialGeneration: plan.credentialGeneration,
+      auth: { ...plan.auth },
+      targetAuth: plan.targetAuth === null ? null : { ...plan.targetAuth },
       payloadDigest: plan.payloadDigest,
       targetDigest: plan.targetDigest,
       risk: plan.operation.risk,
       createdAt: plan.createdAt,
       expiresAt: plan.expiresAt,
       state: plan.state,
-      preview: plan.preview,
+      preview: structuredClone(plan.preview),
     };
   }
 
   #denied(plan: InternalPlan, code: AdminErrorCode, message: string): AdminApplyResult {
     const error = this.#error(code, message, plan.operation.descriptor.operationId);
     return { status: "denied", plan: this.#handle(plan), error: errorResult(error) };
+  }
+
+  #advanceManagementEpoch(): void {
+    this.#managementEpoch += 1;
+    this.#managementController.abort();
+    this.#managementController = new AbortController();
+  }
+
+  #renewManagementSignal(): void {
+    this.#managementController.abort();
+    this.#managementController = new AbortController();
   }
 
   #error(code: AdminErrorCode, message: string, operationId?: string, status?: number): AdminError {

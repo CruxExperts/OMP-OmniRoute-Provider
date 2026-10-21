@@ -33,11 +33,11 @@ the same private channel.
 ## Supported security surface
 
 Security fixes target the currently documented package release, OMP hosts in
-the declared `>=18.2.3 <19` range, and the functional OmniRoute HTTP boundary it
+the declared `>=18.12.2 <19` range, and the functional OmniRoute HTTP boundary it
 consumes. The minimum and latest stable OMP hosts receive lifecycle smoke
 coverage; a new major version remains unsupported until that evidence passes.
-OMP 18.2.3 is the minimum because earlier hosts do not provide the masked native
-provider-login contract required for credential handling. A changed OmniRoute
+The declared minimum is OMP 18.12.2. Release acceptance requires fresh native
+credential and lifecycle evidence; a declared range alone is not test evidence. A changed OmniRoute
 descriptor source snapshot requires contract regeneration, but the extension
 does not install, build, or pin OmniRoute's application dependency graph.
 
@@ -75,14 +75,15 @@ The principal threats and controls are:
 - **Unauthorized administration:** the operation registry uses closed IDs and
   strict validators; the read tool exposes only ordinary safe reads; mutation
   and sensitive reads require human plan/apply, target re-read, drift checks,
-  and a fresh short-lived plan. Every route, including upstream-public routes,
-  requires an enabled exact binding and a separate management credential.
+  and a fresh short-lived plan. Every route requires an enabled exact binding and its source-qualified
+  authorization domain. Runtime and metadata credentials are never promoted to
+  management authority; upstream-public routes do not imply management privilege.
 - **Write replay or ambiguous outcomes:** writes are not automatically retried;
   uncertain outcomes are reconciled once and remain explicitly unknown; plans
   cannot be applied after expiry, endpoint/credential changes, or drift.
 - **Inference replay and selector cache:** one extension invocation permits one
-  outbound POST and rejects redirects. Tested OMP 18.2.x hosts have no extension
-  hook to disable their provider-name selector cache or identify a later outer-loop retry,
+  outbound POST and rejects redirects. Host selector caching and later outer-loop retries remain outside the
+  extension invocation boundary,
   so cached rows may remain visible and session-wide no-replay is not claimed.
   Binding guards still prevent stale rows from dispatching after endpoint,
   credential, generation, or shutdown changes.

@@ -1,6 +1,8 @@
-import { dirname, isAbsolute, resolve } from "node:path";
+import type { OperationPathParameterDescriptor, OperationRequest } from "./registry.ts";
+import type { AdminQueryParameter } from "./types.ts";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, type FileHandle } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
 
 /** Limits are deliberately small enough for an interactive administration session. */
 export const ADMIN_ADAPTER_LIMITS = {
@@ -62,21 +64,24 @@ export interface RegisteredOperation {
   readonly adapterId: string | null;
   readonly method: string;
   readonly pathTemplate: string;
-  readonly mediaType?: { request?: string | null; response: string };
-  readonly streaming?: { mode: "json" | "sse" | "websocket" | "binary"; framing: string };
-  readonly auth?: { domain: string; scopes: readonly string[] };
+  readonly mediaType?: { request?: string | null; response: string | null };
+  readonly request?: Pick<OperationRequest, "pathParameters" | "body">;
+  readonly streaming?: { mode: "json" | "sse" | "websocket" | "binary" | "unknown"; framing: string };
+  readonly auth?: { domain: string };
+  readonly coverage?: { status: "invokable" | "unqualified" | "non-invokable" | "operator-required" };
 }
 
 export interface AdapterInvocation {
   readonly descriptor: RegisteredOperation;
   readonly endpoint: string;
   readonly credential?: AdminCredential;
-  readonly path?: Readonly<Record<string, string>>;
-  /** Already-built path from the closed registry; never supplied by model-authored URLs. */
-  readonly resolvedPath?: string;
-  readonly query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  /** Closed-registry serialization; no adapter-side route or query fallback exists. */
+  readonly resolvedPath: string;
+  readonly queryParameters: readonly AdminQueryParameter[];
   readonly body?: unknown;
   readonly signal?: AbortSignal;
+  /** Revalidate the operation's own authority after asynchronous body preparation. */
+  readonly authorize?: () => Promise<void>;
   readonly onProgress?: (update: ProgressUpdate) => void;
   /** Only explicitly registered loopback operations may set this. */
   readonly requireLoopback?: boolean;
@@ -127,46 +132,75 @@ export function validateAdminEndpoint(input: string, requireLoopback = false): U
 }
 
 function ensureDescriptor(descriptor: RegisteredOperation): void {
-  if (!descriptor || typeof descriptor.operationId !== "string" || !descriptor.operationId || typeof descriptor.adapterId !== "string") {
-    throw new AdminAdapterError("invalid_route", "operation is not a closed, invokable descriptor");
+  if (!descriptor || typeof descriptor.operationId !== "string" || !descriptor.operationId) {
+    throw new AdminAdapterError("invalid_route", "operation is not a closed descriptor");
   }
   if (!/^(GET|HEAD|OPTIONS|POST|PUT|PATCH|DELETE)$/.test(descriptor.method)) throw new AdminAdapterError("invalid_route", "operation method is not allowed");
   if (!/^\/(?:[A-Za-z0-9._~-]+|\{[A-Za-z0-9._~-]+\})(?:\/(?:[A-Za-z0-9._~-]+|\{[A-Za-z0-9._~-]+\}))*$/.test(descriptor.pathTemplate)) throw new AdminAdapterError("invalid_route", "operation path template is not valid");
-  if (!descriptor.adapterId.startsWith("typed.")) throw new AdminAdapterError("adapter_unavailable", "operation has no typed adapter");
+  if (descriptor.adapterId !== null && !descriptor.adapterId.startsWith("typed.")) throw new AdminAdapterError("adapter_unavailable", "operation has no typed adapter");
 }
 
 function buildUrl(invocation: AdapterInvocation): URL {
   ensureDescriptor(invocation.descriptor);
+  if (typeof invocation.descriptor.adapterId !== "string") throw new AdminAdapterError("adapter_unavailable", "operation has no executable adapter");
   const endpoint = validateAdminEndpoint(invocation.endpoint, invocation.requireLoopback ?? invocation.descriptor.auth?.domain === "local");
-  const path = invocation.resolvedPath ?? invocation.descriptor.pathTemplate.replace(/\{([A-Za-z0-9._~-]+)\}/g, (_match, name: string) => {
-    const value = invocation.path?.[name];
-    if (value === undefined || value.length === 0 || /[\\/\u0000-\u001f\u007f]/.test(value)) throw new AdminAdapterError("invalid_path", `missing or invalid path parameter ${name}`);
-    return encodeURIComponent(value);
-  });
-  if (/\{[^}]+\}/.test(path) || !path.startsWith("/") || /[\u0000-\u001f\u007f]/.test(path)) throw new AdminAdapterError("invalid_path", "unresolved or unsafe operation path");
+  const path = invocation.resolvedPath;
+  if (/\{[^}]+\}/.test(path) || !path.startsWith("/") || /[?#\u0000-\u001f\u007f]/.test(path)) {
+    throw new AdminAdapterError("invalid_path", "unresolved or unsafe operation path");
+  }
   const templateSegments = invocation.descriptor.pathTemplate.split("/").slice(1);
   const pathSegments = path.split("/").slice(1);
-  if (templateSegments.length !== pathSegments.length) throw new AdminAdapterError("invalid_path", "resolved path does not match the approved operation");
-  for (let index = 0; index < templateSegments.length; index++) {
-    const template = templateSegments[index]!;
-    const segment = pathSegments[index]!;
-    if (!/^\{[^}]+\}$/.test(template) && segment !== template) throw new AdminAdapterError("invalid_path", "resolved path changed an approved literal segment");
-    if (/^\{[^}]+\}$/.test(template)) {
-      let decoded = segment;
-      for (let boundary = 0; boundary < 2; boundary++) {
-        if (decoded === "." || decoded === ".." || /[\\/]/.test(decoded)) throw new AdminAdapterError("invalid_path", "resolved path contains traversal");
-        try { decoded = decodeURIComponent(decoded); } catch { throw new AdminAdapterError("invalid_path", "resolved path encoding is invalid"); }
-      }
-      if (decoded === "." || decoded === ".." || /[\\/]/.test(decoded)) throw new AdminAdapterError("invalid_path", "resolved path is ambiguous");
+  const pathParameters = new Map((invocation.descriptor.request?.pathParameters ?? []).map(parameter => [parameter.name, parameter]));
+  let pathIndex = 0;
+  for (let templateIndex = 0; templateIndex < templateSegments.length; templateIndex++) {
+    const template = templateSegments[templateIndex]!;
+    if (!/^\{[^}]+\}$/.test(template)) {
+      if (pathSegments[pathIndex] !== template) throw new AdminAdapterError("invalid_path", "resolved path changed an approved literal segment");
+      pathIndex++;
+      continue;
     }
+    const name = template.slice(1, -1);
+    const parameter = pathParameters.get(name);
+    if (parameter?.serialization === "catch-all-segments") {
+      if (templateIndex !== templateSegments.length - 1) throw new AdminAdapterError("invalid_route", "catch-all path parameter must be final");
+      if (pathIndex === pathSegments.length && !parameter.required) continue;
+      if (pathIndex === pathSegments.length) throw new AdminAdapterError("invalid_path", `missing path parameter ${name}`);
+      for (; pathIndex < pathSegments.length; pathIndex++) {
+        const segment = pathSegments[pathIndex]!;
+        if (!segment) throw new AdminAdapterError("invalid_path", "resolved catch-all path contains an empty segment");
+        let decoded = segment;
+        for (let boundary = 0; boundary < 2; boundary++) {
+          if (decoded === "." || decoded === ".." || /[\\/]/.test(decoded)) throw new AdminAdapterError("invalid_path", "resolved catch-all path contains traversal");
+          try { decoded = decodeURIComponent(decoded); } catch { throw new AdminAdapterError("invalid_path", "resolved catch-all path encoding is invalid"); }
+        }
+        if (decoded === "." || decoded === ".." || /[\\/]/.test(decoded)) throw new AdminAdapterError("invalid_path", "resolved catch-all path is ambiguous");
+      }
+      continue;
+    }
+    const segment = pathSegments[pathIndex++];
+    if (segment === undefined || segment.length === 0) throw new AdminAdapterError("invalid_path", `missing path parameter ${name}`);
+    let decoded = segment;
+    for (let boundary = 0; boundary < 2; boundary++) {
+      if (decoded === "." || decoded === ".." || /[\\/]/.test(decoded)) throw new AdminAdapterError("invalid_path", "resolved path contains traversal");
+      try { decoded = decodeURIComponent(decoded); } catch { throw new AdminAdapterError("invalid_path", "resolved path encoding is invalid"); }
+    }
+    if (decoded === "." || decoded === ".." || /[\\/]/.test(decoded)) throw new AdminAdapterError("invalid_path", "resolved path is ambiguous");
   }
+  if (pathIndex !== pathSegments.length) throw new AdminAdapterError("invalid_path", "resolved path has unapproved segments");
   const endpointPrefix = endpoint.pathname.replace(/\/$/, "");
   const expectedPath = `${endpointPrefix}${path}`;
   endpoint.pathname = expectedPath;
   if (endpoint.pathname !== expectedPath) throw new AdminAdapterError("invalid_path", "resolved path normalized away from the approved operation");
-  for (const [key, value] of Object.entries(invocation.query ?? {})) {
-    if (value !== undefined) endpoint.searchParams.set(safeString(key, "query key"), String(value));
+  const queryParameters = invocation.queryParameters;
+  const encodedNamePattern = /^(?:[A-Za-z0-9._~!*'()\-]|%[0-9A-Fa-f]{2})+$/;
+  const encodedValuePattern = /^(?:[A-Za-z0-9._~!*'():\/?$;,|\[\]\-]|%[0-9A-Fa-f]{2})*$/;
+  for (const { encodedName, encodedValue } of queryParameters) {
+    if (!encodedNamePattern.test(encodedName) || !encodedValuePattern.test(encodedValue)) {
+      throw new AdminAdapterError("invalid_payload", "serialized query parameter is invalid");
+    }
   }
+  const queryString = queryParameters.map(({ encodedName, encodedValue }) => `${encodedName}=${encodedValue}`).join("&");
+  endpoint.search = queryString ? `?${queryString}` : "";
   return endpoint;
 }
 
@@ -251,6 +285,8 @@ async function fetchTyped(invocation: AdapterInvocation, requestBody?: BodyInit,
   const lifetime = combinedSignal(invocation.signal, ADMIN_ADAPTER_LIMITS.timeoutMs);
   invocation.onProgress?.({ phase: "request", message: `${invocation.descriptor.method} ${invocation.descriptor.pathTemplate}` });
   try {
+    await invocation.authorize?.();
+    if (lifetime.signal.aborted) throw new AdminAdapterError("cancelled", "administration request cancelled");
     const init: RequestInit = { method: invocation.descriptor.method, headers, redirect: "error", signal: lifetime.signal };
     if (requestBody !== undefined) init.body = requestBody;
     const response = await fetch(url, init);
@@ -418,7 +454,8 @@ export async function invokeWebSocketAdapter(invocation: AdapterInvocation, fact
   const httpUrl = buildUrl({ ...invocation, endpoint: endpoint.toString() });
   httpUrl.protocol = endpoint.protocol === "https:" ? "wss:" : "ws:";
   const url = httpUrl.toString();
-  if (!invocation.credential) throw new AdminAdapterError("request_failed", "WebSocket administration requires the bound management credential");
+  await invocation.authorize?.();
+  if (invocation.signal?.aborted) throw new AdminAdapterError("cancelled", "WebSocket administration request cancelled");
   const socket = factory(url, { headers: Object.fromEntries(headersFor(invocation.credential).entries()) });
   const messages: unknown[] = [];
   let bytes = 0;
@@ -511,16 +548,21 @@ export async function writeProtectedFile(input: string, bytes: Uint8Array): Prom
   return path;
 }
 
-/** Selects only a dedicated protocol adapter for a descriptor from the closed registry. */
-export function adapterFor(descriptor: RegisteredOperation): "json" | "multipart" | "binary" | "sse" | "websocket" | "operator-required" {
+/** Select only an explicitly qualified protocol adapter; unknown metadata is never guessed. */
+export function adapterFor(descriptor: RegisteredOperation): "json" | "multipart" | "binary" | "sse" | "websocket" | "operator-required" | "unavailable" {
   ensureDescriptor(descriptor);
-  const request = descriptor.mediaType?.request ?? "application/json";
-  const response = descriptor.mediaType?.response.split(";", 1)[0]?.trim().toLowerCase() ?? "";
-  const mode = descriptor.streaming?.mode ?? "json";
-  if (mode === "websocket") return "websocket";
-  if (/(?:oauth|authorize|device|login)/i.test(descriptor.pathTemplate)) return "operator-required";
-  if (mode === "sse") return "sse";
+  if (descriptor.coverage?.status === "operator-required") return "operator-required";
+  if (typeof descriptor.adapterId !== "string") return "unavailable";
+  const request = descriptor.request?.body?.mediaType ?? descriptor.mediaType?.request ?? null;
+  const response = descriptor.mediaType?.response?.split(";", 1)[0]?.trim().toLowerCase();
+  const mode = descriptor.streaming?.mode ?? "unknown";
+  if (mode === "unknown") return "unavailable";
+  if (mode === "websocket") return descriptor.streaming?.framing ? "websocket" : "unavailable";
+  if (!response) return "unavailable";
+  if (descriptor.request?.body !== null && descriptor.request?.body !== undefined && request === null) return "unavailable";
+  if (mode === "sse") return response === "text/event-stream" ? "sse" : "unavailable";
+  if (mode === "binary") return response === "application/octet-stream" ? "binary" : "unavailable";
   if (request === "multipart/form-data") return "multipart";
-  if (mode === "binary" || response === "application/octet-stream") return "binary";
-  return "json";
+  if (mode === "json" && (response === "application/json" || response.endsWith("+json"))) return "json";
+  return "unavailable";
 }

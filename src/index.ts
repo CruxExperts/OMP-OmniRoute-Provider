@@ -1,22 +1,16 @@
-import { createHash } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import { DISPLAY_NAME, PACKAGE_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
 import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
-import { type PluginConfig, loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, updateConfig } from "./config.ts";
+import { type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
 import { loadCatalogMetadata, getCatalogSourceStatus, type CatalogMetadataSnapshot } from "./catalog-sources.ts";
 import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./health.ts";
 import { readSellerPricing, PRICING_WARNING, type SellerPricing } from "./pricing.ts";
 import { requestJson, TransportError } from "./transport.ts";
-import { adapterFor, invokeBinaryAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeWebSocketAdapter, type AdapterInvocation, type AdapterResponse, type MultipartFile, type AdminCredential as AdapterCredential } from "./admin/adapters.ts";
-import { createAdminExecutor, type AdminExecutor } from "./admin/executor.ts";
-import { registerAdminCommand, type AdminUiOptions } from "./admin/ui.ts";
-import { registerAdminTools } from "./admin/tools.ts";
-import { canonicalizeJson, listOperations, operationRegistry, type OperationAdapter, type OperationDescriptor } from "./admin/registry.ts";
-import type { AdminDispatch, AdminReconcileContext, AdminRequest, AdminTargetReader, JsonObject } from "./admin/types.ts";
+import type { AdminRuntime } from "./admin/runtime.ts";
 import { createBoundInferenceStream, OMNIROUTE_GUARDED_API } from "./inference.ts";
 
 const PROVIDER_ID = "omniroute";
@@ -39,47 +33,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function multipartParts(value: unknown): { files: MultipartFile[]; fields: Record<string, string> } {
-	if (!isRecord(value)) return { files: [], fields: {} };
-	const files: MultipartFile[] = [];
-	const fields: Record<string, string> = {};
-	const fileEntries = value.files;
-	if (fileEntries !== undefined) {
-		if (!Array.isArray(fileEntries)) throw new Error("multipart files must be an array");
-		for (const entry of fileEntries) {
-			if (!isRecord(entry) || typeof entry.field !== "string" || typeof entry.path !== "string") throw new Error("multipart file entry is invalid");
-			const file: MultipartFile = { field: entry.field, path: entry.path };
-			if (typeof entry.filename === "string") file.filename = entry.filename;
-			if (typeof entry.contentType === "string") file.contentType = entry.contentType;
-			files.push(file);
-		}
-	}
-	const source = isRecord(value.fields) ? value.fields : value;
-	for (const [key, child] of Object.entries(source)) {
-		if (source === value && key === "files") continue;
-		if (source === value && key === "fields") continue;
-		if (isRecord(child) && Object.prototype.hasOwnProperty.call(child, "path")) {
-			if (typeof child.path !== "string") throw new Error("multipart file path is invalid");
-			const file: MultipartFile = { field: typeof child.field === "string" ? child.field : key, path: child.path };
-			if (typeof child.filename === "string") file.filename = child.filename;
-			if (typeof child.contentType === "string") file.contentType = child.contentType;
-			files.push(file);
-			continue;
-		}
-		fields[key] = typeof child === "string" ? child : JSON.stringify(child) ?? "";
-	}
-	return { files, fields };
-}
-async function invokeMultipartBody(invocation: AdapterInvocation, body: unknown): Promise<AdapterResponse> {
-	const parts = multipartParts(body);
-	return invokeMultipartAdapter(invocation, parts.files, parts.fields);
-}
-function scalarQuery(query: JsonObject): Record<string, string | number | boolean> {
-	return Object.fromEntries(Object.entries(query).map(([key, value]) => [
-		key,
-		typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? value : canonicalizeJson(value),
-	]));
-}
 
 function endpointRoot(endpoint: string): string {
 	return endpoint.replace(/\/+$/, "").replace(/\/v1$/, "");
@@ -259,6 +212,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			let pricingError = false;
 			let metadataError: string | undefined;
 			let availability = "not configured";
+			let metadataIsCurrent = (): boolean => true;
 			const catalogsPromise = Promise.all(catalogSources.map(source =>
 				loadCatalogMetadata(source, optionalSignal).catch(() => undefined)));
 			const pricingPromise = pricingFile
@@ -270,16 +224,25 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				if (manager.currentBinding?.generation === binding.generation) metadataState = availability;
 				try {
 					const owner = environmentMetadataKey ? undefined : await metadataContext(optionalSignal);
-					const key = environmentMetadataKey ?? (owner && metadataBinding
-						? await optionalCredentials.resolve("metadata", metadataBinding, owner.modelRegistry.authStorage)
-						: undefined)?.value;
+					const credential = metadataBinding
+						? await optionalCredentials.resolve("metadata", metadataBinding, owner?.modelRegistry.authStorage,
+							environmentMetadataKey ? { kind: "apiKey", value: environmentMetadataKey } : undefined)
+						: undefined;
+					const key = credential?.value;
 					if (!key) {
 						metadataError = "metadata_credentials_unavailable";
 						availability = "unavailable";
 						return undefined;
 					}
+					const epoch = optionalCredentials.getEpoch("metadata");
+					const credentialSignal = optionalCredentials.getSignal("metadata");
+					metadataIsCurrent = () => !stopped && !credentialSignal.aborted
+						&& optionalCredentials.getEpoch("metadata") === epoch
+						&& process.env[METADATA_ENV]?.trim() === environmentMetadataKey;
+					const metadataSignal = AbortSignal.any([optionalSignal, credentialSignal]);
 					const value = await requestJson(`${endpointRoot(binding.endpoint)}/api/models/catalog`, key,
-						{ ...limits, totalBudgetMs: 5_000 }, optionalSignal, retry);
+						{ ...limits, totalBudgetMs: 5_000 }, metadataSignal, retry);
+					if (!metadataIsCurrent()) throw new TransportError("aborted", "metadata credential changed");
 					availability = "available";
 					return value;
 				} catch {
@@ -288,11 +251,16 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					return undefined;
 				}
 			})();
-			const [loadedPricing, metadata, catalogs] = await Promise.all([pricingPromise, metadataPromise, catalogsPromise]);
+			const [loadedPricing, loadedMetadata, catalogs] = await Promise.all([pricingPromise, metadataPromise, catalogsPromise]);
 			const enabledCatalogSources = catalogSources.length === 0
 				? catalogSources
 				: (await loadConfig()).catalogSources ?? [];
 			if (signal.aborted) throw new TransportError("aborted", "enrichment binding cancelled");
+			const metadata = metadataIsCurrent() ? loadedMetadata : undefined;
+			if (loadedMetadata !== undefined && metadata === undefined) {
+				metadataError = "metadata_credentials_changed";
+				availability = "unavailable";
+			}
 			const externalMetadata = catalogs.filter((snapshot): snapshot is CatalogMetadataSnapshot =>
 				snapshot !== undefined && enabledCatalogSources.includes(snapshot.source));
 			const options: CatalogOptions = {
@@ -354,171 +322,66 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	);
 	// Cut over any previous package registration before startup discovery.
 	replaceProvider(providerConfig(oauth));
-	const readAdapterFor = (operation: OperationDescriptor): OperationAdapter | undefined => {
-		return listOperations({ method: "GET", sideEffect: "read", authDomain: operation.auth.domain })
-			.find(adapter => adapter.descriptor.pathTemplate === operation.pathTemplate);
-	};
-	const adminDispatch: AdminDispatch = async (request, dispatchContext) => {
-		const eligibility = operationRegistry.getEligibility(request.operation.operationId);
-		if (eligibility.status !== "verified") throw new Error(`administration operation unavailable: ${eligibility.reason}`);
-		const adapterId = request.operation.coverage.adapterId;
-		if (request.operation.coverage.status !== "invokable" || adapterId === null) throw new Error("administration request is not invokable");
-		const descriptor = { ...request.operation, adapterId };
-		const credential: AdapterCredential | undefined = dispatchContext.credential.apiKey
-			? { kind: "apiKey", value: dispatchContext.credential.apiKey }
-			: dispatchContext.credential.cookie
-				? { kind: "cookie", value: dispatchContext.credential.cookie }
-				: undefined;
-		const invocation: AdapterInvocation = {
-			descriptor,
-			endpoint: endpointRoot(dispatchContext.endpoint),
-			...(credential === undefined ? {} : { credential }),
-			resolvedPath: request.path,
-			query: request.query,
-			...(request.body === undefined ? {} : { body: request.body }),
-			...(dispatchContext.signal === undefined ? {} : { signal: dispatchContext.signal }),
-		};
-		const kind = adapterFor(descriptor);
-		if (kind === "operator-required") return { status: "operator-required", reason: "external-consent", message: "operator authorization is required for this external flow" };
-		const result = kind === "binary"
-			? await invokeBinaryAdapter(invocation)
-			: kind === "sse"
-				? await invokeSseAdapter(invocation)
-				: kind === "websocket"
-					? await invokeWebSocketAdapter(invocation)
-					: kind === "multipart"
-						? await invokeMultipartBody(invocation, request.body)
-						: await invokeJsonAdapter(invocation);
-		if (result.status >= 400) throw Object.assign(new Error("administration request failed"), { status: result.status });
-		return result.data;
-	};
-	const readTarget: AdminTargetReader = async target => {
-		const adapter = readAdapterFor(target.operation);
-		if (!adapter) return { digest: "unavailable" };
-		try {
-			const input = adapter.validate({ path: target.payload.path, query: target.payload.query });
-			const path = adapter.buildPath(input);
-			const request: AdminRequest = {
-				operationId: adapter.descriptor.operationId,
-				method: adapter.descriptor.method,
-				url: `${target.endpoint}${path}`,
-				path,
-				query: scalarQuery(input.query),
-				operation: adapter.descriptor,
-			};
-			const value = await adminDispatch(request, {
-				profileId: target.profileId,
-				endpoint: target.endpoint,
-				credential: target.credential,
-				credentialGeneration: target.credentialGeneration,
-				retryAllowed: true,
-				maxAttempts: Math.min(2, adapter.descriptor.retry.maxAttempts),
-				...(target.signal === undefined ? {} : { signal: target.signal }),
+	let administration: AdminRuntime | undefined;
+	let administrationFlight: Promise<AdminRuntime | undefined> | undefined;
+	const ensureAdministration = (): Promise<AdminRuntime | undefined> => {
+		if (stopped) return Promise.resolve(undefined);
+		if (administration) return Promise.resolve(administration);
+		if (administrationFlight) return administrationFlight;
+		const flight = import("./admin/runtime.ts").then(async ({ createAdminRuntime }) => {
+			if (stopped) return undefined;
+			const created = createAdminRuntime({
+				pi,
+				credentials: optionalCredentials,
+				context: () => context,
+				binding: () => manager.currentBinding,
+				bindingSignal: () => manager.bindingSignal,
+				stopped: () => stopped,
+				onConfig: current => { config = current; },
 			});
-			return { digest: createHash("sha256").update(canonicalizeJson(value)).digest("hex") };
-		} catch {
-			return { digest: "unavailable" };
-		}
-	};
-	const reconcile = async (reconcileContext: AdminReconcileContext): Promise<unknown> => {
-		const adapter = readAdapterFor(reconcileContext.operation);
-		if (!adapter) return undefined;
-		const { body: _body, ...requestWithoutBody } = reconcileContext.request;
-		const readRequest: AdminRequest = {
-			...requestWithoutBody,
-			operationId: adapter.descriptor.operationId,
-			method: adapter.descriptor.method,
-			operation: adapter.descriptor,
-		};
-		return adminDispatch(readRequest, {
-			...reconcileContext,
+			administration = created;
+			try {
+				await created.synchronize();
+				if (stopped) {
+					await created.shutdown();
+					administration = undefined;
+					return undefined;
+				}
+				return created;
+			} catch (error) {
+				await created.shutdown();
+				administration = undefined;
+				throw error;
+			}
 		});
+		administrationFlight = flight;
+		void flight.finally(() => { if (administrationFlight === flight) administrationFlight = undefined; }).catch(() => undefined);
+		return flight;
 	};
-	const adminExecutor: AdminExecutor = createAdminExecutor({ dispatch: adminDispatch, readTarget, reconcile });
-	const adminUiOptions: AdminUiOptions = {
-		executor: adminExecutor,
-		profileId: "omniroute",
+	const synchronizeAdministration = async (source: PluginConfig): Promise<void> => {
+		if (administration) await administration.synchronize(source);
+		else if (source.adminEnabled) await ensureAdministration();
 	};
-	const resolveEffectiveAdminEndpoint = async (): Promise<{ endpoint: string; credentialGeneration: number } | undefined> => {
-		const current = await loadConfig();
-		const environment = resolveEnvironmentBinding(current);
-		if (environment) return { endpoint: environment.endpoint, credentialGeneration: environment.generation };
-		if (current.active) return { endpoint: current.active.endpoint, credentialGeneration: current.active.generation };
-		return undefined;
-	};
-	adminUiOptions.resolveEffectiveEndpoint = resolveEffectiveAdminEndpoint;
-	adminUiOptions.onEnable = async endpoint => {
-		const current = await loadConfig();
-		const environment = resolveEnvironmentBinding(current);
-		const effective = environment?.endpoint ?? current.active?.endpoint;
-		if (!effective || effective !== endpoint) throw new Error("administration requires an already active exact endpoint");
-		config = await setAdminEnabledConfig(true, current.revision === undefined ? undefined : { expectedRevision: current.revision });
-		const active = resolveEnvironmentBinding(config) ?? config.active;
-		if (!active) throw new Error("administration endpoint was not activated");
-		adminUiOptions.endpoint = active.endpoint;
-		adminUiOptions.credentialGeneration = active.generation;
-		adminExecutor.setAdminBinding({ profileId: "omniroute", endpoint: active.endpoint, credentialGeneration: active.generation }, true);
-		return { endpoint: active.endpoint, credentialGeneration: active.generation };
-	};
-	const syncAdminUiBinding = (source: PluginConfig): void => {
-		if (!source.adminEnabled) {
-			adminExecutor.clearAdminBinding();
-			delete adminUiOptions.endpoint;
-			delete adminUiOptions.credentialGeneration;
-			return;
-		}
-		try {
-			const environment = resolveEnvironmentBinding(source);
-			const active = environment ?? source.active;
-			if (active) {
-				const credentialBinding = adminExecutor.getCredentialBinding();
-				const administrationGeneration = credentialBinding?.profileId === "omniroute" && credentialBinding.endpoint === active.endpoint
-					? credentialBinding.credentialGeneration : active.generation;
-				adminUiOptions.endpoint = active.endpoint;
-				adminUiOptions.credentialGeneration = administrationGeneration;
-				adminExecutor.setAdminBinding({ profileId: "omniroute", endpoint: active.endpoint, credentialGeneration: administrationGeneration });
-				return;
+	pi.registerCommand("cruxomni-admin", {
+		description: "Inspect, enable, and human-confirm optional OmniRoute operations",
+		handler: async (args, ctx) => {
+			setContext(ctx);
+			try {
+				const source = await loadConfig();
+				config = source;
+				const command = args.trim().split(/\s+/, 1)[0] ?? "";
+				if (command === "status" || command === "help" || (!source.adminEnabled && command !== "enable")) {
+					if (administration) await administration.synchronize(source);
+					notify(ctx, `omniroute operations: ${source.adminEnabled ? "enabled" : "disabled"}; /cruxomni-admin enable, disable, or search; mutations require an interactive human confirmation`);
+					return;
+				}
+				const runtime = await ensureAdministration();
+				if (runtime) await runtime.command(args, ctx);
+			} catch (error) {
+				notify(ctx, `omniroute operations unavailable (${safeDetail(error)}); no request was sent`, "warning");
 			}
-		} catch {
-			// Invalid environment bindings remain fail-closed.
-		}
-		delete adminUiOptions.endpoint;
-		delete adminUiOptions.credentialGeneration;
-		adminExecutor.clearAdminBinding();
-	};
-	const synchronizeAdministration = async (): Promise<void> => {
-		try {
-			config = await loadConfig();
-			// Reconciliation always discards the prior in-memory secret first. A
-			// missing, pending, revoked, failed, or replaced record can therefore
-			// never inherit an older usable credential.
-			adminExecutor.logout();
-			syncAdminUiBinding(config);
-			const effective = resolveEnvironmentBinding(config) ?? config.active;
-			if (config.adminEnabled && effective) {
-				adminExecutor.setAdminBinding({ profileId: "omniroute", endpoint: effective.endpoint, credentialGeneration: effective.generation }, true);
-			}
-			if (context && config.adminEnabled && !config.pending && !process.env.OMP_OMNIROUTE_ADMIN_API_KEY && !process.env.OMP_OMNIROUTE_ADMIN_COOKIE) {
-				const active = effective;
-				const saved = active ? await optionalCredentials.resolve("admin", active, context.modelRegistry.authStorage) : undefined;
-				if (active && saved) adminExecutor.bindCredential({ profileId: "omniroute", endpoint: active.endpoint, credentialGeneration: active.generation,
-					...(saved.kind === "cookie" ? { cookie: saved.value } : { apiKey: saved.value }) });
-			}
-		} catch {
-			delete adminUiOptions.endpoint;
-			delete adminUiOptions.credentialGeneration;
-			adminExecutor.clearAdminBinding();
-			throw new Error("administration configuration unavailable");
-		}
-	};
-	adminUiOptions.syncBinding = synchronizeAdministration;
-	adminUiOptions.onDisable = async () => {
-		const current = await loadConfig();
-		config = await setAdminEnabledConfig(false, current.revision === undefined ? undefined : { expectedRevision: current.revision });
-		syncAdminUiBinding(config);
-	};
-	registerAdminCommand(pi, adminUiOptions);
-	registerAdminTools(pi, { executor: adminExecutor, ui: adminUiOptions, syncBinding: synchronizeAdministration });
+		},
+	});
 	function publishCurrent(): void {
 		if (stopped) return;
 		const binding = manager.currentBinding;
@@ -544,7 +407,27 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			return saved?.type === "api_key" ? saved.key : undefined;
 		};
 		observedNativeKey = nativeKey();
+		let optionalReconciliation = Promise.resolve();
+		const reconcileOptional = async (): Promise<void> => {
+			if (stopped || observedAuthStorage !== storage) return;
+			const loaded = await loadConfig();
+			const active = resolveEnvironmentBinding(loaded) ?? loaded.active;
+			if (active) {
+				const environment = process.env[METADATA_ENV]?.trim();
+				await optionalCredentials.resolve("metadata", active, storage,
+					environment ? { kind: "apiKey", value: environment } : undefined);
+			}
+			if (administration) await administration.synchronize();
+		};
 		unsubscribeCredentials = storage.credentials.onGeneration(() => {
+			if (stopped) return;
+			// Optional-store changes revoke only their own authority. They must
+			// never cancel chat streams or invalidate the runtime discovery cache.
+			optionalReconciliation = optionalReconciliation.then(reconcileOptional, reconcileOptional);
+			void optionalReconciliation.catch(async () => {
+				optionalCredentials.clear();
+				await administration?.disable();
+			}).catch(() => undefined);
 			const next = nativeKey();
 			if (next === observedNativeKey) return;
 			observedNativeKey = next;
@@ -562,16 +445,10 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		const revision = credentialRevision;
 		let validConfiguration = false;
 		try {
-			const previousAdminEndpoint = adminUiOptions.endpoint;
-			const previousAdminGeneration = adminUiOptions.credentialGeneration;
-			const previousAdminEnabled = config.adminEnabled;
 			const previousActiveGeneration = config.active?.generation;
 			const loaded = await loadConfig();
 			config = loaded;
-			syncAdminUiBinding(config);
-			if ((previousAdminEnabled && !config.adminEnabled) || previousAdminEndpoint !== adminUiOptions.endpoint || previousAdminGeneration !== adminUiOptions.credentialGeneration) {
-				adminExecutor.disable();
-			}
+			await synchronizeAdministration(config);
 			const environment = envBinding(config.allowInsecureHttp);
 			const pending = environment ? undefined : config.pending;
 			const active = environment ?? config.active;
@@ -645,7 +522,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				metadataState = "unavailable";
 				pricingCurrent = false;
 				manager.reset();
-				adminExecutor.disable();
+				await administration?.disable();
 				publishCurrent();
 			}
 			throw error;
@@ -685,7 +562,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		} catch (error) {
 			if (manual) notify(ctx, `omniroute: refresh failed; no new catalog accepted (${safeDetail(error)})`, "warning");
 		}
-		syncAdminUiBinding(config);
+		await synchronizeAdministration(config);
 	}
 
 	const setup = createSetupWizard({
@@ -694,11 +571,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		status: () => `${manager.status.state}; models=${manager.status.modelCount}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
 		synchronizeAdmin: async ctx => {
 			setContext(ctx);
-			const current = await loadConfig();
-			const active = resolveEnvironmentBinding(current) ?? current.active;
-			adminExecutor.disable();
-			if (current.adminEnabled && active) adminExecutor.setAdminBinding({ profileId: "omniroute", endpoint: active.endpoint, credentialGeneration: active.generation }, true);
-			await synchronizeAdministration();
+			await synchronizeAdministration(await loadConfig());
 		},
 	});
 	pi.registerCommand("cruxomni", {
@@ -752,7 +625,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
 		}
 	});
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", async () => {
 		stopped = true;
 		credentialRevision++;
 		startupAborter?.abort();
@@ -770,8 +643,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		transitionNotifications = false;
 		setContext(undefined);
 		manager.shutdown();
-		adminExecutor.shutdown();
 		optionalCredentials.clear();
+		await administration?.shutdown();
 		pi.unregisterProvider(PROVIDER_ID);
 		providerRegistered = false;
 	});

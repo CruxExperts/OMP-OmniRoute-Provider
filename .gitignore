@@ -7,3 +7,6 @@ coverage/
 .DS_Store
 .agents/**
 /.localsetup/
+
+__pycache__/
+*.pyc

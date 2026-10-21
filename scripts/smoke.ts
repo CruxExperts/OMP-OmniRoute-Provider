@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { closeSync, openSync, writeSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
 import { stripVTControlCharacters } from "node:util";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
@@ -20,6 +21,7 @@ type FixtureRequest = {
   closedAt?: number;
   firstTokenAt?: number;
   stalled?: boolean;
+  failure?: string;
 };
 type FixtureServer = {
   url: string;
@@ -27,9 +29,11 @@ type FixtureServer = {
   setModelsStatus(status: 200 | 503): void;
   stallMetadata(): void;
   releaseMetadata(): void;
+  setToolRead(path: string | undefined): void;
   close(): Promise<void>;
 };
 type InferenceProtocol = "responses" | "chat-completions";
+type NativePlatformEvidence = { targetId: string; os: "linux" | "darwin" | "windows"; architecture: "x64" | "arm64"; libc: "glibc" | "musl" | null };
 type InferenceEvidence = {
   modelId: string;
   api: "openai-responses" | "openai-completions";
@@ -40,6 +44,14 @@ type InferenceEvidence = {
   metadataStalledThroughFirstToken?: true;
 };
 type LegacyCacheEvidence = { seeded: true; seederUninstalled: true; modelId: string; api: "openai-responses"; liveDiscoveryStatus: 503; selectable: false; inferencePosts: 0 };
+type ToolContinuationEvidence = {
+  modelId: string;
+  api: "openai-completions";
+  postCount: 2;
+  tool: "read";
+  fileResultObserved: true;
+  streamedContinuation: true;
+};
 
 const packageRoot = resolve(import.meta.dir, "..");
 const packageName = "@cruxexperts/cruxomni-omp-client";
@@ -52,10 +64,14 @@ const chatModelId = "fixture-chat-model";
 const legacyNativeModelId = "fixture-legacy-native-model";
 const responsesReplyText = "Fixture streamed Responses reply.";
 const chatReplyText = "Fixture streamed Chat Completions reply.";
+const toolReplyText = "Fixture tool result received; continuation complete.";
+const toolFileText = "Native tool continuation fixture file content.";
+const toolReadCallId = "call_fixture_native_read";
 const legacyCacheSeederName = "@fixture/omp-legacy-dynamic-cache-seeder";
 const commandTimeoutMs = 45_000;
 const sensitiveEnvironment = /(api[_-]?key|access[_-]?token|secret|password|credential|authorization|private[_-]?key|openai|anthropic|gemini|aws_|azure_)/i;
 const installedCliMode = "installed-cli";
+let nativeCaptureFd: number | undefined;
 
 function objectValue(value: unknown, label: string): JsonObject {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
@@ -78,11 +94,32 @@ function expectedOmpRecord(provenance: JsonObject): JsonObject {
 type ExpectedHost = { version: string; commit: string; url: string; digest: string; checksumsUrl: string; checksumsDigest: string };
 type HostCompatibility = { range: string; tested: string[] };
 
-function expectedAssets(provenance: JsonObject, testedVersions: string[]): ExpectedHost[] {
+async function nativePlatformEvidence(): Promise<NativePlatformEvidence> {
+  if (!["x64", "arm64"].includes(process.arch)) throw new Error("Unsupported smoke architecture");
+  const architecture: "x64" | "arm64" = process.arch === "arm64" ? "arm64" : "x64";
+  if (process.platform === "darwin") return { targetId: `darwin-${architecture}`, os: "darwin", architecture, libc: null };
+  if (process.platform === "win32") return { targetId: `windows-${architecture}`, os: "windows", architecture, libc: null };
+  if (process.platform !== "linux") throw new Error("Unsupported smoke platform");
+  const report = process.report?.getReport();
+  const header = report && typeof report === "object" && "header" in report ? objectValue(report.header, "native report header") : {};
+  if (typeof header.glibcVersionRuntime === "string") return { targetId: `linux-${architecture}-glibc`, os: "linux", architecture, libc: "glibc" };
+  const maps = await readFile("/proc/self/maps", "utf8").catch(() => "");
+  if (maps.includes("ld-musl-")) return { targetId: `linux-${architecture}-musl`, os: "linux", architecture, libc: "musl" };
+  throw new Error("Cannot establish the native Linux libc; no platform qualification assumed");
+}
+
+async function nativeAssetName(): Promise<string> {
+  const platform = await nativePlatformEvidence();
+  if (platform.os === "linux") return platform.libc === "musl" ? `omp-linux-musl-${platform.architecture}` : `omp-linux-${platform.architecture}`;
+  if (platform.os === "darwin") return `omp-darwin-${platform.architecture}`;
+  return `omp-windows-${platform.architecture}.exe`;
+}
+
+function expectedAssets(provenance: JsonObject, testedVersions: string[], assetName: string): ExpectedHost[] {
   const artifacts = provenance.artifacts;
   if (!Array.isArray(artifacts)) throw new Error("release artifact manifest has no artifacts array");
   const candidates = artifacts.map(value => objectValue(value, "release artifact"))
-    .filter(value => value.upstream === "omp" && value.kind === "release_asset")
+    .filter(value => value.upstream === "omp" && value.kind === "release_asset" && typeof value.url === "string" && new URL(value.url).pathname.endsWith(`/${assetName}`))
     .map(value => {
       const tag = stringValue(value.release_tag, "OMP release tag");
       const digest = stringValue(value.sha256, "OMP binary digest");
@@ -92,8 +129,9 @@ function expectedAssets(provenance: JsonObject, testedVersions: string[]): Expec
     })
     .filter(value => testedVersions.includes(value.version));
   for (const version of testedVersions) {
-    if (candidates.filter(value => value.version === version).length !== 1) throw new Error(`tested OMP ${version} must have exactly one immutable release artifact`);
+    if (candidates.filter(value => value.version === version).length > 1) throw new Error(`tested OMP ${version} has ambiguous native release artifacts`);
   }
+  if (candidates.length === 0) throw new Error("No immutable OMP artifact is recorded for this native target");
   return candidates;
 }
 
@@ -146,76 +184,222 @@ async function verifiedBinary(assets: ExpectedHost[], supportedRange: string): P
   return { path: configured, mode, version: observedVersion, digest: observed, expected: expected ?? { version: observedVersion, commit: "installed-cli", url: "installed-cli", digest: observed, checksumsUrl: "installed-cli", checksumsDigest: "0".repeat(64) } };
 }
 
-function cleanEnvironment(source: NodeJS.ProcessEnv, profileRoot?: string): NodeJS.ProcessEnv {
+export function cleanEnvironment(source: NodeJS.ProcessEnv, profileRoot?: string, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
+  const windows = platform === "win32";
+  const profilePath = windows ? win32 : undefined;
+  const joinProfile = (...parts: string[]): string => profilePath ? profilePath.join(...parts) : join(...parts);
+  const allowedWindowsVariables = new Set([
+    "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432",
+    "PROGRAMDATA", "PUBLIC", "OS", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER",
+    "PROCESSOR_LEVEL", "PROCESSOR_REVISION", "ALLUSERSPROFILE", "DRIVERDATA", "PSMODULEPATH",
+  ]);
+  const assign = (name: string, value: string, force = false): void => {
+    if (windows) {
+      const existingMatch = Object.keys(environment).find(existing => existing.toUpperCase() === name.toUpperCase());
+      if (existingMatch && !force) return;
+      if (existingMatch) delete environment[existingMatch];
+      environment[name.toUpperCase()] = value;
+    } else environment[name] = value;
+  };
   for (const [name, value] of Object.entries(source)) {
     if (value === undefined || sensitiveEnvironment.test(name)) continue;
-    if (["PATH", "LANG", "LC_ALL", "TERM", "NO_COLOR", "TZ"].includes(name)) environment[name] = value;
+    if (windows ? allowedWindowsVariables.has(name.toUpperCase()) : ["PATH", "LANG", "LC_ALL", "TERM", "NO_COLOR", "TZ"].includes(name)) assign(name, value);
   }
   if (profileRoot) {
-    environment.HOME = join(profileRoot, "home");
-    environment.XDG_CONFIG_HOME = join(profileRoot, "config");
-    environment.XDG_DATA_HOME = join(profileRoot, "data");
-    environment.XDG_CACHE_HOME = join(profileRoot, "cache");
-    environment.OMP_AGENT_DIR = join(profileRoot, "agent");
-    environment.OMP_PROFILE = "omniroute-smoke";
+    const home = joinProfile(profileRoot, windows ? "windows-user" : "home");
+    assign("HOME", home, true);
+    assign("OMP_PROFILE", "omniroute-smoke", true);
+    if (windows) {
+      assign("USERPROFILE", home, true);
+      assign("APPDATA", joinProfile(profileRoot, "windows-appdata", "Roaming"), true);
+      assign("LOCALAPPDATA", joinProfile(profileRoot, "windows-appdata", "Local"), true);
+      assign("TEMP", joinProfile(profileRoot, "windows-temp"), true);
+      assign("TMP", joinProfile(profileRoot, "windows-temp"), true);
+      const driveRoot = profilePath?.parse(home).root ?? parse(home).root;
+      if (driveRoot) {
+        assign("HOMEDRIVE", driveRoot.replace(/[\\/]$/, ""), true);
+        assign("HOMEPATH", home.slice(driveRoot.length - 1), true);
+      }
+    } else {
+      assign("XDG_CONFIG_HOME", joinProfile(profileRoot, "config"), true);
+      assign("XDG_DATA_HOME", joinProfile(profileRoot, "data"), true);
+      assign("XDG_CACHE_HOME", joinProfile(profileRoot, "cache"), true);
+      assign("OMP_AGENT_DIR", joinProfile(profileRoot, "agent"), true);
+
+    }
   }
   return environment;
 }
 
-function runtimeDependencies(value: Record<string, unknown>, label: string, hostRange: string): Record<string, string> {
-  const dependencies: Record<string, string> = {};
-  for (const [name, version] of Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) {
-    if (typeof version !== "string" || (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.test(version) && version !== hostRange)) {
-      throw new Error(`${label}.${name} must use an exact semantic version or the package OMP compatibility range`);
+type NpmInstallationEvidence = {
+  method: "npm";
+  version: string;
+  archiveSha256: string;
+  metadataGets: number;
+  tarballGets: 1;
+  installedFiles: number;
+  ordinaryDirectory: true;
+  fileDigestsMatched: true;
+  noInstalledHostSdk: true;
+  credentialFreeRegistry: true;
+};
+
+async function installedPackageFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+  const visit = async (directory: string): Promise<void> => {
+    for (const entry of await readdir(join(root, directory), { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`installed package contains a symbolic link: ${path}`);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) files.push(path.split(sep).join("/"));
+      else throw new Error(`installed package contains a non-regular entry: ${path}`);
     }
-    dependencies[name] = version;
-  }
-  return dependencies;
+  };
+  await visit("");
+  return files.sort();
 }
 
-async function materializeRuntimeDependencies(
-  extractedRoot: string,
-  profileRoot: string,
-  packageEvidence: PackageVerificationResult,
-  hostRange: string,
-): Promise<void> {
-  const manifest = objectValue(JSON.parse(await readFile(join(extractedRoot, "package.json"), "utf8")), "extracted package manifest");
-  const manifestDependencies = {
-    ...runtimeDependencies(objectValue(manifest.dependencies ?? {}, "extracted package dependencies"), "extracted package dependencies", hostRange),
-    ...runtimeDependencies(objectValue(manifest.peerDependencies ?? {}, "extracted package peer dependencies"), "extracted package peer dependencies", hostRange),
-  };
-  const verifiedDependencies: Record<string, string> = {};
-  for (const [name, range] of Object.entries(manifestDependencies)) {
-    const matches = packageEvidence.lockfile.packages.filter(item => item.name === name);
-    if (matches.length !== 1 || !Bun.semver.satisfies(matches[0]!.version, range)) {
-      throw new Error(`${name} does not resolve exactly once to a version allowed by the extracted manifest and verified lock`);
-    }
-    verifiedDependencies[name] = matches[0]!.version;
+async function verifyNativeInstalledPackage(
+  installedRoot: string,
+  profile: string,
+  evidence: PackageVerificationResult,
+  manifest: JsonObject,
+): Promise<number> {
+  if (!isAbsolute(installedRoot) || !isWithin(profile, installedRoot) || resolve(installedRoot) === resolve(profile)) {
+    throw new Error("native npm install returned a package path outside its isolated profile");
   }
-  if (Object.keys(verifiedDependencies).length === 0) return;
-
-  const lockPath = join(extractedRoot, "bun.lock");
-  await writeFile(lockPath, await readFile(join(packageRoot, "bun.lock")));
-  const extractedLock = await readFile(lockPath);
-  if (createHash("sha256").update(extractedLock).digest("hex") !== packageEvidence.lockfile.sha256) throw new Error("packed Bun lock differs from verified source lock");
-  await mkdir(profileRoot, { recursive: true });
-  const bunEnvironment: NodeJS.ProcessEnv = {
-    ...cleanEnvironment(process.env, profileRoot),
-    BUN_INSTALL_CACHE_DIR: join(profileRoot, "bun-cache"),
+  let directory = resolve(profile);
+  for (const component of relative(directory, installedRoot).split(sep)) {
+    directory = join(directory, component);
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("native npm package path is not an ordinary directory");
+  }
+  if (!isWithin(await realpath(profile), await realpath(installedRoot))) {
+    throw new Error("native npm package escaped its isolated profile through a filesystem link");
+  }
+  const files = await installedPackageFiles(installedRoot);
+  if (files.length !== evidence.entries.length || files.some((file, index) => file !== evidence.entries[index])) {
+    throw new Error("native npm package file inventory differs from the verified archive");
+  }
+  for (const file of files) {
+    const digest = createHash("sha256").update(await readFile(join(installedRoot, file))).digest("hex");
+    if (digest !== evidence.fileSha256[file]) throw new Error(`native npm package file differs from the verified archive: ${file}`);
+  }
+  const installedManifest = objectValue(JSON.parse(await readFile(join(installedRoot, "package.json"), "utf8")), "native installed manifest");
+  if (installedManifest.name !== packageName || installedManifest.version !== manifest.version) {
+    throw new Error("native npm package identity differs from the verified archive");
+  }
+  const modulesRoot = packageName.startsWith("@") ? resolve(installedRoot, "../..") : resolve(installedRoot, "..");
+  if (basename(modulesRoot).toLowerCase() !== "node_modules") throw new Error("native npm install did not use the managed node_modules tree");
+  const hostSdk = new Set(Object.keys(objectValue(manifest.peerDependencies, "packed host SDK peers")));
+  const inspectDependencies = async (root: string): Promise<void> => {
+    if (resolve(root) === resolve(installedRoot)) return;
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      const path = join(root, entry.name);
+      if (entry.isSymbolicLink()) throw new Error("native npm dependency tree contains an unverified filesystem link");
+      if (entry.isDirectory()) await inspectDependencies(path);
+      else if (entry.isFile() && entry.name === "package.json") {
+        const dependency = objectValue(JSON.parse(await readFile(path, "utf8")), "native installed dependency");
+        if (typeof dependency.name === "string" && hostSdk.has(dependency.name)) {
+          throw new Error(`native npm installation duplicated host SDK ${dependency.name}`);
+        }
+      }
+    }
   };
-  const installed = await runCommand("bun", ["install", "--frozen-lockfile", "--ignore-scripts", "--production"], {
-    cwd: extractedRoot,
-    env: bunEnvironment,
-    timeoutMs: commandTimeoutMs,
+  await inspectDependencies(modulesRoot);
+  return files.length;
+}
+
+async function installPackedPackage(
+  binary: string,
+  workspace: string,
+  environment: NodeJS.ProcessEnv,
+  profile: string,
+  evidence: PackageVerificationResult,
+): Promise<NpmInstallationEvidence> {
+  const archive = await readFile(evidence.archive);
+  const digest = createHash("sha256").update(archive).digest("hex");
+  if (digest !== evidence.archiveSha256) throw new Error("candidate archive changed after package verification");
+  const integrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
+  const manifest = objectValue(JSON.parse(await readFile(join(evidence.extractedRoot, "package.json"), "utf8")), "packed manifest");
+  if (manifest.name !== packageName) throw new Error("packed package name is not the candidate");
+  const version = stringValue(manifest.version, "packed version");
+  let registryUrl = "";
+  let metadataGets = 0;
+  let tarballGets = 0;
+  let unexpectedRequests = 0;
+  let credentialHeaders = false;
+  const server = createServer((request, response) => {
+    if (request.headers.authorization !== undefined || request.headers.cookie !== undefined) {
+      credentialHeaders = true;
+      fixtureResponse(response, 403, { error: "registry credentials are not permitted" });
+      return;
+    }
+    let path: string;
+    try {
+      path = decodeURIComponent(new URL(request.url ?? "/", registryUrl).pathname);
+    } catch {
+      unexpectedRequests++;
+      fixtureResponse(response, 400, { error: "invalid registry request" });
+      return;
+    }
+    if ((request.method === "GET" || request.method === "HEAD") && path === `/${packageName}`) {
+      if (request.method === "GET") metadataGets++;
+      const metadata = {
+        name: packageName,
+        "dist-tags": { latest: version },
+        versions: { [version]: { ...manifest, dist: { tarball: `${registryUrl}/candidate.tgz`, integrity } } },
+      };
+      if (request.method === "HEAD") response.end();
+      else fixtureResponse(response, 200, metadata);
+    } else if ((request.method === "GET" || request.method === "HEAD") && path === "/candidate.tgz") {
+      if (request.method === "GET") tarballGets++;
+      response.writeHead(200, { "content-type": "application/octet-stream", "content-length": archive.byteLength });
+      response.end(request.method === "HEAD" ? undefined : archive);
+    } else {
+      unexpectedRequests++;
+      fixtureResponse(response, 404, { error: "only the verified candidate is available" });
+    }
   });
-  requireSuccess(installed, "frozen runtime dependency materialization");
-  for (const [name, version] of Object.entries(verifiedDependencies)) {
-    const packagePath = `node_modules/${name}`;
-    const installedInfo = await lstat(join(extractedRoot, packagePath)).catch(() => undefined);
-    if (!installedInfo?.isDirectory()) throw new Error(`host runtime dependency ${name}@${version} was not materialized inside the extracted package`);
-    const receipt = objectValue(JSON.parse(await readFile(join(extractedRoot, packagePath, "package.json"), "utf8")), `installed host runtime dependency ${name}`);
-    if (typeof receipt.version !== "string" || receipt.version !== version) throw new Error(`installed host runtime dependency ${name} does not match the verified lock selection`);
+  await new Promise<void>((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  try {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("npm fixture did not expose a loopback address");
+    registryUrl = `http://127.0.0.1:${address.port}`;
+    const result = await runCommand(binary, ["install", `${packageName}@${version}`, "--json"], {
+      cwd: workspace,
+      env: {
+        ...environment,
+        npm_config_registry: registryUrl,
+        BUN_CONFIG_REGISTRY: registryUrl,
+        BUN_INSTALL_CACHE_DIR: join(profile, "bun-cache"),
+      },
+    });
+    const installed = requireJsonText(requireSuccess(result, "native npm install"), "native npm install");
+    if (credentialHeaders || unexpectedRequests !== 0 || metadataGets === 0 || tarballGets !== 1) {
+      throw new Error("native npm install did not exclusively fetch the verified candidate without credentials");
+    }
+    const installedFiles = await verifyNativeInstalledPackage(
+      stringValue(installed.path, "native install path"), profile, evidence, manifest,
+    );
+    return {
+      method: "npm",
+      version,
+      archiveSha256: digest,
+      metadataGets,
+      tarballGets: 1,
+      installedFiles,
+      ordinaryDirectory: true,
+      fileDigestsMatched: true,
+      noInstalledHostSdk: true,
+      credentialFreeRegistry: true,
+    };
+  } finally {
+    await new Promise<void>((resolvePromise, reject) => server.close(error => error ? reject(error) : resolvePromise()));
   }
 }
 
@@ -314,10 +498,9 @@ function fixtureResponsesStream(response: ServerResponse, record: FixtureRequest
   response.end();
 }
 
-function fixtureChatCompletionStream(response: ServerResponse, record: FixtureRequest, modelId: string): void {
+function fixtureChatCompletionStream(response: ServerResponse, record: FixtureRequest, modelId: string, text = chatReplyText): void {
   const id = "chatcmpl_fixture_stream";
   const created = 1_760_000_000;
-  const text = chatReplyText;
   fixtureSseHeaders(response);
   fixtureSseData(response, {
     id,
@@ -345,11 +528,32 @@ function fixtureChatCompletionStream(response: ServerResponse, record: FixtureRe
   response.end("data: [DONE]\n\n");
 }
 
+function fixtureReadToolStream(response: ServerResponse, modelId: string, input: JsonObject): void {
+  fixtureSseHeaders(response);
+  const chunk = { id: "chatcmpl_fixture_tool", object: "chat.completion.chunk", created: 1_760_000_000, model: modelId };
+  fixtureSseData(response, { ...chunk, choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{
+    index: 0, id: toolReadCallId, type: "function", function: { name: "read", arguments: JSON.stringify(input) },
+  }] }, finish_reason: null }] });
+  fixtureSseData(response, { ...chunk, choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage: { prompt_tokens: 3, completion_tokens: 5, total_tokens: 8 } });
+  response.write("data: [DONE]\n\n");
+  response.end();
+}
+
+function hasNativeReadResult(body: JsonObject): boolean {
+  return Array.isArray(body.messages) && body.messages.some(value => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    const message = objectValue(value, "native tool result message");
+    return message.role === "tool" && message.tool_call_id === toolReadCallId
+      && (typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? null)).includes(toolFileText);
+  });
+}
+
 async function startFixtureServer(): Promise<FixtureServer> {
   const requests: FixtureRequest[] = [];
   const metadataWaiters = new Set<() => void>();
   let modelsStatus: 200 | 503 = 200;
   let metadataStalled = false;
+  let toolRead: { path: string; callSent: boolean } | undefined;
   const releaseMetadata = (): void => {
     metadataStalled = false;
     for (const release of [...metadataWaiters]) release();
@@ -401,7 +605,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
           object: "list",
           data: [
             { id: responsesModelId, object: "model", owned_by: "fixture", supported_endpoints: ["responses"] },
-            { id: chatModelId, object: "model", owned_by: "fixture", supported_endpoints: ["chat-completions"] },
+            { id: chatModelId, object: "model", owned_by: "fixture", supported_endpoints: ["chat-completions"], supportsTools: true },
           ],
         });
         return;
@@ -410,6 +614,32 @@ async function startFixtureServer(): Promise<FixtureServer> {
         const expectedModel = path === "/v1/responses" ? responsesModelId : chatModelId;
         if (request.method !== "POST" || requestJson?.stream !== true || requestJson.model !== expectedModel) {
           fixtureResponse(response, 400, { error: "unexpected_inference_request" });
+          return;
+        }
+        if (path === "/v1/chat/completions" && toolRead) {
+          if (!toolRead.callSent) {
+            const tools = Array.isArray(requestJson.tools) ? requestJson.tools : [];
+            const read = tools.map(value => objectValue(value, "advertised tool")).find(value => {
+              const definition = value.function;
+              return definition !== null && typeof definition === "object" && !Array.isArray(definition)
+                && objectValue(definition, "tool function").name === "read";
+            });
+            if (!read) throw new Error("native read tool was not advertised");
+            const parameters = objectValue(objectValue(read.function, "read function").parameters, "read parameters");
+            const properties = objectValue(parameters.properties, "read parameter properties");
+            const pathField = Object.hasOwn(properties, "path") ? "path" : Object.hasOwn(properties, "file_path") ? "file_path" : undefined;
+            if (!pathField || !Array.isArray(parameters.required) || parameters.required.some(field => field !== pathField && field !== "i")) {
+              throw new Error("native read tool has an unsupported required input contract");
+            }
+            toolRead.callSent = true;
+            // OMP injects a required `i` intent field into tool wire schemas.
+            // Send a real intent so its agent loop can strip it before validating ReadTool.
+            const input = { [pathField]: toolRead.path, ...(Object.hasOwn(properties, "i") ? { i: "Read the disposable continuation fixture." } : {}) };
+            fixtureReadToolStream(response, expectedModel, input);
+          } else {
+            if (!hasNativeReadResult(requestJson)) throw new Error("native continuation omitted the actual file read result");
+            fixtureChatCompletionStream(response, record, expectedModel, toolReplyText);
+          }
           return;
         }
         if (path === "/v1/responses") fixtureResponsesStream(response, record, expectedModel);
@@ -448,7 +678,8 @@ async function startFixtureServer(): Promise<FixtureServer> {
       }
       fixtureResponse(response, 404, { error: "not_found" });
     } catch (error) {
-      fixtureResponse(response, 500, { error: error instanceof Error ? error.message : String(error) });
+      record.failure = error instanceof Error ? error.message : String(error);
+      fixtureResponse(response, 500, { error: record.failure });
     }
   });
   await new Promise<void>((resolvePromise, reject) => {
@@ -461,6 +692,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
     url: `http://127.0.0.1:${address.port}`,
     requests,
     setModelsStatus: status => { modelsStatus = status; },
+    setToolRead: path => { toolRead = path === undefined ? undefined : { path, callSent: false }; },
     stallMetadata: () => { metadataStalled = true; },
     releaseMetadata,
     close: async () => {
@@ -563,6 +795,13 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     data(term, bytes) {
       const text = decoder.decode(bytes, { stream: true });
       stdout += text;
+      if (nativeCaptureFd !== undefined) {
+        try {
+          writeSync(nativeCaptureFd, bytes);
+        } catch {
+          child?.kill("SIGTERM");
+        }
+      }
       const dialogue = options.dialogue;
       if (!dialogue || dialogueCompleted >= dialogue.length) return;
       dialogueBuffer = `${dialogueBuffer}${text}`.slice(-32_768);
@@ -595,7 +834,10 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     for (const step of options.inputSteps) {
       elapsed += step.afterMs;
       setTimeout(() => {
-        if (!terminal.closed) writeInput(terminal, step.text);
+        if (step.text === "__SIGTERM__") child?.kill("SIGTERM");
+        else if (step.text === "__ESC__") {
+          if (!terminal.closed) terminal.write("\u001b");
+        } else if (!terminal.closed) writeInput(terminal, step.text);
       }, elapsed).unref();
     }
   } else if (!options.dialogue && options.input) {
@@ -620,8 +862,8 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
 
 
 function requireSuccess(result: CommandResult, label: string): string {
-  if (result.code !== 0) throw new Error(`${label} failed with exit ${result.code ?? "unknown"}: ${result.stderr.slice(0, 2000)}`);
   if ([runtimeKey, adminKey, metadataKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error(`${label} leaked fixture credentials`);
+  if (result.code !== 0) throw new Error(`${label} failed with exit ${result.code ?? "unknown"}: ${`${result.stdout}\n${result.stderr}`.slice(-2000)}`);
   return `${result.stdout}\n${result.stderr}`;
 }
 
@@ -718,6 +960,93 @@ async function nativePromptSetup(binary: string, cwd: string, environment: NodeJ
   return { masked };
 }
 
+async function nativeAdminWalkthrough(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<void> {
+  const inputSteps = [
+    { afterMs: 6_000, text: "/cruxomni-admin status\n" },
+    { afterMs: 1_500, text: "/cruxomni-admin enable\n" },
+    { afterMs: 2_500, text: "y\n" },
+    { afterMs: 4_000, text: "/cruxomni-admin fallback/chains\n" },
+    { afterMs: 2_500, text: "__ESC__" },
+    { afterMs: 1_000, text: "/cruxomni-admin model-capability-overrides\n" },
+    { afterMs: 2_500, text: "__ESC__" },
+    { afterMs: 750, text: "__SIGTERM__" },
+  ];
+  const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 35_000, inputSteps });
+  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  const requiredOperations = [
+    "GET /api/fallback/chains",
+    "POST /api/fallback/chains",
+    "DELETE /api/fallback/chains",
+    "GET /api/model-capability-overrides",
+    "PATCH /api/model-capability-overrides",
+    "DELETE /api/model-capability-overrides",
+  ];
+  if (result.signal !== "SIGTERM" && result.code !== 143) {
+    throw new Error(`native administration walkthrough did not stop after browser cancellation (exit ${result.code ?? "unknown"})`);
+  }
+  for (const operationId of requiredOperations) {
+    if (!output.includes(`${operationId} [available]`)) {
+      throw new Error(`native administration browse did not show the source-qualified operation as available: ${operationId}`);
+    }
+  }
+  if (/operation failed|read result for|administration plan applied/i.test(output)) {
+    throw new Error("native administration walkthrough progressed beyond the operation browser");
+  }
+}
+
+function requireNativeReply(result: CommandResult, label: string, expectedText: string): void {
+  requireSuccess(result, label);
+  let assistant: JsonObject | undefined;
+  for (const line of result.stdout.split(/\r?\n/)) {
+    let event: JsonObject;
+    try { event = objectValue(JSON.parse(line), "native event"); } catch { continue; }
+    if (event.type !== "message_end") continue;
+    const message = objectValue(event.message, "completed native message");
+    if (message.role === "assistant") assistant = message;
+  }
+  if (!assistant || assistant.stopReason !== "stop" || !Array.isArray(assistant.content)) {
+    throw new Error(`${label} did not complete a successful assistant message`);
+  }
+  const text = assistant.content.map(part => objectValue(part, "assistant content"))
+    .filter(part => part.type === "text").map(part => stringValue(part.text, "assistant text")).join("");
+  if (text !== expectedText) throw new Error(`${label} did not assemble the streamed fixture response`);
+  const usage = objectValue(assistant.usage, "assistant usage");
+  if (usage.input !== 3 || usage.output !== 5) throw new Error(`${label} did not preserve the reported input/output token usage`);
+}
+
+async function nativeToolContinuation(
+  binary: string,
+  cwd: string,
+  environment: NodeJS.ProcessEnv,
+  fixture: FixtureServer,
+): Promise<ToolContinuationEvidence> {
+  const path = join(cwd, "native-tool-result.txt");
+  await writeFile(path, toolFileText, { mode: 0o600 });
+  const requestStart = fixture.requests.length;
+  fixture.setToolRead(path);
+  try {
+    const result = await runCommand(binary, [
+      "--profile=omniroute-smoke", "--no-session", "--print", "--mode=json",
+      "--model", `${providerId}/${chatModelId}`,
+      "Complete this isolated native tool and continuation check.",
+    ], { cwd, env: environment, timeoutMs: 20_000 });
+    const failedRequest = fixture.requests.slice(requestStart).find(request => request.failure);
+    if (failedRequest) throw new Error(`native tool fixture rejected the request: ${failedRequest.failure}`);
+    requireNativeReply(result, "native tool continuation", toolReplyText);
+    const posts = fixture.requests.slice(requestStart).filter(request => request.method === "POST");
+    if (posts.length !== 2 || posts.some(request => request.path !== "/v1/chat/completions"
+      || request.body?.model !== chatModelId || request.body.stream !== true)) {
+      throw new Error("native tool continuation did not use exactly one guarded POST for each of its two turns");
+    }
+    if (!posts[1]!.body || !hasNativeReadResult(posts[1]!.body)) {
+      throw new Error("native tool continuation did not carry the actual native file read result");
+    }
+    return { modelId: chatModelId, api: "openai-completions", postCount: 2, tool: "read", fileResultObserved: true, streamedContinuation: true };
+  } finally {
+    fixture.setToolRead(undefined);
+  }
+}
+
 async function nativeProviderInference(
   binary: string,
   cwd: string,
@@ -741,23 +1070,7 @@ async function nativeProviderInference(
       `${providerId}/${modelId}`,
       "Return a short reply for this isolated protocol check.",
     ], { cwd, env: environment, timeoutMs: 20_000 });
-    requireSuccess(result, label);
-    let assistant: JsonObject | undefined;
-    for (const line of result.stdout.split(/\r?\n/)) {
-      let event: JsonObject;
-      try { event = objectValue(JSON.parse(line), "native event"); } catch { continue; }
-      if (event.type !== "message_end") continue;
-      const message = objectValue(event.message, "completed native message");
-      if (message.role === "assistant") assistant = message;
-    }
-    if (!assistant || assistant.stopReason !== "stop" || !Array.isArray(assistant.content)) {
-      throw new Error(`${label} did not complete a successful assistant message`);
-    }
-    const text = assistant.content.map(part => objectValue(part, "assistant content"))
-      .filter(part => part.type === "text").map(part => stringValue(part.text, "assistant text")).join("");
-    if (text !== expectedText) throw new Error(`${label} did not assemble the streamed fixture response`);
-    const usage = objectValue(assistant.usage, "assistant usage");
-    if (usage.input !== 3 || usage.output !== 5) throw new Error(`${label} did not preserve the reported input/output token usage`);
+    requireNativeReply(result, label, expectedText);
 
     const requests = fixture.requests.slice(requestStart);
     const inferencePath = protocol === "responses" ? "/v1/responses" : "/v1/chat/completions";
@@ -949,6 +1262,7 @@ async function checkPluginState(
 
 export interface SmokeResult {
   status: "verified";
+  platform: NativePlatformEvidence;
   host: { mode: "release-asset" | "installed-cli"; version: string; digest: string; supportedRange: string };
   upstream: { version: string; commit: string; asset: string; digest: string };
   fixture: {
@@ -974,31 +1288,76 @@ export interface SmokeResult {
       persistedChatCompletions: InferenceEvidence;
     };
     legacyCache: LegacyCacheEvidence;
+    toolContinuation: ToolContinuationEvidence;
   };
-  pluginLifecycle: { linked: true; disabled: true; enabled: true; uninstalled: true };
+  installation: NpmInstallationEvidence;
+  pluginLifecycle: { installed: true; disabled: true; enabled: true; uninstalled: true };
 }
 
 export async function runSmoke(): Promise<SmokeResult> {
+  const packageArchivePath = process.env.OMP_SMOKE_PACKAGE_ARCHIVE;
+  const packageArchiveSha256 = process.env.OMP_SMOKE_PACKAGE_SHA256;
+  const capturePipe = process.env.OMP_SMOKE_CAPTURE_FIFO;
+  const captureAdmin = process.env.OMP_SMOKE_CAPTURE_ADMIN === "1";
+  if (captureAdmin && !capturePipe) throw new Error("OMP_SMOKE_CAPTURE_ADMIN requires OMP_SMOKE_CAPTURE_FIFO");
+  if (capturePipe !== undefined && !isAbsolute(capturePipe)) throw new Error("OMP_SMOKE_CAPTURE_FIFO must be an absolute private FIFO path");
+  if ((packageArchivePath === undefined) !== (packageArchiveSha256 === undefined)) {
+    throw new Error("OMP_SMOKE_PACKAGE_ARCHIVE and OMP_SMOKE_PACKAGE_SHA256 must be provided together");
+  }
+  const platform = await nativePlatformEvidence();
+  const expectedTarget = process.env.OMP_QUALIFICATION_TARGET_ID;
+  if (expectedTarget !== undefined && expectedTarget !== platform.targetId) {
+    throw new Error(`native smoke target mismatch: expected ${expectedTarget}, observed ${platform.targetId}`);
+  }
   const provenance = objectValue(JSON.parse(await readFile(resolve(packageRoot, "provenance/upstreams.json"), "utf8")), "provenance");
   const latestOmpRelease = objectValue(expectedOmpRecord(provenance).release, "provenance OMP release");
   const latestOmpVersion = stringValue(latestOmpRelease.version, "provenance OMP release version");
   const compatibility = await hostCompatibilityContract();
   if (!compatibility.tested.includes(latestOmpVersion)) throw new Error(`pinned latest OMP ${latestOmpVersion} must be included in the tested host matrix`);
   const releaseArtifacts = objectValue(JSON.parse(await readFile(resolve(packageRoot, "provenance/release-artifacts.json"), "utf8")), "release artifacts");
-  const host = await verifiedBinary(expectedAssets(releaseArtifacts, compatibility.tested), compatibility.range);
+  const host = await verifiedBinary(expectedAssets(releaseArtifacts, compatibility.tested, await nativeAssetName()), compatibility.range);
   const binary = host.path;
-  const root = await mkdtemp(join(tmpdir(), "cruxomni-smoke-"));
+  const configuredTempRoot = process.env.OMP_SMOKE_TEMP_ROOT;
+  let tempRoot = tmpdir();
+  if (configuredTempRoot !== undefined) {
+    if (!isAbsolute(configuredTempRoot)) throw new Error("OMP_SMOKE_TEMP_ROOT must be an absolute isolated directory");
+    const requestedRoot = resolve(configuredTempRoot);
+    const requestedInfo = await lstat(requestedRoot).catch(() => undefined);
+    if (!requestedInfo?.isDirectory() || requestedInfo.isSymbolicLink()) {
+      throw new Error("OMP_SMOKE_TEMP_ROOT must name an existing ordinary directory");
+    }
+    if (process.platform !== "win32" && (requestedInfo.mode & 0o077) !== 0) {
+      throw new Error("OMP_SMOKE_TEMP_ROOT must be private to the current user");
+    }
+    tempRoot = await realpath(requestedRoot);
+    if (tempRoot !== requestedRoot) throw new Error("OMP_SMOKE_TEMP_ROOT cannot resolve through a symbolic path");
+  }
+  const root = await mkdtemp(join(tempRoot, "cruxomni-smoke-"));
+  const rootInfo = await lstat(root);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink() || !isWithin(tempRoot, await realpath(root))) {
+    await rm(root, { recursive: true, force: true });
+    throw new Error("smoke temporary profile escaped its private temporary root");
+  }
   const workspace = join(root, "workspace");
   const profile = join(root, "profile");
   const environment = cleanEnvironment(process.env, profile);
   const fixture = await startFixtureServer();
   let packageEvidence: PackageVerificationResult | undefined;
   try {
+    await mkdir(profile, { recursive: true });
     await mkdir(workspace, { recursive: true });
+    if (process.platform === "win32") await mkdir(environment.TEMP!, { recursive: true });
+    if (capturePipe !== undefined) {
+      const captureInfo = await lstat(capturePipe).catch(() => undefined);
+      if (!captureInfo?.isFIFO()) throw new Error("OMP_SMOKE_CAPTURE_FIFO must name an existing FIFO");
+      nativeCaptureFd = openSync(capturePipe, "w");
+    }
     const packageRootInfo = resolve(packageRoot);
-    packageEvidence = await verifyPackage({ keepTemporary: true });
+    packageEvidence = await verifyPackage({
+      keepTemporary: true,
+      ...(packageArchivePath === undefined ? {} : { archivePath: packageArchivePath, expectedArchiveSha256: packageArchiveSha256! }),
+    });
     if (isWithin(packageRootInfo, packageEvidence.extractedRoot)) throw new Error("package extraction is inside the source repository");
-    await materializeRuntimeDependencies(packageEvidence.extractedRoot, profile, packageEvidence, compatibility.range);
 
     await seedLegacyNativeCache(binary, workspace, environment, fixture);
     fixture.setModelsStatus(503);
@@ -1007,11 +1366,8 @@ export async function runSmoke(): Promise<SmokeResult> {
       OMP_OMNIROUTE_BASE_URL: fixture.url,
       OMP_OMNIROUTE_API_KEY: runtimeKey,
     };
-    const linked = await runCommand(binary, ["plugin", "link", packageEvidence.extractedRoot], {
-      cwd: workspace,
-      env: { ...bindingEnvironment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey },
-    });
-    requireSuccess(linked, "plugin link");
+    // Only the disposable legacy-cache seeder uses the developer-link path.
+    const installation = await installPackedPackage(binary, workspace, environment, profile, packageEvidence);
     await checkPluginState(binary, workspace, bindingEnvironment, "present");
     const legacyCache = await rejectLegacyNativeCacheModel(binary, workspace, bindingEnvironment, fixture);
     fixture.setModelsStatus(200);
@@ -1037,6 +1393,7 @@ export async function runSmoke(): Promise<SmokeResult> {
       chatModelId,
       chatReplyText,
     );
+    const toolContinuation = await nativeToolContinuation(binary, workspace, bindingEnvironment, fixture);
     const refreshed = await runCommand(binary, ["models", "refresh", "--json"], { cwd: workspace, env: bindingEnvironment });
     const refreshJson = requireJsonText(requireSuccess(refreshed, "models refresh"), "models refresh");
     requireGuardedModels(requireModelList(refreshJson, "models refresh"), "models refresh");
@@ -1057,6 +1414,14 @@ export async function runSmoke(): Promise<SmokeResult> {
       chatModelId,
       chatReplyText,
     );
+    if (captureAdmin) {
+      const beforeAdminBrowse = fixture.requests.length;
+      await nativeAdminWalkthrough(binary, workspace, nativeEnvironment);
+      const adminRequests = fixture.requests.slice(beforeAdminBrowse).filter(request =>
+        /^\/(?:api\/fallback\/chains|api\/model-capability-overrides)(?:\/|\?|$)/.test(request.path),
+      );
+      if (adminRequests.length > 0) throw new Error("native admin browser sent an operation request instead of cancelling at the operation prompt");
+    }
 
     const disabled = await runCommand(binary, ["plugin", "disable", packageName], { cwd: workspace, env: environment });
     requireSuccess(disabled, "plugin disable");
@@ -1079,6 +1444,7 @@ export async function runSmoke(): Promise<SmokeResult> {
     const metadataCatalogRequests = fixture.requests.filter(request => request.method === "GET" && request.path === "/api/models/catalog").length;
     return {
       status: "verified",
+      platform,
       host: { mode: host.mode, version: host.version, digest: host.digest, supportedRange: compatibility.range },
       upstream: { version: host.expected.version, commit: host.expected.commit, asset: host.expected.url, digest: host.expected.digest },
       fixture: {
@@ -1100,10 +1466,16 @@ export async function runSmoke(): Promise<SmokeResult> {
         persisted: true,
         inference: { startupResponses, startupChatCompletions, persistedChatCompletions },
         legacyCache,
+        toolContinuation,
       },
-      pluginLifecycle: { linked: true, disabled: true, enabled: true, uninstalled: true },
+      installation,
+      pluginLifecycle: { installed: true, disabled: true, enabled: true, uninstalled: true },
     };
   } finally {
+    if (nativeCaptureFd !== undefined) {
+      closeSync(nativeCaptureFd);
+      nativeCaptureFd = undefined;
+    }
     await fixture.close();
     if (packageEvidence) await rm(resolve(packageEvidence.extractedRoot, "..", ".."), { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });

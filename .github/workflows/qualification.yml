@@ -1,0 +1,162 @@
+name: release-qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: cruxomni-release-qualification-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  npm_config_ignore_scripts: "true"
+  GH_PROMPT_DISABLED: "1"
+
+jobs:
+  package:
+    name: prepare-reviewed-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Install exact locked dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Validate source and build the single reviewed archive
+        run: |
+          set -euo pipefail
+          bun run check:upstreams
+          bun run prepare:upstream
+          bun run typecheck
+          bun test
+          python3 test/capture-walkthrough.test.py
+          bun run verify:qualification
+          bun run scripts/acquire-route-corpus.ts --check
+          bun run verify:contracts
+          bun run docs:check
+          bun run verify:marketplace
+          bun run verify:package
+          bun run export:release
+          (cd release && sha256sum -c SHA256SUMS.txt)
+      - name: Upload the immutable package and manifest once
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cruxomni-release-input
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    name: ${{ matrix.id }}
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64-glibc
+            runner: ubuntu-24.04
+          - id: linux-arm64-glibc
+            runner: ubuntu-24.04-arm
+          - id: darwin-x64
+            runner: macos-15-intel
+          - id: darwin-arm64
+            runner: macos-15
+          - id: windows-x64
+            runner: windows-2025
+          - id: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Install exact locked dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Download the exact package built by this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_TARGET: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+      - name: Run native package and host lifecycle smoke
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_TARGET: ${{ matrix.id }}
+        run: |
+          set -euo pipefail
+          bun run scripts/qualify-release.ts target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/target-output"
+      - name: Upload this native target's observed evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qualification-evidence-${{ matrix.id }}
+          path: ${{ runner.temp }}/target-output/
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-x64-musl:
+    name: linux-x64-musl
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Block until a provenance-reviewed native Alpine image digest is approved
+        run: |
+          echo "BLOCKED: linux-x64-musl qualification requires an architecture-native Alpine image pinned by a verified digest in the owning supply-chain policy."
+          exit 1
+
+  linux-arm64-musl:
+    name: linux-arm64-musl
+    needs: package
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Block until a provenance-reviewed native Alpine image digest is approved
+        run: |
+          echo "BLOCKED: linux-arm64-musl qualification requires an architecture-native Alpine image pinned by a verified digest in the owning supply-chain policy."
+          exit 1
+
+  aggregate:
+    name: aggregate-qualified-targets
+    needs: [package, native, linux-x64-musl, linux-arm64-musl]
+    if: ${{ success() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Download the exact package and all eight native target outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+          mkdir -p "$RUNNER_TEMP/targets"
+          for target in linux-x64-glibc linux-arm64-glibc linux-x64-musl linux-arm64-musl darwin-x64 darwin-arm64 windows-x64 windows-arm64; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "qualification-evidence-$target" --dir "$RUNNER_TEMP/targets/$target"
+          done
+      - name: Validate actual native smoke outputs and assemble the receipt
+        run: bun run scripts/qualify-release.ts aggregate --release-dir "$RUNNER_TEMP/release" --target-artifacts-dir "$RUNNER_TEMP/targets" --output-dir "$RUNNER_TEMP/qualification-bundle"
+      - name: Upload qualification receipt and referenced evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cruxomni-release-qualification
+          path: ${{ runner.temp }}/qualification-bundle/
+          if-no-files-found: error
+          retention-days: 90

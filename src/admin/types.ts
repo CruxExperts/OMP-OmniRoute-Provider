@@ -1,20 +1,57 @@
-import type { OperationDescriptor, OperationRegistry, ValidatedOperationInput } from "./registry.ts";
+import type {
+  OperationDescriptor,
+  OperationReconciliationRelation,
+  OperationRegistry,
+  ValidatedOperationInput,
+} from "./registry.ts";
 
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
 export type AdminMethod = "DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT";
-export type AdminAuthDomain = "public" | "runtime" | "management" | "local";
+export type AdminAuthDomain = "public" | "runtime" | "metadata" | "management" | "local" | "unknown";
 export type AdminSideEffect = "read" | "unknown" | "mutation" | "secret" | "lifecycle" | "destructive";
 export type AdminRisk = "read" | "gated-read" | "mutation" | "secret" | "lifecycle" | "destructive";
 
-/** A session-only management credential. Secret values are intentionally not serializable. */
+/** Secret-free binding identity suitable for plan handles and audit display. */
+export interface AdminAuthIdentity {
+  readonly domain: Exclude<AdminAuthDomain, "unknown">;
+  readonly profileId: string;
+  readonly endpoint: string;
+  readonly epoch: number;
+}
+
+export interface OMAAuthorityEvidence {
+  readonly operationId: "GET /api/cli/whoami";
+  readonly releaseCommit: string;
+  readonly sourceSha256: string;
+  readonly testId: string;
+  readonly caseSha256: string;
+  readonly outcomeSha256: string;
+}
+
+/** The difference between server-enforced credentials and a scope actually observed from a qualified OMA token. */
+export type AdminAuthorizationAuthority =
+  | { readonly kind: "server-enforced"; readonly credentialKind: "apiKey" | "cookie" }
+  | { readonly kind: "uncredentialed"; readonly boundary: "public" | "loopback" }
+  | { readonly kind: "oma-access-token"; readonly scope: "read" | "write" | "admin"; readonly evidence: OMAAuthorityEvidence }
+  | { readonly kind: "oma-whoami-bootstrap"; readonly evidence: OMAAuthorityEvidence };
+
+/** Resolved operation authority; credential and cancellation state are transient only. */
+export interface AdminOperationAuthBinding extends AdminAuthIdentity {
+  readonly authority: AdminAuthorizationAuthority;
+  readonly credential?: { readonly kind: "apiKey" | "cookie"; readonly value: string };
+  readonly signal?: AbortSignal;
+}
+
+/** Safe view of the executor-owned management credential binding. */
 export interface AdminCredentialBinding {
   readonly profileId: string;
   readonly endpoint: string;
-  readonly credentialGeneration: number;
-  readonly scopes: readonly string[];
+  readonly epoch: number;
+  readonly credentialKind: "apiKey" | "cookie";
+  readonly authority: "server-enforced" | "oma-scope-unverified";
   readonly enabled: boolean;
 }
 
@@ -23,31 +60,32 @@ export interface AdminCredentialInput {
   readonly endpoint: string;
   readonly apiKey?: string;
   readonly cookie?: string;
-  readonly scopes?: readonly string[];
-  readonly credentialGeneration?: number;
 }
+export type AdminAuthorizationSummary =
+  | { readonly kind: "not-required"; readonly message: "This source-qualified operation requires no credential." }
+  | { readonly kind: "server-enforced"; readonly message: "The server enforces credential permissions; this preview did not preflight them." }
+  | { readonly kind: "oma-scope-observed"; readonly scope: "read" | "write" | "admin"; readonly message: "The OMA CLI token scope was observed from the qualified whoami operation for this preview." }
+  | { readonly kind: "oma-scope-bootstrap"; readonly message: "This exact whoami request observes OMA CLI token scope; no scope is assumed before it." };
 
 export interface AdminTarget {
-  readonly profileId: string;
-  readonly endpoint: string;
-  readonly credentialGeneration: number;
   readonly digest: string;
+  readonly snapshot: JsonValue;
 }
 
 export interface AdminPlanHandle {
   readonly planId: string;
   readonly operationId: string;
-  readonly profileId: string;
-  readonly endpoint: string;
-  readonly credentialGeneration: number;
+  readonly auth: AdminAuthIdentity;
+  readonly targetAuth: AdminAuthIdentity | null;
   readonly payloadDigest: string;
-  readonly targetDigest: string;
+  readonly targetDigest: string | null;
   readonly risk: AdminRisk;
   readonly createdAt: number;
   readonly expiresAt: number;
   readonly state: "pending" | "applying" | "applied" | "operator-required" | "unknown" | "expired" | "invalidated";
   readonly preview: AdminPreview;
 }
+
 
 export interface AdminPreview {
   readonly operationId: string;
@@ -57,57 +95,75 @@ export interface AdminPreview {
   readonly risk: AdminRisk;
   readonly confirmationRequired: boolean;
   readonly sideEffect: AdminSideEffect;
+  readonly authorization: AdminAuthorizationSummary;
   readonly payload: ValidatedOperationInput;
   readonly projectedTarget?: unknown;
   readonly consequence: string;
   readonly resolvedPath: string;
-  readonly query: Readonly<Record<string, AdminQueryValue>>;
+  readonly queryParameters: readonly AdminQueryParameter[];
   readonly planDigest: string;
 }
-export type AdminQueryValue = string | number | boolean | undefined;
+
+/** Percent-encoded name/value components, serialized by the closed OpenAPI query contract. */
+export interface AdminQueryParameter {
+  readonly encodedName: string;
+  readonly encodedValue: string;
+}
+
+
 
 export interface AdminRequest {
   readonly operationId: string;
   readonly method: AdminMethod;
   readonly url: string;
   readonly path: string;
-  readonly query: Readonly<Record<string, AdminQueryValue>>;
+  readonly queryParameters: readonly AdminQueryParameter[];
   readonly body?: JsonValue;
   readonly operation: OperationDescriptor;
 }
 
 export interface AdminDispatchContext {
-  readonly profileId: string;
-  readonly endpoint: string;
-  readonly credentialGeneration: number;
-  readonly credential: AdminCredentialInput;
+  readonly auth: AdminOperationAuthBinding;
   readonly retryAllowed: boolean;
   readonly maxAttempts: number;
   readonly signal?: AbortSignal;
 }
 
-export interface AdminReconcileContext extends AdminDispatchContext {
+export interface AdminReconcileContext {
+  readonly auth: AdminOperationAuthBinding;
   readonly operation: OperationDescriptor;
   readonly request: AdminRequest;
+  readonly payload: ValidatedOperationInput;
+  readonly relation: OperationReconciliationRelation["reconcile"];
+  readonly readOperation: OperationDescriptor;
+  readonly originalTarget: JsonValue;
   readonly originalError: unknown;
+  readonly signal?: AbortSignal;
 }
+
+export type AdminReconcileResult =
+  | { readonly status: "applied"; readonly output?: unknown }
+  | { readonly status: "unknown" };
 
 export type AdminDispatch = (request: AdminRequest, context: AdminDispatchContext) => Promise<unknown>;
 export type AdminTargetReader = (context: {
-  readonly profileId: string;
-  readonly endpoint: string;
-  readonly credentialGeneration: number;
-  readonly credential: AdminCredentialInput;
+  readonly auth: AdminOperationAuthBinding;
   readonly operation: OperationDescriptor;
   readonly payload: ValidatedOperationInput;
+  readonly relation: OperationReconciliationRelation["targetRead"];
+  readonly readOperation: OperationDescriptor;
   readonly signal?: AbortSignal;
-}) => Promise<string | AdminTarget | { readonly digest: string }>;
-export type AdminReconciler = (context: AdminReconcileContext) => Promise<unknown>;
+}) => Promise<AdminTarget>;
+export type AdminReconciler = (context: AdminReconcileContext) => Promise<AdminReconcileResult>;
 
 export interface AdminExecutorOptions {
   readonly dispatch: AdminDispatch;
   readonly readTarget?: AdminTargetReader;
   readonly reconcile?: AdminReconciler;
+  readonly resolveAuth?: (
+    operation: OperationDescriptor,
+    context: { readonly profileId: string; readonly endpoint: string; readonly signal?: AbortSignal },
+  ) => AdminOperationAuthBinding | undefined | Promise<AdminOperationAuthBinding | undefined>;
   readonly registry?: OperationRegistry;
   readonly planTtlMs?: number;
   readonly now?: () => number;
@@ -122,7 +178,6 @@ export interface AdminApplyAuthorization {
   readonly headless?: boolean;
   readonly profileId?: string;
   readonly endpoint?: string;
-  readonly credentialGeneration?: number;
   readonly targetDigest?: string;
   readonly signal?: AbortSignal;
 }
@@ -220,7 +275,7 @@ export function safeError(error: unknown): { status?: number; uncertain: boolean
     const record = error as Record<string, unknown>;
     const status = typeof record.status === "number" && Number.isFinite(record.status) ? record.status : undefined;
     const code = typeof record.code === "string" ? record.code : "";
-    const networkFailure = status === undefined && ["aborted", "network", "request_failed", "timeout"].includes(code);
+    const networkFailure = status === undefined && ["aborted", "cancelled", "network", "request_failed", "timeout"].includes(code);
     return { ...(status === undefined ? {} : { status }), uncertain: record.uncertain === true || code === "network-lost-response" || networkFailure };
   }
   return { uncertain: false };

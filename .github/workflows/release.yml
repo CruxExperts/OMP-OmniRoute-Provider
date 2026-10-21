@@ -1,26 +1,54 @@
 name: signed-release
 
 on:
-  push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing signed vX.Y.Z tag to prepare and publish
+        required: true
+        type: string
+      approval_sha256:
+        description: Exact SHA-256 from release-gate.ts receipt for the manifest and qualification receipt
+        required: true
+        type: string
+      qualification_run_id:
+        description: Successful release-qualification run with eight passed native target jobs and evidence artifact
+        required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
+
+concurrency:
+  group: cruxomni-release-${{ inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with: { persist-credentials: false, fetch-depth: 0 }
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: { bun-version: "1.4.2" }
-      - name: Verify Crux Experts signed annotated tag
+      - name: Verify existing protected release environment
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/environments/release" > "$RUNNER_TEMP/release-environment.json"
+          bun run scripts/release-gate.ts verify-environment "$RUNNER_TEMP/release-environment.json" release
+      - name: Validate release tag and signature
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           gpg --batch --import .github/crux-experts-release-signing-key.asc
           git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
           test "$(git cat-file -t "$RELEASE_TAG")" = tag
@@ -28,28 +56,188 @@ jobs:
           printf '%s\n' "$verification"
           printf '%s\n' "$verification" | grep -F '[GNUPG:] VALIDSIG AF7968466B5B39C5E928FEFE716342D3EFBA5522 '
           bun run version:check "$RELEASE_TAG"
-      - name: Install and validate exact release source
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          commit_verification="$(git verify-commit --raw HEAD 2>&1)"
+          printf '%s\n' "$commit_verification" | grep -F '[GNUPG:] VALIDSIG AF7968466B5B39C5E928FEFE716342D3EFBA5522 '
+          test "$(git log -1 --format=%ce)" = pgp@cruxexperts.com
+          test "$(git for-each-ref --format='%(taggeremail)' "refs/tags/$RELEASE_TAG")" = '<pgp@cruxexperts.com>'
+      - name: Verify qualification and exact manual approval receipt
+        env:
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          [[ "$QUALIFICATION_RUN_ID" =~ ^[1-9][0-9]{0,18}$ ]]
+          source_revision="$(git rev-parse HEAD)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > "$RUNNER_TEMP/qualification-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/qualification-jobs.json"
+          bun run scripts/release-gate.ts verify-run \
+            "$RUNNER_TEMP/qualification-run.json" \
+            "$RUNNER_TEMP/qualification-jobs.json" \
+            "$GITHUB_REPOSITORY" "$QUALIFICATION_RUN_ID" "$source_revision"
+          # Reuse the bytes tested by the trusted producer; never rebuild before publication.
+          artifact_metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID/artifacts?per_page=100")"
+          jq -e --arg name "cruxomni-release-input" --argjson run_id "$QUALIFICATION_RUN_ID" \
+            '[.artifacts[] | select(.name == $name and .expired == false and .workflow_run.id == $run_id)] | length == 1' \
+            <<< "$artifact_metadata" > /dev/null
+          test ! -e release
+          gh run download "$QUALIFICATION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir release
           bun install --frozen-lockfile --ignore-scripts
           bun run check:upstreams
-          bun run verify:contracts
-          bun run typecheck
-          bun test
-          bun run verify:marketplace
-          bun run verify:package
-          bun run export:release
           (cd release && sha256sum -c SHA256SUMS.txt)
-      - name: Publish immutable GitHub Release
+          jq -e --arg name "cruxomni-release-qualification" --argjson run_id "$QUALIFICATION_RUN_ID" \
+            '[.artifacts[] | select(.name == $name and .expired == false and .workflow_run.id == $run_id)] | length == 1' \
+            <<< "$artifact_metadata" > /dev/null
+          qualification_directory="$RUNNER_TEMP/cruxomni-qualification"
+          mkdir -p "$qualification_directory"
+          gh run download "$QUALIFICATION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-qualification --dir "$qualification_directory"
+          qualification_receipt="$qualification_directory/qualification-receipt.json"
+          test -f "$qualification_receipt"
+          test "$(jq -r .producer.runId "$qualification_receipt")" = "$QUALIFICATION_RUN_ID"
+          test "$(jq -r .producer.repository "$qualification_receipt")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .producer.workflowPath "$qualification_receipt")" = ".github/workflows/qualification.yml"
+          test "$(jq -r .producer.workflowName "$qualification_receipt")" = "release-qualification"
+          test "$(jq -r .producer.workflowSha256 "$qualification_receipt")" = "$(sha256sum .github/workflows/qualification.yml | cut -d ' ' -f 1)"
+          bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" > "$RUNNER_TEMP/cruxomni-release-approval.json"
+          approval="$(jq -r .approvalReceiptSha256 "$RUNNER_TEMP/cruxomni-release-approval.json")"
+          source_revision="$(jq -r .sourceRevision "$RUNNER_TEMP/cruxomni-release-approval.json")"
+          qualified_operations="$(jq -r .qualifiedOperations "$RUNNER_TEMP/cruxomni-release-approval.json")"
+          targets="$(jq -r .targets "$RUNNER_TEMP/cruxomni-release-approval.json")"
+          printf 'Exact release approval receipt: `%s`\n' "$approval" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Source revision: `%s`\n' "$source_revision" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Qualified operations: %s\n' "$qualified_operations" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Passing targets: %s\n' "$targets" >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment:
+      name: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Verify protected release environment and npm credential
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          test "$(jq -r .version release/release-manifest.json)" = "${RELEASE_TAG#v}"
-          test "$(jq -r .sourceRevision release/release-manifest.json)" = "$(git rev-parse HEAD)"
-          gh release create "$RELEASE_TAG" release/* \
+          gh api "repos/$GITHUB_REPOSITORY/environments/release" > "$RUNNER_TEMP/release-environment.json"
+          bun run scripts/release-gate.ts verify-environment "$RUNNER_TEMP/release-environment.json" release
+          if [[ -z "$NPM_TOKEN" ]]; then
+            echo "The release environment must provide a non-empty NPM_TOKEN secret before publication." >&2
+            exit 1
+          fi
+      - name: Validate release tag and signature
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gpg --batch --import .github/crux-experts-release-signing-key.asc
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git cat-file -t "$RELEASE_TAG")" = tag
+          verification="$(git verify-tag --raw "$RELEASE_TAG" 2>&1)"
+          printf '%s\n' "$verification"
+          printf '%s\n' "$verification" | grep -F '[GNUPG:] VALIDSIG AF7968466B5B39C5E928FEFE716342D3EFBA5522 '
+          bun run version:check "$RELEASE_TAG"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          commit_verification="$(git verify-commit --raw HEAD 2>&1)"
+          printf '%s\n' "$commit_verification" | grep -F '[GNUPG:] VALIDSIG AF7968466B5B39C5E928FEFE716342D3EFBA5522 '
+          test "$(git log -1 --format=%ce)" = pgp@cruxexperts.com
+          test "$(git for-each-ref --format='%(taggeremail)' "refs/tags/$RELEASE_TAG")" = '<pgp@cruxexperts.com>'
+      - name: Retrieve and revalidate the exact qualified artifacts
+        env:
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$QUALIFICATION_RUN_ID" =~ ^[1-9][0-9]{0,18}$ ]]
+          source_revision="$(git rev-parse HEAD)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > "$RUNNER_TEMP/qualification-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/qualification-jobs.json"
+          bun run scripts/release-gate.ts verify-run \
+            "$RUNNER_TEMP/qualification-run.json" \
+            "$RUNNER_TEMP/qualification-jobs.json" \
+            "$GITHUB_REPOSITORY" "$QUALIFICATION_RUN_ID" "$source_revision"
+          # Reuse the bytes tested by the trusted producer; never rebuild before publication.
+          artifact_metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID/artifacts?per_page=100")"
+          jq -e --arg name "cruxomni-release-input" --argjson run_id "$QUALIFICATION_RUN_ID" \
+            '[.artifacts[] | select(.name == $name and .expired == false and .workflow_run.id == $run_id)] | length == 1' \
+            <<< "$artifact_metadata" > /dev/null
+          test ! -e release
+          gh run download "$QUALIFICATION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir release
+          bun install --frozen-lockfile --ignore-scripts
+          bun run check:upstreams
+          (cd release && sha256sum -c SHA256SUMS.txt)
+          jq -e --arg name "cruxomni-release-qualification" --argjson run_id "$QUALIFICATION_RUN_ID" \
+            '[.artifacts[] | select(.name == $name and .expired == false and .workflow_run.id == $run_id)] | length == 1' \
+            <<< "$artifact_metadata" > /dev/null
+          qualification_directory="$RUNNER_TEMP/cruxomni-qualification"
+          mkdir -p "$qualification_directory"
+          gh run download "$QUALIFICATION_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-qualification --dir "$qualification_directory"
+          qualification_receipt="$qualification_directory/qualification-receipt.json"
+          test -f "$qualification_receipt"
+          test "$(jq -r .producer.runId "$qualification_receipt")" = "$QUALIFICATION_RUN_ID"
+          test "$(jq -r .producer.repository "$qualification_receipt")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .producer.workflowPath "$qualification_receipt")" = ".github/workflows/qualification.yml"
+          test "$(jq -r .producer.workflowName "$qualification_receipt")" = "release-qualification"
+          test "$(jq -r .producer.workflowSha256 "$qualification_receipt")" = "$(sha256sum .github/workflows/qualification.yml | cut -d ' ' -f 1)"
+          bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" > "$RUNNER_TEMP/cruxomni-release-approval.json"
+          cp "$qualification_receipt" "$RUNNER_TEMP/release-qualification-receipt.json"
+          tar -czf "$RUNNER_TEMP/release-qualification-evidence.tar.gz" -C "$qualification_directory" evidence
+          cp "$RUNNER_TEMP/cruxomni-release-approval.json" "$RUNNER_TEMP/release-approval.json"
+      - name: Create a draft GitHub release with exact manifest assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t names < <(jq -r '.artifacts[].name' release/release-manifest.json)
+          notes_name="$(jq -r '.artifacts[] | select(.name | endswith("-release-notes.md")) | .name' release/release-manifest.json)"
+          test -n "$notes_name"
+          test -f "release/$notes_name"
+          assets=(release/release-manifest.json release/SHA256SUMS.txt "$RUNNER_TEMP/release-qualification-receipt.json" "$RUNNER_TEMP/release-approval.json" "$RUNNER_TEMP/release-qualification-evidence.tar.gz")
+          for name in "${names[@]}"; do assets+=("release/$name"); done
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "CruxOmni-OMP-Client ${RELEASE_TAG#v}" \
-            --generate-notes \
+            --notes-file "release/$notes_name" \
+            --draft \
             --verify-tag
+      - name: Publish the exact approved npm archive
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$NODE_AUTH_TOKEN"
+          npmrc="$RUNNER_TEMP/cruxomni-npmrc"
+          trap 'rm -f "$npmrc"' EXIT
+          printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$npmrc"
+          chmod 600 "$npmrc"
+          package_archive="$(jq -r '.artifacts[] | select(.name | endswith(".tgz")) | .name' release/release-manifest.json)"
+          NPM_CONFIG_USERCONFIG="$npmrc" npm publish "release/$package_archive" --access public --ignore-scripts
+          rm -f "$npmrc"
+      - name: Publish the verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+        run: |
+          set -euo pipefail
+          bun run scripts/release-gate.ts approve release "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" > /dev/null
+          notes_name="$(jq -r '.artifacts[] | select(.name | endswith("-release-notes.md")) | .name' release/release-manifest.json)"
+          test -n "$notes_name"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "release/$notes_name" --draft=false

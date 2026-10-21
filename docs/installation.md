@@ -2,8 +2,9 @@
 
 ## Requirements
 
-- Oh My Pi `>=18.12.2 <19`; compatibility floor `18.12.2`, with current
-  release qualification targets `18.12.2` (minimum) and `18.12.3` (latest).
+- Oh My Pi in the declared `>=18.12.2 <19` range. See the
+  [generated compatibility reference](reference/generated.md) for pinned source
+  versions; release qualification requires fresh evidence for the latest stable host.
 - Bun `>=1.4.2` when installing from source or running package checks.
 - An OmniRoute-compatible HTTPS endpoint and a runtime API key.
 
@@ -21,6 +22,20 @@ omp install @cruxexperts/cruxomni-omp-client@<qualified-version>
 
 The current candidate is not published. Publication is separate from
 qualification; do not use a package version that has not been released.
+
+OMP supplies its SDK modules from the running host. Their package-manager peer
+entries are marked optional so installation does not download a second SDK;
+the supported OMP host is still required. Development checkouts install the
+exact selected SDK through development dependencies instead.
+
+The native smoke check serves the exact verified candidate archive from a
+temporary loopback registry and runs `omp install` with its exact package version
+in an isolated profile. It checks the installed file inventory and every file
+digest, rejects package symlinks and duplicate host SDK packages, and requires
+the registry to receive no authorization or cookie headers. Inference and
+plugin lifecycle checks then use that installed package, not a checkout link.
+These checks do not publish the candidate or qualify the remaining operation
+catalog and performance requirements.
 
 ## Link a local checkout (development only)
 
@@ -76,7 +91,10 @@ the full `--model` selector supports deferred extension-model resolution.
 Startup waits up to 10 seconds for live discovery, including resolution of
 the remembered native credential. Only discovered chat models become selectable;
 metadata and pricing do not delay that publication or the first streamed reply.
-Their optional enrichment is cancelled when the connection changes.
+Their optional enrichment is cancelled when the connection changes. A metadata
+credential replacement or removal cancels its own pending metadata request and
+discards late results without resetting live-model discovery. Refresh explicitly
+to request enrichment with the replacement credential.
 
 ## Optional metadata catalogs
 

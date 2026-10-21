@@ -7,7 +7,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-19"
+    last_updated: "2026-10-20"
     doc_type: how_to
     tags: [install, setup, omp, credentials, catalogs, metadata]
   - id: troubleshooting
@@ -16,7 +16,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-19"
+    last_updated: "2026-10-20"
     doc_type: reference
     tags: [troubleshooting, recovery, offline, administration, catalogs, capabilities]
   - id: agent-repo-shape
@@ -28,3 +28,66 @@ documents:
     last_updated: "2026-09-20"
     doc_type: reference
     tags: [agents, localsetup, repository-shape]
+  - id: first-use
+    path: docs/first-use.md
+    title: First Use and Everyday Work
+    category_label: User guide
+    category_slug: user-guide
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: reference
+    tags: [setup, discovery, pricing]
+  - id: administration
+    path: docs/administration.md
+    title: Administration
+    category_label: User guide
+    category_slug: user-guide
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: reference
+    tags: [administration, confirmation, credentials]
+  - id: upgrading
+    path: docs/upgrading.md
+    title: Upgrade and Removal
+    category_label: User guide
+    category_slug: user-guide
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: reference
+    tags: [upgrade, removal, compatibility]
+  - id: generated
+    path: docs/reference/generated.md
+    title: Generated Client Reference
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: reference
+    tags: [commands, capabilities, compatibility]
+  - id: release
+    path: docs/reference/release.md
+    title: Versioning and Release
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: runbook
+    tags: [versioning, release, qualification]
+  - id: maintenance
+    path: docs/reference/maintenance.md
+    title: Repository Maintenance
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: runbook
+    tags: [maintenance, automation, reviews, github]
+  - id: contracts
+    path: docs/reference/contracts.md
+    title: Contracts and Qualification
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-20"
+    doc_type: runbook
+    tags: [contracts, provenance, qualification, testing]

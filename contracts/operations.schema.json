@@ -4,35 +4,48 @@
   "title": "Versioned OmniRoute operation contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "schemaVersion", "recordKind", "release", "generatedFrom", "counts", "operations"],
+  "required": ["$schema", "schemaVersion", "recordKind", "release", "generatedFrom", "sourceContext", "counts", "operations"],
   "properties": {
     "$schema": {"type": "string"},
-    "schemaVersion": {"const": 1},
+    "schemaVersion": {"const": 2},
     "recordKind": {"const": "omniroute-operation-contract"},
     "release": {"$ref": "#/$defs/release"},
     "generatedFrom": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["manifest", "manifestSha256", "authority"],
+      "required": ["manifest", "manifestSha256", "eligibility", "eligibilitySha256", "sourceCorpusFileCount", "authority"],
       "properties": {
         "manifest": {"const": "provenance/route-sources.json"},
         "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "eligibility": {"const": "contracts/release-eligibility.json"},
+        "eligibilitySha256": {"$ref": "#/$defs/sha256"},
+        "sourceCorpusFileCount": {"type": "integer", "minimum": 1},
         "authority": {"type": "string", "minLength": 1}
+      }
+    },
+    "sourceContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frameworkContextSha256", "routeImportDigests"],
+      "properties": {
+        "frameworkContextSha256": {"$ref": "#/$defs/sha256"},
+        "routeImportDigests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/sha256"}}
       }
     },
     "counts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["routeFiles", "sourceOperations", "openapiPaths", "openapiOperations", "documentedOperations", "unmatchedSpecificationMethods", "invokableOperations", "nonInvokableOperations", "methodCounts"],
+      "required": ["routeFiles", "sourceOperations", "openapiPaths", "openapiOperations", "documentedOperations", "unmatchedSpecificationMethods", "invokableOperations", "nonInvokableOperations", "unqualifiedOperations", "methodCounts"],
       "properties": {
-        "routeFiles": {"type": "integer", "minimum": 0},
-        "sourceOperations": {"type": "integer", "minimum": 0},
+        "routeFiles": {"type": "integer", "minimum": 1},
+        "sourceOperations": {"type": "integer", "minimum": 1},
         "openapiPaths": {"type": "integer", "minimum": 0},
         "openapiOperations": {"type": "integer", "minimum": 0},
         "documentedOperations": {"type": "integer", "minimum": 0},
         "unmatchedSpecificationMethods": {"type": "integer", "minimum": 0},
         "invokableOperations": {"type": "integer", "minimum": 0},
         "nonInvokableOperations": {"type": "integer", "minimum": 0},
+        "unqualifiedOperations": {"type": "integer", "minimum": 0},
         "methodCounts": {"$ref": "#/$defs/methodCounts"}
       }
     },
@@ -44,18 +57,17 @@
     "release": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "tag", "commit", "tagObject", "releaseId", "latestSelectorUrl", "releaseUrl", "latestApiUrl", "selectorKind", "latestRedirectTarget", "selectorCheckedAt", "publishedAt", "readmeNpmBadgeIsNotSelector"],
+      "required": ["repository", "tag", "commit", "releaseId", "latestSelectorUrl", "latestApiUrl", "releaseUrl", "selectorKind", "latestRedirectTarget", "selectorCheckedAt", "publishedAt", "readmeNpmBadgeIsNotSelector"],
       "properties": {
         "repository": {"const": "diegosouzapw/OmniRoute"},
-        "tag": {"const": "v3.8.50"},
-        "commit": {"const": "5458026c216f77a3da68ea49152dc33470cfe2cb"},
-        "tagObject": {"$ref": "#/$defs/gitSha"},
+        "tag": {"const": "v3.8.52"},
+        "commit": {"const": "ad6f33f66bda34eba98645d3bfdabbde294bc843"},
         "releaseId": {"type": "integer", "minimum": 1},
-        "latestSelectorUrl": {"format": "uri", "type": "string"},
-        "releaseUrl": {"format": "uri", "type": "string"},
-        "latestApiUrl": {"format": "uri", "type": "string"},
+        "latestSelectorUrl": {"type": "string", "format": "uri"},
+        "latestApiUrl": {"type": "string", "format": "uri"},
+        "releaseUrl": {"const": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.52"},
         "selectorKind": {"const": "github-latest-release"},
-        "latestRedirectTarget": {"const": "v3.8.50"},
+        "latestRedirectTarget": {"const": "v3.8.52"},
         "selectorCheckedAt": {"type": "string", "format": "date-time"},
         "publishedAt": {"type": "string", "format": "date-time"},
         "readmeNpmBadgeIsNotSelector": {"const": true}
@@ -66,44 +78,552 @@
       "additionalProperties": false,
       "required": ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
       "properties": {
-        "DELETE": {"type": "integer", "minimum": 0}, "GET": {"type": "integer", "minimum": 0}, "HEAD": {"type": "integer", "minimum": 0}, "OPTIONS": {"type": "integer", "minimum": 0}, "PATCH": {"type": "integer", "minimum": 0}, "POST": {"type": "integer", "minimum": 0}, "PUT": {"type": "integer", "minimum": 0}
+        "DELETE": {"type": "integer", "minimum": 0},
+        "GET": {"type": "integer", "minimum": 0},
+        "HEAD": {"type": "integer", "minimum": 0},
+        "OPTIONS": {"type": "integer", "minimum": 0},
+        "PATCH": {"type": "integer", "minimum": 0},
+        "POST": {"type": "integer", "minimum": 0},
+        "PUT": {"type": "integer", "minimum": 0}
       }
     },
-    "jsonSchema": {"type": "object"},
+    "jsonSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "allOf": [{
+        "if": {"required": ["x-key-role"]},
+        "then": {
+          "required": ["type", "additionalProperties"],
+          "properties": {"type": {"const": "object"}, "additionalProperties": {"type": "object"}}
+        }
+      }],
+      "properties": {
+        "$ref": {"type": "string"},
+        "type": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+        "properties": {"type": "object", "additionalProperties": {"$ref": "#/$defs/jsonSchema"}},
+        "required": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "additionalProperties": {"oneOf": [{"type": "boolean"}, {"$ref": "#/$defs/jsonSchema"}]},
+        "x-key-role": {"const": "identifier"},
+        "items": {"$ref": "#/$defs/jsonSchema"},
+        "enum": {"type": "array"},
+        "const": {},
+        "oneOf": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonSchema"}},
+        "anyOf": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonSchema"}},
+        "allOf": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/jsonSchema"}},
+        "pattern": {"type": "string"},
+        "format": {"enum": ["binary", "byte", "date-time", "uri", "uuid"]},
+        "minLength": {"type": "integer", "minimum": 0},
+        "maxLength": {"type": "integer", "minimum": 0},
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"},
+        "exclusiveMinimum": {"type": "number"},
+        "exclusiveMaximum": {"type": "number"},
+        "minItems": {"type": "integer", "minimum": 0},
+        "maxItems": {"type": "integer", "minimum": 0},
+        "minProperties": {"type": "integer", "minimum": 0},
+        "maxProperties": {"type": "integer", "minimum": 0},
+        "default": {},
+        "description": {"type": "string"},
+        "title": {"type": "string"},
+        "example": {},
+        "examples": {"type": "array"},
+        "readOnly": {"type": "boolean"},
+        "writeOnly": {"type": "boolean"}
+      }
+    },
+    "contentVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mediaType", "schema"],
+      "properties": {
+        "mediaType": {"type": "string", "minLength": 1},
+        "schema": {"oneOf": [{"$ref": "#/$defs/jsonSchema"}, {"type": "null"}]},
+        "sourceFile": {"type": "string", "pattern": "^(?:src|packages)/.+\\.tsx?$"}
+      }
+    },
     "body": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["required", "mediaType", "schema"],
-      "properties": {"required": {"type": "boolean"}, "mediaType": {"type": "string", "minLength": 1}, "schema": {"$ref": "#/$defs/jsonSchema"}}
+      "required": ["required", "mediaType", "schema", "contentVariants"],
+      "properties": {
+        "required": {"type": "boolean"},
+        "mediaType": {"type": ["string", "null"]},
+        "schema": {"oneOf": [{"$ref": "#/$defs/jsonSchema"}, {"type": "null"}]},
+        "contentVariants": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/contentVariant"}}
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "in", "required", "style", "explode", "allowReserved", "schema", "inputAllowed"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "in": {"enum": ["path", "query", "header", "cookie"]},
+        "required": {"type": "boolean"},
+        "style": {"type": "string", "minLength": 1},
+        "explode": {"type": "boolean"},
+        "allowReserved": {"type": "boolean"},
+        "schema": {"$ref": "#/$defs/jsonSchema"},
+        "inputAllowed": {"type": "boolean"},
+        "sourceFile": {"type": "string", "pattern": "^src/app/.+/route\\.ts$"}
+      }
+    },
+    "pathParameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "specName", "serialization", "required"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "specName": {"type": "string", "minLength": 1},
+        "serialization": {"enum": ["simple", "label", "matrix", "catch-all-segments"]},
+        "required": {"type": "boolean"},
+        "style": {"type": "string"},
+        "explode": {"type": "boolean"}
+      }
+    },
+    "sourceNormalization": {
+      "enum": [
+        "omniroute-v3.8.52.provider-interception-rules",
+        "omniroute-v3.8.52.provider-param-filters",
+        "omniroute-v3.8.52.model-capability-overrides.patch",
+        "omniroute-v3.8.52.combos.create",
+        "omniroute-v3.8.52.combos.update",
+        "omniroute-v3.8.52.combos.duplicate",
+        "omniroute-v3.8.52.combos.reorder",
+        "omniroute-v3.8.52.combos.test",
+        "omniroute-v3.8.52.combos.list-query"
+      ]
+    },
+    "sourceStateView": {
+      "enum": ["omniroute-v3.8.52.provider-interception-rules", "omniroute-v3.8.52.provider-param-filters"]
     },
     "request": {
-      "type": "object", "additionalProperties": false, "required": ["pathSchema", "querySchema", "body"],
-      "properties": {"pathSchema": {"$ref": "#/$defs/jsonSchema"}, "querySchema": {"$ref": "#/$defs/jsonSchema"}, "body": {"$ref": "#/$defs/body"}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pathSchema", "querySchema", "pathParameters", "parameters", "body", "specificationDocumented"],
+      "properties": {
+        "pathSchema": {"$ref": "#/$defs/jsonSchema"},
+        "querySchema": {"$ref": "#/$defs/jsonSchema"},
+        "pathParameters": {"type": "array", "items": {"$ref": "#/$defs/pathParameter"}},
+        "parameters": {"type": "array", "items": {"$ref": "#/$defs/parameter"}},
+        "body": {"$ref": "#/$defs/body"},
+        "specificationDocumented": {"type": "boolean"},
+        "normalizations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["section", "path", "kind"],
+            "properties": {
+              "section": {"enum": ["path", "query", "body"]},
+              "path": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+              "kind": {"enum": ["trim-string", "trim-string-array"]}
+            }
+          }
+        },
+        "sourceValidator": {
+          "enum": [
+            "omniroute-v3.8.52.provider-create",
+            "omniroute-v3.8.52.fallback-chains.register",
+            "omniroute-v3.8.52.fallback-chains.remove",
+            "omniroute-v3.8.52.combos.create",
+            "omniroute-v3.8.52.combos.update",
+            "omniroute-v3.8.52.combos.duplicate",
+            "omniroute-v3.8.52.combos.reorder",
+            "omniroute-v3.8.52.combos.test"
+          ]
+        },
+        "sourceNormalizer": {"$ref": "#/$defs/sourceNormalization"}
+      }
+    },
+    "responseHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "schema"],
+      "properties": {"required": {"type": "boolean"}, "schema": {"oneOf": [{"$ref": "#/$defs/jsonSchema"}, {"type": "null"}]}}
+    },
+    "responseVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statusCode", "content", "headers"],
+      "properties": {
+        "statusCode": {"type": "string", "minLength": 1},
+        "content": {"type": "array", "items": {"$ref": "#/$defs/contentVariant"}},
+        "headers": {"type": "object", "additionalProperties": {"$ref": "#/$defs/responseHeader"}},
+        "sourceFiles": {"type": "array", "items": {"type": "string", "pattern": "^(?:src|packages)/.+\\.tsx?$"}, "uniqueItems": true}
+      }
     },
     "response": {
-      "type": "object", "additionalProperties": false, "required": ["statusCodes", "mediaType", "schema"],
-      "properties": {"statusCodes": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "mediaType": {"type": "string", "minLength": 1}, "schema": {"$ref": "#/$defs/jsonSchema"}}
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statusCodes", "mediaType", "schema", "variants"],
+      "properties": {
+        "statusCodes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "mediaType": {"type": ["string", "null"]},
+        "schema": {"oneOf": [{"$ref": "#/$defs/jsonSchema"}, {"type": "null"}]},
+        "variants": {"type": "array", "items": {"$ref": "#/$defs/responseVariant"}}
+      }
+    },
+    "fieldMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "source"],
+      "properties": {
+        "target": {"type": "object", "additionalProperties": false, "required": ["section", "field"], "properties": {"section": {"enum": ["path", "query"]}, "field": {"type": "string", "minLength": 1}}},
+        "source": {"type": "object", "additionalProperties": false, "required": ["section", "path"], "properties": {"section": {"enum": ["path", "query", "body", "result"]}, "path": {"type": "array", "items": {"type": "string"}}}}
+      }
+    },
+    "projectedField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "path": {"type": "array", "items": {"type": "string"}},
+        "sourceView": {"$ref": "#/$defs/sourceStateView"}
+      }
+    },
+    "reconciliation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["targetRead", "reconcile"],
+      "properties": {
+        "targetRead": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operationId", "inputs", "snapshot"],
+          "properties": {
+            "operationId": {"type": "string", "minLength": 1},
+            "sourceView": {
+              "enum": [
+                "omniroute-v3.8.52.fallback-chains.reconciliation",
+                "omniroute-v3.8.52.combos.create-reconcile",
+                "omniroute-v3.8.52.combos.duplicate-reconcile",
+                "omniroute-v3.8.52.combos.item-update-reconcile",
+                "omniroute-v3.8.52.combos.item-delete-reconcile",
+                "omniroute-v3.8.52.combos.reorder-reconcile",
+                "omniroute-v3.8.52.combos.metrics-reset-reconcile"
+              ]
+            },
+            "inputs": {"type": "array", "items": {"$ref": "#/$defs/fieldMapping"}},
+            "snapshot": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "identity", "state"],
+              "properties": {
+                "kind": {"enum": ["resource", "collection", "action"]},
+                "identity": {"type": "array", "items": {"$ref": "#/$defs/projectedField"}},
+                "state": {"type": "array", "items": {"$ref": "#/$defs/projectedField"}},
+                "collectionPath": {"type": "array", "items": {"type": "string", "minLength": 1}},
+                "selection": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["input", "rowPath"],
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["section", "path"],
+                      "properties": {
+                        "section": {"enum": ["path", "query", "body"]},
+                        "path": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                      }
+                    },
+                    "rowPath": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "reconcile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operationId", "inputs", "outcome"],
+          "properties": {
+            "operationId": {"type": "string", "minLength": 1},
+            "inputs": {"type": "array", "items": {"$ref": "#/$defs/fieldMapping"}},
+            "outcome": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "identityFields", "stateFields"],
+              "properties": {
+                "kind": {"enum": ["exists", "absent", "matches", "upsert"]},
+                "identityFields": {"type": "array", "items": {"type": "string"}},
+                "stateFields": {"type": "array", "items": {"type": "string"}},
+                "expectedFromInput": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "source"],
+                    "properties": {
+                      "name": {"type": "string", "minLength": 1},
+                      "sourceView": {"$ref": "#/$defs/sourceStateView"},
+                      "source": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["section", "path"],
+                        "properties": {
+                          "section": {"enum": ["path", "query", "body"]},
+                          "path": {"type": "array", "items": {"type": "string", "minLength": 1}}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "securityAlternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "scopes", "type", "scheme", "in", "parameterName", "unresolved"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "scopes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "type": {"type": ["string", "null"]},
+        "scheme": {"type": ["string", "null"]},
+        "in": {"type": ["string", "null"]},
+        "parameterName": {"type": ["string", "null"]},
+        "unresolved": {"type": "boolean"}
+      }
+    },
+    "managementAuthorizationAlternative": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "anyOf"],
+          "properties": {
+            "kind": {"const": "management-api-key"},
+            "anyOf": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["manage", "admin"]}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "dashboard-session"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "when"],
+          "properties": {
+            "kind": {"const": "auth-disabled"},
+            "when": {"const": "central-and-handler-auth-not-required"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "minimumScope"],
+          "properties": {"kind": {"const": "oma-access-token"}, "minimumScope": {"enum": ["read", "write", "admin"]}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operationId"],
+          "properties": {"kind": {"const": "oma-whoami-bootstrap"}, "operationId": {"const": "GET /api/cli/whoami"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "pathPrefix", "handlerOptIn"],
+          "properties": {"kind": {"const": "mcp-connect"}, "pathPrefix": {"const": "/api/mcp/"}, "handlerOptIn": {"const": true}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceScopes"],
+          "properties": {"kind": {"const": "runtime-api-key"}, "sourceScopes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceScopes"],
+          "properties": {"kind": {"const": "metadata-api-key"}, "sourceScopes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "loopbackOnly"],
+          "properties": {"kind": {"const": "trusted-local"}, "loopbackOnly": {"const": true}}
+        }
+      ]
+    },
+    "clientApiAuthorizationAlternative": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceScopes"],
+          "properties": {"kind": {"const": "runtime-api-key"}, "sourceScopes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceScopes"],
+          "properties": {"kind": {"const": "metadata-api-key"}, "sourceScopes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "anonymous"}}
+        }
+      ]
+    },
+    "sourceAuthorizationPolicy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {"status": {"const": "unknown"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"],
+          "properties": {
+            "status": {"const": "qualified"},
+            "source": {"const": "omniroute-v3.8.52"},
+            "routeClass": {"const": "management"},
+            "localOnly": {"type": "boolean"},
+            "handlerGuard": {"enum": ["none", "requireManagementAuth"]},
+            "bootstrap": {"enum": ["none", "oma-whoami"]},
+            "alternatives": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/managementAuthorizationAlternative"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "source", "routeClass", "localOnly", "alternatives"],
+          "properties": {
+            "status": {"const": "qualified"},
+            "source": {"const": "omniroute-v3.8.52"},
+            "routeClass": {"const": "client-api"},
+            "localOnly": {"type": "boolean"},
+            "alternatives": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/clientApiAuthorizationAlternative"}}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "source", "routeClass", "alternatives"],
+          "properties": {
+            "status": {"const": "qualified"},
+            "source": {"const": "omniroute-v3.8.52"},
+            "routeClass": {"const": "public"},
+            "alternatives": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind"],
+                "properties": {"kind": {"const": "anonymous"}}
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "source", "routeClass", "localOnly", "alternatives"],
+          "properties": {
+            "status": {"const": "qualified"},
+            "source": {"const": "omniroute-v3.8.52"},
+            "routeClass": {"const": "local"},
+            "localOnly": {"const": true},
+            "alternatives": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "loopbackOnly"],
+                "properties": {"kind": {"const": "trusted-local"}, "loopbackOnly": {"const": true}}
+              }
+            }
+          }
+        }
+      ]
     },
     "operation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["operationId", "method", "pathTemplate", "request", "response", "mediaType", "auth", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "source", "specification", "coverage"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "method", "pathTemplate", "request", "response", "mediaType", "auth", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "source", "specification", "reconciliation", "coverage"],
       "properties": {
         "operationId": {"type": "string", "minLength": 1},
         "method": {"enum": ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]},
         "pathTemplate": {"type": "string", "pattern": "^/(?:[A-Za-z0-9._~-]+|\\{[A-Za-z0-9._~-]+\\})(?:/(?:[A-Za-z0-9._~-]+|\\{[A-Za-z0-9._~-]+\\}))*$"},
         "request": {"$ref": "#/$defs/request"},
         "response": {"$ref": "#/$defs/response"},
-        "mediaType": {"type": "object", "additionalProperties": false, "required": ["request", "response"], "properties": {"request": {"type": ["string", "null"]}, "response": {"type": "string"}}},
-        "auth": {"type": "object", "additionalProperties": false, "required": ["domain", "scopes"], "properties": {"domain": {"enum": ["public", "runtime", "management", "local"]}, "scopes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},
+        "mediaType": {"type": "object", "additionalProperties": false, "required": ["request", "response"], "properties": {"request": {"type": ["string", "null"]}, "response": {"type": ["string", "null"]}}},
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["domain", "specificationAlternatives", "sourcePolicy"],
+          "properties": {
+            "domain": {"enum": ["public", "runtime", "metadata", "management", "local", "unknown"]},
+            "specificationAlternatives": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/securityAlternative"}}},
+            "sourcePolicy": {"$ref": "#/$defs/sourceAuthorizationPolicy"}
+          }
+        },
         "secrets": {"type": "object", "additionalProperties": false, "required": ["inputFields", "outputFields"], "properties": {"inputFields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "outputFields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},
         "sideEffect": {"enum": ["read", "unknown", "mutation", "secret", "lifecycle", "destructive"]},
-        "pagination": {"type": "object", "additionalProperties": false, "required": ["mode", "parameters"], "properties": {"mode": {"enum": ["none", "offset", "cursor"]}, "parameters": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},
-        "streaming": {"type": "object", "additionalProperties": false, "required": ["mode", "framing"], "properties": {"mode": {"enum": ["json", "sse", "websocket", "binary"]}, "framing": {"type": "string", "minLength": 1}}},
+        "pagination": {"type": "object", "additionalProperties": false, "required": ["mode", "parameters"], "properties": {"mode": {"enum": ["none", "offset", "cursor", "unknown"]}, "parameters": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},
+        "streaming": {"type": "object", "additionalProperties": false, "required": ["mode", "framing"], "properties": {"mode": {"enum": ["json", "sse", "websocket", "binary", "unknown"]}, "framing": {"type": "string", "minLength": 1}}},
         "confirmation": {"type": "object", "additionalProperties": false, "required": ["required", "reason"], "properties": {"required": {"type": "boolean"}, "reason": {"type": "string", "minLength": 1}}},
         "retry": {"type": "object", "additionalProperties": false, "required": ["allowed", "maxAttempts", "statusCodes"], "properties": {"allowed": {"type": "boolean"}, "maxAttempts": {"type": "integer", "minimum": 1, "maximum": 2}, "statusCodes": {"type": "array", "items": {"type": "integer"}, "uniqueItems": true}}},
         "source": {"type": "object", "additionalProperties": false, "required": ["file", "sha256", "gitBlobSha", "export"], "properties": {"file": {"type": "string", "pattern": "^src/app/.+/route\\.ts$"}, "sha256": {"$ref": "#/$defs/sha256"}, "gitBlobSha": {"$ref": "#/$defs/gitSha"}, "export": {"enum": ["direct", "re-export"]}}},
         "specification": {"type": "object", "additionalProperties": false, "required": ["documented", "path", "operationId", "discrepancies"], "properties": {"documented": {"type": "boolean"}, "path": {"type": ["string", "null"]}, "operationId": {"type": ["string", "null"]}, "discrepancies": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["code", "authority", "detail"], "properties": {"code": {"type": "string"}, "authority": {"enum": ["source", "specification"]}, "detail": {"type": "string", "minLength": 1}}}}}},
-        "coverage": {"type": "object", "additionalProperties": false, "required": ["status", "adapterId", "reason"], "properties": {"status": {"enum": ["invokable", "non-invokable"]}, "adapterId": {"type": ["string", "null"]}, "reason": {"type": ["string", "null"]}}}
+        "reconciliation": {"$ref": "#/$defs/reconciliation"},
+        "coverage": {"type": "object", "additionalProperties": false, "required": ["status", "adapterId", "reason"], "properties": {"status": {"enum": ["invokable", "unqualified", "non-invokable"]}, "adapterId": {"type": ["string", "null"]}, "reason": {"type": ["string", "null"]}}},
+        "qualification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["releaseCommit", "binding", "test"],
+          "properties": {
+            "releaseCommit": {"const": "ad6f33f66bda34eba98645d3bfdabbde294bc843"},
+            "binding": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["handlerSha256", "handlerGitBlobSha", "requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "sideEffectSha256"],
+              "properties": {
+                "handlerSha256": {"$ref": "#/$defs/sha256"},
+                "handlerGitBlobSha": {"$ref": "#/$defs/gitSha"},
+                "requestSchemaSha256": {"$ref": "#/$defs/sha256"},
+                "authSha256": {"$ref": "#/$defs/sha256"},
+                "sideEffect": {"enum": ["read", "mutation", "secret", "lifecycle", "destructive"]},
+                "responseProjectionSha256": {"$ref": "#/$defs/sha256"},
+                "operationSemanticsSha256": {"$ref": "#/$defs/sha256"},
+                "routeImportsSha256": {"$ref": "#/$defs/sha256"},
+                "frameworkContextSha256": {"$ref": "#/$defs/sha256"},
+                "sideEffectSha256": {"$ref": "#/$defs/sha256"}
+              }
+            },
+            "test": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "caseSha256", "outcomeSha256"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^test/[^\\\\]+$"},
+                "caseSha256": {"$ref": "#/$defs/sha256"},
+                "outcomeSha256": {"$ref": "#/$defs/sha256"}
+              }
+            }
+          }
+        }
       }
     }
   }

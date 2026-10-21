@@ -42,7 +42,8 @@
     "ASSET_LICENSE.md",
     "THIRD_PARTY_NOTICES.md",
     "VERSION",
-    "LICENSE"
+    "LICENSE",
+    "SUPPORT.md"
   ],
   "omp": {
     "name": "CruxOmni-OMP-Client",
@@ -65,7 +66,7 @@
       "host": ">=18.12.2 <19",
       "tested": [
         "18.12.2",
-        "18.12.3"
+        "18.12.5"
       ]
     }
   },
@@ -80,15 +81,33 @@
     "@oh-my-pi/pi-tui": ">=18.12.2 <19",
     "@oh-my-pi/pi-utils": ">=18.12.2 <19"
   },
+  "peerDependenciesMeta": {
+    "@oh-my-pi/pi-ai": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-catalog": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-coding-agent": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-tui": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-utils": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "@oh-my-pi/pi-ai": "18.12.3",
-    "@oh-my-pi/pi-catalog": "18.12.3",
-    "@oh-my-pi/pi-coding-agent": "18.12.3",
-    "@oh-my-pi/pi-tui": "18.12.3",
-    "@oh-my-pi/pi-utils": "18.12.3",
+    "@oh-my-pi/pi-ai": "18.12.5",
+    "@oh-my-pi/pi-catalog": "18.12.5",
+    "@oh-my-pi/pi-coding-agent": "18.12.5",
+    "@oh-my-pi/pi-tui": "18.12.5",
+    "@oh-my-pi/pi-utils": "18.12.5",
     "@types/bun": "1.4.2",
     "@types/node": "22.15.0",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "zod": "4.6.7"
   },
   "scripts": {
     "version:check": "bun run scripts/version.ts check",
@@ -102,6 +121,11 @@
     "export:release": "bun run scripts/export-release.ts",
     "smoke": "bun run scripts/smoke.ts",
     "smoke:installed": "OMP_SMOKE_HOST_MODE=installed-cli bun run scripts/smoke.ts",
-    "check:upstreams": "bun run scripts/check-upstreams.ts"
+    "check:upstreams": "bun run scripts/check-upstreams.ts",
+    "docs:generate": "bun run scripts/generate-docs.ts",
+    "docs:check": "bun run scripts/generate-docs.ts --check",
+    "hooks:install": "git config --local core.hooksPath .githooks",
+    "prepare:upstream": "python3 scripts/prepare-upstream.py",
+    "verify:qualification": "bun run scripts/verify-qualification.ts"
   }
 }

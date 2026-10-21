@@ -1,14 +1,17 @@
+import { decodeRouteSources } from "./route-source-store.ts";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import ts from "typescript";
 
 const execFileAsync = promisify(execFile);
 const packageRoot = resolve(import.meta.dir, "..");
-const packagePrefix = "package/";
-const requiredDocs = ["README.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "ASSET_LICENSE.md", "THIRD_PARTY_NOTICES.md", "LICENSE"] as const;
+const requiredDocs = ["README.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "ASSET_LICENSE.md", "THIRD_PARTY_NOTICES.md", "SUPPORT.md", "LICENSE"] as const;
+const maxPackageArchiveBytes = 512 * 1024 * 1024;
 const allowedExact = new Set(["package.json", "VERSION", ...requiredDocs]);
 const allowedPrefixes = ["src/", "contracts/", "provenance/", "scripts/", "test/fixtures/", "assets/", "docs/", ".omp-plugin/"] as const;
 const hostProvidedOmpPackages: Record<string, true> = {
@@ -50,6 +53,7 @@ interface PackageManifest {
   dependencies?: Record<string, unknown>;
   devDependencies?: Record<string, unknown>;
   peerDependencies?: Record<string, unknown>;
+  peerDependenciesMeta?: Record<string, unknown>;
   optionalDependencies?: Record<string, unknown>;
 }
 
@@ -226,6 +230,10 @@ async function readBunLock(manifest: PackageManifest): Promise<LockEvidence> {
       throw new Error(`${name} is host-provided and must not be installed as a package runtime dependency`);
     }
     if (manifest.peerDependencies?.[name] !== hostRange) throw new Error(`${name} must declare the package OMP compatibility range as a peer dependency`);
+    const peerMetadata = manifest.peerDependenciesMeta?.[name];
+    if (!recordValue(peerMetadata) || peerMetadata.optional !== true) {
+      throw new Error(`${name} must be an installer-optional host peer to prevent a second SDK installation`);
+    }
     if (manifest.devDependencies?.[name] !== hostVersion) throw new Error(`${name} must use the exact pinned OMP release ${hostVersion} for development checks`);
     const lockEntries = packages.filter(item => item.name === name);
     if (lockEntries.length !== 1 || lockEntries[0]?.version !== hostVersion) {
@@ -244,14 +252,6 @@ async function readBunLock(manifest: PackageManifest): Promise<LockEvidence> {
 
 function isAllowed(relativePath: string): boolean {
   return allowedExact.has(relativePath) || allowedPrefixes.some(prefix => relativePath.startsWith(prefix));
-}
-
-function normalizeArchiveEntry(entry: string): string {
-  const cleaned = entry.replaceAll("\\", "/").replace(/\/$/, "");
-  if (!cleaned.startsWith(packagePrefix)) throw new Error(`archive entry is outside package/: ${entry}`);
-  const path = cleaned.slice(packagePrefix.length);
-  if (path.length === 0 || isAbsolute(path) || path.split("/").some(part => part === ".." || part === "")) throw new Error(`unsafe archive entry: ${entry}`);
-  return path;
 }
 
 async function command(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
@@ -279,7 +279,7 @@ function packMetadata(parsed: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-async function packPackage(destination: string): Promise<{ archive: string; entries: string[] }> {
+async function packPackage(destination: string): Promise<{ archive: string }> {
   const packed = await command("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", destination], packageRoot);
   let parsed: unknown;
   try {
@@ -289,14 +289,12 @@ async function packPackage(destination: string): Promise<{ archive: string; entr
   }
   const metadata = packMetadata(parsed);
   const filename = metadata.filename;
-  if (typeof filename !== "string" || filename.length === 0) throw new Error("npm pack did not report an archive filename");
+  if (typeof filename !== "string" || filename.length === 0 || filename !== basename(filename) || filename.includes("\\")) throw new Error("npm pack did not report a safe archive filename");
   const archive = resolve(destination, filename);
-  if (!archive.startsWith(`${resolve(destination)}${sep}`)) throw new Error("npm pack archive escaped its temporary directory");
-  const listing = await command("tar", ["--list", "--file", archive, "--gzip", "--quoting-style=escape"], destination);
-  const entries = listing.stdout.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0 && !line.endsWith("/")).map(normalizeArchiveEntry);
-  if (new Set(entries).size !== entries.length) throw new Error("package archive contains duplicate entries");
-  for (const entry of entries) if (!isAllowed(entry)) throw new Error(`package archive entry is not allowlisted: ${entry}`);
-  return { archive, entries };
+  if (relative(resolve(destination), archive).startsWith(`..${sep}`) || isAbsolute(relative(resolve(destination), archive))) throw new Error("npm pack archive escaped its temporary directory");
+  const info = await lstat(archive).catch(() => undefined);
+  if (!info?.isFile() || info.isSymbolicLink() || info.size > maxPackageArchiveBytes) throw new Error("npm pack did not produce a bounded regular archive file");
+  return { archive };
 }
 
 async function walk(root: string, current = root): Promise<string[]> {
@@ -498,16 +496,53 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     .filter(Boolean);
   const hasImmutableIdentifier = (value: string): boolean => contextWords(value).some(word => /^(?:sha\d*|hash|digest|blob|tree|commit)$/.test(word));
   const hasFixtureIdentifier = (value: string): boolean => contextWords(value).some(word => word === "fixture" || word === "fixtures");
-  const jsonValueHasContext = (relativePath: string, fieldPath: string[]): boolean => {
+  const isImmutableFieldName = (value: string): boolean =>
+    /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value) && hasImmutableIdentifier(value);
+  // Qualification observations carry deterministic public model/step identifiers in these exact fields.
+  const qualificationIdentifierFields = new Set([
+    "observation.before.combos.models.id",
+    "observation.after.combos.models.id",
+    "observation.result.body.combos.models.id",
+    "observation.result.body.models.id",
+    "observation.result.body.results.executionKey",
+    "observation.result.body.results.stepId",
+    "observation.result.body.resolvedByExecutionKey",
+    "observation.result.body.resolvedByTarget.executionKey",
+    "observation.result.body.resolvedByTarget.stepId",
+  ]);
+  const qualificationFixtureIdentifiers = new Set([
+    "auto-best-coding-model-1-fixture-chat",
+    "created-model-1-fixture-new",
+    "delete-model-1-fixture-chat",
+    "probe-model-1-fixture-chat",
+    "probe-model-2-fixture-text-embedding",
+    "quota-protected-model-1-quota-reference",
+    "update-model-1-fixture-chat",
+    "update-model-1-fixture-updated",
+    "virtual-auto-default-1-fixture",
+  ]);
+  const publicSchemaPropertyNames = new Set(["slaMaxCostPer1MTokens"]);
+  const jsonValueHasContext = (relativePath: string, fieldPath: string[], value: string): boolean => {
     const words = fieldPath.flatMap(contextWords);
     if (words.some(word => /^(?:sha\d*|hash|digest|blob|tree|commit)$/.test(word))) return true;
     if (words.some(word => word === "url" || word === "uri" || word === "href")) return true;
     if (hasFixtureIdentifier(fieldPath.join("_"))) return true;
     const leaf = fieldPath[fieldPath.length - 1]?.toLowerCase();
     const parent = fieldPath[fieldPath.length - 2]?.toLowerCase();
+    if (relativePath === "provenance/upstreams.json" && leaf === "name" && /^omp-(?:linux-(?:musl-)?|darwin-|windows-)(?:x64|arm64)(?:\.exe)?$/.test(value)) return true;
     if (relativePath === "package.json" && fieldPath.length === 1 && (leaf === "name" || leaf === "version")) return true;
     if (relativePath === "package.json" && (parent === "dependencies" || parent === "devdependencies" || parent === "peerdependencies" || parent === "optionaldependencies")) return true;
     if (words.includes("package") && (words.includes("name") || words.includes("version"))) return true;
+    if (relativePath.endsWith(".schema.json") && leaf === "required" && isImmutableFieldName(value)) return true;
+    if ((relativePath === "contracts/operations.json" || relativePath === "provenance/route-sources.json")
+      && leaf === "example" && parent === "model" && fieldPath[fieldPath.length - 3] === "properties") return true;
+    if ((relativePath === "contracts/operations.json" || relativePath === "contracts/release-eligibility.json")
+      && fieldPath[fieldPath.length - 2] === "properties"
+      && fieldPath.slice(0, -2).includes("schema")
+      && publicSchemaPropertyNames.has(value)) return true;
+    if (/^provenance\/qualification\/[a-f0-9]{64}\.json$/.test(relativePath)
+      && qualificationIdentifierFields.has(fieldPath.join("."))
+      && qualificationFixtureIdentifiers.has(value)) return true;
     return false;
   };
   const sourceLiteralHasContext = (text: string, start: number): boolean => {
@@ -525,6 +560,35 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     const nearestDeclaration = declarationMatches[declarationMatches.length - 1]?.[1];
     if (nearestDeclaration) candidates.push(nearestDeclaration);
     return candidates.some(candidate => hasImmutableIdentifier(candidate) || hasFixtureIdentifier(candidate));
+  };
+  const immutableSourceFieldPositions = (path: string, text: string): Set<number> => {
+    const positions = new Set<number>();
+    const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if (ts.isStringLiteral(node) && isImmutableFieldName(node.text)) {
+        const parent = node.parent;
+        let fieldReference = (ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) && parent.name === node;
+        if (ts.isArrayLiteralExpression(parent)) {
+          let initializer: ts.Node = parent;
+          while (ts.isAsExpression(initializer.parent) || ts.isSatisfiesExpression(initializer.parent)
+            || ts.isParenthesizedExpression(initializer.parent)) initializer = initializer.parent;
+          const owner = initializer.parent;
+          fieldReference ||= ts.isVariableDeclaration(owner) && ts.isIdentifier(owner.name) && hasImmutableIdentifier(owner.name.text);
+          fieldReference ||= ts.isCallExpression(owner) && ts.isIdentifier(owner.expression)
+            && owner.expression.text === "assertKeys" && owner.arguments[2] === parent;
+        } else if (ts.isLiteralTypeNode(parent)) {
+          let type: ts.Node = parent;
+          while (ts.isUnionTypeNode(type.parent) || ts.isParenthesizedTypeNode(type.parent)) type = type.parent;
+          const owner = type.parent;
+          fieldReference ||= ts.isTypeReferenceNode(owner) && ts.isIdentifier(owner.typeName)
+            && (owner.typeName.text === "Pick" || owner.typeName.text === "Omit") && owner.typeArguments?.[1] === type;
+        }
+        if (fieldReference) positions.add(node.getStart(source));
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return positions;
   };
 
   const hashes: Record<string, string> = {};
@@ -591,7 +655,25 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     const bytes = new Uint8Array(await readFile(join(root, relativePath)));
     hashes[relativePath] = createHash("sha256").update(bytes).digest("hex");
     if (bytes.includes(0)) continue;
-    const text = new TextDecoder().decode(bytes);
+    let text = new TextDecoder().decode(bytes);
+    if (relativePath === "provenance/route-sources.json") text = JSON.stringify(decodeRouteSources(JSON.parse(text)));
+    const parsedJsonLiterals = relativePath.endsWith(".json") ? parseJsonStringLiterals(text) : undefined;
+    const jsonLiterals = parsedJsonLiterals
+      ? new Map<number, JsonStringLiteral>(parsedJsonLiterals.map(literal => [literal.start, literal] as const))
+      : undefined;
+    const containingJsonLiteral = (position: number): JsonStringLiteral | undefined => {
+      if (!parsedJsonLiterals) return undefined;
+      let left = 0;
+      let right = parsedJsonLiterals.length - 1;
+      while (left <= right) {
+        const middle = (left + right) >>> 1;
+        const literal = parsedJsonLiterals[middle]!;
+        if (position < literal.start) right = middle - 1;
+        else if (position >= literal.end) left = middle + 1;
+        else return literal;
+      }
+      return undefined;
+    };
     if (absolutePathPattern.test(text) || privateTempPathPattern.test(text)) issues.push({ kind: "private-path", path: relativePath, detail: "private filesystem path marker" });
     for (const match of text.matchAll(credentialAssignmentPattern)) {
       const value = match[1] ?? match[2] ?? "";
@@ -603,16 +685,27 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     }
     for (const match of text.matchAll(bearerPattern)) {
       const value = match[1] ?? "";
+      const literal = containingJsonLiteral(match.index ?? -1);
+      const suffixStart = (match.index ?? 0) + match[0].length;
+      const suffix = text.slice(suffixStart, suffixStart + 32);
+      const prose = relativePath === "provenance/route-sources.json" && literal?.fieldPath.at(-1) === "description"
+        && (((value.toLowerCase() === "families" || value.toLowerCase() === "credentials") && /^\s+are\b/.test(suffix))
+          || (value.toLowerCase() === "credential" && (/^\s+or\b/.test(suffix) || /^ and an exact JSON model field\./.test(suffix))));
+      if (prose) continue;
       if (!isPlaceholder(value)) issues.push({ kind: "secret", path: relativePath, detail: "credential-like bearer literal" });
     }
-    const jsonLiterals = relativePath.endsWith(".json")
-      ? new Map<number, JsonStringLiteral>(parseJsonStringLiterals(text).map(literal => [literal.start, literal] as const))
-      : undefined;
+    let immutableSourceFields: Set<number> | undefined;
     for (const match of text.matchAll(literalPattern)) {
       const value = match[0].slice(1, -1);
       if (!hasHighEntropy(value)) continue;
       const jsonLiteral = jsonLiterals?.get(match.index ?? -1);
-      if (jsonLiteral ? jsonValueHasContext(relativePath, jsonLiteral.fieldPath) : (!jsonLiterals && sourceLiteralHasContext(text, match.index ?? -1))) continue;
+      if (jsonLiteral ? jsonValueHasContext(relativePath, jsonLiteral.fieldPath, value) : (!jsonLiterals && sourceLiteralHasContext(text, match.index ?? -1))) continue;
+      if (!jsonLiterals && isImmutableFieldName(value)) {
+        // A documented JSON field name is public schema, while its value is still scanned.
+        if (relativePath.endsWith(".md") && /^\s*:\s*"<[^>\r\n]+>"/.test(text.slice((match.index ?? 0) + match[0].length))) continue;
+        immutableSourceFields ??= immutableSourceFieldPositions(relativePath, text);
+        if (immutableSourceFields.has(match.index ?? -1)) continue;
+      }
       issues.push({ kind: "secret", path: relativePath, detail: "high-entropy secret-like literal" });
     }
   }
@@ -650,12 +743,25 @@ async function verifyDocumentation(root: string, files: string[], issues: ScanIs
   }
 }
 
-async function extractPackage(archive: string, destination: string): Promise<string> {
-  await command("tar", ["--extract", "--file", archive, "--directory", destination, "--no-same-owner", "--no-same-permissions"], destination);
-  const extracted = join(destination, "package");
+async function extractPackage(archive: string, destination: string): Promise<{ root: string; entries: string[] }> {
+  const python = process.platform === "win32" ? "python" : "python3";
+  const output = await command(python, [join(packageRoot, "scripts/package-archive.py"), "extract", archive, destination], packageRoot);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output.stdout);
+  } catch {
+    throw new Error("portable archive verifier did not return JSON");
+  }
+  if (!recordValue(parsed) || typeof parsed.root !== "string" || !Array.isArray(parsed.entries)
+    || parsed.entries.some(entry => typeof entry !== "string")) {
+    throw new Error("portable archive verifier returned an invalid extraction result");
+  }
+  const extracted = resolve(parsed.root);
+  const expectedRoot = resolve(destination, "package");
+  if (extracted !== expectedRoot) throw new Error("portable archive verifier returned an unexpected extraction directory");
   const info = await lstat(extracted);
-  if (!info.isDirectory()) throw new Error("archive did not extract a package directory");
-  return extracted;
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("archive did not extract an ordinary package directory");
+  return { root: extracted, entries: parsed.entries as string[] };
 }
 
 export function buildSbom(manifest: PackageManifest, lockfile: LockEvidence): Sbom {
@@ -738,7 +844,13 @@ export interface PackageVerificationResult {
   sbom: Sbom;
 }
 
-export async function verifyPackage(options: { keepTemporary?: boolean } = {}): Promise<PackageVerificationResult> {
+export async function verifyPackage(options: { keepTemporary?: boolean; archivePath?: string; expectedArchiveSha256?: string } = {}): Promise<PackageVerificationResult> {
+  const suppliedArchive = options.archivePath !== undefined;
+  const suppliedDigest = options.expectedArchiveSha256 !== undefined;
+  if (suppliedArchive !== suppliedDigest) throw new Error("archivePath and expectedArchiveSha256 must be provided together");
+  if (options.expectedArchiveSha256 !== undefined && !/^[0-9a-f]{64}$/.test(options.expectedArchiveSha256)) {
+    throw new Error("expectedArchiveSha256 must be a lowercase SHA-256 digest");
+  }
   const sourceManifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as PackageManifest;
   const lockfile = await readBunLock(sourceManifest);
   const sbom = buildSbom(sourceManifest, lockfile);
@@ -748,10 +860,38 @@ export async function verifyPackage(options: { keepTemporary?: boolean } = {}): 
   await mkdir(packRoot, { recursive: true });
   await mkdir(extractRoot, { recursive: true });
   try {
-    const packed = await packPackage(packRoot);
-    const archiveBytes = new Uint8Array(await readFile(packed.archive));
-    const extractedRoot = await extractPackage(packed.archive, extractRoot);
+    let archive: string;
+    if (options.archivePath !== undefined) {
+      const inputArchive = resolve(options.archivePath);
+      const inputInfo = await lstat(inputArchive).catch(() => undefined);
+      if (!inputInfo?.isFile() || inputInfo.isSymbolicLink()) throw new Error("caller package archive must be a regular non-symlink file");
+      if (inputInfo.size > maxPackageArchiveBytes) throw new Error(`caller package archive exceeds ${maxPackageArchiveBytes} bytes`);
+      const noFollow = process.platform === "win32" ? 0 : (fsConstants.O_NOFOLLOW ?? 0);
+      const inputHandle = await open(inputArchive, fsConstants.O_RDONLY | noFollow);
+      let inputBytes: Buffer;
+      try {
+        const openedInfo = await inputHandle.stat();
+        if (!openedInfo.isFile() || openedInfo.size > maxPackageArchiveBytes) throw new Error("opened caller package archive is not a bounded regular file");
+        inputBytes = await inputHandle.readFile();
+      } finally {
+        await inputHandle.close();
+      }
+      if (inputBytes.byteLength > maxPackageArchiveBytes) throw new Error(`caller package archive exceeds ${maxPackageArchiveBytes} bytes`);
+      const inputDigest = createHash("sha256").update(inputBytes).digest("hex");
+      if (inputDigest !== options.expectedArchiveSha256) throw new Error("caller package archive SHA-256 does not match expectedArchiveSha256");
+      archive = join(packRoot, "verified-input.tgz");
+      await writeFile(archive, inputBytes, { flag: "wx" });
+      if (createHash("sha256").update(await readFile(archive)).digest("hex") !== options.expectedArchiveSha256) {
+        throw new Error("copied package archive SHA-256 changed while staging verification");
+      }
+    } else {
+      archive = (await packPackage(packRoot)).archive;
+    }
+    const archiveBytes = new Uint8Array(await readFile(archive));
+    const extracted = await extractPackage(archive, extractRoot);
+    const extractedRoot = extracted.root;
     const files = (await walk(extractedRoot)).sort();
+    if (JSON.stringify(files) !== JSON.stringify(extracted.entries)) throw new Error("portable archive extraction inventory differs from files on disk");
     const issues: ScanIssue[] = [];
     for (const relativePath of files) if (!isAllowed(relativePath)) issues.push({ kind: "allowlist", path: relativePath, detail: "file is outside package allowlist" });
     const manifest = JSON.parse(await readFile(join(extractedRoot, "package.json"), "utf8")) as PackageManifest;
@@ -767,12 +907,14 @@ export async function verifyPackage(options: { keepTemporary?: boolean } = {}): 
     const fileSha256 = await scanText(extractedRoot, files, issues);
     await verifyDocumentation(extractedRoot, files, issues);
     if (issues.length > 0) throw new Error(`package verification failed:\n${issues.map(issue => `${issue.kind}: ${issue.path}: ${issue.detail}`).join("\n")}`);
-    if (typeof manifest.name !== "string" || typeof manifest.version !== "string") throw new Error("package manifest name/version are required");
+    if (manifest.name !== sourceManifest.name || manifest.version !== sourceManifest.version) {
+      throw new Error("packed package name and version must exactly match the reviewed source manifest");
+    }
     if (manifest.packageManager !== sourceManifest.packageManager) throw new Error("packed package manifest packageManager does not match the reviewed source manifest");
     return {
       status: "verified",
       archiveSha256: createHash("sha256").update(archiveBytes).digest("hex"),
-      archive: packed.archive,
+      archive,
       extractedRoot,
       entries: files,
       fileSha256,

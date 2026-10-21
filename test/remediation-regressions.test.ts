@@ -1,21 +1,91 @@
+import { createHash } from "node:crypto";
 import { expect, test } from "bun:test";
 import type { Context, SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import { createBoundInferenceStream, createSingleDispatchFetch, OMNIROUTE_GUARDED_API } from "../src/inference.ts";
-import { OperationRegistry, operationRegistry } from "../src/admin/registry.ts";
+import { canonicalizeJson, getOperationRegistry, type OperationDescriptor, type OperationReconciliationRelation } from "../src/admin/registry.ts";
+import type { AdminExecutorOptions, AdminTarget, AdminTargetReader } from "../src/admin/types.ts";
 import { invokeBinaryAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeWebSocketAdapter } from "../src/admin/adapters.ts";
+import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 
-function adminHarness(readTarget: () => Promise<string> = async () => "target") {
+const ADMIN_PROFILE = "omniroute";
+const ADMIN_ENDPOINT = "http://127.0.0.1:20128";
+const MANAGEMENT_POLICY: OperationDescriptor["auth"]["sourcePolicy"] = {
+  status: "qualified",
+  source: "omniroute-v3.8.52",
+  routeClass: "management",
+  localOnly: false,
+  handlerGuard: "none",
+  bootstrap: "none",
+  alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }],
+};
+const PUBLIC_POLICY: OperationDescriptor["auth"]["sourcePolicy"] = {
+  status: "qualified",
+  source: "omniroute-v3.8.52",
+  routeClass: "public",
+  alternatives: [{ kind: "anonymous" }],
+};
+
+function makeTarget(snapshot: string): AdminTarget {
+  return { snapshot, digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex") };
+}
+
+function adminHarness(
+  readTarget: AdminTargetReader = async () => makeTarget("target"),
+  mutationOverride?: OperationDescriptor,
+  dispatchOverride?: AdminExecutorOptions["dispatch"],
+) {
   let dispatches = 0;
-  const descriptor = operationRegistry.getOperation("DELETE /api/cache");
-  if (!descriptor) throw new Error("mutation fixture descriptor missing");
+  const sourceRegistry = getOperationRegistry();
+  const mutationSource = mutationOverride ?? sourceRegistry.getOperation("DELETE /api/cache");
+  const readSource = sourceRegistry.getOperation("GET /api/health");
+  if (!mutationSource || !readSource) throw new Error("admin fixture descriptor missing");
+  const targetRead: OperationDescriptor = {
+    ...readSource,
+    operationId: "GET /fixture/admin-target",
+    pathTemplate: "/fixture/admin-target",
+    auth: { ...readSource.auth, domain: "management", sourcePolicy: MANAGEMENT_POLICY },
+    sideEffect: "read",
+    confirmation: { required: false, reason: "Synthetic ordinary read." },
+    request: { ...readSource.request, body: null },
+    response: { ...readSource.response, schema: { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false, required: [] } },
+    coverage: { status: "invokable", adapterId: "typed.fixture.admin-target", reason: null },
+    reconciliation: null,
+  };
+  const relation: OperationReconciliationRelation = {
+    targetRead: {
+      operationId: targetRead.operationId,
+      inputs: [],
+      snapshot: { kind: "resource", identity: [], state: [] },
+    },
+    reconcile: {
+      operationId: targetRead.operationId,
+      inputs: [],
+      outcome: { kind: "matches", identityFields: [], stateFields: [] },
+    },
+  };
+  const mutation: OperationDescriptor = {
+    ...mutationSource,
+    auth: { ...mutationSource.auth, domain: "management", sourcePolicy: MANAGEMENT_POLICY },
+    sideEffect: "mutation",
+    confirmation: { required: true, reason: "Synthetic mutation." },
+    request: mutationOverride?.request ?? { ...mutationSource.request, body: { required: true, mediaType: "application/json", schema: { type: "object", properties: {}, additionalProperties: false }, contentVariants: [] } },
+    response: { ...mutationSource.response, schema: { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false, required: [] } },
+    coverage: { status: "invokable", adapterId: "typed.fixture.mutation", reason: null },
+    reconciliation: relation,
+  };
+  const descriptors = [mutation, targetRead];
+  const registry = fixtureRegistry(descriptors);
   const executor = createAdminExecutor({
-    registry: new OperationRegistry([descriptor], { records: [{ operationId: descriptor.operationId, status: "verified", reason: "explicit synthetic fixture eligibility", source: descriptor.source, evidence: [{ kind: "fixture", detail: "synthetic dispatch only" }] }] }),
+    registry,
     readTarget,
-    dispatch: async () => { dispatches += 1; return { ok: true }; },
+    dispatch: async (request, context) => {
+      dispatches += 1;
+      return dispatchOverride ? dispatchOverride(request, context) : { ok: true };
+    },
   });
-  executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" });
+  executor.bindCredential({ profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT, apiKey: "fixture-management-key" });
   return { executor, dispatches: () => dispatches };
 }
 
@@ -30,6 +100,7 @@ test("missing eligibility evidence rejects an otherwise schema-valid read before
   const executor = createAdminExecutor({ dispatch: async () => { dispatches += 1; return {}; } });
   executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" });
   await expect(executor.read("GET /api/cache", {})).rejects.toMatchObject({ code: "operation-unavailable" });
+  await expect(executor.read("GET /not-in-inventory", {})).rejects.toMatchObject({ code: "unknown-operation" });
   expect(dispatches).toBe(0);
 });
 
@@ -40,7 +111,7 @@ test("barrier-synchronized concurrent applies dispatch exactly once", async () =
   const harness = adminHarness(async () => {
     reads += 1;
     if (reads > 1) await barrier;
-    return "target";
+    return makeTarget("target");
   });
   const plan = await harness.executor.plan("DELETE /api/cache", { body: {} });
   const first = harness.executor.apply(plan.planId, { confirmed: true });
@@ -51,30 +122,58 @@ test("barrier-synchronized concurrent applies dispatch exactly once", async () =
   expect(harness.dispatches()).toBe(1);
 });
 
-test("unchanged credential rebinding preserves a pending plan", async () => {
+test("unchanged credential rebinding preserves a pending plan and its management epoch", async () => {
   const harness = adminHarness();
   const plan = await harness.executor.plan("DELETE /api/cache", { body: {} });
   const before = harness.executor.getCredentialBinding();
-  const after = harness.executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" });
-  expect(after.credentialGeneration).toBe(before!.credentialGeneration);
+  const after = harness.executor.bindCredential({ profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT, apiKey: "fixture-management-key" });
+  expect(after.epoch).toBe(before!.epoch);
   expect(harness.executor.getPlan(plan.planId)?.state).toBe("pending");
 });
 
-test("public descriptors still require an enabled management binding", async () => {
+test("public operations require explicit endpoint activation but no management credential", async () => {
   let dispatches = 0;
-  const executor = createAdminExecutor({ dispatch: async () => { dispatches += 1; return {}; } });
-  executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" });
-  executor.disable();
-  await expect(executor.read("GET /api/health", {})).rejects.toMatchObject({ code: "credential-disabled" });
+  let observedAuth: unknown;
+  const source = getOperationRegistry().getOperation("GET /api/health");
+  if (!source) throw new Error("public operation fixture missing");
+  const descriptor: OperationDescriptor = {
+    ...source,
+    auth: { ...source.auth, domain: "public", sourcePolicy: PUBLIC_POLICY },
+    sideEffect: "read",
+    confirmation: { required: false, reason: "Synthetic public read." },
+    request: { ...source.request, body: null },
+    response: { ...source.response, schema: { type: "object", properties: {}, required: [], additionalProperties: false } },
+    coverage: { status: "invokable", adapterId: "typed.fixture.public", reason: null },
+  };
+  const registry = fixtureRegistry([descriptor]);
+  const executor = createAdminExecutor({
+    registry,
+    dispatch: async (_request, context) => {
+      dispatches += 1;
+      observedAuth = context.auth;
+      return {};
+    },
+  });
+  const selection = { profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT };
+  await expect(executor.read("GET /api/health", {}, selection)).rejects.toMatchObject({ code: "credential-disabled" });
   expect(dispatches).toBe(0);
+  executor.setAdminBinding(selection, true);
+  await expect(executor.read("GET /api/health", {}, { ...selection, endpoint: "http://127.0.0.1:20129" })).rejects.toMatchObject({ code: "credential-mismatch" });
+  expect(dispatches).toBe(0);
+  await executor.read("GET /api/health", {}, selection);
+  expect(observedAuth).toMatchObject({ domain: "public", profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT, epoch: 0 });
+  expect(observedAuth).not.toHaveProperty("credential");
+  executor.disable();
+  await expect(executor.read("GET /api/health", {}, selection)).rejects.toMatchObject({ code: "credential-disabled" });
+  expect(dispatches).toBe(1);
 });
 
 test("logout blocks automatic credential rebinding until explicit human enable", () => {
   const harness = adminHarness();
   harness.executor.logout();
-  expect(() => harness.executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" })).toThrow();
-  harness.executor.setAdminBinding({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", credentialGeneration: 2 }, true);
-  expect(harness.executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" }).enabled).toBe(true);
+  expect(() => harness.executor.bindCredential({ profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT, apiKey: "fixture-management-key" })).toThrow();
+  harness.executor.setAdminBinding({ profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT }, true);
+  expect(harness.executor.bindCredential({ profileId: ADMIN_PROFILE, endpoint: ADMIN_ENDPOINT, apiKey: "fixture-management-key" }).enabled).toBe(true);
 });
 
 test("inference dispatch pins the selected protocol, rejects redirects, and suppresses replay", async () => {
@@ -306,7 +405,7 @@ test("disablement while final target observation is pending prevents dispatch", 
   const harness = adminHarness(async () => {
     reads += 1;
     if (reads > 1) await barrier;
-    return "target";
+    return makeTarget("target");
   });
   const plan = await harness.executor.plan("DELETE /api/cache", { body: {} });
   const applying = harness.executor.apply(plan.planId, { confirmed: true });
@@ -317,31 +416,45 @@ test("disablement while final target observation is pending prevents dispatch", 
 });
 
 test("complete approval previews reject unseen long suffixes", async () => {
-  const base = operationRegistry.getOperation("DELETE /api/cache");
+  const base = getOperationRegistry().getOperation("DELETE /api/cache");
   if (!base) throw new Error("fixture descriptor missing");
-  const descriptor = {
+  const descriptor: OperationDescriptor = {
     ...base,
     operationId: "POST /fixture/preview",
-    method: "POST" as const,
+    method: "POST",
     pathTemplate: "/fixture/preview",
     request: {
       ...base.request,
-      body: { required: true, mediaType: "application/json", schema: { type: "object", properties: { note: { type: "string" } }, required: ["note"], additionalProperties: false } },
+      body: {
+        contentVariants: [],
+        required: true,
+        mediaType: "application/json",
+        schema: { type: "object", properties: { note: { type: "string" } }, required: ["note"], additionalProperties: false },
+      },
     },
   };
-  const executor = createAdminExecutor({ registry: new OperationRegistry([descriptor], { records: [{ operationId: descriptor.operationId, status: "verified", reason: "explicit synthetic fixture eligibility", source: descriptor.source, evidence: [{ kind: "fixture", detail: "synthetic dispatch only" }] }] }), readTarget: async () => "target", dispatch: async () => ({ ok: true }) });
-  executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" });
-  await expect(executor.plan(descriptor.operationId, { body: { note: `visible${"x".repeat(8_100)}hidden-suffix` } })).rejects.toMatchObject({ code: "preview-too-large" });
+  const harness = adminHarness(async () => makeTarget("target"), descriptor);
+  await expect(harness.executor.plan(descriptor.operationId, { body: { note: `visible${"x".repeat(8_100)}hidden-suffix` } })).rejects.toMatchObject({ code: "preview-too-large" });
 });
 
 test("registry and every dispatch adapter reject traversal or a tampered resolved path", async () => {
-  const adapter = operationRegistry.lookup("DELETE /api/keys/{id}");
-  if (!adapter) throw new Error("path fixture descriptor missing");
+  const source = getOperationRegistry().getOperation("DELETE /api/keys/{id}");
+  if (!source) throw new Error("path fixture descriptor missing");
+  const descriptor: OperationDescriptor = {
+    ...source,
+    auth: { ...source.auth, domain: "management", sourcePolicy: MANAGEMENT_POLICY },
+    sideEffect: "mutation",
+    confirmation: { required: true, reason: "Synthetic path mutation." },
+    request: { ...source.request, body: { required: true, mediaType: "application/json", schema: { type: "object", properties: {}, additionalProperties: false }, contentVariants: [] } },
+    coverage: { status: "invokable", adapterId: "typed.fixture.path-mutation", reason: null },
+    reconciliation: null,
+  };
+  const adapter = fixtureRegistry([descriptor]).require(descriptor.operationId);
   for (const id of [".", "..", "%2e%2e", "%252e%252e", "%2f", "%5c"]) {
     expect(() => adapter.buildPath(adapter.validate({ path: { id }, body: {} }))).toThrow();
   }
   expect(adapter.buildPath(adapter.validate({ path: { id: "模型" }, body: {} }))).toContain("%E6%A8%A1%E5%9E%8B");
-  const invocation = { descriptor: { ...adapter.descriptor, adapterId: adapter.adapterId }, endpoint: "http://127.0.0.1:20128", credential: { kind: "apiKey" as const, value: "fixture-management-key" }, resolvedPath: "/api/cache", body: {} };
+  const invocation = { descriptor: { ...adapter.descriptor, adapterId: adapter.adapterId }, endpoint: "http://127.0.0.1:20128", credential: { kind: "apiKey" as const, value: "fixture-management-key" }, resolvedPath: "/api/cache", queryParameters: [], body: {} };
   await expect(invokeJsonAdapter(invocation)).rejects.toMatchObject({ code: "invalid_path" });
   await expect(invokeSseAdapter(invocation)).rejects.toMatchObject({ code: "invalid_path" });
   await expect(invokeBinaryAdapter(invocation)).rejects.toMatchObject({ code: "invalid_path" });
@@ -352,17 +465,14 @@ test("registry and every dispatch adapter reject traversal or a tampered resolve
 });
 
 test("operator-required dispatch is terminal and is never reported as applied", async () => {
-  const descriptor = operationRegistry.getOperation("DELETE /api/cache");
-  if (!descriptor) throw new Error("mutation fixture descriptor missing");
-  const executor = createAdminExecutor({
-    registry: new OperationRegistry([descriptor], { records: [{ operationId: descriptor.operationId, status: "verified", reason: "explicit synthetic fixture eligibility", source: descriptor.source, evidence: [{ kind: "fixture", detail: "synthetic dispatch only" }] }] }),
-    readTarget: async () => "target",
-    dispatch: async () => ({ status: "operator-required", reason: "external-consent", message: "operator action required" }),
-  });
-  executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "fixture-management-key" });
-  const plan = await executor.plan("DELETE /api/cache", { body: {} });
-  const result = await executor.apply(plan.planId, { confirmed: true });
+  const harness = adminHarness(
+    async () => makeTarget("target"),
+    undefined,
+    async () => ({ status: "operator-required", reason: "external-consent", message: "operator action required" }),
+  );
+  const plan = await harness.executor.plan("DELETE /api/cache", { body: {} });
+  const result = await harness.executor.apply(plan.planId, { confirmed: true });
   expect(result.status).toBe("operator-required");
-  expect(executor.getPlan(plan.planId)?.state).toBe("operator-required");
-  await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+  expect(harness.executor.getPlan(plan.planId)?.state).toBe("operator-required");
+  await expect(harness.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
 });

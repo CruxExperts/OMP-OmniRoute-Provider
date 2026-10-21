@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security reporting
+    url: https://github.com/CruxExperts/CruxOmni-OMP-Client/security
+    about: Report vulnerabilities and credential exposure privately.

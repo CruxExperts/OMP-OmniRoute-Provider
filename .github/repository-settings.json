@@ -1,0 +1,89 @@
+{
+  "status": "prepared-not-applied",
+  "repository": "CruxExperts/CruxOmni-OMP-Client",
+  "description": "Connect Oh My Pi to OmniRoute with guided setup, live models, and guarded administration.",
+  "topics": [
+    "ai-gateway",
+    "cruxexperts",
+    "oh-my-pi",
+    "omniroute",
+    "omp",
+    "typescript"
+  ],
+  "socialPreview": "assets/brand/social.png",
+  "rulesets": [
+    {
+      "name": "Reviewed default branch",
+      "target": "branch",
+      "enforcement": "active",
+      "conditions": {
+        "ref_name": {
+          "include": [
+            "~DEFAULT_BRANCH"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": [
+        {
+          "type": "deletion"
+        },
+        {
+          "type": "non_fast_forward"
+        },
+        {
+          "type": "required_signatures"
+        },
+        {
+          "type": "pull_request",
+          "parameters": {
+            "required_approving_review_count": 1,
+            "dismiss_stale_reviews_on_push": true,
+            "require_code_owner_review": true,
+            "require_last_push_approval": true,
+            "required_review_thread_resolution": true
+          }
+        },
+        {
+          "type": "required_status_checks",
+          "parameters": {
+            "strict_required_status_checks_policy": true,
+            "required_status_checks": [
+              {
+                "context": "package"
+              },
+              {
+                "context": "host-smoke (18.12.2)"
+              },
+              {
+                "context": "host-smoke (18.12.5)"
+              }
+            ]
+          }
+        },
+        {
+          "type": "copilot_code_review",
+          "parameters": {
+            "review_draft_pull_requests": false,
+            "review_on_push": true
+          }
+        }
+      ],
+      "bypass_actors": []
+    }
+  ],
+  "maintenance": {
+    "variable": "CRUXOMNI_MAINTENANCE_ENABLED",
+    "enabledAfterReview": "true",
+    "dailyUtc": "07:17",
+    "backlog": ".github/1.0.0-backlog.json"
+  },
+  "activationRequirements": [
+    "Approve exact settings and issue payloads",
+    "Verify required check names on actual runs",
+    "Verify independent human reviewer availability before enforcing approvals",
+    "Verify npm scope access and Copilot entitlement",
+    "Configure protected release environment reviewers",
+    "Verify actual social preview after applying"
+  ]
+}

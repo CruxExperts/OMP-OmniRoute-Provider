@@ -7,7 +7,13 @@
   "version": "0.1.1",
   "description": "Crux Experts OmniRoute client for Oh My Pi with guided setup, live discovery, and verified administration.",
   "entrypoint": "./src/index.ts",
-  "compatibility": { "host": ">=18.12.2 <19", "tested": ["18.12.2", "18.12.3"] },
+  "compatibility": {
+    "host": ">=18.12.2 <19",
+    "tested": [
+      "18.12.2",
+      "18.12.5"
+    ]
+  },
   "repository": {
     "url": "https://github.com/CruxExperts/CruxOmni-OMP-Client",
     "homepage": "https://github.com/CruxExperts/CruxOmni-OMP-Client#readme",
@@ -15,6 +21,10 @@
   },
   "license": "MIT",
   "publisher": "Crux Experts LLC",
-  "commands": ["/cruxomni", "/cruxomni-admin", "/cruxomni-pricing"],
+  "commands": [
+    "/cruxomni",
+    "/cruxomni-admin",
+    "/cruxomni-pricing"
+  ],
   "publication": "prepared-not-published"
 }

@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { operationRegistry, type OperationAdapter } from "./registry.ts";
+import { getOperationRegistry, type OperationAdapter } from "./registry.ts";
 import type { AdminExecutor } from "./executor.ts";
 import { clearAdminUiSession, rememberAdminPlan, type AdminUiOptions, runAdminApply } from "./ui.ts";
 
@@ -12,8 +12,8 @@ export interface AdminToolsOptions {
   readonly ui: AdminUiOptions;
   readonly profileId?: string;
   endpoint?: string;
-  credentialGeneration?: number;
   readonly syncBinding?: () => Promise<void>;
+  readonly isEnabled: () => boolean;
 }
 
 function safeText(value: unknown): string {
@@ -40,10 +40,17 @@ function errorOutput(error: unknown, operationId?: string): { code: string; stat
   return { code: "request_failed", ...(operationId ? { operationId } : {}), correlationId: "redacted" };
 }
 
-function operationIds(): [string, ...string[]] {
-  const ids = operationRegistry.descriptors().map(item => item.operationId);
-  const first = ids[0];
-  return first === undefined ? ["__no_operations__"] : [first, ...ids.slice(1)];
+function safeRead(adapter: OperationAdapter): boolean {
+  return adapter.risk === "read" && adapter.descriptor.sideEffect === "read"
+    && !adapter.descriptor.confirmation.required
+    && adapter.descriptor.secrets.inputFields.length === 0;
+}
+
+function eligibleIds(mode: "read" | "plan"): string[] {
+  return getOperationRegistry().listOperations()
+    .filter(adapter => adapter.eligibility.status === "verified")
+    .filter(adapter => mode === "read" ? safeRead(adapter) : !safeRead(adapter) && adapter.descriptor.secrets.inputFields.length === 0)
+    .map(adapter => adapter.descriptor.operationId);
 }
 
 function parseInput(input: unknown): unknown {
@@ -60,7 +67,6 @@ function credentialFromEnvironment(options: AdminToolsOptions): void {
   options.executor.bindCredential({
     profileId: options.profileId ?? options.ui.profileId ?? DEFAULT_PROFILE,
     endpoint,
-    credentialGeneration: options.credentialGeneration ?? options.ui.credentialGeneration ?? 1,
     ...(apiKey ? { apiKey } : {}),
     ...(cookie ? { cookie } : {}),
   });
@@ -73,20 +79,21 @@ function content(text: string): ToolOutput {
 }
 
 async function executeRead(options: AdminToolsOptions, operationId: string, input: unknown, signal?: AbortSignal): Promise<ToolOutput> {
-  const adapter = operationRegistry.lookup(operationId);
+  const adapter = getOperationRegistry().lookup(operationId);
   if (!adapter) {
-    const descriptor = operationRegistry.getOperation(operationId);
+    const descriptor = getOperationRegistry().getOperation(operationId);
     return content(safeText({ code: descriptor ? "operation-unavailable" : "unknown-operation", operationId, correlationId: "redacted", ...(descriptor ? { reason: descriptor.coverage.reason ?? "non-invokable closed descriptor" } : {}) }));
   }
   if (adapter.eligibility.status !== "verified") {
     return content(safeText({ code: "operation-unavailable", operationId, correlationId: "redacted", reason: adapter.eligibility.reason }));
   }
-  if (adapter.risk !== "read" || adapter.descriptor.sideEffect !== "read" || adapter.descriptor.confirmation.required || adapter.descriptor.secrets.outputFields.length > 0) {
+  if (!safeRead(adapter)) {
     return content(safeText({ code: "confirmation-required", operationId, correlationId: "redacted", message: "gated reads and mutations require the human plan/apply workflow" }));
   }
   try {
     await options.syncBinding?.();
-    credentialFromEnvironment(options);
+    if (!options.isEnabled()) return content(safeText({ code: "credential-disabled", operationId, correlationId: "redacted" }));
+    if (adapter.descriptor.auth.domain === "management") credentialFromEnvironment(options);
     const result = await options.executor.read(operationId, parseInput(input), {
       confirmed: true,
       headless: false,
@@ -100,9 +107,9 @@ async function executeRead(options: AdminToolsOptions, operationId: string, inpu
   }
 }
 async function executePlan(options: AdminToolsOptions, operationId: string, input: unknown, signal?: AbortSignal): Promise<ToolOutput> {
-  const adapter = operationRegistry.lookup(operationId);
+  const adapter = getOperationRegistry().lookup(operationId);
   if (!adapter) {
-    const descriptor = operationRegistry.getOperation(operationId);
+    const descriptor = getOperationRegistry().getOperation(operationId);
     return content(safeText({ code: descriptor ? "operation-unavailable" : "unknown-operation", operationId, correlationId: "redacted", ...(descriptor ? { reason: descriptor.coverage.reason ?? "non-invokable closed descriptor" } : {}) }));
   }
   if (adapter.eligibility.status !== "verified") {
@@ -113,7 +120,8 @@ async function executePlan(options: AdminToolsOptions, operationId: string, inpu
   }
   try {
     await options.syncBinding?.();
-    credentialFromEnvironment(options);
+    if (!options.isEnabled()) return content(safeText({ code: "credential-disabled", operationId, correlationId: "redacted" }));
+    if (adapter.descriptor.auth.domain === "management") credentialFromEnvironment(options);
     const validated = adapter.validate(parseInput(input));
     const plan = await options.executor.plan(operationId, validated, {
       ...(options.endpoint ?? options.ui.endpoint ? { endpoint: options.endpoint ?? options.ui.endpoint } : {}),
@@ -125,7 +133,7 @@ async function executePlan(options: AdminToolsOptions, operationId: string, inpu
       planId: plan.planId,
       operationId: plan.operationId,
       risk: plan.risk,
-      target: { profileId: plan.profileId, endpoint: plan.endpoint },
+      target: { profileId: plan.auth.profileId, endpoint: plan.auth.endpoint },
       expiresAt: plan.expiresAt,
       preview: plan.preview,
       next: "/cruxomni-admin apply",
@@ -134,28 +142,33 @@ async function executePlan(options: AdminToolsOptions, operationId: string, inpu
     return content(safeText(errorOutput(error, operationId)));
   }
 }
-export function registerAdminTools(pi: ExtensionAPI, options: AdminToolsOptions): void {
+export function registerAdminTools(pi: ExtensionAPI, options: AdminToolsOptions): readonly string[] {
+  if (!options.isEnabled()) return [];
   const z = pi.zod;
-  const ids = operationIds();
-  const parameters = z.object({ operationId: z.enum(ids), input: z.record(z.string(), z.unknown()).optional() }).strict();
-  pi.registerTool({
-    name: "omniroute_admin_read",
-    label: "OmniRoute Admin Read",
-    description: "Read one closed, versioned OmniRoute operation through an allowlisted projection; sensitive reads require a human gate.",
-    parameters,
-    strict: true,
-    approval: "read",
-    execute: async (_toolCallId, params, signal) => executeRead(options, params.operationId, params.input ?? {}, signal),
-  });
-  pi.registerTool({
-    name: "omniroute_admin_plan",
-    label: "OmniRoute Admin Plan",
-    description: "Validate and preview one closed, versioned OmniRoute operation; this tool never dispatches a mutation.",
-    parameters,
-    strict: true,
-    approval: "read",
-    execute: async (_toolCallId, params, signal) => executePlan(options, params.operationId, params.input ?? {}, signal),
-  });
+  const registered: string[] = [];
+  for (const mode of ["read", "plan"] as const) {
+    const ids = eligibleIds(mode);
+    const first = ids[0];
+    if (first === undefined) continue;
+    const name = `omniroute_admin_${mode}`;
+    const parameters = z.object({ operationId: z.enum([first, ...ids.slice(1)]), input: z.record(z.string(), z.unknown()).optional() }).strict();
+    pi.registerTool({
+      name,
+      label: mode === "read" ? "OmniRoute Admin Read" : "OmniRoute Admin Plan",
+      description: mode === "read"
+        ? "Read a behavior-verified ordinary OmniRoute operation through its allowlisted projection."
+        : "Validate and preview a behavior-verified OmniRoute operation; only a human can apply it.",
+      parameters,
+      defaultInactive: true,
+      strict: true,
+      approval: "read",
+      execute: async (_toolCallId, params, signal) => mode === "read"
+        ? executeRead(options, params.operationId, params.input ?? {}, signal)
+        : executePlan(options, params.operationId, params.input ?? {}, signal),
+    });
+    registered.push(name);
+  }
+  return registered;
 }
 
 export function clearAdminToolsSession(options: AdminToolsOptions): void {

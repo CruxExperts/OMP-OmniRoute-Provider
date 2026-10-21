@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "sourceVersion": "0.1.1",
+  "copyright": "Copyright \u00a9 2026 Crux Experts LLC",
+  "source": "https://www.cruxexperts.com/",
+  "rights": "Private asset. Property of Crux Experts LLC. Use, reproduction, modification, distribution, or publication without prior written permission is prohibited.",
+  "editableSource": "scripts/export-media.py",
+  "font": {
+    "name": "DejaVu Sans",
+    "regularSha256": "ae7b7855e115a5966d8b1b3f80f254ccc117ec86f9965e202ee2940453837280",
+    "boldSha256": "5c1247acef7f2b8522a31742c76d6adcb5569bacc0be7ceaa4dc39dd252ce895",
+    "redistributed": false
+  },
+  "renderer": {
+    "Pillow": "10.2.0"
+  },
+  "files": [
+    {
+      "path": "assets/brand/banner.png",
+      "sha256": "bc35d6edd75df8d395626eb150db55da2bffe8927a606e20a1a664a74b60e44e"
+    },
+    {
+      "path": "assets/brand/banner.svg",
+      "sha256": "3fbb777ae86d47268724403e03bb622c3235a3031559be648f5551511e3c4d80"
+    },
+    {
+      "path": "assets/brand/icon-dark.png",
+      "sha256": "bc8813ee8df7636aff16dfe88113a86ac3314e9cb7ed1204d6966e9c68a63b36"
+    },
+    {
+      "path": "assets/brand/icon-dark.svg",
+      "sha256": "8e053f233c9d2d86798943b63905e41bb65299db3edab11bfd1f0566ab7f45f7"
+    },
+    {
+      "path": "assets/brand/icon-light.png",
+      "sha256": "340a5abb9786ce565cf924fcf7c1cd2c8b999f67af00fe05b7623fb15ff03e28"
+    },
+    {
+      "path": "assets/brand/icon-light.svg",
+      "sha256": "cdae31042d3f0954f0737442bd38dfa0aec4c4ca6f2f08743bb84f3cda0bef8d"
+    },
+    {
+      "path": "assets/brand/social.png",
+      "sha256": "407ba18513ee376dee7206196e8351c6997e1dcc0bdc561175d334b804dbd6de"
+    },
+    {
+      "path": "assets/brand/social.svg",
+      "sha256": "10a3f50824a490598628d791fbcf9f45631089fd6aaae55cd0ef247307f733b5"
+    },
+    {
+      "path": "assets/brand/square.png",
+      "sha256": "09730a6acd663ae15bf82fc33538441930604701434cf98dc233cfde41e8f3c0"
+    },
+    {
+      "path": "assets/brand/square.svg",
+      "sha256": "fd91866e2458b6ba63b7bfea6ab9d8dba6142c5f586bf5e74701d460920d8a2b"
+    },
+    {
+      "path": "assets/brand/wordmark-dark.png",
+      "sha256": "af27db496228166acecb3964c2c2e86a12a4969a694e5b07fe80c3527211c868"
+    },
+    {
+      "path": "assets/brand/wordmark-dark.svg",
+      "sha256": "e075aa75555970bb97aa493fc2433a58006870fc5fb50a2c7e6a90913a2184a0"
+    },
+    {
+      "path": "assets/brand/wordmark-light.png",
+      "sha256": "18a900ec79a14ac4bf21d8dc2f07d460d4023f489ccf389e7839d278c0ef1299"
+    },
+    {
+      "path": "assets/brand/wordmark-light.svg",
+      "sha256": "9c7c0e4057a1db8589d88517559d0e0afe10a1bbe187f16ddbbd241fe82777c1"
+    }
+  ]
+}

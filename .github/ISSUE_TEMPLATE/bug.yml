@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible client problem using disposable data.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Report security problems privately through the Security page. Remove keys, cookies, prompts, account data, local paths, and private endpoints."
+  - type: input
+    id: versions
+    attributes:
+      label: Client, OMP, and OmniRoute versions
+      description: Include operating system and architecture.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Steps, expected behavior, and actual behavior
+      description: Use placeholders and disposable data. Include the command or operation ID.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Include only the minimum needed to reproduce the problem.

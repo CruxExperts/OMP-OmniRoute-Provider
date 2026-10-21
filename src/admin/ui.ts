@@ -1,22 +1,26 @@
 import { Input } from "@oh-my-pi/pi-tui";
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
-import { listCategories, operationRegistry, type OperationAdapter } from "./registry.ts";
+import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { getOperationRegistry, type OperationAdapter, type OperationRegistry } from "./registry.ts";
 import type { AdminCredentialInput, AdminPlanHandle, AdminPreview } from "./types.ts";
 import type { AdminExecutor } from "./executor.ts";
+import { isLoopbackHostname } from "./adapters.ts";
 
 const DEFAULT_PROFILE = "omniroute";
 type AdminContext = ExtensionContext;
 
 export interface AdminBinding {
   readonly endpoint: string;
-  readonly credentialGeneration: number;
 }
 
 export interface AdminUiOptions {
   readonly executor: AdminExecutor;
+  /**
+   * Optional closed registry matching the executor. Production uses the
+   * singleton registry; the injection point also permits isolated UI tests.
+   */
+  readonly registry?: OperationRegistry;
   readonly profileId?: string;
   endpoint?: string;
-  credentialGeneration?: number;
   resolveEffectiveEndpoint?: () => Promise<AdminBinding | undefined>;
   syncBinding?: () => Promise<void>;
   onEnable?: (endpoint: string) => Promise<AdminBinding | undefined>;
@@ -24,6 +28,10 @@ export interface AdminUiOptions {
 }
 
 const planCache = new WeakMap<object, Map<string, AdminPlanHandle>>();
+
+function operationRegistry(options: AdminUiOptions): OperationRegistry {
+  return options.registry ?? getOperationRegistry();
+}
 
 function cachedPlans(options: AdminUiOptions): Map<string, AdminPlanHandle> {
   const existing = planCache.get(options.executor);
@@ -68,8 +76,8 @@ async function askText(context: AdminContext, prompt: string, secret = false): P
   }, { overlay: true });
 }
 
-function redactPreview(preview: AdminPreview): string {
-  const descriptor = operationRegistry.getOperation(preview.operationId);
+function redactPreview(preview: AdminPreview, registry: OperationRegistry): string {
+  const descriptor = registry.getOperation(preview.operationId);
   const secretFields = new Set(descriptor?.secrets.inputFields.map(field => field.toLowerCase()) ?? []);
   const redact = (value: unknown, key?: string): unknown => {
     if (key && secretFields.has(key.toLowerCase())) return "[redacted]";
@@ -83,10 +91,11 @@ function redactPreview(preview: AdminPreview): string {
     method: preview.method,
     path: preview.pathTemplate,
     resolvedPath: preview.resolvedPath,
-    query: preview.query,
+    queryParameters: preview.queryParameters,
     planDigest: preview.planDigest,
     risk: preview.risk,
     sideEffect: preview.sideEffect,
+    authorization: preview.authorization,
     change: redact(preview.payload),
     consequence: preview.consequence,
     confirmationRequired: preview.confirmationRequired,
@@ -99,19 +108,19 @@ function rememberCredential(options: AdminUiOptions): void {
   const input: AdminCredentialInput = {
     profileId: options.profileId ?? DEFAULT_PROFILE,
     endpoint: options.endpoint ?? "",
-    credentialGeneration: options.credentialGeneration ?? 1,
     ...(credential.apiKey ? { apiKey: credential.apiKey } : {}),
     ...(credential.cookie ? { cookie: credential.cookie } : {}),
   };
   options.executor.bindCredential(input);
 }
 
-async function collectSessionCredential(options: AdminUiOptions, context: AdminContext): Promise<boolean> {
+async function collectSessionCredential(options: AdminUiOptions, context: AdminContext, allowTrustedLocal = false): Promise<boolean> {
   if (!options.endpoint) return false;
   const bound = options.executor.getCredentialBinding();
   if (bound?.enabled && bound.endpoint === options.endpoint && bound.profileId === (options.profileId ?? DEFAULT_PROFILE)) return true;
   const fromEnvironment = credentialFromEnvironment();
   if (!fromEnvironment.apiKey && !fromEnvironment.cookie) {
+    if (allowTrustedLocal && bound === undefined) return true;
     const kind = await askText(context, "Management credential kind (apiKey or cookie)");
     if (!kind || (kind !== "apiKey" && kind !== "cookie")) return false;
     const value = await askText(context, kind === "apiKey" ? "Management API key" : "Management cookie", true);
@@ -119,7 +128,6 @@ async function collectSessionCredential(options: AdminUiOptions, context: AdminC
     const input: AdminCredentialInput = {
       profileId: options.profileId ?? DEFAULT_PROFILE,
       endpoint: options.endpoint,
-      credentialGeneration: options.credentialGeneration ?? 1,
       ...(kind === "apiKey" ? { apiKey: value } : { cookie: value }),
     };
     options.executor.bindCredential(input);
@@ -128,10 +136,32 @@ async function collectSessionCredential(options: AdminUiOptions, context: AdminC
   rememberCredential(options);
   return true;
 }
-async function makePlan(options: AdminUiOptions, operationId: string, input: unknown): Promise<AdminPlanHandle> {
+type SelectedOperationResult =
+  | { readonly kind: "read"; readonly output: unknown }
+  | { readonly kind: "plan"; readonly plan: AdminPlanHandle };
+
+function isOrdinaryRead(adapter: OperationAdapter): boolean {
+  const descriptor = adapter.descriptor;
+  return adapter.risk === "read"
+    && descriptor.sideEffect === "read"
+    && !descriptor.confirmation.required
+    && ["GET", "HEAD", "OPTIONS"].includes(descriptor.method);
+}
+
+async function runSelectedOperation(
+  options: AdminUiOptions,
+  adapter: OperationAdapter,
+  input: unknown,
+): Promise<SelectedOperationResult> {
+  const operationId = adapter.descriptor.operationId;
+  if (adapter.risk === "read") {
+    if (!isOrdinaryRead(adapter)) throw new Error("read operation is not eligible for direct execution");
+    const result = await options.executor.read(operationId, input);
+    return { kind: "read", output: result.output };
+  }
   const plan = await options.executor.plan(operationId, input);
   cachedPlans(options).set(plan.planId, plan);
-  return plan;
+  return { kind: "plan", plan };
 }
 
 
@@ -147,13 +177,14 @@ async function applyPlan(options: AdminUiOptions, context: AdminContext, planId:
     return;
   }
   const preview = plan.preview;
-  notify(context, `Exact administration target and redacted change:\n${redactPreview(preview)}\nThis preview will be re-read for drift before dispatch.`, "warning");
+  const registry = operationRegistry(options);
+  notify(context, `Exact administration target and redacted change:\n${redactPreview(preview, registry)}\nThis preview will be re-read for drift before dispatch.`, "warning");
   const typed = await askText(context, `Type APPLY to confirm plan ${planId}`);
   if (typed !== "APPLY") {
     notify(context, "administration apply denied; no request was sent", "warning");
     return;
   }
-  const confirmed = await context.ui.confirm("Apply administration plan", `${redactPreview(preview)}\n\nConfirm this exact target, side effect, and irreversible consequence?`);
+  const confirmed = await context.ui.confirm("Apply administration plan", `${redactPreview(preview, registry)}\n\nConfirm this exact target, side effect, and irreversible consequence?`);
   if (!confirmed) {
     notify(context, "administration apply cancelled; no request was sent", "warning");
     return;
@@ -171,15 +202,16 @@ async function applyPlan(options: AdminUiOptions, context: AdminContext, planId:
 }
 
 async function browse(options: AdminUiOptions, context: AdminContext, search: string): Promise<void> {
-  const categories = listCategories().filter(category => category.toLowerCase().includes(search.toLowerCase()));
+  const registry = operationRegistry(options);
+  const categories = registry.listCategories().filter(category => category.toLowerCase().includes(search.toLowerCase()));
   const normalizedSearch = search.toLowerCase();
-  const operations = operationRegistry.descriptors()
+  const operations = registry.descriptors()
     .filter(descriptor => `${descriptor.operationId} ${descriptor.pathTemplate}`.toLowerCase().includes(normalizedSearch))
     .sort((left, right) => left.operationId.localeCompare(right.operationId))
     .slice(0, 40);
   const categoryText = categories.slice(0, 20).join(", ") || "none";
   const operationText = operations.map(descriptor => {
-    const adapter = operationRegistry.lookup(descriptor.operationId);
+    const adapter = registry.lookup(descriptor.operationId);
     if (!adapter) return `${descriptor.operationId} [unavailable: non-invokable closed descriptor]`;
     return adapter.eligibility.status === "verified"
       ? `${descriptor.operationId} [available]`
@@ -188,7 +220,7 @@ async function browse(options: AdminUiOptions, context: AdminContext, search: st
   notify(context, `categories: ${categoryText}\noperations:\n${operationText}`);
   const operationId = await askText(context, "Operation ID (Esc cancels)");
   if (!operationId) return;
-  const adapter: OperationAdapter | undefined = operationRegistry.lookup(operationId);
+  const adapter: OperationAdapter | undefined = registry.lookup(operationId);
   if (!adapter) {
     notify(context, "unknown or non-invokable operation; no request was sent", "warning");
     return;
@@ -197,14 +229,40 @@ async function browse(options: AdminUiOptions, context: AdminContext, search: st
     notify(context, `operation unavailable: ${adapter.eligibility.reason}; no request was sent`, "warning");
     return;
   }
+  const sourcePolicy = adapter.descriptor.auth.sourcePolicy;
+  let trustedLocalAllowed = false;
+  if (options.endpoint !== undefined && sourcePolicy.status === "qualified" && sourcePolicy.routeClass === "management"
+    && sourcePolicy.alternatives.some(alternative => alternative.kind === "trusted-local" && alternative.loopbackOnly)) {
+    try { trustedLocalAllowed = isLoopbackHostname(new URL(options.endpoint).hostname); } catch {}
+  }
+  if (adapter.descriptor.auth.domain === "management" && !(await collectSessionCredential(options, context, trustedLocalAllowed))) {
+    notify(context, "this operation requires a source-qualified management credential; no request was sent", "warning");
+    return;
+  }
   const raw = await askText(context, `Validated JSON input for ${operationId} ({} if empty)`, adapter.descriptor.secrets.inputFields.length > 0);
   if (!raw) return;
 
   let input: unknown;
   try { input = JSON.parse(raw); } catch { notify(context, "input is not valid JSON; no request was sent", "warning"); return; }
-  let plan: AdminPlanHandle;
-  try { plan = await makePlan(options, operationId, input); } catch { notify(context, "input was rejected by the closed operation validator; no request was sent", "warning"); return; }
-  notify(context, `plan ${plan.planId} created\n${redactPreview(plan.preview)}`, "info");
+  let result: SelectedOperationResult;
+  try {
+    result = await runSelectedOperation(options, adapter, input);
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : undefined;
+    if (code === "invalid-input") {
+      notify(context, "input was rejected by the closed operation validator; no request was sent", "warning");
+    } else if (adapter.risk === "read" && !isOrdinaryRead(adapter)) {
+      notify(context, "read operation is not eligible for direct execution; no request was sent", "warning");
+    } else {
+      notify(context, `operation failed${code ? ` (${code})` : ""}; no retry was attempted`, "warning");
+    }
+    return;
+  }
+  if (result.kind === "read") {
+    notify(context, `read result for ${operationId}:\n${safeDisplay(result.output)}`, "info");
+    return;
+  }
+  notify(context, `plan ${result.plan.planId} created\n${redactPreview(result.plan.preview, registry)}`, "info");
 }
 async function enableAdmin(options: AdminUiOptions, context: AdminContext): Promise<void> {
   if (!hasInteractiveUi(context)) {
@@ -239,17 +297,14 @@ async function enableAdmin(options: AdminUiOptions, context: AdminContext): Prom
       return;
     }
     options.endpoint = enabled.endpoint;
-    options.credentialGeneration = enabled.credentialGeneration;
-    notify(context, `administration enabled for exact endpoint ${enabled.endpoint}; bind a credential before choosing an action`, "info");
+    notify(context, `administration enabled for exact endpoint ${enabled.endpoint}; source-qualified operations may require credentials`, "info");
   } catch {
     notify(context, "administration enable failed to persist; no request was sent", "warning");
   }
 }
 
-export function registerAdminCommand(pi: ExtensionAPI, options: AdminUiOptions): void {
-  pi.registerCommand("cruxomni-admin", {
-    description: "Search, preview, and human-confirm versioned OmniRoute administration operations",
-    handler: async (args, ctx) => {
+export function createAdminCommandHandler(options: AdminUiOptions): (args: string, ctx: AdminContext) => Promise<void> {
+  return async (args, ctx) => {
       const context = ctx;
       const parts = args.trim().split(/\s+/).filter(Boolean);
       if (parts[0] === "enable") {
@@ -263,7 +318,11 @@ export function registerAdminCommand(pi: ExtensionAPI, options: AdminUiOptions):
         return;
       }
       if (parts[0] === "apply") {
-        if (!options.executor.getCredentialBinding()) await collectSessionCredential(options, context);
+        const plan = parts[1] ? options.executor.getPlan(parts[1]) : undefined;
+        if (plan && operationRegistry(options).getOperation(plan.operationId)?.auth.domain === "management"
+          && !options.executor.getCredentialBinding() && plan.preview.authorization.kind !== "not-required") {
+          await collectSessionCredential(options, context);
+        }
         const planId = parts[1] ?? await askText(context, "Plan ID to apply");
         if (planId) await applyPlan(options, context, planId);
         return;
@@ -276,13 +335,8 @@ export function registerAdminCommand(pi: ExtensionAPI, options: AdminUiOptions):
         notify(context, "administration session cleared; no request was sent");
         return;
       }
-      if (!(await collectSessionCredential(options, context))) {
-        notify(context, "administration credential is required in the human-only UI; no request was sent", "warning");
-        return;
-      }
       await browse(options, context, parts.join(" ") || "");
-    },
-  });
+  };
 }
 
 export async function runAdminApply(options: AdminUiOptions, context: AdminContext, planId: string): Promise<void> {

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-10-19T19:04:02Z",
+  "generated_at": "2026-10-21T01:49:33Z",
   "selector_policy": {
     "kind": "github_latest_release",
     "selector_urls": [
@@ -17,29 +17,109 @@
       "repository": "diegosouzapw/OmniRoute",
       "compatibility_role": "descriptor-corpus provenance only; not a runtime package or exact server requirement",
       "release": {
-        "tag": "v3.8.51",
-        "version": "3.8.51",
-        "release_id": 399650273,
-        "release_url": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.51",
+        "tag": "v3.8.52",
+        "version": "3.8.52",
+        "release_id": 417692858,
+        "release_url": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.52",
         "selector_url": "https://github.com/diegosouzapw/OmniRoute/releases/latest",
         "api_url": "https://api.github.com/repos/diegosouzapw/OmniRoute/releases/latest",
-        "tag_ref": "refs/tags/v3.8.51",
-        "annotated_tag_object": "770faa7144f58ada625afc6efe572c8335484ec4",
-        "peeled_commit": "c1e30b7676975feb298b49eff6ff58923c04b89e",
-        "commit_url": "https://github.com/diegosouzapw/OmniRoute/commit/c1e30b7676975feb298b49eff6ff58923c04b89e",
-        "retrieved_at": "2026-10-19T18:23:07Z",
-        "published_at": "2026-09-30T01:41:50Z",
+        "tag_ref": "refs/tags/v3.8.52",
+        "annotated_tag_object": "cac024bcf3999e46092a763a18eefced77e36acf",
+        "peeled_commit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "commit_url": "https://github.com/diegosouzapw/OmniRoute/commit/ad6f33f66bda34eba98645d3bfdabbde294bc843",
+        "retrieved_at": "2026-10-21T01:39:23Z",
+        "published_at": "2026-10-19T20:02:45Z",
         "selector_and_api_agree": true
       },
       "artifact_integrity": {
-        "source_archive_url": "https://github.com/diegosouzapw/OmniRoute/archive/c1e30b7676975feb298b49eff6ff58923c04b89e.tar.gz",
-        "source_archive_sha256": "5ed9dc3c038cc9c01b84303ff7afdcaf32b9b0c4e9f986c88dcf19ee07789624",
+        "source_archive_url": "https://github.com/diegosouzapw/OmniRoute/archive/ad6f33f66bda34eba98645d3bfdabbde294bc843.tar.gz",
+        "source_archive_sha256": "78bb31f9c45b9975f99a9ebe67ed2e6996d39524ab3379a2ecba961d7c70358c",
         "source_archive_status": "verified_disposable_acquisition",
         "release_assets_with_api_digests": [
           {
+            "name": "CHANGELOG-v3.8.52.md",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/CHANGELOG-v3.8.52.md",
+            "digest": "sha256:f9dff728e9430afe0e747863621734723c8af2283c7d7e1a5689785f9488bed7"
+          },
+          {
+            "name": "latest-linux-arm64.yml",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest-linux-arm64.yml",
+            "digest": "sha256:4b03dd436b3116d46fc62098e4b095c5ccbff0972159cc5078ac74d7d31cc1fe"
+          },
+          {
+            "name": "latest-linux.yml",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest-linux.yml",
+            "digest": "sha256:22935a90a8220bdd34a87fcd38247042888051b13769ffb9cb95e66b038260e6"
+          },
+          {
+            "name": "latest-mac.yml",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest-mac.yml",
+            "digest": "sha256:c16b09e2f1b3c13effdf41bb132820869779abacf238de3369321d8d05de8c31"
+          },
+          {
             "name": "latest.yml",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.51/latest.yml",
-            "digest": "sha256:d3909bc3009bf830f611d5421b7e0e4c073ec528cdbcd713cf610dfbf78ed696"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest.yml",
+            "digest": "sha256:ee00b595bd0f86881bb445e723b49bff006dd7b162012f653be467be923a8b44"
+          },
+          {
+            "name": "OmniRoute-3.8.52-arm64.AppImage",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52-arm64.AppImage",
+            "digest": "sha256:64518cbd30ccdd57a5544af18b96f3e196d87fbe957ef8ffc4b5aec395a5b8ff"
+          },
+          {
+            "name": "OmniRoute-3.8.52-arm64.dmg",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52-arm64.dmg",
+            "digest": "sha256:d56ca0fc0422fefaf85313d0ec1c14d79412a5480d93debe56468bb2947fd81b"
+          },
+          {
+            "name": "OmniRoute-3.8.52.AppImage",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52.AppImage",
+            "digest": "sha256:453bbdc26f2eb9efb5041ae2fdd36cfc71fa742462a83503b7e05f5142a59c76"
+          },
+          {
+            "name": "OmniRoute-3.8.52.dmg",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52.dmg",
+            "digest": "sha256:354f12c1f268bd9f309acbe1d49ebf5929be19e060e74b975d36304d8699dd5c"
+          },
+          {
+            "name": "omniroute-desktop_3.8.52_amd64.deb",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/omniroute-desktop_3.8.52_amd64.deb",
+            "digest": "sha256:033e7fd1b51190570dae26dafdd09f92db813b4f96c6f2363fd637cd05fc1cd8"
+          },
+          {
+            "name": "omniroute-desktop_3.8.52_arm64.deb",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/omniroute-desktop_3.8.52_arm64.deb",
+            "digest": "sha256:7a39055bab446672df0d9e7c89120ccd05d8b3deab372263945bf192857a1c80"
+          },
+          {
+            "name": "OmniRoute-v3.8.52.source.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-v3.8.52.source.tar.gz",
+            "digest": "sha256:ccd206e9c0aef0f9e55a5d3a083820bbc91353935fe7eaf66ceb5e46ff2940b6"
+          },
+          {
+            "name": "OmniRoute-v3.8.52.source.zip",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-v3.8.52.source.zip",
+            "digest": "sha256:85398ba601bc097a007ee0420a57b66d8a20b3a15973e57c69613ff7129afe01"
+          },
+          {
+            "name": "OmniRoute.3.8.52.exe",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute.3.8.52.exe",
+            "digest": "sha256:555b34ea494c1709c00800487ee1c1e95a7c4a8a77cc4d0046bf463d56b56c79"
+          },
+          {
+            "name": "OmniRoute.exe",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute.exe",
+            "digest": "sha256:555b34ea494c1709c00800487ee1c1e95a7c4a8a77cc4d0046bf463d56b56c79"
+          },
+          {
+            "name": "OmniRoute.Setup.3.8.52.exe",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute.Setup.3.8.52.exe",
+            "digest": "sha256:5888fea85c0f9bb092e5d351fda1e5a11c6f71b2e75df6932d3dc008d440154d"
+          },
+          {
+            "name": "sbom-npm.cdx.json",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/sbom-npm.cdx.json",
+            "digest": "sha256:61d02897ce1ba9c7694ce1a6840ba7e35a9573361785dd7279ce3d502ad4faea"
           }
         ]
       },
@@ -47,14 +127,14 @@
         {
           "path": "package.json",
           "algorithm": "git-blob-sha1",
-          "hash": "214ee04e21af183439fc652eb4928103db599732",
-          "url": "https://github.com/diegosouzapw/OmniRoute/blob/c1e30b7676975feb298b49eff6ff58923c04b89e/package.json"
+          "hash": "10d2cd5b3608cc8f71da360aa2a701ed1888b71c",
+          "url": "https://github.com/diegosouzapw/OmniRoute/blob/ad6f33f66bda34eba98645d3bfdabbde294bc843/package.json"
         },
         {
           "path": "commit-tree",
           "algorithm": "git-tree-sha1",
-          "hash": "0f58d8df20c0c2ae4336b432b3f39837119b6eed",
-          "url": "https://github.com/diegosouzapw/OmniRoute/tree/c1e30b7676975feb298b49eff6ff58923c04b89e"
+          "hash": "b2f3332f645ad60de52f12a4a484eb288693f0ea",
+          "url": "https://github.com/diegosouzapw/OmniRoute/tree/ad6f33f66bda34eba98645d3bfdabbde294bc843"
         }
       ]
     },
@@ -63,43 +143,93 @@
       "repository": "can1357/oh-my-pi",
       "compatibility_role": "runtime host and SDK compatibility authority",
       "release": {
-        "tag": "v18.12.3",
-        "version": "18.12.3",
-        "release_id": 417621396,
-        "release_url": "https://github.com/can1357/oh-my-pi/releases/tag/v18.12.3",
+        "tag": "v18.12.5",
+        "version": "18.12.5",
+        "release_id": 419080214,
+        "release_url": "https://github.com/can1357/oh-my-pi/releases/tag/v18.12.5",
         "selector_url": "https://github.com/can1357/oh-my-pi/releases/latest",
         "api_url": "https://api.github.com/repos/can1357/oh-my-pi/releases/latest",
-        "tag_ref": "refs/tags/v18.12.3",
+        "tag_ref": "refs/tags/v18.12.5",
         "annotated_tag_object": null,
-        "peeled_commit": "53a0377db6845e0dae606146130766ec92d407fd",
-        "commit_url": "https://github.com/can1357/oh-my-pi/commit/53a0377db6845e0dae606146130766ec92d407fd",
-        "retrieved_at": "2026-10-19T19:04:02Z",
-        "published_at": "2026-10-19T18:41:25Z",
+        "peeled_commit": "d5cd750e41fede277f9eb933455da92a0738915e",
+        "commit_url": "https://github.com/can1357/oh-my-pi/commit/d5cd750e41fede277f9eb933455da92a0738915e",
+        "retrieved_at": "2026-10-21T02:46:29Z",
+        "published_at": "2026-10-21T02:31:29Z",
         "selector_and_api_agree": true
       },
       "artifact_integrity": {
         "asset": {
           "name": "omp-linux-x64",
-          "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.3/omp-linux-x64",
-          "digest": "sha256:065b5079d65ff6b77d961c935ba808e8f0f569ca6a2cb7b5fb6a1e8da72d7dec",
+          "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-linux-x64",
+          "digest": "sha256:fdbc8136084c9a10439569157b2af62312e2b0d801cab54c73e89476da798e7e",
           "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
         },
-        "checksums_asset_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.3/SHA256SUMS.txt",
-        "checksums_sha256": "sha256:7f54b00f19ee14ad71383fa32105b64abee1a99180265b44b7a6441220cb54b5",
+        "platform_assets": [
+          {
+            "name": "omp-linux-x64",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-linux-x64",
+            "digest": "sha256:fdbc8136084c9a10439569157b2af62312e2b0d801cab54c73e89476da798e7e",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-linux-arm64",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-linux-arm64",
+            "digest": "sha256:0af1895adb1ae330e3b58de13d627277efeaaae6e322c3792fd8e6bd9db9aaa1",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-linux-musl-x64",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-linux-musl-x64",
+            "digest": "sha256:b8da8310e8098ae2011148e31e964e40b7954e764e27d3946331f72faaaa34fa",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-linux-musl-arm64",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-linux-musl-arm64",
+            "digest": "sha256:d2b0b7cdfb56301291ecbdde3dab68ecb13e3a7c0220dd8770c9a30d6203eb43",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-darwin-x64",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-darwin-x64",
+            "digest": "sha256:a42c5c5f04b8dadae553f1dfdb896d57baa9a26a9ae2265aa54341e6c6759c23",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-darwin-arm64",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-darwin-arm64",
+            "digest": "sha256:5e50df9879de9165d5c6df5e48bb5d038737270013cd849e189da7774fb7368b",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-windows-x64.exe",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-windows-x64.exe",
+            "digest": "sha256:140f4e575361d11cfbdcfe64bb40acbdf1a8a02a9281ce50c35406cbf306788f",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          },
+          {
+            "name": "omp-windows-arm64.exe",
+            "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/omp-windows-arm64.exe",
+            "digest": "sha256:74a9d0071e01c77fa4be915c0ae7e2298fe3108d6199f0d1143bca4dd28c44d5",
+            "digest_source": "GitHub release asset API and SHA256SUMS cross-check"
+          }
+        ],
+        "checksums_asset_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.5/SHA256SUMS.txt",
+        "checksums_sha256": "sha256:f3f532a2d746a1868f3d89b35dac37abc6d640cc8e86bd74cfc5a9249d1840ad",
         "checksums_cross_check_required": true
       },
       "source_hashes": [
         {
           "path": "packages/coding-agent/package.json",
           "algorithm": "git-blob-sha1",
-          "hash": "79ef7c0274bdcccf3bbf6817f56a139b3b63151f",
-          "url": "https://github.com/can1357/oh-my-pi/blob/53a0377db6845e0dae606146130766ec92d407fd/packages/coding-agent/package.json"
+          "hash": "40e5a26027b316cade730d57bdc5262149ca41c7",
+          "url": "https://github.com/can1357/oh-my-pi/blob/d5cd750e41fede277f9eb933455da92a0738915e/packages/coding-agent/package.json"
         },
         {
           "path": "commit-tree",
           "algorithm": "git-tree-sha1",
-          "hash": "51822a49a4cc7eebabdb1e848c79f8aa873deb40",
-          "url": "https://github.com/can1357/oh-my-pi/tree/53a0377db6845e0dae606146130766ec92d407fd"
+          "hash": "1d19bf65af4446fa9bfda4ed0a7d09315b02d9c8",
+          "url": "https://github.com/can1357/oh-my-pi/tree/d5cd750e41fede277f9eb933455da92a0738915e"
         }
       ]
     }

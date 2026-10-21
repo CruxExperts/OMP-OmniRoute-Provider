@@ -1,0 +1,3 @@
+# Preserve literal terminal output and third-party license formatting.
+assets/native/**/terminal-transcript.txt -whitespace
+assets/native/**/third-party-notices.txt -whitespace

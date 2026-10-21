@@ -1,0 +1,140 @@
+### setup wizard
+
+
+                                                                ████████████
+                                                                   ██  ██       ▄▀▀▄ █▀▄▀▄ █▀▀▄
+                                                                   ██  ██       ▀▄▄▀ █ █ █ █▄▄▀
+                                                                   ▒▒  ██                  █
+                                                                       ██       v18.12.5
+
+                                            Tip: Say `orchestrate` in your message to drive a multi-phase task with
+                                                         parallel subagents — watch it glow as you type
+
+ Warning: No default model selected. Use /login, set an API key environment variable, or select a local model with /model or --model.
+
+╭─ CruxOmni-OMP-Client — Setup ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                                                                                              │
+│                                                                                                                                                              │
+│  ❯ Connection                                                                                                                                                │
+│    Metadata (optional)                                                                                                                                       │
+│    Catalogs (optional)                                                                                                                                       │
+│    Administration (optional)                                                                                                                                 │
+│    Pricing (optional)                                                                                                                                        │
+│    Summary                                                                                                                                                   │
+│    Finish                                                                                                                                                    │
+│                                                                                                                                                              │
+│ ↑/↓ navigate  ⏎ select  ⎋ cancel                                                                                                                             │
+│                                                                                                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+### fallback-chain administration browser
+
+
+                                                                ████████████
+                                                                   ██  ██       ▄▀▀▄ █▀▄▀▄ █▀▀▄
+                                                                   ██  ██       ▀▄▄▀ █ █ █ █▄▄▀
+                                                                   ▒▒  ██                  █
+                                                                       ██       v18.12.5
+
+                                               Tip: Psst, omp has a natural habitat 🐦 tern (https://scl.so/tern)
+
+ categories: none operations: DELETE /api/fallback/chains [available] GET /api/fallback/chains [available] POST /api/fallback/chains [available]
+
+ π-omniroute-smoke > ⬢ fixture-responses-model > 📁 …e-roots/[disposable workspace] > ⑂ main *42 ?78 ▶────8%───────────────────────────╎───┃──────128K─
+╰─ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Operation ID (Esc cancels):
+
+### model-capability administration browser
+
+
+                                                                ████████████
+                                                                   ██  ██       ▄▀▀▄ █▀▄▀▄ █▀▀▄
+                                                                   ██  ██       ▀▄▄▀ █ █ █ █▄▄▀
+                                                                   ▒▒  ██                  █
+                                                                       ██       v18.12.5
+
+                                               Tip: Psst, omp has a natural habitat 🐦 tern (https://scl.so/tern)
+
+ categories: api/model-capability-overrides operations: DELETE /api/model-capability-overrides [available] GET /api/model-capability-overrides [available]
+ PATCH /api/model-capability-overrides [available]
+
+ π-omniroute-smoke > ⬢ fixture-responses-model > 📁 …e-roots/[disposable workspace] > ⑂ main *42 ?78 ▶────8%───────────────────────────╎───┃──────128K─
+╰─ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Operation ID (Esc cancels):
+
+Copyright © 2026 Crux Experts LLC. https://www.cruxexperts.com/
+
+Private asset. Property of Crux Experts LLC. Use, reproduction, modification, distribution, or publication without prior written permission is prohibited.
+
+The terminal interface shown is Oh My Pi (OMP) 18.12.5, Copyright (c) 2025 Mario Zechner, Copyright (c) 2025-2026 Can Bölük, and Copyright (c) 2026 Stencil Labs, Inc.; it is licensed under the MIT License. The rendering font is CaskaydiaCove Nerd Font Mono, Copyright (c) 2019-Present Microsoft Corporation, under SIL Open Font License 1.1. Crux Experts LLC owns only this captured and rendered media artifact.

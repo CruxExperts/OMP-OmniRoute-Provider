@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSbom, scanText, verifyPackage } from "../scripts/verify-package.ts";
@@ -66,4 +66,165 @@ test("package secret scanning distinguishes provenance names from secret-bearing
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("package scanning recognizes immutable field references without exempting opaque source values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-field-scan-"));
+  const issues: Parameters<typeof scanText>[2] = [];
+  const fields = ["frameworkContextSha256", "operationSemanticsSha256", "responseProjectionSha256"];
+  const source = [
+    `const HASH_FIELDS = ${JSON.stringify(fields)} as const;`,
+    `type Selected = Pick<Binding, ${fields.map(value => JSON.stringify(value)).join(" | ")}>;`,
+    `assertKeys(binding, "binding", ${JSON.stringify(fields)});`,
+  ].join("\n");
+  const schemaFile = "contracts/operations.schema.json";
+  try {
+    await mkdir(join(root, "contracts"));
+    await writeFile(join(root, "binding.ts"), source);
+    await writeFile(join(root, schemaFile), JSON.stringify({
+      definitions: { binding: { properties: Object.fromEntries(fields.map(field => [field, { type: "string" }])), required: fields } },
+    }));
+    await scanText(root, ["binding.ts", schemaFile], issues);
+    expect(issues).toEqual([]);
+
+    const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+    await writeFile(join(root, "binding.ts"), `${source}\nconst SESSION_VALUE = ${JSON.stringify(opaque)};`);
+    await scanText(root, ["binding.ts"], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: "binding.ts", detail: "high-entropy secret-like literal" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("package scanning preserves public model examples and authorization prose but rejects embedded bearer credentials", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-openapi-scan-"));
+  const issues: Parameters<typeof scanText>[2] = [];
+  const file = "provenance/route-sources.json";
+  const description = "Two bearer families are accepted. Bearer credentials are accepted here; a Bearer credential or dashboard session is required. A Bearer credential and an exact JSON model field. Specialty route.";
+  try {
+    await mkdir(join(root, "provenance"));
+    const document = {
+      openApi: {
+        components: { securitySchemes: { BearerAuth: { description } } },
+        schema: { properties: { model: { type: "string", example: "claude-sonnet-4-5-20250514" } } },
+      },
+    };
+    await writeFile(join(root, file), JSON.stringify(document));
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+
+    const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+    document.openApi.components.securitySchemes.BearerAuth.description = `${description} Request example: Bearer ${opaque}`;
+    await writeFile(join(root, file), JSON.stringify(document));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like bearer literal" });
+
+    issues.length = 0;
+    await writeFile(join(root, file), JSON.stringify({
+      openApi: { schema: { properties: { apiKey: { example: opaque } } } },
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("qualification scanning accepts reviewed fixture identifiers but rejects opaque values in the same field", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-qualification-scan-"));
+  const directory = join(root, "provenance", "qualification");
+  const file = `provenance/qualification/${"a".repeat(64)}.json`;
+  const issues: Parameters<typeof scanText>[2] = [];
+  const probeModelId = "probe-model-2-fixture-text-embedding";
+  try {
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(root, file), JSON.stringify({
+      observation: {
+        before: { combos: { models: [{ id: "created-model-1-fixture-new" }] } },
+        result: { body: { results: [{ executionKey: probeModelId, stepId: probeModelId }] } },
+      },
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+
+    const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+    await writeFile(join(root, file), JSON.stringify({
+      observation: {
+        result: { body: { combos: { models: [{ id: opaque }] } } },
+      },
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+
+    issues.length = 0;
+    const unreviewedModelId = ["unreviewed", "model", "1", "fixture", "candidate"].join("-");
+    await writeFile(join(root, file), JSON.stringify({
+      observation: { result: { body: { combos: { models: [{ id: unreviewedModelId }] } } } },
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+
+    issues.length = 0;
+    await writeFile(join(root, file), JSON.stringify({
+      observation: { result: { body: { combos: { models: [{ id: `Bearer ${opaque}` }] } } } },
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like bearer literal" });
+
+    issues.length = 0;
+    const apiKeyLike = `sk_test_${opaque}`;
+    await writeFile(join(root, file), JSON.stringify({
+      observation: { result: { body: { combos: { models: [{ id: apiKeyLike }] } } } },
+    }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("package scanning recognizes the reviewed cost metadata schema key without exempting its values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-schema-metadata-scan-"));
+  const issues: Parameters<typeof scanText>[2] = [];
+  const publicSchema = {
+    schema: { properties: { config: { properties: { slaMaxCostPer1MTokens: { type: "number" } } } } },
+  };
+  try {
+    await mkdir(join(root, "contracts"));
+    for (const file of ["contracts/operations.json", "contracts/release-eligibility.json"]) {
+      await writeFile(join(root, file), JSON.stringify(publicSchema));
+      await scanText(root, [file], issues);
+      expect(issues).toEqual([]);
+
+      const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+      await writeFile(join(root, file), JSON.stringify({
+        schema: {
+          properties: {
+            config: { properties: { slaMaxCostPer1MTokens: { type: "string", example: opaque } } },
+            credentials: { properties: { accessToken: { example: opaque } } },
+          },
+        },
+      }));
+      await scanText(root, [file], issues);
+      expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+      expect(issues.filter(issue => issue.kind === "secret")).toHaveLength(2);
+      issues.length = 0;
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Markdown schema field names do not exempt actual opaque values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-doc-scan-"));
+  const issues: Parameters<typeof scanText>[2] = [];
+  try {
+    await writeFile(join(root, "guide.md"), '```json\n{"packageArchiveSha256": "<SHA-256 of the package>"}\n```\n');
+    await scanText(root, ["guide.md"], issues);
+    expect(issues).toEqual([]);
+    const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+    await writeFile(join(root, "guide.md"), `\`\`\`json\n{"packageArchiveSha256": "${opaque}"}\n\`\`\`\n`);
+    await scanText(root, ["guide.md"], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: "guide.md", detail: "high-entropy secret-like literal" });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
