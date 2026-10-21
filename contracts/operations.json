@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "09aa8f07d9653e05d403d09e40e54003b70702242090da07945efcfb6f3e05af",
+    "eligibilitySha256": "7d833e118c336bef1628913245204836e620495fed28c32198c9833c6dd73b94",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "2ee8f6d2b7c6fc09b6799d807c568fd4a9c2201f21c5363185ae4dc45530b2e4",
     "sourceCorpusFileCount": 4470
@@ -83726,7 +83726,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "de572b23aa967218fbe27b80b55addf5caf879346bf63a0521191108ffdb9f9d",
+          "caseSha256": "ff5c34c1e600616de09f80567f6d2290c8ff4d052aa10668b2b7dcfb99d85b44",
           "id": "test/admin-provider-cc-alias.test.ts",
           "outcomeSha256": "0262e43fb048ac1cfe8997d2eb5d6ed3ef4b5c99d0a8e24a2f7d7765d77f0e1d"
         }
@@ -264254,7 +264254,7 @@
         },
         "releaseCommit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
         "test": {
-          "caseSha256": "de572b23aa967218fbe27b80b55addf5caf879346bf63a0521191108ffdb9f9d",
+          "caseSha256": "ff5c34c1e600616de09f80567f6d2290c8ff4d052aa10668b2b7dcfb99d85b44",
           "id": "test/admin-provider-cc-alias.test.ts",
           "outcomeSha256": "4a8955531d111135933fe0f7374bd628f9390a63bc4328642ae7b8b2cdf3c798"
         }

@@ -429,7 +429,7 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
   expect(malformed.status).toBe(400);
   expect(malformed.body).toEqual({ error: { message: "Invalid JSON body", type: "invalid_request_error", code: "bad_request" } });
 
-  fixture.failAliasWritesWith("fixture persistence failed at /home/fixture/.credentials/cc-alias.json api_key=sk-proj-abcdefghijklmnopqrstuvwxyz123456");
+  fixture.failAliasWritesWith("fixture persistence failed at /private/fixture/.credentials/cc-alias.json api_key=fixture-private-cc-alias-key");
   const failedWritePlan = await harness.executor.plan(PUT_CC_ALIAS, {
     path: { id: "error-fixture" },
     body: { scope: "provider", value: "on" },
@@ -445,8 +445,8 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
       code: "internal_server_error",
     },
   });
-  expect(JSON.stringify(sanitizedWriteError.body)).not.toContain("/home/fixture");
-  expect(JSON.stringify(sanitizedWriteError.body)).not.toContain("sk-proj-");
+  expect(JSON.stringify(sanitizedWriteError.body)).not.toContain("/private/fixture");
+  expect(JSON.stringify(sanitizedWriteError.body)).not.toContain("fixture-private-cc-alias-key");
   expect(fixture.state()).not.toContainEqual({ key: "provider:error-fixture", value: "on" });
   fixture.clearAliasWriteFailure();
 
