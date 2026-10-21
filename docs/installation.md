@@ -8,9 +8,10 @@
 - Bun `>=1.4.2` when installing from source or running package checks.
 - An OmniRoute-compatible HTTPS endpoint and a runtime API key.
 
-The public display name is **OMP OmniRoute Provider**. For compatibility, the
-current package identity remains `@cruxexperts/cruxomni-omp-client`, and the
-provider ID remains `omniroute`, preserving native model and credential identity.
+The plugin display name is **OMP OmniRoute Provider**. OMP's `/login` provider
+selector shows **Crux OmniRoute Provider**. The package identity remains
+`@cruxexperts/cruxomni-omp-client`, and the provider ID remains `omniroute`,
+preserving model names and native credential identity.
 
 ## Install the GitHub release
 

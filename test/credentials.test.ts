@@ -85,6 +85,7 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
   const events = new Map<string, (...args: never[]) => unknown>();
   const toolNames = new Set<string>();
   const providerIds = new Set<string>();
+  const providerConfigs = new Map<string, { oauth?: { name?: string } }>();
   let activeTools: string[] = [];
   const api = {
     zod: z,
@@ -94,8 +95,8 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
     getAllTools() { return [...toolNames].map(name => ({ name })); },
     getActiveTools() { onGetActiveTools?.(); return [...activeTools]; },
     async setActiveTools(names: string[]) { await onSetActiveTools?.(names); activeTools = [...names]; },
-    registerProvider(id: string) { providerIds.add(id); },
-    unregisterProvider(id: string) { providerIds.delete(id); },
+    registerProvider(id: string, config?: { oauth?: { name?: string } }) { providerIds.add(id); if (config) providerConfigs.set(id, config); },
+    unregisterProvider(id: string) { providerIds.delete(id); providerConfigs.delete(id); },
     on(name: string, callback: (...args: never[]) => unknown) { events.set(name, callback); },
   };
   const context = (ui: Record<string, unknown> = {}) => ({
@@ -105,7 +106,7 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
     ui: { notify() {}, ...ui },
     modelRegistry: { authStorage: storage },
   }) as never;
-  return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds] };
+  return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds], providerConfigs };
 }
 
 test("pre-enabled administration defers host action methods until session start and rebinds on restart", async () => {
@@ -411,6 +412,7 @@ test("remembered metadata enrichment uses the persisted source binding through t
 
     const host = extensionHost(nativeStorage);
     await register(host.api as never);
+    expect(host.providerConfigs.get("omniroute")?.oauth?.name).toBe("Crux OmniRoute Provider");
     expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
     shutdown = host.events.get("session_shutdown");
     await host.commands.get("cruxomni")!.handler("status", host.context() as never);

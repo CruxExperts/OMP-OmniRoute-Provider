@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
-import { DISPLAY_NAME, PACKAGE_NAME } from "./identity.ts";
+import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
 import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
@@ -150,7 +150,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		manager.reset();
 		await refresh(context, false);
 	};
-	const nativeLogin = registerNativeLogin({ onSetupComplete });
+	const nativeLogin = registerNativeLogin({ providerName: PROVIDER_LIST_NAME, onSetupComplete });
 	const oauth: NonNullable<ProviderConfig["oauth"]> = {
 		name: nativeLogin.name,
 		login: callbacks => nativeLogin.login({
