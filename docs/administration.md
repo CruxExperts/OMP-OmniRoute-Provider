@@ -17,8 +17,9 @@ Connect with `/omniroute setup`, then use `/omniroute-admin status` to inspect w
 administration is enabled. Enable it with `/omniroute-admin enable`. Use
 `/omniroute-admin search` to find available operations. Administration loads when
 needed and uses separate management credentials; the runtime key used for chat
-does not automatically authorize server changes. See [What is stored](installation.md#what-is-stored)
-for credential retention and storage details.
+does not automatically authorize server changes. See
+[What is stored](installation.md#what-is-stored) for credential retention and
+storage details.
 
 Search opens a category selector followed by an operation selector. Each
 operation shows whether it is available. Use the arrow keys and Enter to
