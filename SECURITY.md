@@ -56,8 +56,9 @@ The extension handles three intentionally separate credential domains:
    `OMP_OMNIROUTE_ADMIN_COOKIE`, used only for allowlisted management operations.
 
 For retention choices, see [What is stored](docs/installation.md#what-is-stored).
-The [administration guide](docs/administration.md) and [operation inventory](docs/reference/generated.md#operation-inventory) describe the available
-management actions and their limits.
+The [administration guide](docs/administration.md) and
+[operation inventory](docs/reference/generated.md#operation-inventory)
+describe the available management actions and their limits.
 
 A runtime key is never promoted to management authority, a metadata key is not
 used as a runtime fallback, and an admin secret is never persisted as a value in
