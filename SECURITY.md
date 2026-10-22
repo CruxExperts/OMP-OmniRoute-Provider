@@ -50,21 +50,31 @@ The extension handles three intentionally separate credential domains:
    `/v1/models` and inference transport.
 2. **Metadata** — `OMP_OMNIROUTE_METADATA_API_KEY`, used only for optional
    same-deployment catalog enrichment.
-3. **Administration** — a session-only API key or cookie, or the explicit
-   `OMP_OMNIROUTE_ADMIN_API_KEY` / `OMP_OMNIROUTE_ADMIN_COOKIE` reference, used
-   only for allowlisted management operations.
+3. **Administration** — a separate API key or cookie kept in memory for the
+   current OMP session, deliberately remembered through OMP AuthStorage, or
+   supplied through `OMP_OMNIROUTE_ADMIN_API_KEY` /
+   `OMP_OMNIROUTE_ADMIN_COOKIE`, used only for allowlisted management operations.
+
+For retention choices, see [What is stored](docs/installation.md#what-is-stored).
+The [administration guide](docs/administration.md) and [operation inventory](docs/reference/generated.md#operation-inventory) describe the available
+management actions and their limits.
 
 A runtime key is never promoted to management authority, a metadata key is not
-used as a runtime fallback, and an admin secret is not persisted in plugin
-configuration. Endpoint and credential generation are one binding: changing
-one invalidates the other and cancels in-flight work.
+used as a runtime fallback, and an admin secret is never persisted as a value in
+plugin configuration. A remembered metadata or admin secret is stored through
+OMP AuthStorage; the private profile stores only an opaque reference. Session-only
+optional secrets remain in memory, and environment-supplied values remain in the
+process environment. Endpoint and credential generation are one binding:
+changing one invalidates the other and cancels in-flight work.
 
 The principal threats and controls are:
 
-- **Credential leakage:** native OMP AuthStorage owns the runtime key;
-  management secrets are masked and session-only; config is `0700`/`0600` and
-  contains no keys; notifications, tool output, logs, and error details are
-  redacted.
+- **Credential leakage:** native runtime keys and remembered optional credentials
+  use OMP AuthStorage; session-only metadata and administration values stay in
+  memory, and environment-supplied values remain in the process environment. The
+  private config is `0700`/`0600` and contains only non-secret state and opaque
+  credential references, never secret values; notifications, tool output, logs,
+  and error details are redacted.
 - **Endpoint confusion or credential forwarding:** endpoint URLs reject
   userinfo, query, fragments, unsupported schemes, and authenticated redirects;
   redirects use `redirect: error`; conflicting environment URLs fail closed;
