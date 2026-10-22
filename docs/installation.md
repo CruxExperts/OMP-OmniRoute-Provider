@@ -78,10 +78,12 @@ The wizard has independent sections:
    store only after those checks succeed. If runtime environment variables are
    active, the wizard asks for confirmation before selecting the profile's
    native connection; environment variables remain unchanged.
-2. **Metadata (optional)** stores a separate API key or keeps it session-only.
+2. **Metadata (optional)** asks for a separate API key and offers **This session
+   only** or **Remember in OMP credential store**.
 3. **Catalogs (optional)** opts into Models.dev or OpenRouter metadata without
    sharing a runtime, metadata, or administration credential.
-4. **Administration (optional)** stores a separate API key or cookie, then
+4. **Administration (optional)** asks for a separate API key or cookie and
+   offers **This session only** or **Remember in OMP credential store**, then
    explicitly enables the verified administration boundary for the exact active
    endpoint.
 5. **Pricing (optional)** selects a local source-backed JSON projection.
@@ -188,8 +190,12 @@ The primary commands are `/omniroute`, `/omniroute-admin`, and
 
 ## What is stored
 
-The private profile file contains endpoint generations, flags, optional
-credential references, and non-secret pricing/setup state. Runtime keys remain
-in OMP AuthStorage. Optional remembered credentials use exact opaque native
-records; session-only values are memory-only. No key, cookie, or credential
-value belongs in `config.json`, a screenshot, or a support transcript.
+The private profile file contains endpoint generations, flags, opaque optional
+credential references, and non-secret pricing/setup state. In native mode, the
+runtime key is stored in OMP AuthStorage. Optional metadata and administration
+keys or cookies can also be stored there when **Remember in OMP credential
+store** is chosen; the profile records only an opaque reference. **This session
+only** keeps an optional credential in memory for the current OMP session. It is
+not written to the profile or AuthStorage. Credentials supplied by environment
+variables remain in the process environment. No credential value belongs in
+`config.json`, a screenshot, or a support transcript.
