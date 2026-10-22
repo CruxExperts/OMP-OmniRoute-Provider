@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.2">Download v1.0.2</a> ·
   <a href="docs/installation.md">Set up</a> ·
+  <a href="docs/installation.md#what-is-stored">Credential storage</a> ·
   <a href="docs/first-use.md">Everyday use</a> ·
   <a href="docs/administration.md">Administration</a> ·
   <a href="docs/reference/generated.md">Commands and capabilities</a>
