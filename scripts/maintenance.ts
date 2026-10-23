@@ -7,10 +7,19 @@ type Finding = { findingId: string; title: string; detail: string };
 type Issue = { number: number; state: string; body: string | null };
 export interface IssueApi {
   list(): Promise<Issue[]>;
-  create(title: string, body: string): Promise<void>;
+  create(title: string, body: string, labels: string[]): Promise<void>;
   update(number: number, body: string): Promise<void>;
 }
+export interface CollectionResult {
+  findings: Finding[];
+  collectionErrors: string[];
+}
+export interface MaintenanceCollectors {
+  releaseTag(repository: string): Promise<string>;
+  checkGeneratedDocs(root: string): Promise<void>;
+}
 const marker = (key: string): string => `<!-- cruxomni-maintenance:${createHash("sha256").update(key).digest("hex")} -->`;
+const maintenanceLabels = ["maintenance", "automation"];
 
 /** An uncertain create is observed once, never blindly replayed. */
 export async function reconcileFinding(api: IssueApi, finding: Finding): Promise<"created" | "updated" | "unchanged" | "reconciled"> {
@@ -24,7 +33,7 @@ export async function reconcileFinding(api: IssueApi, finding: Finding): Promise
     return "updated";
   }
   try {
-    await api.create(finding.title, body);
+    await api.create(finding.title, body, maintenanceLabels);
     return "created";
   } catch {
     const observed = (await api.list()).filter(issue => issue.body?.startsWith(`${token}\n`));
@@ -56,7 +65,7 @@ function githubApi(repository: string): IssueApi {
       }
       throw new Error("Issue inventory exceeds the bounded scan; refusing to create possible duplicates");
     },
-    async create(title, body) { request("POST", `repos/${repository}/issues`, { title, body }); },
+    async create(title, body, labels) { request("POST", `repos/${repository}/issues`, { title, body, labels }); },
     async update(number, body) { request("PATCH", `repos/${repository}/issues/${number}`, { body, state: "open" }); },
   };
 }
@@ -71,21 +80,46 @@ async function releaseTag(repository: string): Promise<string> {
   return value.tag_name;
 }
 
-export async function collectFindings(root: string): Promise<Finding[]> {
+const upstreamsById: Record<string, { provenanceRepository: string; latestRepository: string }> = {
+  omp: { provenanceRepository: "can1357/oh-my-pi", latestRepository: "can1357/oh-my-pi" },
+  omniroute: { provenanceRepository: "diegosouzapw/OmniRoute", latestRepository: "cheaper-inference/OmniRoute" },
+};
+
+const defaultCollectors: MaintenanceCollectors = {
+  releaseTag,
+  async checkGeneratedDocs(root) {
+    execFileSync("bun", ["run", "scripts/generate-docs.ts", "--check"], { cwd: root, timeout: 30_000, stdio: "pipe" });
+  },
+};
+
+export async function collectFindings(root: string, collectors: MaintenanceCollectors = defaultCollectors): Promise<CollectionResult> {
   const findings: Finding[] = [];
+  const collectionErrors: string[] = [];
   const upstreams = JSON.parse(readFileSync(resolve(root, "provenance/upstreams.json"), "utf8")) as { upstreams: Array<{ id: string; repository: string; release: { tag: string } }> };
-  const owners: Record<string, string> = { omp: "can1357/oh-my-pi", omniroute: "diegosouzapw/OmniRoute" };
   for (const pin of upstreams.upstreams) {
-    if (owners[pin.id] !== pin.repository || !/^v?\d+\.\d+\.\d+$/.test(pin.release.tag)) throw new Error("Unsupported upstream provenance identity");
-    const observed = await releaseTag(pin.repository);
-    if (observed !== pin.release.tag) findings.push({ findingId: `upstream:${pin.id}`, title: `Maintenance: refresh ${pin.id} compatibility evidence`, detail: `The pinned source is ${pin.release.tag}; GitHub Latest reports ${observed}.\n\nRefresh the immutable source pin and affected contracts, qualification, notices, and documentation. A version observation does not authorize an upgrade or release.\n\nSource: https://github.com/${pin.repository}/releases/latest` });
+    const source = Object.hasOwn(upstreamsById, pin.id) ? upstreamsById[pin.id] : undefined;
+    if (!source || source.provenanceRepository !== pin.repository || !/^v?\d+\.\d+\.\d+$/.test(pin.release.tag)) {
+      collectionErrors.push(`upstream:${source ? pin.id : "unknown"}`);
+      continue;
+    }
+    try {
+      const observed = await collectors.releaseTag(source.latestRepository);
+      if (observed !== pin.release.tag) findings.push({ findingId: `upstream:${pin.id}`, title: `Maintenance: refresh ${pin.id} compatibility evidence`, detail: `The immutable provenance pin is ${pin.release.tag} from ${pin.repository}; GitHub Latest for its canonical repository ${source.latestRepository} reports ${observed}. The repository move does not change the pinned source artifact.\n\nReview whether to refresh the immutable source pin and affected contracts, qualification, notices, and documentation. A version observation does not authorize an upgrade or release.\n\nSource: https://github.com/${source.latestRepository}/releases/latest` });
+    } catch {
+      // Keep observation failures private and continue checking independent sources.
+      collectionErrors.push(`upstream:${pin.id}`);
+    }
   }
   try {
-    execFileSync("bun", ["run", "scripts/generate-docs.ts", "--check"], { cwd: root, timeout: 30_000, stdio: "pipe" });
+    await collectors.checkGeneratedDocs(root);
   } catch {
     findings.push({ findingId: "documentation:generated", title: "Maintenance: generated documentation needs review", detail: "The deterministic documentation check did not pass on the trusted default branch. Review the owning sources and regenerate documentation. Raw diagnostics are intentionally excluded from this issue." });
   }
-  return findings;
+  return { findings, collectionErrors };
+}
+
+export async function reconcileCollectedFindings(api: IssueApi, result: CollectionResult): Promise<void> {
+  for (const finding of result.findings) await reconcileFinding(api, finding);
 }
 
 if (import.meta.main) {
@@ -98,12 +132,13 @@ if (import.meta.main) {
     const finding = { findingId: "ci:default-branch", title: "Maintenance: default-branch validation failed", detail: `A trusted default-branch validation run failed. Inspect https://github.com/${repository}/actions/runs/${run} and reproduce the failure before applying a fix. Logs and security-sensitive diagnostics must remain out of public issues.` };
     await reconcileFinding(githubApi(repository), finding);
   } else {
-    const findings = await collectFindings(root);
+    const result = await collectFindings(root);
     if (process.argv.includes("--apply")) {
       if (process.env.CRUXOMNI_MAINTENANCE_ENABLED !== "true") throw new Error("Maintenance publication is not enabled");
       const api = githubApi(process.env.GITHUB_REPOSITORY ?? "");
-      for (const finding of findings) await reconcileFinding(api, finding);
+      await reconcileCollectedFindings(api, result);
     }
-    console.log(JSON.stringify({ status: "observed", findings: findings.map(finding => ({ findingId: finding.findingId, title: finding.title })), published: process.argv.includes("--apply") }));
+    console.log(JSON.stringify({ status: result.collectionErrors.length ? "incomplete" : "observed", findings: result.findings.map(finding => ({ findingId: finding.findingId, title: finding.title })), collectionErrors: result.collectionErrors, published: process.argv.includes("--apply") }));
+    if (result.collectionErrors.length) process.exitCode = 1;
   }
 }

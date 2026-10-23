@@ -1,0 +1,33 @@
+name: copilot-setup-steps
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+permissions:
+  contents: read
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Install exact locked dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Prepare verified upstream fixtures
+        run: bun run prepare:upstream
+      - name: Validate types, documentation, and maintenance automation
+        run: |
+          set -euo pipefail
+          bun run typecheck
+          bun run docs:check
+          bun test test/maintenance.test.ts
