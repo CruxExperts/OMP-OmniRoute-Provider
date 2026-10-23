@@ -75,6 +75,12 @@ claiming either feature is active.
   reviewed compatibility maintenance; pins and qualification gates were not
   weakened to clear CI.
 
+Automatic review requests reached Copilot on pull requests #5 and #6 during
+verification, but Copilot reported that the requester had reached the review quota
+limit. The trigger is configured; no completed Copilot semantic review is claimed.
+Further automated reviews require available quota. No billing or additional-usage
+setting was changed.
+
 GitHub may require a maintainer to approve workflows on Copilot-authored pull
 requests. That platform approval remains in force. The agent's default read-only
 GitHub tools do not independently grant issue creation: automatic observations
