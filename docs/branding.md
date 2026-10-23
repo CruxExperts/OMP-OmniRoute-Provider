@@ -78,3 +78,23 @@ identifiers, generator ownership, and historical evidence from
 [LocalSetup's branding policy](https://github.com/CruxExperts/localsetup/blob/b4c7110f96ef4571ea0a6232f3ce0059d92f95fa/ls/docs/BRANDING.md).
 LocalSetup's scanner and exception registry are not installed or claimed as
 checks for this repository.
+
+## Homepage identity and real interface evidence
+
+The [brand identity](brand-identity.md) defines the visual and editorial system;
+the [copy deck](brand-copy.md) supplies approved reusable wording. The
+[visual walkthrough](visual-walkthrough.md) explains the additive sanitized
+capture family. Native masters remain byte-identical to the supplied brand pack.
+The private originals are not distributed, so their original-pixel comparison
+is supplied provenance rather than a check reproducible from this checkout.
+
+The homepage uses the real-screen marketing family under
+`assets/brand/marketing/`. Preserve older graphics and historical captures.
+Draft PR #1 (`design/real-ui-social-preview`) is an earlier, unmerged proposal;
+this family supersedes its homepage proposal without merging, deleting, or
+rewriting that branch or its rendering workflow.
+
+The GitHub About description and topics describe an independent plugin for an
+existing gateway. Committing `marketing/social-preview.png` does not select it
+in GitHub Settings. Verify the selected image and public Open Graph metadata
+separately; third-party share-card caches are a further independent check.

@@ -1,0 +1,60 @@
+/* Copyright © 2026 Crux Experts LLC. https://www.cruxexperts.com/ */
+/* Private asset. Property of Crux Experts LLC. Use, reproduction, modification, distribution, or publication without prior written permission is prohibited. */
+/* Reference tokens for local previews and separately approved surfaces. Not GitHub README CSS. */
+:root {
+  color-scheme: light dark;
+  --omp-canvas: #F5F8FC;
+  --omp-panel: #E9EFF6;
+  --omp-text: #101C2D;
+  --omp-muted: #43566D;
+  --omp-link: #087569;
+  --omp-border: #C6D4E3;
+  --omp-success: #216E48;
+  --omp-warning: #805700;
+  --omp-error: #A8242B;
+  --omp-focus: #087569;
+  --omp-brand-teal: #39B7AA;
+  --omp-radius-panel: 12px;
+  --omp-space-unit: 8px;
+  --omp-font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --omp-font-mono: ui-monospace, "DejaVu Sans Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+:root {
+  --omp-canvas: #101C2D;
+  --omp-panel: #16263B;
+  --omp-text: #F5F8FC;
+  --omp-muted: #A5B5C7;
+  --omp-link: #58CFC1;
+  --omp-border: #33485F;
+  --omp-success: #81D4A7;
+  --omp-warning: #F0C674;
+  --omp-error: #FF9B9B;
+  --omp-focus: #58CFC1;
+}
+}
+[data-theme="light"] {
+  --omp-canvas: #F5F8FC;
+  --omp-panel: #E9EFF6;
+  --omp-text: #101C2D;
+  --omp-muted: #43566D;
+  --omp-link: #087569;
+  --omp-border: #C6D4E3;
+  --omp-success: #216E48;
+  --omp-warning: #805700;
+  --omp-error: #A8242B;
+  --omp-focus: #087569;
+}
+[data-theme="dark"] {
+  --omp-canvas: #101C2D;
+  --omp-panel: #16263B;
+  --omp-text: #F5F8FC;
+  --omp-muted: #A5B5C7;
+  --omp-link: #58CFC1;
+  --omp-border: #33485F;
+  --omp-success: #81D4A7;
+  --omp-warning: #F0C674;
+  --omp-error: #FF9B9B;
+  --omp-focus: #58CFC1;
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }

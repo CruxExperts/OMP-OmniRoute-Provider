@@ -2,6 +2,14 @@
 
 All notable changes to OMP OmniRoute Provider are recorded here.
 
+## Unreleased
+
+- Introduce the screenshot-led GitHub homepage, guided reader journey, visual
+  walkthrough, official company endorsement, and dark/light marketing artwork.
+- Document the brand identity and reusable copy; preserve native screenshot
+  geometry, existing runtime identities, historical artwork, and license split.
+
+
 ## 1.0.2 — 2026-10-21
 
 - Guided setup and native sign-in use a neutral `https://llm.example.com`

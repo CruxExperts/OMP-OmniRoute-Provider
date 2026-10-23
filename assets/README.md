@@ -1,5 +1,24 @@
 # Media sources and exports
 
+## Homepage marketing and real-use captures
+
+The additive `brand/marketing/` family implements the
+[brand identity](../docs/brand-identity.md): dark/light showcases, a social card,
+the canonical routed-connection marks, and the unchanged official raster company
+logo. Editable raster-in-SVG compositions and design tokens live with this family;
+`scripts/export-media.py` owns its exports and the shared manifest.
+
+The seven native sanitized PNGs under
+[`screenshots/omp-real-use/`](screenshots/omp-real-use/README.md) remain source
+inputs, distinct from scaled presentation composites. Their versions are capture
+observations, not plugin qualification. See the
+[visual walkthrough](../docs/visual-walkthrough.md) for privacy treatment,
+dimensions, accessible descriptions, and the distinction between native
+`/login` and the recommended `/omniroute setup` path. Historical media below is
+retained unchanged. Third-party interface rights remain with their owners.
+
+## Historical brand exports
+
 The `brand/` collection uses the current public display name **OMP OmniRoute
 Provider**. Its wordmarks lead with “OMP” and “OmniRoute Provider,” with “OH MY PI
 PROVIDER” identifying the client context. The bracket mark represents the client

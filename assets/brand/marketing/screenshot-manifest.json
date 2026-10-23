@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "coordinate_convention": "Top-left origin; xyxy, right/bottom exclusive; redaction coordinates relative to cropped output.",
+  "method": "Lossless original-pixel crop plus opaque, bounded privacy edits. Native screenshots were not resized.",
+  "original_uploads_included": false,
+  "reason_originals_excluded": "Originals contain identifying details. Input hashes permit verification without redistributing them.",
+  "items": [
+    {
+      "id": "01-launch",
+      "filename": "assets/screenshots/omp-real-use/01-launch.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "8efd3ae011cc50b118e16dd86d2b9f12fe4932b31416e7499b2fb570cc16caa3",
+      "source_size": [
+        1212,
+        841
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        65,
+        1206,
+        841
+      ],
+      "output_size": [
+        1206,
+        776
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [
+        {
+          "type": "identity_replacement",
+          "region": [
+            6,
+            4,
+            355,
+            30
+          ],
+          "replacement": "user@workstation:project$ omp",
+          "method": "Opaque replacement of prompt strip; other terminal pixels unchanged."
+        }
+      ],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 3196,
+        "passed": true
+      },
+      "sha256": "11e0b5776bb19549b2f19f9fa7223497ee09c98e6e11d32a1ebbb81dd6a68fdb",
+      "alt_text": "Terminal command launching OMP with the anonymized user@workstation prompt.",
+      "version_evidence": "18.12.6 is visibly printed in the OMP startup screenshot only; the plugin package version is not shown.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    },
+    {
+      "id": "02-omp-home",
+      "filename": "assets/screenshots/omp-real-use/02-omp-home.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "95fd1a08937da4c958fc04ba67cd1504534fc34f018e562382371b76e1637cf7",
+      "source_size": [
+        1212,
+        841
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        65,
+        1206,
+        841
+      ],
+      "output_size": [
+        1206,
+        776
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [
+        {
+          "type": "identity_replacement",
+          "region": [
+            6,
+            531,
+            1200,
+            557
+          ],
+          "replacement": "workstation \u00b7 gpt-6.1-sol \u00b7 med \u00b7 ~/project \u00b7 main",
+          "method": "Hostname and private workspace/session metadata replaced in the status strip; displayed model and other UI retained."
+        }
+      ],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 4510,
+        "passed": true
+      },
+      "sha256": "d1b2f7a27a444a441dc958129e323cd6f34eaf1b1726bc7ea57dc69f578eaa10",
+      "alt_text": "Oh My Pi startup screen displaying version 18.12.6 with identifying status fields anonymized.",
+      "version_evidence": "18.12.6 is visibly printed in the OMP startup screenshot only; the plugin package version is not shown.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    },
+    {
+      "id": "03-omp-splash",
+      "filename": "assets/screenshots/omp-real-use/03-omp-splash.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "ef1081de273172b91e2b6519d7fb057a934d76b0b3c41d4a2592dc4f27b7bc35",
+      "source_size": [
+        1212,
+        841
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        65,
+        1206,
+        841
+      ],
+      "output_size": [
+        1206,
+        776
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 0,
+        "passed": true
+      },
+      "sha256": "b96f9441830278e3520fd9ec8cf768e5e353befed6a38f8d23b36d4afbc17e29",
+      "alt_text": "Oh My Pi terminal splash screen, cropped from the supplied original screenshot.",
+      "version_evidence": "18.12.6 is visibly printed in the OMP startup screenshot only; the plugin package version is not shown.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    },
+    {
+      "id": "provider-selection",
+      "filename": "assets/screenshots/omp-real-use/04-provider-selection.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "762634bceb25f211748bc45bc51051d6f40694677efeeb5c2a64c30ec08fe6e4",
+      "source_size": [
+        1212,
+        841
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        65,
+        1206,
+        841
+      ],
+      "output_size": [
+        1206,
+        776
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 0,
+        "passed": true
+      },
+      "sha256": "ea019154a589e3d8812a812c608f25402984c0093d372a9a120ba78432777ef6",
+      "alt_text": "OMP provider selector highlighting Crux OmniRoute Provider and its logged-in state.",
+      "version_evidence": "18.12.6 is visibly printed in the OMP startup screenshot only; the plugin package version is not shown.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    },
+    {
+      "id": "05-gateway-address",
+      "filename": "assets/screenshots/omp-real-use/05-gateway-address.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "73361f24dd1982f18eac38e163c506cbf97713de66dff24d6e2aab0a0ca0c40b",
+      "source_size": [
+        1212,
+        841
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        65,
+        1206,
+        841
+      ],
+      "output_size": [
+        1206,
+        776
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 0,
+        "passed": true
+      },
+      "sha256": "4473cb806cef58d9b4f7ac0072e02805804865cfef765bdbaab90c3a0a1dae38",
+      "alt_text": "OMP sign-in prompt asking for the OmniRoute gateway address and showing example addresses.",
+      "version_evidence": "18.12.6 is visibly printed in the OMP startup screenshot only; the plugin package version is not shown.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    },
+    {
+      "id": "06-api-key",
+      "filename": "assets/screenshots/omp-real-use/06-api-key.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "d23403075ab62e27e36268e823f1191c1bd9fd20f31b96c445d88de200a275a0",
+      "source_size": [
+        1212,
+        841
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        65,
+        1206,
+        841
+      ],
+      "output_size": [
+        1206,
+        776
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 0,
+        "passed": true
+      },
+      "sha256": "d7c8d3f20dc18756bfc062fd289c6722ce483d61cbe8ebc0c4d50c496bc6c87c",
+      "alt_text": "OMP sign-in prompt requesting the OmniRoute API key; the input is empty.",
+      "version_evidence": "18.12.6 is visibly printed in the OMP startup screenshot only; the plugin package version is not shown.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    },
+    {
+      "id": "07-omniroute-home",
+      "filename": "assets/screenshots/omp-real-use/07-omniroute-home.png",
+      "source_kind": "user supplied original screenshot",
+      "source_sha256": "832d52389703e5773c31640d73f3dbcb1a672aff97a69b9f1ad1f1118bf43f94",
+      "source_size": [
+        1226,
+        1177
+      ],
+      "crop_rectangle_xyxy": [
+        0,
+        118,
+        1226,
+        1177
+      ],
+      "output_size": [
+        1226,
+        1059
+      ],
+      "resize_performed": false,
+      "resampling_performed": false,
+      "generative_redrawing_performed": false,
+      "redactions": [
+        {
+          "type": "endpoint",
+          "region": [
+            343,
+            401,
+            710,
+            446
+          ],
+          "replacement": "Set your gateway URL in your IDE or API client."
+        },
+        {
+          "type": "account_activity",
+          "region": [
+            895,
+            593,
+            1175,
+            926
+          ],
+          "replacement": "Request details hidden"
+        }
+      ],
+      "pixel_check": {
+        "changed_pixels_outside_redaction_regions": 0,
+        "changed_pixels_total": 15532,
+        "passed": true
+      },
+      "sha256": "c11c4a73d2a1d560a339de4251b189412ab7767c6a11ef946e20881ec0f8c068",
+      "alt_text": "User-supplied OmniRoute gateway home screen showing quick-start cards and provider topology, with the private endpoint and recent request details removed.",
+      "version_evidence": "The supplied gateway screenshot visibly shows v3.8.51 and a customized CruxOmni label. It is not a latest-version claim.",
+      "copyright": "Crux Experts LLC capture derivative; third-party interface rights retained."
+    }
+  ]
+}

@@ -100,3 +100,30 @@ documents:
     last_updated: "2026-10-21"
     doc_type: runbook
     tags: [contracts, provenance, qualification, testing]
+  - id: brand-identity
+    path: docs/brand-identity.md
+    title: Brand Identity
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-23"
+    doc_type: reference
+    tags: [branding, screenshots, setup]
+  - id: brand-copy
+    path: docs/brand-copy.md
+    title: Brand Copy Deck
+    category_label: Reference
+    category_slug: reference
+    status: active
+    last_updated: "2026-10-23"
+    doc_type: reference
+    tags: [branding, screenshots, setup]
+  - id: visual-walkthrough
+    path: docs/visual-walkthrough.md
+    title: Visual Walkthrough
+    category_label: User guide
+    category_slug: user-guide
+    status: active
+    last_updated: "2026-10-23"
+    doc_type: how_to
+    tags: [branding, screenshots, setup]

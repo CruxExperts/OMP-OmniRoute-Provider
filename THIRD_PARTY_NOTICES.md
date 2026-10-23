@@ -1,8 +1,11 @@
 # Third-party notices
 
 OMP OmniRoute Provider interoperates with Oh My Pi and OmniRoute. Their names and
-trademarks belong to their respective owners. No upstream artwork is included
-in this repository's original visual asset pack.
+trademarks belong to their respective owners. The original visual asset pack is project artwork. The additive real-use
+screenshots and their marketing composites depict upstream interfaces, including
+OMP's splash artwork. Those interface elements remain the property of their
+respective owners; Crux Experts LLC claims only its original composition,
+branding and privacy edits. These captures do not imply upstream endorsement.
 
 Runtime and development dependencies retain their own licenses and notices in
 their distributed packages. The generated CycloneDX SBOM identifies the exact
