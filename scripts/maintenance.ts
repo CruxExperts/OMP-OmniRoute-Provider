@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 type Finding = { findingId: string; title: string; detail: string };
@@ -85,6 +85,50 @@ const upstreamsById: Record<string, { provenanceRepository: string; latestReposi
   omniroute: { provenanceRepository: "diegosouzapw/OmniRoute", latestRepository: "cheaper-inference/OmniRoute" },
 };
 
+const ompCompatibilityEvidence = "docs/reference/maintenance.md#omp-18126-compatibility-review";
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function reviewedOmpLatest(root: string, pin: { id: string; release: { tag: string }; compatibility_review?: unknown }, observed: string): boolean {
+  if (pin.id !== "omp") return false;
+  const review = objectValue(pin.compatibility_review);
+  if (!review || review.source_tag !== pin.release.tag || review.latest_tag !== observed || review.decision !== "retain-source-pin" || review.evidence !== ompCompatibilityEvidence) return false;
+  if (!/^v\d+\.\d+\.\d+$/.test(observed)) return false;
+
+  try {
+    if (!existsSync(resolve(root, "docs/reference/maintenance.md"))) return false;
+    const version = observed.slice(1);
+    const packageManifest = objectValue(JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")));
+    const omp = objectValue(packageManifest?.omp);
+    const compatibility = objectValue(omp?.compatibility);
+    const tested = compatibility?.tested;
+    if (!Array.isArray(tested) || tested.filter(value => value === version).length !== 1) return false;
+
+    const artifactManifest = objectValue(JSON.parse(readFileSync(resolve(root, "provenance/release-artifacts.json"), "utf8")));
+    if (!Array.isArray(artifactManifest?.artifacts)) return false;
+    const artifactId = `omp-linux-x64-${version}`;
+    const matching = artifactManifest.artifacts.map(objectValue).filter((value): value is Record<string, unknown> => value?.id === artifactId);
+    if (matching.length !== 1) return false;
+    const artifact = matching[0]!;
+    const downloadBase = `https://github.com/can1357/oh-my-pi/releases/download/${observed}`;
+    return artifact.upstream === "omp"
+      && artifact.kind === "release_asset"
+      && artifact.release_tag === observed
+      && /^[0-9a-f]{40}$/.test(String(artifact.peeled_commit))
+      && artifact.url === `${downloadBase}/omp-linux-x64`
+      && /^[0-9a-f]{64}$/.test(String(artifact.sha256))
+      && artifact.checksums_url === `${downloadBase}/SHA256SUMS.txt`
+      && /^[0-9a-f]{64}$/.test(String(artifact.checksums_sha256))
+      && artifact.status === "verified_disposable_acquisition";
+  } catch {
+    return false;
+  }
+}
+
 const defaultCollectors: MaintenanceCollectors = {
   releaseTag,
   async checkGeneratedDocs(root) {
@@ -95,7 +139,7 @@ const defaultCollectors: MaintenanceCollectors = {
 export async function collectFindings(root: string, collectors: MaintenanceCollectors = defaultCollectors): Promise<CollectionResult> {
   const findings: Finding[] = [];
   const collectionErrors: string[] = [];
-  const upstreams = JSON.parse(readFileSync(resolve(root, "provenance/upstreams.json"), "utf8")) as { upstreams: Array<{ id: string; repository: string; release: { tag: string } }> };
+  const upstreams = JSON.parse(readFileSync(resolve(root, "provenance/upstreams.json"), "utf8")) as { upstreams: Array<{ id: string; repository: string; release: { tag: string }; compatibility_review?: unknown }> };
   for (const pin of upstreams.upstreams) {
     const source = Object.hasOwn(upstreamsById, pin.id) ? upstreamsById[pin.id] : undefined;
     if (!source || source.provenanceRepository !== pin.repository || !/^v?\d+\.\d+\.\d+$/.test(pin.release.tag)) {
@@ -104,7 +148,16 @@ export async function collectFindings(root: string, collectors: MaintenanceColle
     }
     try {
       const observed = await collectors.releaseTag(source.latestRepository);
-      if (observed !== pin.release.tag) findings.push({ findingId: `upstream:${pin.id}`, title: `Maintenance: refresh ${pin.id} compatibility evidence`, detail: `The immutable provenance pin is ${pin.release.tag} from ${pin.repository}; GitHub Latest for its canonical repository ${source.latestRepository} reports ${observed}. The repository move does not change the pinned source artifact.\n\nReview whether to refresh the immutable source pin and affected contracts, qualification, notices, and documentation. A version observation does not authorize an upgrade or release.\n\nSource: https://github.com/${source.latestRepository}/releases/latest` });
+      const hasCompatibilityReview = Object.hasOwn(pin, "compatibility_review");
+      const reviewedLatest = hasCompatibilityReview && reviewedOmpLatest(root, pin, observed);
+      const review = objectValue(pin.compatibility_review);
+      const staleSourceBinding = hasCompatibilityReview && (!review || review.source_tag !== pin.release.tag);
+      if ((observed !== pin.release.tag && !reviewedLatest) || staleSourceBinding) {
+        const reviewNote = hasCompatibilityReview && !reviewedLatest
+          ? " The recorded compatibility review is stale or its tested host artifact evidence is missing or mismatched."
+          : "";
+        findings.push({ findingId: `upstream:${pin.id}`, title: `Maintenance: refresh ${pin.id} compatibility evidence`, detail: `The immutable provenance pin is ${pin.release.tag} from ${pin.repository}; GitHub Latest for its canonical repository ${source.latestRepository} reports ${observed}. The repository move does not change the pinned source artifact.${reviewNote}\n\nReview whether to refresh the immutable source pin and affected contracts, qualification, notices, and documentation. A version observation does not authorize an upgrade or release.\n\nSource: https://github.com/${source.latestRepository}/releases/latest` });
+      }
     } catch {
       // Keep observation failures private and continue checking independent sources.
       collectionErrors.push(`upstream:${pin.id}`);

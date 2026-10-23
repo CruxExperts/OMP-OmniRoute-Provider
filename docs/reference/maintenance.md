@@ -111,3 +111,25 @@ Implementation and local checks do not authorize publication. Prepare the exact
 source, artifacts, notes, checksums, and release receipt described in the
 [release guide](release.md), then obtain approval for that payload. A tag push alone
 does not publish. Reconcile any partial npm or GitHub publication before retrying.
+
+## OMP 18.12.6 compatibility review
+
+Issue [#2](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/2) is
+addressed by adding OMP 18.12.6 to the requested host matrix alongside 18.12.2
+and 18.12.5. Its Linux x64 release binary and checksum file were checked against
+GitHub's recorded SHA-256 digests and the checksum entry. The existing native
+smoke passed against that exact binary on Linux x64 with glibc, including
+package installation, guided setup, inference, administration confirmation, and
+plugin lifecycle checks in a disposable profile. This is development evidence;
+release acceptance still requires smoke evidence for the final candidate archive.
+
+The immutable OMP source snapshot and development SDK remain at 18.12.5. This
+review extends host compatibility evidence without asserting that the SDK or
+source snapshot was upgraded. An explicit compatibility review in upstream
+provenance binds the retained source tag to this reviewed latest host. Maintenance
+accepts that exact decision only while its source binding, tested matrix, and
+release-asset provenance remain valid; a newer host still produces a finding.
+The three-version CI matrix preserves the two configured required host checks;
+the new 18.12.6 job is also required for this release's acceptance, but branch
+protection has not been changed to require it. No additional platform
+qualification or administration operation coverage is claimed.
