@@ -5,7 +5,7 @@ Use an exact released GitHub tag when upgrading. Check the release notes and the
 OMP profile using your normal private backup procedure before a migration.
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.2
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
 ```
 
 Restart OMP, run `/omniroute`, and refresh discovery. The GitHub release does not imply npm publication. The package identity and

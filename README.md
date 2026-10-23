@@ -13,7 +13,7 @@ Connect the AI setup you already have to the coding assistant you want to use.
 
 **[Get started](#get-started)** · **[See the real screens](docs/visual-walkthrough.md)** · **[Get help](#need-a-hand)**
 
-[![Plugin release 1.0.2](assets/brand/marketing/badge-release.svg)](https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.2)
+[![Plugin release 1.0.3](assets/brand/marketing/badge-release.svg)](https://github.com/CruxExperts/OMP-OmniRoute-Provider/releases/tag/v1.0.3)
 [![Source code MIT licensed](assets/brand/marketing/badge-license.svg)](LICENSE)
 [![Plugin for Oh My Pi](assets/brand/marketing/badge-omp.svg)](https://github.com/can1357/oh-my-pi)
 
@@ -70,7 +70,7 @@ New to either tool? Start with [Oh My Pi](https://github.com/can1357/oh-my-pi) a
 Run this in your normal terminal, **outside an OMP conversation**:
 
 ```sh
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.2
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
 ```
 
 Close and restart OMP after installation. This command installs the tagged GitHub source; there is no npm-registry installation step for this release.
@@ -246,7 +246,7 @@ The relevant question is whether your gateway exposes the model through a suppor
 
 | Item | Reference for this README |
 | --- | --- |
-| Tagged plugin installation | `v1.0.2` |
+| Tagged plugin installation | `v1.0.3` |
 | Declared OMP range | `>=18.12.2 <19` |
 | Distribution | GitHub release assets and tagged GitHub source |
 | Optional administration | Availability is defined by the current operation inventory |

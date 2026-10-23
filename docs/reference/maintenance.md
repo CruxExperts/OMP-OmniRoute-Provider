@@ -86,7 +86,7 @@ claiming either feature is active.
   This verifies task assignment and agent work; it does not establish merge or
   release acceptance.
 - The full local suite passed 349 tests, plus four Python capture-safety tests.
-  The existing upstream-latest gate still reports OMP 18.12.6 versus the pinned
+  At activation, the upstream-latest gate reported OMP 18.12.6 versus the pinned
   18.12.5 and the OmniRoute repository redirect. Those facts are tracked for
   reviewed compatibility maintenance; pins and qualification gates were not
   weakened to clear CI.
@@ -133,3 +133,22 @@ The three-version CI matrix preserves the two configured required host checks;
 the new 18.12.6 job is also required for this release's acceptance, but branch
 protection has not been changed to require it. No additional platform
 qualification or administration operation coverage is claimed.
+
+## Maintenance release 1.0.3
+
+The manually dispatched [maintenance run](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/runs/39925730141)
+passed before this maintenance batch. Issue [#4](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/4)
+was traced to latest-release drift being treated as build integrity failure.
+The immutable checker and its regression tests now preserve source verification
+while leaving latest observations to maintenance. Issue
+[#3](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/3) updates the
+contributor commands, compatibility aliases, and sanitized screenshot guidance.
+Each issue has a separate documented, signed source commit.
+
+The release refresh aligns the install tag and badge, changelog, installation and
+upgrade guides, administration limits, compatibility reference, and documentation
+index. Historical screenshots, source pins, release records, and qualification
+limits remain identified as historical or limited evidence. Final release
+acceptance requires successful CI for the final commit, all three host smoke
+jobs, and checksummed publication of the exact prepared assets. The GitHub-only
+release does not publish to npm or assert eight-platform qualification.

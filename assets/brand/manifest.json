@@ -3,7 +3,7 @@
   "productName": "OMP OmniRoute Provider",
   "providerName": "Oh My Pi provider",
   "repositoryName": "OMP-OmniRoute-Provider",
-  "sourceVersion": "1.0.2",
+  "sourceVersion": "1.0.3",
   "copyright": "Copyright \u00a9 2026 Crux Experts LLC",
   "source": "https://www.cruxexperts.com/",
   "rights": "Private asset. Property of Crux Experts LLC. Use, reproduction, modification, distribution, or publication without prior written permission is prohibited.",
@@ -56,7 +56,7 @@
     },
     {
       "path": "assets/brand/marketing/badge-release.svg",
-      "sha256": "431e2d787d776df62e64cab7b6060f4eb0bdc40efe1ec283c30c803d5f60fa9f"
+      "sha256": "1334bbe1b4c3612641ab8eb3c0e4cbbd257b205ab659006f03b425a231c22760"
     },
     {
       "path": "assets/brand/marketing/crux-experts-official.jpg",

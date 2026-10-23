@@ -4,6 +4,24 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## Unreleased
 
+## 1.0.3 — 2026-10-23
+
+- Verify immutable upstream release tags, commits, and source hashes independently
+  of GitHub Latest movement and canonical repository redirects. Latest monitoring
+  remains available through maintenance and the explicit `--latest` check.
+- Add exact OMP 18.12.6 Linux x64 release provenance and host lifecycle coverage
+  alongside 18.12.2 and 18.12.5. Retain the reviewed 18.12.5 SDK/source pin with an
+  explicit compatibility decision; future upstream releases still raise findings.
+- Align contributor setup and refresh commands, sanitized real-use captures,
+  fixture labeling, installation links, and current release documentation.
+- This GitHub-only patch adds no administration operation qualification, publishes
+  nothing to npm, and carries no eight-platform qualification receipt. The
+  operation and platform limits documented below still apply.
+
+```text
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
+```
+
 - Introduce the screenshot-led GitHub homepage, guided reader journey, visual
   walkthrough, official company endorsement, and dark/light marketing artwork.
 - Document the brand identity and reusable copy; preserve native screenshot

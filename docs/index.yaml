@@ -16,7 +16,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-21"
+    last_updated: "2026-10-23"
     doc_type: how_to
     tags: [install, setup, omp, credentials, catalogs, metadata]
   - id: troubleshooting
@@ -52,7 +52,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-21"
+    last_updated: "2026-10-23"
     doc_type: reference
     tags: [administration, confirmation, credentials]
   - id: upgrading
@@ -61,7 +61,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-10-21"
+    last_updated: "2026-10-23"
     doc_type: reference
     tags: [upgrade, removal, compatibility]
   - id: generated
@@ -70,7 +70,7 @@ documents:
     category_label: Reference
     category_slug: reference
     status: active
-    last_updated: "2026-10-20"
+    last_updated: "2026-10-23"
     doc_type: reference
     tags: [commands, capabilities, compatibility]
   - id: release
@@ -79,7 +79,7 @@ documents:
     category_label: Reference
     category_slug: reference
     status: active
-    last_updated: "2026-10-21"
+    last_updated: "2026-10-23"
     doc_type: runbook
     tags: [versioning, release, qualification]
   - id: maintenance

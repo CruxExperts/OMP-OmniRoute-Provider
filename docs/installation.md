@@ -16,16 +16,16 @@ preserving model names and native credential identity.
 
 ## Install the GitHub release
 
-Install the pinned `1.0.2` GitHub source tag through OMP's native plugin installer:
+Install the pinned `1.0.3` GitHub source tag through OMP's native plugin installer:
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.2
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
 ```
 
 Restart OMP and run `/omniroute setup`. This command installs from GitHub; it does
 not use the npm registry. The release includes a `.tgz` package artifact for
 verification and tooling, but a raw tarball URL is not the documented OMP plugin
-install target. See the [release notes](../CHANGELOG.md#101--2026-10-21) for the
+install target. See the [release notes](../CHANGELOG.md#103--2026-10-23) for the
 provider selector label and the unchanged administration and platform limits.
 
 OMP supplies its SDK modules from the running host. Their package-manager peer

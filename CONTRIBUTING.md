@@ -44,9 +44,12 @@ see [ASSET_LICENSE.md](ASSET_LICENSE.md).
 
 Read [README.md](README.md) and [SECURITY.md](SECURITY.md). Establish which
 release pair the change targets from [`provenance/upstreams.json`](provenance/upstreams.json).
-Compatibility means the recorded GitHub Latest selectors, tags, commits, and
-hashes; it does not mean “whatever is newest when this branch is built.” If a
-selector moved, stop and refresh the contract evidence before changing code.
+Build checks verify the recorded immutable tags, commits, and source hashes.
+GitHub Latest is a maintenance observation, not a mutable build dependency. A
+new host needs reviewed compatibility evidence; changing an immutable source
+pin also requires refreshed contracts, qualification, and notices. See the
+[maintenance guide](docs/reference/maintenance.md) for the recorded decision to
+retain an SDK source pin while testing a newer compatible host.
 
 Use a disposable checkout/profile and fixture credentials only. Do not put
 secrets in environment-capture files, shell history, test output, screenshots,
@@ -83,10 +86,12 @@ before public discussion; see [SECURITY.md](SECURITY.md).
 
 Run from this package root after dependencies are already available. These
 commands are intentionally explicit; they do not publish, create a remote, or
-enable production:
+enable production. Package verification uses `npm pack`; make an existing Node.js
+and npm installation available on `PATH` before running package or release checks:
 
 ```bash
 bun run check:upstreams
+bun run prepare:upstream
 bun run verify:contracts
 bun run typecheck
 bun run docs:check

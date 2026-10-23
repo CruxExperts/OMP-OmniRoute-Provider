@@ -262,7 +262,7 @@ Use the reusable headline, repository description, release-opening paragraph, an
 
 The repository exporter, `scripts/export-media.py`, owns the established graphics and the marketing family. Editable composites and design tokens live under `assets/brand/marketing/`; the asset manifest records their provenance. Do not overwrite generated references, erase historical screenshot provenance, change package identifiers, or remove older compatibility aliases.
 
-The pack's version is **1.0.0**. That is a brand-package version, not a plugin release. The README's `v1.0.2` installation is tied to the audited repository snapshot. Any future release update must reconcile the install command, release badge, source version, compatibility notes, and current documentation together.
+The pack's version is **1.0.0**. That is a brand-package version, not a plugin release. The initial audit recorded the README's `v1.0.2` installation; that is a historical snapshot, not the current install target. Any future release update must reconcile the install command, release badge, source version, compatibility notes, and current documentation together.
 
 Keep a clear distinction among the editable source, generated export, sanitized screenshot master, and publication setting. A file existing is not proof that a social card is selected; a command appearing in prose is not proof that it was executed; an image looking polished is not proof of a feature.
 
