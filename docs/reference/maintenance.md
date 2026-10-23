@@ -21,6 +21,22 @@ sources or documentation from being checked; successful independent findings can
 still be reconciled, and the run reports incomplete with a nonzero exit status.
 Dependency audit diagnostics remain private and are never copied into public issues.
 
+## Upstream integrity checks
+
+`bun run check:upstreams` is the deterministic integrity check used by CI. It
+validates each recorded release tag and release identity, resolves the pinned tag
+ref to its expected tag object and commit, checks the recorded source blob/tree
+hashes at that commit, and verifies the package source SHA-256 hashes. GitHub API
+errors and any tag, source, or local package drift fail the check. It does not
+query GitHub Latest or follow a release-selector URL, so a newer release or a
+canonical repository redirect does not change the result for an unchanged pin.
+
+For a maintainer observation of current Latest releases, run
+`bun run check:upstreams --latest`. That explicit mode compares each moving
+release selector and `/releases/latest` response with the recorded pin; a newer
+release is reported as drift for review. The latest observation remains separate
+from the deterministic CI integrity check.
+
 Each identifiable public finding has a stable marker and one owned issue, labeled
 `maintenance` and `automation`. Duplicate events reuse that issue. A lost create
 response is reconciled by reading server state once; the script does not blindly

@@ -10,7 +10,11 @@ type ReleaseRecord = {
   sourceHashes: JsonObject[];
 };
 
-type FetchLike = typeof fetch;
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+type PinnedVerificationOptions = {
+  packageRoot?: string;
+  provenance?: unknown;
+};
 
 const packageRoot = resolve(import.meta.dir, "..");
 const provenancePath = resolve(packageRoot, "provenance/upstreams.json");
@@ -106,14 +110,15 @@ function apiUrl(repository: string, path: string): string {
   return `${githubApi}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}${path}`;
 }
 
-async function resolvePeeledCommit(repository: string, tag: string, fetchImpl: FetchLike): Promise<{ tagObject: string; peeledCommit: string }> {
+async function resolvePeeledCommit(repository: string, tag: string, fetchImpl: FetchLike): Promise<{ ref: string; tagObject: string; peeledCommit: string }> {
   let ref = await requestJson(apiUrl(repository, `/git/ref/tags/${encodeURIComponent(tag)}`), fetchImpl);
+  const resolvedRef = stringValue(ref.ref, "tag ref.ref");
   let object = record(ref.object, "tag ref object");
   const tagObject = hex(stringValue(object.sha, "tag ref object.sha"), "tag ref object.sha", 40);
   let sha = tagObject;
   let type = stringValue(object.type, "tag ref object.type");
   for (let depth = 0; depth < 5; depth += 1) {
-    if (type === "commit") return { tagObject, peeledCommit: hex(sha, "peeled commit", 40) };
+    if (type === "commit") return { ref: resolvedRef, tagObject, peeledCommit: hex(sha, "peeled commit", 40) };
     if (type !== "tag") throw new Error(`tag ${tag} resolves to unsupported Git object type ${type}`);
     const tagData = await requestJson(apiUrl(repository, `/git/tags/${sha}`), fetchImpl);
     object = record(tagData.object, "annotated tag object");
@@ -147,12 +152,14 @@ async function checkSourceHash(repository: string, commit: string, source: JsonO
   const algorithm = stringValue(source.algorithm, `${path}.algorithm`);
   const expected = stringValue(source.hash, `${path}.hash`);
   if (path === "commit-tree" && algorithm === "git-tree-sha1") {
+    hex(expected, `${path}.hash`, 40);
     const commitData = await requestJson(apiUrl(repository, `/git/commits/${commit}`), fetchImpl);
     const tree = record(commitData.tree, "commit tree");
     const observed = hex(stringValue(tree.sha, "commit tree.sha"), "commit tree.sha", 40);
     return { path, algorithm, expected, observed, matches: expected === observed };
   }
   if (algorithm !== "git-blob-sha1") throw new Error(`unsupported source hash algorithm ${algorithm} for ${path}`);
+  hex(expected, `${path}.hash`, 40);
   const { owner, name } = repositoryParts(repository);
   const rawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/${commit}/${path.split("/").map(encodeURIComponent).join("/")}`;
   const observed = gitBlobSha1(await requestBytes(rawUrl, fetchImpl));
@@ -181,6 +188,109 @@ function readUpstreamRecords(parsed: unknown): ReleaseRecord[] {
 
 function diffEntry(path: string, expected: unknown, observed: unknown): JsonObject {
   return { path, expected, observed, changed: JSON.stringify(expected) !== JSON.stringify(observed) };
+}
+
+function integerValue(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
+  return value;
+}
+
+async function packageSourceContract(root: JsonObject, packageBase: string): Promise<{ hashes: JsonObject[]; changed: boolean }> {
+  const hashes: JsonObject[] = [];
+  let changed = false;
+  for (const value of arrayValue(root.package_source_hashes, "package_source_hashes")) {
+    const hash = record(value, "package source hash");
+    const path = stringValue(hash.path, "package source hash.path");
+    if (path.startsWith("/") || path.includes("\\") || path.split("/").some(part => part === ".." || part.length === 0)) {
+      throw new Error(`unsafe package source hash path: ${path}`);
+    }
+    const algorithm = stringValue(hash.algorithm, `${path}.algorithm`);
+    if (algorithm !== "sha256") throw new Error(`unsupported package hash algorithm ${algorithm} for ${path}`);
+    const expected = hex(stringValue(hash.hash, `${path}.hash`), `${path}.hash`, 64);
+    const bytes = new Uint8Array(await readFile(resolve(packageBase, path)));
+    const observed = sha256(bytes);
+    const matches = expected === observed;
+    hashes.push({ path, algorithm, expected, observed, matches });
+    if (!matches) changed = true;
+  }
+  return { hashes, changed };
+}
+
+async function loadProvenance(packageBase: string, supplied?: unknown): Promise<unknown> {
+  if (supplied !== undefined) return supplied;
+  return JSON.parse(await readFile(resolve(packageBase, "provenance/upstreams.json"), "utf8")) as unknown;
+}
+
+/** Verify the locally pinned upstream release identities and their recorded source hashes. */
+export async function verifyPinnedUpstreams(
+  fetchImpl: FetchLike = fetch,
+  options: PinnedVerificationOptions = {},
+): Promise<JsonObject> {
+  const packageBase = resolve(options.packageRoot ?? packageRoot);
+  const provenance = await loadProvenance(packageBase, options.provenance);
+  const root = record(provenance, "provenance root");
+  const records = readUpstreamRecords(provenance);
+  const upstreamResults: JsonObject[] = [];
+  let changed = false;
+
+  for (const expectedRecord of records) {
+    const expectedRelease = expectedRecord.release;
+    const expectedTag = stringValue(expectedRelease.tag, `${expectedRecord.id}.release.tag`);
+    const expectedTagRef = stringValue(expectedRelease.tag_ref, `${expectedRecord.id}.release.tag_ref`);
+    if (expectedTagRef !== `refs/tags/${expectedTag}`) throw new Error(`${expectedRecord.id}.release.tag_ref does not match its pinned tag`);
+    const expectedVersion = stringValue(expectedRelease.version, `${expectedRecord.id}.release.version`);
+    const expectedReleaseId = integerValue(expectedRelease.release_id, `${expectedRecord.id}.release.release_id`);
+    const expectedPublishedAt = stringValue(expectedRelease.published_at, `${expectedRecord.id}.release.published_at`);
+    const expectedCommit = hex(stringValue(expectedRelease.peeled_commit, `${expectedRecord.id}.release.peeled_commit`), `${expectedRecord.id}.release.peeled_commit`, 40);
+    const tagObjectValue = expectedRelease.annotated_tag_object;
+    const expectedTagObject = tagObjectValue === null
+      ? null
+      : hex(stringValue(tagObjectValue, `${expectedRecord.id}.release.annotated_tag_object`), `${expectedRecord.id}.release.annotated_tag_object`, 40);
+
+    const release = await requestJson(apiUrl(expectedRecord.repository, `/releases/tags/${encodeURIComponent(expectedTag)}`), fetchImpl);
+    const releaseTag = stringValue(release.tag_name, `${expectedRecord.id}.release.tag_name`);
+    const releaseId = integerValue(release.id, `${expectedRecord.id}.release.id`);
+    const publishedAt = stringValue(release.published_at, `${expectedRecord.id}.release.published_at`);
+    const resolved = await resolvePeeledCommit(expectedRecord.repository, expectedTag, fetchImpl);
+    const observedTagObject = resolved.tagObject === resolved.peeledCommit ? null : resolved.tagObject;
+    const diffs = [
+      diffEntry("release.tag", expectedTag, releaseTag),
+      diffEntry("release.version", expectedVersion, releaseTag.replace(/^v/, "")),
+      diffEntry("release.release_id", expectedReleaseId, releaseId),
+      diffEntry("release.published_at", expectedPublishedAt, publishedAt),
+      diffEntry("release.tag_ref", expectedTagRef, resolved.ref),
+      diffEntry("release.annotated_tag_object", expectedTagObject, observedTagObject),
+      diffEntry("release.peeled_commit", expectedCommit, resolved.peeledCommit),
+    ];
+    // Check source material at the recorded commit even when the observed tag moved.
+    const sourceHashes = await sourceContract(expectedRecord, expectedCommit, fetchImpl);
+    for (const hash of sourceHashes) {
+      if (hash.matches !== true) diffs.push(diffEntry(`source_hash.${String(hash.path)}`, hash.expected, hash.observed));
+    }
+    const recordResult = {
+      id: expectedRecord.id,
+      repository: expectedRecord.repository,
+      pinned: { tag: expectedTag, tagRef: expectedTagRef, version: expectedVersion, releaseId: expectedReleaseId, peeledCommit: expectedCommit },
+      api: { tag: releaseTag, id: releaseId, publishedAt },
+      resolved: { ref: resolved.ref, tagObject: resolved.tagObject, peeledCommit: resolved.peeledCommit },
+      sourceHashes,
+      diffs,
+    } satisfies JsonObject;
+    upstreamResults.push(recordResult);
+    if (diffs.some(item => item.changed === true)) changed = true;
+  }
+
+  const packageHashes = await packageSourceContract(root, packageBase);
+  if (packageHashes.changed) changed = true;
+  return {
+    schema_version: 1,
+    checked_at: new Date().toISOString(),
+    policy: "read_only_pinned_upstream_verification",
+    changed,
+    status: changed ? "drift" : "verified",
+    upstreams: upstreamResults,
+    packageSourceHashes: packageHashes.hashes,
+  } satisfies JsonObject;
 }
 
 export async function recheckUpstreams(fetchImpl: FetchLike = fetch): Promise<JsonObject> {
@@ -229,17 +339,8 @@ export async function recheckUpstreams(fetchImpl: FetchLike = fetch): Promise<Js
     if (diffs.some(item => item.changed === true)) changed = true;
   }
 
-  const localPackageHashes: JsonObject[] = [];
-  for (const value of arrayValue(root.package_source_hashes, "package_source_hashes")) {
-    const hash = record(value, "package source hash");
-    const path = stringValue(hash.path, "package source hash.path");
-    if (path.startsWith("/") || path.split("/").some(part => part === ".." || part.length === 0)) throw new Error(`unsafe package source hash path: ${path}`);
-    const expected = stringValue(hash.hash, `${path}.hash`);
-    const bytes = new Uint8Array(await readFile(resolve(packageRoot, path)));
-    const observed = sha256(bytes);
-    localPackageHashes.push({ path, algorithm: hash.algorithm, expected, observed, matches: expected === observed });
-    if (expected !== observed) changed = true;
-  }
+  const packageHashes = await packageSourceContract(root, packageRoot);
+  if (packageHashes.changed) changed = true;
   const result = {
     schema_version: 1,
     checked_at: new Date().toISOString(),
@@ -247,7 +348,7 @@ export async function recheckUpstreams(fetchImpl: FetchLike = fetch): Promise<Js
     changed,
     status: changed ? "drift" : "verified",
     upstreams: upstreamResults,
-    packageSourceHashes: localPackageHashes,
+    packageSourceHashes: packageHashes.hashes,
   } satisfies JsonObject;
   return result;
 }
@@ -257,14 +358,25 @@ function printResult(result: JsonObject): void {
 }
 
 if (import.meta.main) {
-  recheckUpstreams()
+  const args = process.argv.slice(2);
+  const latest = args.length === 1 && args[0] === "--latest";
+  const policy = latest ? "read_only_latest_selector_recheck" : "read_only_pinned_upstream_verification";
+  const check = args.length === 0
+    ? () => verifyPinnedUpstreams()
+    : latest
+      ? () => recheckUpstreams()
+      : null;
+  if (!check) {
+    printResult({ schema_version: 1, policy, status: "error", changed: true, error: "usage: check-upstreams.ts [--latest]" });
+    process.exitCode = 1;
+  } else check()
     .then(result => {
       printResult(result);
       if (result.status !== "verified") process.exitCode = 1;
     })
     .catch(error => {
       const message = error instanceof Error ? error.message : String(error);
-      printResult({ schema_version: 1, policy: "read_only_latest_selector_recheck", status: "error", changed: true, error: message });
+      printResult({ schema_version: 1, policy, status: "error", changed: true, error: message });
       process.exitCode = 1;
     });
 }
