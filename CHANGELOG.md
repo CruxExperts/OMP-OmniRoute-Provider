@@ -14,6 +14,8 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   explicit compatibility decision; future upstream releases still raise findings.
 - Align contributor setup and refresh commands, sanitized real-use captures,
   fixture labeling, installation links, and current release documentation.
+- Refresh manifest-bound operation receipts from fresh qualification tests,
+  preserving the reviewed observations, source bindings, and qualified scope.
 - This GitHub-only patch adds no administration operation qualification, publishes
   nothing to npm, and carries no eight-platform qualification receipt. The
   operation and platform limits documented below still apply.

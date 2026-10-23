@@ -97,7 +97,7 @@ documents:
     category_label: Reference
     category_slug: reference
     status: active
-    last_updated: "2026-10-21"
+    last_updated: "2026-10-23"
     doc_type: runbook
     tags: [contracts, provenance, qualification, testing]
   - id: brand-identity

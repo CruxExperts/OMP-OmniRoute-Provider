@@ -52,6 +52,16 @@ content digest. Active eligibility records bind the exact handler, import closur
 framework context, contract, test source closure, and observed result. A changed
 source, test, contract, or outcome invalidates the previous qualification.
 
+The test fingerprint includes the complete `package.json` and available Bun
+lockfiles, as well as the local import closure. Version and tested-host metadata
+changes therefore require fresh receipts even when runtime behavior is unchanged.
+After the final manifest edits, rerun every suite named by the active eligibility
+records. Compare each fresh observation and source binding with its reviewed
+reference before updating any receipt. An unchanged observation may be rebound
+to the current test fingerprint in a new content-addressed record; retain the
+old record and review any behavioral difference separately. Update eligibility
+references and regenerate the operation inventory before running the checks below.
+
 After tests run, compare fresh observations and check deterministic output:
 
 ```sh

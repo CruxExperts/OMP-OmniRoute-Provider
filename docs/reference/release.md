@@ -94,6 +94,16 @@ an existing signed tag alone cannot publish a release.
 
 ## Qualification receipt
 
+Finalize version and host-matrix edits before refreshing operation qualification.
+The test-source fingerprint includes the package manifest and lockfiles, so even
+a version-only manifest change makes the previous operation receipts stale.
+Follow the [source-bound qualification procedure](contracts.md#qualify-behavior-independently):
+rerun the active suites, compare fresh observations and bindings with their
+reviewed references, and only then write new content-addressed receipts and
+regenerate the inventory. Do not remove manifest binding or bypass the freshness
+check to clear release CI. This refresh preserves the qualified operation set;
+it does not qualify additional operations or platforms.
+
 Before manual publication, prepare a reviewed JSON qualification receipt with
 this shape:
 
