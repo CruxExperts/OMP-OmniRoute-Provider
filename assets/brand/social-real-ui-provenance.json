@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "title": "OMP OmniRoute Provider — screenshot-led social preview",
+  "built": "2026-10-22",
+  "canvas": {
+    "width": 1280,
+    "height": 640
+  },
+  "license": "Crux Experts brand assets governed by ASSET_LICENSE.md. OmniRoute original captures governed by upstream project terms.",
+  "sources": [
+    {
+      "role": "OmniRoute UI",
+      "repository": "cheaper-inference/OmniRoute",
+      "ref": "release/v3.8.53",
+      "path": "docs/screenshots/MainOmniRoute.png",
+      "blobSha": "c9879cbd4b219e1e7d0f3ca5c81eaea2312fd2ae",
+      "caveat": "Actual UI image included on this branch; the screenshot itself shows an earlier v3.8.1 application. It is not a newly captured run of v3.8.53."
+    },
+    {
+      "role": "OMP plugin UI",
+      "repository": "CruxExperts/OMP-OmniRoute-Provider",
+      "ref": "main",
+      "path": "assets/native/omp-18.12.5/setup-wizard.png",
+      "blobSha": "13d715e2f3087775c8083f8137f8db6640b30d8e",
+      "caveat": "Genuine 2026-10-21 capture from OMP 18.12.5 with historical CruxOmni branding. Not proof of current release UI."
+    },
+    {
+      "role": "Brand logo",
+      "repository": "CruxExperts/OMP-OmniRoute-Provider",
+      "ref": "main",
+      "path": "assets/brand/icon-light.png",
+      "blobSha": "e6d15fd2848d418c739f2c133e345575af5016b8"
+    }
+  ],
+  "composition": "Screenshots are embedded losslessly in SVG using source PNG byte streams and clipped to viewport rectangles; no UI redraw or text substitution.",
+  "sourceSVG": "assets/brand/social-real-ui.svg",
+  "generatedPNG": "assets/brand/social-real-ui.png",
+  "rendering": "CairoSVG"
+}
