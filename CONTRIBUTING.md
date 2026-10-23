@@ -14,7 +14,9 @@ LocalSetup, Envman, a local database, or a private service.
 
 Preserve the public `OMP OmniRoute Provider` display name and the protocol-facing
 `omniroute` provider ID unless a reviewed contract change explicitly says
-otherwise. The setup entry point is `/cruxomni setup`.
+otherwise. The primary setup and refresh commands are `/omniroute setup` and
+`/omniroute refresh`. `/cruxomni setup` and `/cruxomni refresh` remain supported
+compatibility aliases.
 
 Do not add:
 
@@ -27,10 +29,15 @@ Do not add:
 - a dependency whose install hook fetches mutable source.
 
 Original graphics in `assets/` are reserved Crux Experts LLC assets. Do not
-replace them with downloaded logos, third-party art, or screenshots containing
-real profiles. Fixture screenshots must be clearly labeled and contain no
-credentials, account identifiers, private hostnames, or real model data. See
-[ASSET_LICENSE.md](ASSET_LICENSE.md).
+replace them with downloaded logos or third-party art. For the documented
+[real-use screenshot family](docs/visual-walkthrough.md), use actual user-
+supplied interfaces and sanitized derivatives, not recreated or generated
+screens. Remove private details such as identities, workspace/session metadata,
+gateway addresses, and request activity; do not publish unredacted captures.
+Keep disposable fixture illustrations distinct from real-use captures, label
+them clearly, and include no credentials, account identifiers, private hostnames,
+or real model data. Follow the [branding and naming policy](docs/branding.md)
+and [ASSET_LICENSE.md](ASSET_LICENSE.md).
 
 ## Before opening a change
 
@@ -99,7 +106,8 @@ or build OmniRoute's web application as an extension compatibility prerequisite.
 Useful focused areas include:
 
 - native sign-in cancellation, masked prompts, pending persistence, auth-only
-  restart with fresh sign-in recovery, and explicit `/cruxomni refresh`;
+  restart with fresh sign-in recovery, and explicit `/omniroute refresh`
+  (with `/cruxomni refresh` retained as a compatibility alias);
 - endpoint and credential generation changes, offline recovery, bounded body
   and JSON depth handling, redirect rejection, and notification transitions;
 - exact `/v1/models` identity, endpoint/modality mapping, empty-versus-failed
