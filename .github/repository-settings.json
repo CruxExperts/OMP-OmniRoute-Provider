@@ -1,5 +1,5 @@
 {
-  "status": "desired configuration; see docs/reference/maintenance.md for verification",
+  "status": "configured 2026-10-23; execution evidence in docs/reference/maintenance.md",
   "repository": "CruxExperts/OMP-OmniRoute-Provider",
   "description": "Connect Oh My Pi to your existing OmniRoute gateway. Guided setup, live model discovery, and optional reviewed administration.",
   "topics": [
@@ -54,7 +54,8 @@
     "issueLabels": [
       "maintenance",
       "automation"
-    ]
+    ],
+    "enabled": true
   },
   "activationRequirements": [
     "Verify maintenance dispatch creates bot-owned findings and a repeated dispatch does not duplicate issues",
@@ -78,5 +79,6 @@
     "default_workflow_permissions": "read",
     "can_approve_pull_request_reviews": false,
     "sha_pinning_required": true
-  }
+  },
+  "copilotSetup": ".github/workflows/copilot-setup-steps.yml"
 }

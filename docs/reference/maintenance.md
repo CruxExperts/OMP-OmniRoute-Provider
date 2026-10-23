@@ -1,17 +1,18 @@
 # Repository maintenance
 
-The maintenance and Copilot setup code and workflows are implemented in the
-repository. The `maintenance` and `automation` issue labels and Copilot review
-ruleset are configured. Scheduled maintenance activation remains pending until
-the controller enables it and verifies successful runs. No live maintenance run,
-Copilot setup session, or created issue is claimed without execution evidence.
-Repository code does not prove that npm or Copilot is authenticated.
+Maintenance reporting is enabled through the repository variable
+`CRUXOMNI_MAINTENANCE_ENABLED=true`. The issue labels, Copilot review ruleset,
+signed-commit protection, corrected required checks, and immutable Actions
+references are configured. Instructions describe the intended behavior; the
+execution records below establish what was actually verified.
 
 ## Daily observations
 
-The maintenance workflow is scheduled for **07:17 UTC**. It stays disabled until
-`CRUXOMNI_MAINTENANCE_ENABLED` is explicitly set to `true` in repository variables.
-When activated, it checks upstream versions, dependencies, and generated
+The maintenance workflow runs daily at **07:17 UTC**, on manual dispatch, and
+after a trusted default-branch CI failure. Set
+`CRUXOMNI_MAINTENANCE_ENABLED=false` in repository variables to stop future
+reporting. Existing in-flight runs need separate inspection before cancellation.
+It checks upstream versions, dependencies, and generated
 documentation. It also reports failed trusted default-branch runs. OmniRoute release
 observations use the validated canonical repository `cheaper-inference/OmniRoute`,
 while the original repository and immutable source pin remain recorded in
@@ -33,11 +34,12 @@ Import must reuse matching issues and milestone entries rather than duplicate th
 
 ## Reviews and branch settings
 
-The desired description, topics, and social preview are recorded in
+The description, topics, and social-preview asset are recorded in
 `.github/repository-settings.json`. The Copilot review ruleset and branch protection
 are active; required contexts reflect the successful package and both host-smoke
-matrix jobs, with strict checks and signed commits enabled. Human approval remains
-disabled because an independent reviewer has not been verified.
+matrix jobs, with strict checks and signed commits enabled. No new human-approval
+requirement was imposed; an independent human reviewer has not been verified.
+Copilot review is advisory and is not automatic merge authority.
 
 Copilot review guidance lives in `.github/copilot-instructions.md`. The implemented
 setup workflow prepares locked dependencies and runs focused validation with
@@ -51,6 +53,35 @@ Use GitHub Actions for this public repository. GitHub's separate
 [Copilot Automations feature](https://docs.github.com/en/copilot/concepts/agent-capabilities/agent-powered-workflows-and-operations/about-automations)
 has separate availability limits. Verify current entitlement and results before
 claiming either feature is active.
+
+## Verified activation: 2026-10-23
+
+- [Copilot setup run](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/runs/39916985136)
+  passed using the pinned Bun 1.4.2 workflow, locked dependencies, fixture
+  preparation, typechecking, documentation checks, and maintenance tests.
+- [First maintenance dispatch](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/runs/39917021638)
+  and [repeat dispatch](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/runs/39917572624)
+  passed. The repeat retained the same two bot-owned issues, with no duplicates:
+  [OMP compatibility evidence](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/2)
+  and [default-branch validation](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/4).
+- [Documentation task #3](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/3)
+  was assigned to native Copilot, which produced
+  [pull request #5](https://github.com/CruxExperts/OMP-OmniRoute-Provider/pull/5).
+  This verifies task assignment and agent work; it does not establish merge or
+  release acceptance.
+- The full local suite passed 349 tests, plus four Python capture-safety tests.
+  The existing upstream-latest gate still reports OMP 18.12.6 versus the pinned
+  18.12.5 and the OmniRoute repository redirect. Those facts are tracked for
+  reviewed compatibility maintenance; pins and qualification gates were not
+  weakened to clear CI.
+
+GitHub may require a maintainer to approve workflows on Copilot-authored pull
+requests. That platform approval remains in force. The agent's default read-only
+GitHub tools do not independently grant issue creation: automatic observations
+use the Actions issue writer; other agent discoveries use an authorized issue tool
+or a sanitized follow-up draft in the pull request. No additional publishing
+credential, paid-usage setting, automatic assignment loop, merge, or release was
+enabled.
 
 ## Release authority
 
