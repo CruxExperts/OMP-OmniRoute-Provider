@@ -14,7 +14,8 @@ LocalSetup, Envman, a local database, or a private service.
 
 Preserve the public `OMP OmniRoute Provider` display name and the protocol-facing
 `omniroute` provider ID unless a reviewed contract change explicitly says
-otherwise. The setup entry point is `/cruxomni setup`.
+otherwise. Lead with `/omniroute setup` and `/omniroute refresh`. The earlier
+`/cruxomni setup` and `/cruxomni refresh` commands remain compatibility aliases.
 
 Do not add:
 
@@ -27,10 +28,17 @@ Do not add:
 - a dependency whose install hook fetches mutable source.
 
 Original graphics in `assets/` are reserved Crux Experts LLC assets. Do not
-replace them with downloaded logos, third-party art, or screenshots containing
-real profiles. Fixture screenshots must be clearly labeled and contain no
-credentials, account identifiers, private hostnames, or real model data. See
-[ASSET_LICENSE.md](ASSET_LICENSE.md).
+replace them with downloaded logos or third-party art. The documented
+[real-use walkthrough](docs/visual-walkthrough.md) uses authentic, user-supplied
+interface captures and sanitized derivatives. Remove credentials, personal
+identities, workspace and session metadata, private gateway addresses, and request
+activity before publication; never publish the unredacted originals. Follow the
+[branding and naming policy](docs/branding.md) and preserve required attribution.
+
+Keep disposable fixture illustrations separate from real-use captures and label
+them clearly. Fixtures must contain no credentials, account identifiers, private
+hostnames, or real model data. Existing asset-license restrictions still apply;
+see [ASSET_LICENSE.md](ASSET_LICENSE.md).
 
 ## Before opening a change
 
@@ -99,7 +107,8 @@ or build OmniRoute's web application as an extension compatibility prerequisite.
 Useful focused areas include:
 
 - native sign-in cancellation, masked prompts, pending persistence, auth-only
-  restart with fresh sign-in recovery, and explicit `/cruxomni refresh`;
+  restart with fresh sign-in recovery, and explicit `/omniroute refresh`
+  (`/cruxomni refresh` remains an alias);
 - endpoint and credential generation changes, offline recovery, bounded body
   and JSON depth handling, redirect rejection, and notification transitions;
 - exact `/v1/models` identity, endpoint/modality mapping, empty-versus-failed
