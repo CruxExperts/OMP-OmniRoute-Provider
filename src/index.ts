@@ -3,8 +3,8 @@ import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugi
 import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
-import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
-import { allowsEnvironmentOptionalCredentials, type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
+import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential, verifyStoredRuntimeCredential } from "./auth.ts";
+import { allowsEnvironmentOptionalCredentials, commitPendingConfig, type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
 import { loadCatalogMetadata, getCatalogSourceStatus, type CatalogMetadataSnapshot } from "./catalog-sources.ts";
 import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./health.ts";
@@ -480,7 +480,15 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				pricingCurrent = false;
 			}
 			publishCurrent();
-			if ((!active && !pending) || (pending && (!pendingCandidateKey || pendingCandidateEndpoint !== pending.endpoint))) {
+			const candidateMatchesPending = pending !== undefined
+				&& pendingCandidateKey !== undefined
+				&& pendingCandidateEndpoint === pending.endpoint;
+			const recoverStoredPending = pending !== undefined
+				&& pendingCandidateKey === undefined
+				&& pending.status === "validated"
+				&& loaded.runtimeSource === "native"
+				&& ctx !== undefined;
+			if ((!active && !pending) || (pending && !candidateMatchesPending && !recoverStoredPending)) {
 				manager.setBinding(undefined, undefined);
 				publishCurrent();
 				return { pendingValidated: false };
@@ -500,24 +508,68 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			config = confirmed;
 			if (pending) {
 				const candidateKey = pendingCandidateKey;
-				if (!candidateKey || credential !== candidateKey || pendingCandidateEndpoint !== pending.endpoint) {
+				if (candidateKey && (credential !== candidateKey || pendingCandidateEndpoint !== pending.endpoint)) {
+					manager.reset();
+					publishCurrent();
+					return { pendingValidated: false };
+				}
+				if (!candidateKey && (!recoverStoredPending || !credential || !ctx)) {
+					manager.reset();
+					publishCurrent();
+					return { pendingValidated: false };
+				}
+				if (!credential) {
 					manager.reset();
 					publishCurrent();
 					return { pendingValidated: false };
 				}
 				manager.setBinding(pending.endpoint, credential, pending.generation);
+				if (recoverStoredPending) {
+					const signal = manager.bindingSignal;
+					if (!signal) throw Object.assign(new Error("pending binding could not be verified"), { code: "binding_changed" });
+					await verifyStoredRuntimeCredential(pending.endpoint, credential, signal);
+					const rechecked = await loadConfig();
+					const recheckedPending = rechecked.pending;
+					if (stopped || signal.aborted || revision !== credentialRevision || confirmed.revision !== rechecked.revision
+						|| rechecked.runtimeSource !== "native"
+						|| !recheckedPending
+						|| recheckedPending.endpoint !== pending.endpoint
+						|| recheckedPending.generation !== pending.generation
+						|| recheckedPending.status !== "validated") {
+						throw Object.assign(new Error("pending binding changed during credential verification"), { code: "binding_changed" });
+					}
+					config = rechecked;
+				}
 				const validation = await manager.refresh({ force: true });
 				if (!validation || validation.stale || revision !== credentialRevision) {
 					throw Object.assign(new Error("pending validation did not return a current live catalog"), { code: "pending_validation_failed" });
 				}
-				if (ctx) {
+				if (candidateKey && ctx) {
 					await recoverPendingAfterPersistence(ctx.modelRegistry, candidateKey);
+					config = await loadConfig();
+				} else if (!candidateKey && recoverStoredPending && ctx) {
+					const current = await loadConfig();
+					const currentPending = current.pending;
+					const currentCredential = await resolveRuntimeCredential(ctx.modelRegistry, current);
+					if (stopped || revision !== credentialRevision || current.revision !== config.revision
+						|| current.runtimeSource !== "native"
+						|| currentCredential !== credential
+						|| !currentPending
+						|| currentPending.endpoint !== pending.endpoint
+						|| currentPending.generation !== pending.generation
+						|| currentPending.status !== "validated") {
+						throw Object.assign(new Error("pending binding changed before activation"), { code: "binding_changed" });
+					}
+					if (current.revision === undefined) {
+						throw Object.assign(new Error("pending binding revision is unavailable"), { code: "binding_changed" });
+					}
+					config = await commitPendingConfig(currentPending, { expectedRevision: current.revision });
+					clearPendingCandidate();
 				} else {
 					manager.reset();
 					publishCurrent();
 					return { pendingValidated: false };
 				}
-				config = await loadConfig();
 				if (config.pending || !config.active || config.active.endpoint !== manager.currentBinding?.endpoint || revision !== credentialRevision) {
 					throw Object.assign(new Error("pending binding changed during validation"), { code: "binding_changed" });
 				}
@@ -566,14 +618,16 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			}
 			synchronized = await bindingSyncFlight;
 		} catch (error) {
-			if (manual) notify(ctx, `omniroute: binding unavailable (${safeDetail(error)})`, "warning");
+			if (manual || config.pending) notify(ctx, config.pending
+				? `omniroute: pending connection could not be restored (${safeDetail(error)}); retry /omniroute refresh or use /omniroute setup to sign in again`
+				: `omniroute: binding unavailable (${safeDetail(error)})`, "warning");
 			return;
 		}
 		if (stopped) return;
 		if (!manager.currentBinding) {
-			if (manual) notify(ctx, config.pending
-					? "omniroute: setup is pending native persistence; sign in again if the previous process was interrupted, then /omniroute refresh"
-					: "omniroute: setup required; use native sign-in, then /omniroute refresh", "info");
+			if (manual || config.pending) notify(ctx, config.pending
+					? "omniroute: pending connection is not usable yet; retry /omniroute refresh, or use /omniroute setup to sign in again"
+					: "omniroute: setup required; use native sign-in, then /omniroute refresh", config.pending ? "warning" : "info");
 			return;
 		}
 		try {

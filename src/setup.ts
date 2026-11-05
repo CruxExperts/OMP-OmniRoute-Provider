@@ -102,7 +102,7 @@ export async function setupConnection(context: ExtensionContext, services: Setup
     try {
       const current = await loadConfig();
       recovery = current.pending
-        ? "Connection activation may be pending after native credential persistence. Sign in again to recover or replace it."
+        ? "Connection activation is pending. OMP will revalidate the saved native credential against this gateway on refresh or restart; if it is missing or rejected, sign in again."
         : current.revision === config.revision
           ? "Existing profile configuration was retained."
           : "Connection state changed; inspect /omniroute status before retrying.";

@@ -158,7 +158,8 @@ test("wizard reports pending recovery when native persistence fails after stagin
   });
   await setupConnection(ctx, services());
   expect((await loadConfig()).pending?.endpoint).toBe(endpoint);
-  expect(notices.join(" ")).toContain("activation may be pending");
+  expect(notices.join(" ")).toContain("activation is pending");
+  expect(notices.join(" ")).toContain("revalidate the saved native credential");
   expect(notices.join(" ")).toContain("Sign in again");
   expect(notices.join(" ")).not.toContain("Existing connection retained");
   expect(notices.join(" ")).not.toContain("fixture-runtime-secret");

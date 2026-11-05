@@ -97,9 +97,12 @@ protected authentication endpoint but paired with an empty or incompatible
 catalog is reported as “key verified, no compatible chat models available”
 in the informational `no-models` state. While verification and discovery
 are pending, OMP reports a checking state; a completed empty catalog is never
-presented as a healthy model list. An interrupted pending login remains
-auth-only and needs a fresh sign-in; `/omniroute refresh` forces rediscovery of
-an active connection.
+presented as a healthy model list. After restart, a `validated` pending login
+is resumed only if OMP's currently selected native credential passes the
+protected check against the exact pending endpoint and the live catalog can be
+read. Missing, rejected, or unverified credentials remain unavailable and
+require a fresh sign-in; `/omniroute refresh` retries recovery or forces
+rediscovery of an active connection.
 Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.
