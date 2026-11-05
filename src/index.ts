@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
-import type { Api } from "@oh-my-pi/pi-ai";
-import { registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
+import { registerCustomApi, unregisterCustomApis, type Api } from "@oh-my-pi/pi-ai";
 import { randomUUID } from "node:crypto";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";

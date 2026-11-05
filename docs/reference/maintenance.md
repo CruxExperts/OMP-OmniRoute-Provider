@@ -112,6 +112,32 @@ source, artifacts, notes, checksums, and release receipt described in the
 [release guide](release.md), then obtain approval for that payload. A tag push alone
 does not publish. Reconcile any partial npm or GitHub publication before retrying.
 
+## OMP 18.16.0 compatibility review
+
+The Linux x64 glibc release asset for OMP 18.16.0 passed the disposable native
+smoke after its binary digest, checksum-file digest, and checksum entry were
+verified. The run exercised the packed package's installation, setup, inference,
+administration, and plugin lifecycle. It used source commit `db0cdaa` plus the
+root SDK import correction and provisional host metadata; the tested package
+archive SHA-256 was `8a5b9e5a170b17b356927349e1961342380347dc5ad3915547d6dd73ed7d0445`.
+This intermediate evidence does not replace final-commit CI and final-archive
+smoke receipts. The source and SDK pins remain at 18.12.5, and the host matrix
+adds 18.16.0 without removing the prior versions.
+
+The provider imports its custom API registry functions from the host's
+`@oh-my-pi/pi-ai` root entry. The 18.16.0 prebuilt host does not expose the
+`api-registry` wildcard subpath to installed extensions; using that subpath
+prevented package activation in the isolated fixture.
+
+The 18.16.0 npm package requires Bun 1.4.4 or newer. This check used the
+prebuilt host and local Bun 1.4.4; it does not qualify the 18.16.0 npm CLI on
+the CI toolchain's Bun 1.4.2. The host dependency graph includes Zod 3.25.76
+through Chromium BiDi, affected by [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+An [upstream maintainer analysis](https://github.com/can1357/oh-my-pi/issues/17190)
+describes the vulnerable parser as BiDi-only and the OMP browser path as CDP.
+This isolated smoke did not invoke a browser or BiDi; that bounded observation
+does not establish safety for other uses or remove the transitive advisory.
+
 ## OMP 18.12.6 compatibility review
 
 Issue [#2](https://github.com/CruxExperts/OMP-OmniRoute-Provider/issues/2) is

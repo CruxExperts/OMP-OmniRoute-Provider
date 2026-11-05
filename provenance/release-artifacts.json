@@ -295,6 +295,18 @@
       "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.12.6/SHA256SUMS.txt",
       "checksums_sha256": "72ebc3d92054d3a2e8edafc1acf593ea685e609672b031084459f525a2fc64e5",
       "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omp-linux-x64-18.16.0",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v18.16.0",
+      "peeled_commit": "650f3a108229ee11bf68ba3377f4e8c3391cd424",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.16.0/omp-linux-x64",
+      "sha256": "6498ed785bab00d2926e0387e0ec02362d6d45f1c3d0d1b57c1618b7f95c9264",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.16.0/SHA256SUMS.txt",
+      "checksums_sha256": "6bee1dcdc507e39685c734069d933f8551624a23c51a5d5fbeca29428fd03260",
+      "status": "verified_disposable_acquisition"
     }
   ]
 }
