@@ -212,7 +212,7 @@ async function confirmInsecure(callbacks: OAuthLoginCallbacks, endpoint: string)
 }
 
 
-async function validateCandidate(endpoint: string, key: string, request: typeof requestJson, signal?: AbortSignal): Promise<{ raw: number; usable: number }> {
+async function validateProtectedCredential(endpoint: string, key: string, request: typeof requestJson, signal?: AbortSignal): Promise<void> {
   checkCancelled(signal);
   // Persisted endpoints may include a /v1 suffix. Resolve protected and live
   // paths from the same gateway root used by runtime discovery.
@@ -243,6 +243,16 @@ async function validateCandidate(endpoint: string, key: string, request: typeof 
     throw new AuthError("invalid-response", "OmniRoute key verification failed");
   }
   checkCancelled(signal);
+}
+
+/** Recheck a stored native key against the exact endpoint from validated pending state. */
+export async function verifyStoredRuntimeCredential(endpoint: string, key: string, signal?: AbortSignal): Promise<void> {
+  await validateProtectedCredential(endpoint, key, requestJson, signal);
+}
+
+async function validateCandidate(endpoint: string, key: string, request: typeof requestJson, signal?: AbortSignal): Promise<{ raw: number; usable: number }> {
+  await validateProtectedCredential(endpoint, key, request, signal);
+  const root = endpoint.replace(/\/+$/, "").replace(/\/v1$/, "");
   try {
     const catalog = await request({ endpoint: root, path: "/v1/models" }, key,
       { totalBudgetMs: 10_000, maxBytes: 8 * 1024 * 1024, maxDepth: 24 }, signal,

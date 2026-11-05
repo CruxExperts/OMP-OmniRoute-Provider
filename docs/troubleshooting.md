@@ -56,10 +56,9 @@ Use `/omniroute` to inspect connection state. The former `/cruxomni`,
 
 This means the protected key check, live catalog check, native persistence,
 readback, or activation did not complete. Setup does not save an offline or
-unverified connection. Sign in again through OMP's native masked prompt, then
-run `/omniroute refresh`; do not test a new key against an old endpoint
-manually. A pending marker after process exit is deliberately fail-closed and
-requires fresh sign-in.
+unverified connection. Correct the gateway or credential problem, then use
+OMP's native masked prompt and `/omniroute refresh`; do not test a new key
+against an old endpoint manually.
 
 If the key check succeeds but setup reports no compatible chat models, the
 credential was verified and the current `/v1/models` response did not yield a
@@ -67,6 +66,13 @@ runnable chat model. Check the route prefix and model availability separately;
 do not treat that result as a rejected key. While the endpoint is checking,
 wait for verification and catalog discovery to finish before selecting a
 model. A completed empty catalog is not reported as a ready model list.
+
+A validated pending native connection can recover after restart only when
+OMP's currently selected native credential passes the protected check against
+the exact pending endpoint. The provider then refreshes that endpoint's live
+model catalog before activation. Missing, rejected, or unverified credentials
+leave the models unavailable; use `/omniroute setup` to sign in again. No key
+or key fingerprint is stored in the plugin config.
 
 ## OMP displays generic OAuth wording
 

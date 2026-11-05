@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## Unreleased
 
+- Recover a validated pending native connection after restart only when OMP's
+  selected credential passes the protected endpoint check and live catalog
+  discovery; otherwise keep models unavailable and direct the user to sign in.
+
 ## 1.0.3 — 2026-10-23
 
 - Verify immutable upstream release tags, commits, and source hashes independently
