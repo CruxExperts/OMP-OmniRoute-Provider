@@ -11,6 +11,7 @@ export interface InferenceBinding {
 }
 
 export interface BoundInferenceOptions {
+  expectedApi?: Api;
   expectedEndpoint: string;
   expectedGeneration: number;
   currentBinding(): InferenceBinding | undefined;
@@ -154,7 +155,7 @@ export function createSingleDispatchFetch(
 
 export function createBoundInferenceStream(options: BoundInferenceOptions) {
   return (model: Model<Api>, context: Context, streamOptions?: SimpleStreamOptions): AssistantMessageEventStream => {
-    if (model.api !== OMNIROUTE_GUARDED_API) {
+    if (model.api !== (options.expectedApi ?? OMNIROUTE_GUARDED_API)) {
       throw inferenceError("model does not use the guarded OmniRoute API", "inference-model-invalid");
     }
     const binding = options.currentBinding();

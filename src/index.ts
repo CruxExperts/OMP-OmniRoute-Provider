@@ -1,4 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
+import type { Api } from "@oh-my-pi/pi-ai";
+import { registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
+import { randomUUID } from "node:crypto";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
@@ -21,6 +24,13 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_JSON_DEPTH = 24;
 
 type ContextLike = ExtensionContext;
+
+// Extension instances can share a ModelRegistry, while their stream callbacks
+// live in the process-wide API registry. Keep each registry's live owners apart.
+type ProviderOwner = { current: ProviderConfig; restore(): void };
+const ownerKey = Symbol.for("cruxomni.provider-owners.v1");
+const processState = globalThis as typeof globalThis & { [ownerKey]?: WeakMap<object, ProviderOwner[]> };
+const owners = processState[ownerKey] ??= new WeakMap<object, ProviderOwner[]>();
 
 
 function safeDetail(error: unknown): string {
@@ -52,11 +62,12 @@ function providerConfig(
 	models: NonNullable<ProviderConfig["models"]> = [],
 	apiKeyEnvironment?: string,
 	streamSimple?: ProviderConfig["streamSimple"],
+	api: Api = OMNIROUTE_GUARDED_API,
 ): ProviderConfig {
 	const result: ProviderConfig = { oauth, models };
 	if (endpoint) {
 		result.baseUrl = baseApi(endpoint);
-		result.api = OMNIROUTE_GUARDED_API;
+		result.api = api;
 		result.authHeader = true;
 		if (apiKeyEnvironment) result.apiKey = apiKeyEnvironment;
 		if (streamSimple) result.streamSimple = streamSimple;
@@ -77,6 +88,7 @@ function envBinding(config: PluginConfig): { endpoint: string; credential: strin
 }
 
 export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promise<void> {
+	const guardedApi = `${OMNIROUTE_GUARDED_API}-${randomUUID()}` as Api;
 	let context: ContextLike | undefined;
 	let stopped = false;
 	let config: PluginConfig;
@@ -103,6 +115,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let runtimeEndpoint: string | undefined;
 	let runtimeEnvironment = false;
 	let providerRegistered = false;
+	let lastProviderConfig: ProviderConfig | undefined;
+	let registry: object | undefined;
+	let owner: ProviderOwner | undefined;
 	let publishedProjection: CatalogProjection | undefined;
 	let publishedGeneration = -1;
 	let publishedEndpoint: string | undefined;
@@ -134,9 +149,22 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		if (signal.aborted) abort();
 		return promise;
 	};
-	const replaceProvider = (next: ProviderConfig, invalidate = false): void => {
-		if (!providerRegistered || invalidate) pi.unregisterProvider(PROVIDER_ID);
+	const installProvider = (next: ProviderConfig): void => {
 		pi.registerProvider(PROVIDER_ID, next);
+		// The host clears registrations by extension path when loading another
+		// session. Own this callback by instance so that cleanup stays isolated.
+		if (next.api && next.streamSimple) registerCustomApi(next.api, next.streamSimple, guardedApi);
+	};
+	const replaceProvider = (next: ProviderConfig, invalidate = false): void => {
+		lastProviderConfig = next;
+		if (owner && registry) {
+			owner.current = next;
+			const group = owners.get(registry)!;
+			group.splice(group.indexOf(owner), 1);
+			group.push(owner);
+		}
+		if (!providerRegistered || invalidate) pi.unregisterProvider(PROVIDER_ID);
+		installProvider(next);
 		providerRegistered = true;
 	};
 
@@ -318,9 +346,10 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	): ProviderConfig => providerConfig(
 		oauth,
 		endpoint,
-		models?.map(model => ({ ...model, api: OMNIROUTE_GUARDED_API })),
+		models?.map(model => ({ ...model, api: guardedApi })),
 		runtimeEnvironment ? RUNTIME_ENV : undefined,
 		endpoint ? createBoundInferenceStream({
+			expectedApi: guardedApi,
 			expectedEndpoint: endpoint,
 			expectedGeneration: manager.currentBinding?.generation ?? manager.status.generation,
 			currentBinding: () => manager.currentBinding,
@@ -328,6 +357,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			currentSignal: () => manager.bindingSignal,
 			stopped: () => stopped,
 		}) : undefined,
+		guardedApi,
 	);
 	// Cut over any previous package registration before startup discovery.
 	replaceProvider(providerConfig(oauth));
@@ -645,6 +675,16 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	pi.on("session_start", async (_event, ctx) => {
 		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
 		stopped = false;
+		if (!owner) {
+			registry = ctx.modelRegistry;
+			owner = { current: lastProviderConfig ?? runtimeProviderConfig(), restore: () => installProvider(owner!.current) };
+			const group = owners.get(registry) ?? [];
+			group.push(owner);
+			owners.set(registry, group);
+		}
+		// Startup registrations may have been queued by the host and assigned its
+		// shared source path after our initial installation.
+		if (lastProviderConfig) installProvider(lastProviderConfig);
 		setContext(ctx);
 		transitionNotifications = false;
 		manager.resume();
@@ -656,8 +696,29 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
 		}
 	});
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (stopped) return;
 		stopped = true;
+		// Retire ownership before asynchronous administration cleanup can block or
+		// fail. A cancelled startup may have published without joining the group.
+		const retiringRegistry = registry ?? ctx?.modelRegistry;
+		const group = retiringRegistry ? owners.get(retiringRegistry) : undefined;
+		if (group && owner) {
+			const wasCurrent = group[group.length - 1] === owner;
+			const index = group.indexOf(owner);
+			if (index >= 0) group.splice(index, 1);
+			if (wasCurrent) {
+				pi.unregisterProvider(PROVIDER_ID);
+				group[group.length - 1]?.restore();
+			}
+			if (!group.length) owners.delete(retiringRegistry!);
+		} else if (retiringRegistry) {
+			pi.unregisterProvider(PROVIDER_ID);
+			group?.[group.length - 1]?.restore();
+		}
+		owner = undefined;
+		registry = undefined;
+		providerRegistered = false;
 		credentialRevision++;
 		startupAborter?.abort();
 		unsubscribeCredentials?.();
@@ -674,6 +735,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		transitionNotifications = false;
 		setContext(undefined);
 		manager.shutdown();
+		unregisterCustomApis(guardedApi);
 		optionalCredentials.clear();
 		administrationEpoch++;
 		const retired = administration;
@@ -686,8 +748,6 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		});
 		administrationRetirement = retirement.catch(() => undefined);
 		await retirement;
-		pi.unregisterProvider(PROVIDER_ID);
-		providerRegistered = false;
 	});
 	const controller = new AbortController();
 	startupAborter = controller;

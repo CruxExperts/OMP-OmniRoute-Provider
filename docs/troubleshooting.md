@@ -85,6 +85,10 @@ HTTP 401/403 removes runnable models and marks the connection unauthorized.
 Same-connection network, rate-limit or server failures can retain last-known
 models, explicitly marked stale.
 
+When a task subagent ends, the parent session retains its own active provider
+and connection. Each session's inference binding is isolated; a model retained
+from an ended session cannot use another session's credentials.
+
 Changing endpoints, replacing or removing the runtime credential, disabling
 the package, or ending the session cancels in-flight work. Cached model objects
 cannot authorize a request for an earlier connection. Old native dynamic-model

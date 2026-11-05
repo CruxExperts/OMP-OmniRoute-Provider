@@ -8,6 +8,8 @@ import type { AuthStorage, StoredAuthCredential } from "@oh-my-pi/pi-ai";
 import { getConfigPath, loadConfig, resolveEnvironmentBinding, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
 import { createAdminRuntime } from "../src/admin/runtime.ts";
 import register from "../src/index.ts";
+import type { ProviderConfig } from "@oh-my-pi/pi-coding-agent";
+import { getCustomApi, registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
 
 let directory: string | undefined;
 let cleanupIntegration: (() => void) | undefined;
@@ -64,6 +66,7 @@ function integrationFixture(): IntegrationFixture {
       const observed = { path: url.pathname, authorization: request.headers.get("authorization") };
       requests.push(observed);
       if (url.pathname === "/v1/models") return Response.json({ data: [{ id: "fixture-model", owned_by: "fixture-owner" }] });
+      if (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses") return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
       if (url.pathname === "/api/models/catalog") {
         metadataRequest.resolve(observed);
         return Response.json({ catalog: { "fixture-owner": { models: [{ id: "fixture-model", context_length: 64000 }] } } });
@@ -79,6 +82,87 @@ function integrationFixture(): IntegrationFixture {
     endpoint: `http://127.0.0.1:${server.port}`,
   };
 }
+
+test("shared registry restores the surviving provider and keeps instance callbacks isolated", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let parent: ReturnType<typeof extensionHost> | undefined;
+  let child: ReturnType<typeof extensionHost> | undefined;
+  let isolatedHost: ReturnType<typeof extensionHost> | undefined;
+  let cancelledHost: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    parent = extensionHost(nativeStorage);
+    child = extensionHost(nativeStorage);
+    const sharedContext = parent.context() as unknown as { modelRegistry: object };
+    let current: ProviderConfig | undefined;
+    const attach = (host: ReturnType<typeof extensionHost>) => {
+      host.api.registerProvider = (_id, config) => {
+        current = config as ProviderConfig;
+        if (current.api && current.streamSimple) registerCustomApi(current.api, current.streamSimple, "fixture-extension-path");
+      };
+      host.api.unregisterProvider = () => { current = undefined; };
+    };
+    attach(parent);
+    attach(child);
+    await register(parent.api as never);
+    await parent.events.get("session_start")!(undefined as never, sharedContext as never);
+    const parentConfig = current!;
+    const parentModel = parentConfig.models![0]!;
+    expect(parentConfig.streamSimple).toBeDefined();
+    unregisterCustomApis("fixture-extension-path");
+    expect(getCustomApi(parentConfig.api!)).toBeDefined();
+    isolatedHost = extensionHost(nativeStorage);
+    await register(isolatedHost.api as never);
+    await isolatedHost.events.get("session_start")!(undefined as never, isolatedHost.context() as never);
+    await isolatedHost.events.get("session_shutdown")!();
+    expect(getCustomApi(parentConfig.api!)).toBeDefined();
+    expect(current?.api).toBe(parentConfig.api);
+    cancelledHost = extensionHost(nativeStorage);
+    attach(cancelledHost);
+    await register(cancelledHost.api as never);
+    expect(current?.api).not.toBe(parentConfig.api);
+    await cancelledHost.events.get("session_shutdown")!(undefined as never, sharedContext as never);
+    expect(current?.api).toBe(parentConfig.api);
+    expect(getCustomApi(parentConfig.api!)).toBeDefined();
+    await register(child.api as never);
+    await child.events.get("session_start")!(undefined as never, sharedContext as never);
+    const childConfig = current!;
+    const childModel = childConfig.models![0]!;
+    expect(childConfig.api).not.toBe(parentConfig.api);
+    const childCallback = getCustomApi(childConfig.api!)!.streamSimple;
+    await child.events.get("session_shutdown")!();
+    expect(current?.api).toBe(parentConfig.api);
+    expect(current?.models?.[0]?.id).toBe(parentModel.id);
+    expect(() => childCallback(childModel as never, { messages: [], tools: [] } as never)).toThrow("binding is no longer active");
+    expect(() => childCallback(parentModel as never, { messages: [], tools: [] } as never)).toThrow("guarded OmniRoute API");
+    const parentCallback = getCustomApi(parentConfig.api!)!.streamSimple;
+    const requestSeen = Promise.withResolvers<string | null>();
+    const caller = new AbortController();
+    const capture: typeof fetch = Object.assign(async (_input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      requestSeen.resolve(new Headers(init?.headers).get("authorization"));
+      return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+    }, { preconnect: globalThis.fetch.preconnect });
+    const stream = parentCallback({ ...parentModel, provider: "omniroute", baseUrl: `${fixture.endpoint}/v1` } as never, { messages: [{ role: "user", content: [{ type: "text", text: "hello" }], timestamp: Date.now() }], tools: [] } as never, { fetch: capture, signal: caller.signal });
+    expect(await requestSeen.promise).toBe(`Bearer ${RUNTIME_KEY}`);
+    caller.abort();
+    await stream.result();
+  } finally {
+    await cancelledHost?.events.get("session_shutdown")?.();
+    await isolatedHost?.events.get("session_shutdown")?.();
+    await child?.events.get("session_shutdown")?.();
+    await parent?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
 
 
 function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]) => Promise<void>, onGetActiveTools?: () => void) {
@@ -119,6 +203,62 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
   }) as never;
   return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds], providerConfigs, tools };
 }
+
+test("overlapping shutdowns retire owners before delayed or rejected administration cleanup", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, adminEnabled: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    for (const reject of [false, true]) {
+      const entered = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const parent = extensionHost(nativeStorage);
+      const middle = extensionHost(nativeStorage, async names => {
+        if (names.length) { entered.resolve(); await release.promise; }
+      });
+      const child = extensionHost(nativeStorage);
+      const sharedContext = parent.context();
+      let current: ProviderConfig | undefined;
+      for (const host of [parent, middle, child]) {
+        host.api.registerProvider = (_id, config) => { current = config as ProviderConfig; };
+        host.api.unregisterProvider = () => { current = undefined; };
+      }
+      await register(parent.api as never);
+      await parent.events.get("session_start")!(undefined as never, sharedContext);
+      const parentConfig = current!;
+      await register(middle.api as never);
+      const middleStart = Promise.resolve(middle.events.get("session_start")!(undefined as never, sharedContext));
+      await entered.promise;
+      const middleConfig = current!;
+      await register(child.api as never);
+      await child.events.get("session_start")!(undefined as never, sharedContext);
+      const middleShutdown = Promise.resolve(middle.events.get("session_shutdown")!(undefined as never, sharedContext));
+      await child.events.get("session_shutdown")!(undefined as never, sharedContext);
+      expect(current?.api).toBe(parentConfig.api);
+      expect(getCustomApi(parentConfig.api!)).toBeDefined();
+      expect(getCustomApi(middleConfig.api!)).toBeUndefined();
+      await child.events.get("session_shutdown")!(undefined as never, sharedContext);
+      expect(current?.api).toBe(parentConfig.api);
+      if (reject) release.reject(new Error("fixture cleanup failure"));
+      else release.resolve();
+      await middleStart;
+      await middleShutdown;
+      expect(current?.api).toBe(parentConfig.api);
+      await parent.events.get("session_shutdown")!(undefined as never, sharedContext);
+      expect(current).toBeUndefined();
+    }
+  } finally {
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
 
 test("pre-enabled administration defers host action methods until session start and rebinds on restart", async () => {
   await isolated();
