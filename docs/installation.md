@@ -98,8 +98,9 @@ catalog is reported as “key verified, no compatible chat models available”
 in the informational `no-models` state. While verification and discovery
 are pending, OMP reports a checking state; a completed empty catalog is never
 presented as a healthy model list. An interrupted pending login remains
-auth-only and needs a fresh sign-in; `/omniroute refresh` forces rediscovery of
-an active connection.
+auth-only. Use `/omniroute recover` interactively to confirm and revalidate a
+single saved native key, or sign in again; `/omniroute refresh` forces
+rediscovery of an active connection.
 Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.

@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverAuthStorage, z } from "@oh-my-pi/pi-coding-agent";
@@ -56,8 +57,9 @@ interface IntegrationFixture {
   endpoint: string;
 }
 
-function integrationFixture(): IntegrationFixture {
+function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFixture {
   const requests: Array<{ path: string; authorization: string | null }> = [];
+  let modelRequests = 0;
   const metadataRequest = Promise.withResolvers<{ path: string; authorization: string | null }>();
   const server = Bun.serve({
     port: 0,
@@ -65,7 +67,12 @@ function integrationFixture(): IntegrationFixture {
       const url = new URL(request.url);
       const observed = { path: url.pathname, authorization: request.headers.get("authorization") };
       requests.push(observed);
-      if (url.pathname === "/v1/models") return Response.json({ data: [{ id: "fixture-model", owned_by: "fixture-owner" }] });
+      if (url.pathname === "/v1/models") {
+        modelRequests++;
+        if (failDiscoveryAfterValidation && modelRequests > 1) return new Response("unavailable", { status: 503 });
+        return Response.json({ data: [{ id: "fixture-model", owned_by: "fixture-owner" }] });
+      }
+      if (url.pathname === "/api/cloud/auth") return Response.json({ connections: [], modelAliases: {} });
       if (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses") return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
       if (url.pathname === "/api/models/catalog") {
         metadataRequest.resolve(observed);
@@ -82,6 +89,146 @@ function integrationFixture(): IntegrationFixture {
     endpoint: `http://127.0.0.1:${server.port}`,
   };
 }
+
+test("interactive recovery verifies a persisted native key while headless recovery does nothing", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    process.env.OMP_OMNIROUTE_BASE_URL = "https://ignored.example";
+    process.env.OMP_OMNIROUTE_API_KEY = "ignored-environment-key";
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: RUNTIME_KEY, source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true, invitationDismissed: true, active: { endpoint: "https://old.example", generation: 1 }, pending: { endpoint: fixture.endpoint, generation: 2, status: "unverified" } }));
+    host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const messages: string[] = [];
+    const prompts: string[] = [];
+    const interactive = host.context({ notify(message: string) { messages.push(message); }, async confirm(title: string, detail: string) { prompts.push(`${title} ${detail}`); return true; } });
+    await host.events.get("session_start")!(undefined as never, interactive);
+    const command = host.commands.get("omniroute")!;
+    const headless = { ...(interactive as object), mode: "json" } as never;
+    await command.handler("recover", headless);
+    expect(fixture.requests).toEqual([]);
+    expect((await loadConfig()).pending).toBeDefined();
+    expect(prompts).toEqual([]);
+    expect(messages.join(" ")).toContain("interactive OMP terminal");
+    const confirming = Promise.withResolvers<void>();
+    const decision = Promise.withResolvers<boolean>();
+    const interrupted = host.context({ notify(message: string) { messages.push(message); }, async confirm() { confirming.resolve(); return decision.promise; } });
+    const recovery = command.handler("recover", interrupted);
+    await confirming.promise;
+    await host.events.get("session_shutdown")!(undefined as never, interactive);
+    decision.resolve(true);
+    await recovery;
+    expect(fixture.requests).toEqual([]);
+    expect((await loadConfig()).pending).toBeDefined();
+    await host.events.get("session_start")!(undefined as never, interactive);
+    await command.handler("recover", interactive);
+    expect(prompts[0]).toContain(fixture.endpoint);
+    expect(prompts[0]).toContain("generation 2");
+    expect(prompts[0]).toContain("cannot prove it was the original candidate");
+    expect(fixture.requests.slice(0, 2)).toEqual([
+      { path: "/api/cloud/auth", authorization: `Bearer ${RUNTIME_KEY}` },
+      { path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` },
+    ]);
+    expect((await loadConfig()).active).toEqual({ endpoint: fixture.endpoint, generation: 2 });
+    expect((await loadConfig()).pending).toBeUndefined();
+    expect(messages.join(" ")).toContain("pending connection recovered");
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
+
+test("recovery distinguishes activation from failed subsequent discovery", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture(true);
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: RUNTIME_KEY, source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true, invitationDismissed: true, pending: { endpoint: fixture.endpoint, generation: 1 } }));
+    host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const messages: string[] = [];
+    const ctx = host.context({ notify(message: string) { messages.push(message); }, async confirm() { return true; } });
+    await host.events.get("session_start")!(undefined as never, ctx);
+    await host.commands.get("omniroute")!.handler("recover", ctx);
+    expect((await loadConfig()).active?.endpoint).toBe(fixture.endpoint);
+    expect(messages.join(" ")).toContain("activation saved, but current discovery");
+    expect(messages.join(" ")).not.toContain("pending connection recovered");
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
+
+test("uncertain recovery blocks administration commands and tools until verified recovery", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: RUNTIME_KEY, source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true, invitationDismissed: true, adminEnabled: true, active: { endpoint: fixture.endpoint, generation: 1 } }));
+    host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const messages: string[] = [];
+    const ctx = host.context({ notify(message: string) { messages.push(message); }, async confirm() { return true; } });
+    await host.events.get("session_start")!(undefined as never, ctx);
+    const readTool = host.tools.get("omniroute_admin_read");
+    expect(readTool).toBeDefined();
+    await updateConfig(current => ({ ...current, pending: { endpoint: fixture.endpoint, generation: 2 } }));
+    await host.commands.get("omniroute")!.handler("refresh", ctx);
+    const credentials = nativeStorage.credentials;
+    const originalList = credentials.list.bind(credentials);
+    let reads = 0;
+    credentials.list = provider => {
+      const rows = originalList(provider);
+      if (provider === "omniroute" && ++reads === 4) {
+        appendFileSync(getConfigPath(), "\n");
+        return rows.map(row => ({ ...row, credential: { type: "api_key" as const, key: "replaced-key" } }));
+      }
+      return rows;
+    };
+    try { await host.commands.get("omniroute")!.handler("recover", ctx); }
+    finally { credentials.list = originalList; }
+    expect(messages.join(" ")).toContain("activation was saved, but its current binding could not be confirmed");
+    const count = fixture.requests.length;
+    await host.commands.get("omniroute-admin")!.handler("enable", ctx);
+    await host.commands.get("omniroute-admin")!.handler("GET /api/fallback/chains", ctx);
+    await host.commands.get("omniroute")!.handler("refresh", ctx);
+    const result = await readTool!.execute("fixture", { operationId: "GET /api/fallback/chains", input: {} });
+    expect(JSON.stringify(result)).toContain("credential-disabled");
+    expect(fixture.requests).toHaveLength(count);
+    expect(messages.join(" ")).toContain("connection activation is unconfirmed");
+    await updateConfig(current => ({ ...current, pending: { endpoint: fixture.endpoint, generation: 3 } }));
+    await host.commands.get("omniroute")!.handler("recover", ctx);
+    expect((await loadConfig()).pending).toBeUndefined();
+    messages.length = 0;
+    await host.commands.get("omniroute-admin")!.handler("status", ctx);
+    expect(messages.join(" ")).not.toContain("connection activation is unconfirmed");
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
 
 test("shared registry restores the surviving provider and keeps instance callbacks isolated", async () => {
   await isolated();

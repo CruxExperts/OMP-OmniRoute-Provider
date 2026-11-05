@@ -55,11 +55,14 @@ Use `/omniroute` to inspect connection state. The former `/cruxomni`,
 ## Setup did not activate or remains auth-only
 
 This means the protected key check, live catalog check, native persistence,
-readback, or activation did not complete. Setup does not save an offline or
-unverified connection. Sign in again through OMP's native masked prompt, then
-run `/omniroute refresh`; do not test a new key against an old endpoint
-manually. A pending marker after process exit is deliberately fail-closed and
-requires fresh sign-in.
+readback, or activation did not complete. A pending marker after process exit
+remains unusable until explicitly recovered or replaced. In an interactive
+OMP terminal, run `/omniroute recover` to confirm the pending endpoint and
+generation, then verify the one saved native key and live catalog. The saved
+key cannot prove it was the original candidate. Missing, ambiguous, changed,
+or rejected credentials require a fresh sign-in through OMP's masked prompt.
+Recovery does not use environment or legacy credential fallback. A valid empty
+catalog is accepted as a connection with no chat models.
 
 If the key check succeeds but setup reports no compatible chat models, the
 credential was verified and the current `/v1/models` response did not yield a

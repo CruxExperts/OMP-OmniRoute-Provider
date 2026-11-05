@@ -6,7 +6,7 @@ import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugi
 import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
-import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
+import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, recoverPendingInteractively, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "./auth.ts";
 import { allowsEnvironmentOptionalCredentials, type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
 import { loadCatalogMetadata, getCatalogSourceStatus, type CatalogMetadataSnapshot } from "./catalog-sources.ts";
@@ -124,6 +124,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let startupSignal: AbortSignal | undefined;
 	let startupAborter: AbortController | undefined;
 	let bindingSyncFlight: Promise<{ pendingValidated: boolean }> | undefined;
+	let recoveryAborter: AbortController | undefined;
+	let recoveryBlocked = false;
 	let credentialRevision = 0;
 	let observedAuthStorage: ContextLike["modelRegistry"]["authStorage"] | undefined;
 	let observedNativeKey: string | undefined;
@@ -170,6 +172,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 
 	const onSetupComplete = async (endpoint: string, candidateKey: string): Promise<void> => {
 		if (stopped) return;
+		recoveryBlocked = false;
 		// Activation still requires the native store to contain this candidate;
 		// the shared refresh leaves an unpersisted candidate auth-only.
 		pendingCandidateEndpoint = endpoint;
@@ -366,24 +369,24 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let administrationEpoch = 0;
 	let administrationRetirement: Promise<void> = Promise.resolve();
 	const ensureAdministration = (): Promise<AdminRuntime | undefined> => {
-		if (stopped) return Promise.resolve(undefined);
+		if (stopped || recoveryBlocked) return Promise.resolve(undefined);
 		if (administration) return Promise.resolve(administration);
 		if (administrationFlight) return administrationFlight;
 		const epoch = administrationEpoch;
 		const flight = administrationRetirement.then(() => import("./admin/runtime.ts")).then(async ({ createAdminRuntime }) => {
-			if (stopped || epoch !== administrationEpoch) return undefined;
+			if (stopped || recoveryBlocked || epoch !== administrationEpoch) return undefined;
 			const created = createAdminRuntime({
 				pi,
 				credentials: optionalCredentials,
 				context: () => context,
 				binding: () => manager.currentBinding,
 				bindingSignal: () => manager.bindingSignal,
-				stopped: () => stopped,
+				stopped: () => stopped || recoveryBlocked,
 				onConfig: current => { config = current; },
 			});
 			try {
 				await created.synchronize();
-				if (stopped || epoch !== administrationEpoch) {
+				if (stopped || recoveryBlocked || epoch !== administrationEpoch) {
 					await created.shutdown();
 					return undefined;
 				}
@@ -406,6 +409,10 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		description: "Inspect, enable, and human-confirm optional OmniRoute operations",
 		handler: async (args, ctx) => {
 			setContext(ctx);
+			if (recoveryBlocked) {
+				notify(ctx, "omniroute operations unavailable: connection activation is unconfirmed; complete verified setup or recovery first.", "warning");
+				return;
+			}
 			try {
 				const source = await loadConfig();
 				config = source;
@@ -465,6 +472,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		};
 		unsubscribeCredentials = storage.credentials.onGeneration(() => {
 			if (stopped) return;
+			recoveryAborter?.abort();
 			// Optional-store changes revoke only their own authority. They must
 			// never cancel chat streams or invalidate the runtime discovery cache.
 			optionalReconciliation = optionalReconciliation.then(reconcileOptional, reconcileOptional);
@@ -492,6 +500,13 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			const previousActiveGeneration = config.active?.generation;
 			const loaded = await loadConfig();
 			config = loaded;
+			if (recoveryBlocked) {
+				runtimeEndpoint = undefined;
+				runtimeEnvironment = false;
+				manager.reset();
+				publishCurrent();
+				return { pendingValidated: false };
+			}
 			await synchronizeAdministration(config);
 			const environment = envBinding(config);
 			const pending = environment ? undefined : config.pending;
@@ -602,7 +617,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		if (stopped) return;
 		if (!manager.currentBinding) {
 			if (manual) notify(ctx, config.pending
-					? "omniroute: setup is pending native persistence; sign in again if the previous process was interrupted, then /omniroute refresh"
+				? "omniroute: setup is pending; use /omniroute recover in an interactive terminal or sign in again"
 					: "omniroute: setup required; use native sign-in, then /omniroute refresh", "info");
 			return;
 		}
@@ -630,13 +645,69 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const providerCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 		description: "Refresh or inspect OmniRoute provider state",
 		handler: async (args, ctx) => {
-			setContext(ctx);
-			observeCredentials(ctx);
 			const commandParts = args.trim().split(/\s+/);
 			const command = commandParts[0] ?? "status";
+			if (command === "recover" && (!ctx.hasUI || ctx.mode !== "tui")) {
+				notify(ctx, "omniroute: recovery requires an interactive OMP terminal; run /omniroute recover there, or sign in again.", "warning");
+				return;
+			}
+			setContext(ctx);
+			observeCredentials(ctx);
 			const typed = ctx;
 			if (command === "setup") await setup(typed);
 			else if (command === "refresh") await refresh(typed, true);
+			else if (command === "recover") {
+				while (bindingSyncFlight) {
+					const previous = bindingSyncFlight;
+					await previous.catch(() => undefined);
+					if (bindingSyncFlight === previous) bindingSyncFlight = undefined;
+				}
+				if (stopped) return;
+				const controller = new AbortController();
+				recoveryAborter = controller;
+				const revision = credentialRevision;
+				let validation: { raw: number; usable: number } | undefined;
+				const flight = (async () => {
+					validation = await recoverPendingInteractively({
+						credentials: ctx.modelRegistry.authStorage.credentials,
+						signal: controller.signal,
+						isCurrent: () => !stopped && credentialRevision === revision && recoveryAborter === controller,
+						confirm: pending => ctx.ui.confirm("Recover pending connection", `Verify the saved native key for ${pending.endpoint} in this OMP profile (generation ${pending.generation})? The saved key cannot prove it was the original candidate. This checks the key and live catalog before activation.`),
+					});
+					return { pendingValidated: false };
+				})();
+				bindingSyncFlight = flight;
+				try {
+					await flight;
+				} catch (error) {
+					const detail = safeDetail(error);
+					if (detail === "activation-uncertain") {
+						recoveryBlocked = true;
+						administrationEpoch++;
+						void administration?.disable().catch(() => undefined);
+						manager.reset();
+						runtimeEndpoint = undefined;
+						publishCurrent();
+					}
+					notify(ctx, detail === "activation-uncertain"
+						? "omniroute: activation was saved, but its current binding could not be confirmed; inspect setup and sign in again before use."
+						: detail === "activation-restored"
+						? "omniroute: binding changed during activation; the pending setup was restored. Sign in again or retry recovery."
+						: `omniroute: recovery not completed (${detail}); check the current setup and sign in again if the saved key cannot be verified.`, "warning");
+					return;
+				} finally {
+					if (bindingSyncFlight === flight) bindingSyncFlight = undefined;
+					if (recoveryAborter === controller) recoveryAborter = undefined;
+				}
+				if (!stopped) {
+					recoveryBlocked = false;
+					await refresh(ctx, false);
+					const state = manager.status.state;
+					notify(ctx, state === "ready" || state === "no-models"
+						? `omniroute: pending connection recovered; ${validation?.usable ?? 0} chat models from ${validation?.raw ?? 0} verified live rows; current state ${state}.`
+						: `omniroute: activation saved, but current discovery is ${state}; use /omniroute refresh to retry.`, state === "ready" || state === "no-models" ? "info" : "warning");
+				}
+			}
 			else if (command === "pricing") {
 				const file = config.pricingFile ?? process.env[PRICING_ENV]?.trim();
 				await loadPricing(file);
@@ -699,6 +770,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	pi.on("session_shutdown", async (_event, ctx) => {
 		if (stopped) return;
 		stopped = true;
+		recoveryAborter?.abort();
 		// Retire ownership before asynchronous administration cleanup can block or
 		// fail. A cancelled startup may have published without joining the group.
 		const retiringRegistry = registry ?? ctx?.modelRegistry;

@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverAuthStorage } from "@oh-my-pi/pi-coding-agent";
-import { clearPendingCandidate, recoverPendingAfterPersistence, registerNativeLogin, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "../src/auth.ts";
+import { clearPendingCandidate, recoverPendingAfterPersistence, recoverPendingInteractively, registerNativeLogin, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "../src/auth.ts";
+import type { StoredAuthCredential } from "@oh-my-pi/pi-ai";
 import { commitPendingConfig, getConfigPath, loadConfig, setAgentDirResolverForTests, updateConfig, validateEndpoint } from "../src/config.ts";
 import { OptionalCredentials } from "../src/credentials.ts";
 import { createSetupWizard, setupConnection, type SetupServices } from "../src/setup.ts";
@@ -105,6 +107,97 @@ function services(): SetupServices {
   };
 }
 
+test("explicit recovery revalidates restarted pending markers and accepts an empty live catalog", async () => {
+  await isolated();
+  process.env.OMP_OMNIROUTE_BASE_URL = "https://environment.example";
+  process.env.OMP_OMNIROUTE_API_KEY = "environment-key";
+  for (const status of ["validated", "unverified"] as const) {
+    await updateConfig(current => ({ ...current, runtimeSource: "native", active: { endpoint: "https://old.example", generation: 2 }, pending: { endpoint: "https://new.example", generation: 3, status } }));
+    clearPendingCandidate();
+    const requests: string[] = [];
+    const result = await recoverPendingInteractively({
+      credentials: { list: () => [{ id: 8, provider: "omniroute", credential: { type: "api_key", key: "native-key" }, disabledCause: null }] },
+      signal: new AbortController().signal, isCurrent: () => true,
+      async confirm(pending) { expect(pending.endpoint).toBe("https://new.example"); expect(pending.generation).toBe(3); return true; },
+      async request(target, key) {
+        expect(key).toBe("native-key");
+        if (typeof target === "string") throw new Error("unexpected target");
+        requests.push(target.path!);
+        return target.path === "/api/cloud/auth" ? { connections: [], modelAliases: {} } : { data: [] };
+      },
+    });
+    expect(result).toEqual({ raw: 0, usable: 0 });
+    expect(requests).toEqual(["/api/cloud/auth", "/v1/models"]);
+    expect(await loadConfig()).toMatchObject({ active: { endpoint: "https://new.example", generation: 3 }, runtimeSource: "native" });
+    expect((await loadConfig()).pending).toBeUndefined();
+  }
+});
+
+test("explicit recovery fails closed on ambiguous keys, changes, rejection, and cancellation", async () => {
+  await isolated();
+  const valid = (): StoredAuthCredential => ({ id: 4, provider: "omniroute", credential: { type: "api_key", key: "native-key" }, disabledCause: null });
+  for (const scenario of ["missing", "multiple", "disabled-extra", "unsupported", "replacement", "row-replacement", "config", "generation", "cancel", "lifecycle", "rejected", "catalog", "late-key", "late-config", "abort"] as const) {
+    await updateConfig(current => ({ ...current, runtimeSource: "native", active: { endpoint: "https://old.example", generation: 2 }, pending: { endpoint: "https://new.example", generation: 3, status: "unverified" } }));
+    const before = await readFile(getConfigPath(), "utf8");
+    let rows: StoredAuthCredential[] = scenario === "missing" ? [] : scenario === "multiple" ? [valid(), { ...valid(), id: 5 }] : scenario === "disabled-extra" ? [{ ...valid(), id: 5, disabledCause: "disabled" }, valid()] : scenario === "unsupported" ? [{ ...valid(), credential: { type: "oauth", access: "x", refresh: "y", expires: 1 } }] : [valid()];
+    const controller = new AbortController();
+    let current = true;
+    let calls = 0;
+    await expect(recoverPendingInteractively({
+      credentials: { list: () => rows }, signal: controller.signal, isCurrent: () => current,
+      async confirm() {
+        if (scenario === "cancel") return false;
+        if (scenario === "replacement") rows = [{ ...valid(), credential: { type: "api_key", key: "different" } }];
+        if (scenario === "row-replacement") rows = [{ ...valid(), id: 5 }];
+        if (scenario === "config") await updateConfig(config => ({ ...config, invitationDismissed: !config.invitationDismissed }));
+        if (scenario === "generation") await updateConfig(config => ({ ...config, pending: { endpoint: "https://new.example", generation: 4 } }));
+        if (scenario === "lifecycle") current = false;
+        return true;
+      },
+      async request(target) {
+        calls++;
+        if (scenario === "rejected") throw new TransportError("http", "rejected", 401);
+        if (scenario === "catalog" && calls === 2) return { data: [{ id: "" }] };
+        if (calls === 2 && scenario === "late-key") rows = [{ ...valid(), credential: { type: "api_key", key: "different" } }];
+        if (calls === 2 && scenario === "late-config") await updateConfig(config => ({ ...config, pending: { endpoint: "https://other.example", generation: 4 } }));
+        if (calls === 2 && scenario === "abort") controller.abort();
+        if (typeof target === "string") throw new Error("unexpected target");
+        return target.path === "/api/cloud/auth" ? { connections: [], modelAliases: {} } : { data: [] };
+      },
+    })).rejects.toThrow();
+    const after = await loadConfig();
+    expect(after.active).toEqual({ endpoint: "https://old.example", generation: 2 });
+    expect(after.pending).toBeDefined();
+    if (scenario !== "config" && scenario !== "generation" && scenario !== "late-config") expect(await readFile(getConfigPath(), "utf8")).toBe(before);
+    if (!["rejected", "catalog", "late-key", "late-config", "abort"].includes(scenario)) expect(calls).toBe(0);
+  }
+});
+
+test("recovery restores pending after a commit-time lifecycle change, unless another writer wins", async () => {
+  await isolated();
+  for (const scenario of ["lifecycle", "key", "cancel", "conflict"] as const) {
+    await updateConfig(current => ({ ...current, runtimeSource: "native", active: { endpoint: "https://old.example", generation: 1 }, pending: { endpoint: "https://new.example", generation: 2 } }));
+    let checks = 0;
+    let reads = 0;
+    const controller = new AbortController();
+    await expect(recoverPendingInteractively({
+      credentials: { list: () => [{ id: 4, provider: "omniroute", credential: { type: "api_key", key: ++reads === 4 && scenario === "key" ? "replacement" : "native-key" }, disabledCause: null }] },
+      signal: controller.signal,
+      isCurrent: () => {
+        checks++;
+        if (checks === 9 && scenario === "conflict") appendFileSync(getConfigPath(), "\n");
+        if (checks === 9 && scenario === "cancel") controller.abort();
+        return checks < 9 || scenario === "key";
+      },
+      confirm: async () => true,
+      request: async target => typeof target !== "string" && target.path === "/api/cloud/auth" ? { connections: [], modelAliases: {} } : { data: [] },
+    })).rejects.toMatchObject({ code: scenario === "conflict" ? "activation-uncertain" : "activation-restored" });
+    const result = await loadConfig();
+    expect(result.active?.endpoint).toBe(scenario === "conflict" ? "https://new.example" : "https://old.example");
+    expect(Boolean(result.pending)).toBe(scenario !== "conflict");
+  }
+});
+
 test("connection cancellation is byte-preserving and never invokes native login", async () => {
   await isolated();
   await updateConfig(current => ({ ...current, adminEnabled: true, invitationDismissed: true, pricingFile: "/fixture/pricing.json" }));
@@ -159,7 +252,8 @@ test("wizard reports pending recovery when native persistence fails after stagin
   await setupConnection(ctx, services());
   expect((await loadConfig()).pending?.endpoint).toBe(endpoint);
   expect(notices.join(" ")).toContain("activation may be pending");
-  expect(notices.join(" ")).toContain("Sign in again");
+  expect(notices.join(" ")).toContain("sign in again");
+  expect(notices.join(" ")).toContain("/omniroute recover");
   expect(notices.join(" ")).not.toContain("Existing connection retained");
   expect(notices.join(" ")).not.toContain("fixture-runtime-secret");
 });

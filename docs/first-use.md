@@ -23,6 +23,11 @@ setup reports the informational `no-models` state separately from invalid
 credentials. An offline or unverified connection is not saved. Once those checks succeed, the client
 stores the runtime credential through OMP's native credential storage.
 
+If an interrupted setup remains pending, run `/omniroute recover` in an
+interactive terminal to confirm the pending endpoint and revalidate the saved
+native key, or sign in again. Recovery never assumes the saved key was the
+original candidate.
+
 Use `/omniroute` to check the connection and `/omniroute refresh` after server-side
 model changes. The live server model list determines which models can run.
 Optional catalogs enrich that list; they cannot add runnable models or download
