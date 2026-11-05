@@ -37,14 +37,25 @@ monitoring, adds OMP 18.12.6 to the host smoke matrix, and refreshes contributor
 and installation guidance. Its OMP source and development SDK pins remain at
 18.12.5; compatibility testing does not assert a source upgrade. The reviewed
 maintenance decision remains valid only for that exact host/source pair and its
-supporting artifact record. Release acceptance requires the package job and all
-three host-smoke jobs, including 18.12.6, to pass for the final source commit.
+supporting artifact record. The 1.0.3 release required the package job and all
+three host-smoke jobs, including 18.12.6, to pass for its final source commit.
 The additional job has not been added to branch protection's required contexts.
+
+Version `1.0.4` adds explicit pending-connection recovery, session-safe
+inference bindings, source and catalog diagnostics, and OMP 18.16.0 host
+coverage while retaining the 18.12.5 source and SDK pins. The package job and
+all four host-smoke jobs must pass against the final source commit, and the
+final archive must receive its own verification before release. Publication
+requires those final receipts; the intermediate 18.16.0 smoke does not satisfy
+them. Distribution uses GitHub only, with no npm publication or global
+OMP installation. No inference or administration write is automatically
+replayed after an uncertain outcome.
 
 The 1.0.x release notes disclose the limited qualified operation set and
 platform evidence. Versions `1.0.2` and `1.0.3` carry no eight-platform qualification
 receipt: evidence for earlier source and package archives does not qualify a new
-archive. The operation eligibility guards stay enabled, and the current coverage
+archive. Version `1.0.4` likewise has no eight-platform qualification
+receipt. The operation eligibility guards stay enabled, and the current coverage
 limits must remain visible in release notes.
 
 These GitHub-only releases use the existing clean-source exporter, reviewed

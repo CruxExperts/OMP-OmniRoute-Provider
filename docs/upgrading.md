@@ -5,13 +5,20 @@ Use an exact released GitHub tag when upgrading. Check the release notes and the
 OMP profile using your normal private backup procedure before a migration.
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.4
 ```
 
 Restart OMP, run `/omniroute`, and refresh discovery. The GitHub release does not imply npm publication. The package identity and
 `omniroute` provider identity remain stable. A client update does not update your
 OmniRoute server. Existing environment variable names and native runtime
 credential storage remain the configuration owners.
+
+An interrupted pending connection remains inactive after restart. Use
+`/omniroute recover` in an interactive OMP terminal to confirm and revalidate
+the saved native key, or sign in again. A native profile ignores runtime
+environment overrides; it does not fall back to them when its key is missing.
+Neither inference nor administration writes are automatically replayed after
+an uncertain outcome.
 
 The plugin display name is **OMP OmniRoute Provider**; OMP's `/login` provider
 selector labels the entry **Crux OmniRoute Provider**. The provider ID remains

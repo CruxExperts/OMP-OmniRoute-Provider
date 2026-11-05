@@ -4,6 +4,29 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## Unreleased
 
+## 1.0.4 — 2026-11-05
+
+- Keep parent and task-subagent inference bindings isolated, and restore the
+  surviving provider when a shared session ends. Inference requests are not
+  automatically replayed after an uncertain outcome.
+- Recover an interrupted pending native connection only through explicit
+  interactive confirmation, protected key validation, and a fresh live catalog
+  check. Missing or ambiguous credentials require a fresh sign-in.
+- Add OMP 18.16.0 to the Linux x64 host test matrix while retaining the 18.12.5
+  source and SDK pins. This does not install or upgrade OMP globally.
+- Report the selected runtime source, pending activation, credential ambiguity,
+  and catalog readiness in status and setup. A public catalog response alone
+  does not prove a runtime key was accepted. OMP retains control of its model
+  picker and JSON output.
+- This GitHub-only patch does not publish
+  to npm, add administration operation qualification, or claim eight-platform
+  qualification. Administration writes are not automatically replayed after an
+  uncertain outcome.
+
+```text
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.4
+```
+
 ## 1.0.3 — 2026-10-23
 
 - Verify immutable upstream release tags, commits, and source hashes independently
