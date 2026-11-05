@@ -101,6 +101,12 @@ presented as a healthy model list. An interrupted pending login remains
 auth-only. Use `/omniroute recover` interactively to confirm and revalidate a
 single saved native key, or sign in again; `/omniroute refresh` forces
 rediscovery of an active connection.
+Use `/omniroute` or the setup summary to inspect the selected native,
+environment, or legacy source. A native profile ignores runtime environment
+overrides and does not fall back to them. A partial environment pair must be
+completed or replaced through native setup. Catalog availability alone is not
+proof that the runtime key was accepted. OMP controls the model picker and JSON
+output; actionable startup diagnostics go to standard error.
 Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.

@@ -30,6 +30,11 @@ original candidate.
 
 Use `/omniroute` to check the connection and `/omniroute refresh` after server-side
 model changes. The live server model list determines which models can run.
+Status and setup summary identify whether the native profile, environment, or
+legacy profile supplies the runtime connection. A successful catalog request
+alone does not independently verify the runtime key; some gateways expose the
+catalog publicly. OMP owns its model picker and JSON output; actionable startup
+diagnostics are written to standard error instead.
 Optional catalogs enrich that list; they cannot add runnable models or download
 model weights. Unknown prices remain unknown rather than becoming a zero-cost
 claim. Inspect pricing with `/omniroute-pricing`.

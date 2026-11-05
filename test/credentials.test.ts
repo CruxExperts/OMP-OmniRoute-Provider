@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,11 +55,14 @@ interface IntegrationFixture {
   requests: Array<{ path: string; authorization: string | null }>;
   metadataRequest: Promise<{ path: string; authorization: string | null }>;
   endpoint: string;
+  setModels(status: number, empty?: boolean): void;
 }
 
 function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFixture {
   const requests: Array<{ path: string; authorization: string | null }> = [];
   let modelRequests = 0;
+  let modelsStatus = 200;
+  let emptyModels = false;
   const metadataRequest = Promise.withResolvers<{ path: string; authorization: string | null }>();
   const server = Bun.serve({
     port: 0,
@@ -70,7 +73,8 @@ function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFi
       if (url.pathname === "/v1/models") {
         modelRequests++;
         if (failDiscoveryAfterValidation && modelRequests > 1) return new Response("unavailable", { status: 503 });
-        return Response.json({ data: [{ id: "fixture-model", owned_by: "fixture-owner" }] });
+        if (modelsStatus !== 200) return new Response("unavailable", { status: modelsStatus });
+        return Response.json({ data: emptyModels ? [] : [{ id: "fixture-model", owned_by: "fixture-owner" }] });
       }
       if (url.pathname === "/api/cloud/auth") return Response.json({ connections: [], modelAliases: {} });
       if (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses") return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
@@ -87,8 +91,177 @@ function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFi
     requests,
     metadataRequest: metadataRequest.promise,
     endpoint: `http://127.0.0.1:${server.port}`,
+    setModels(status, empty = false) { modelsStatus = status; emptyModels = empty; },
   };
 }
+
+test("startup reports partial environment and credential lookup errors without exposing values", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    process.env.OMP_OMNIROUTE_BASE_URL = "https://private-endpoint.example";
+    await updateConfig(current => ({ ...current, active: { endpoint: "https://old-private.example", generation: 1 } }));
+    const partial = extensionHost(nativeStorage);
+    await register(partial.api as never);
+    expect(stderr.mock.calls.map(call => String(call[0])).join("")).toContain("requires both base URL and API key");
+    expect(stderr.mock.calls.map(call => String(call[0])).join("")).not.toContain("private-endpoint");
+    await partial.events.get("session_shutdown")?.();
+    stderr.mockClear();
+    delete process.env.OMP_OMNIROUTE_BASE_URL;
+    await updateConfig(current => ({ ...current, runtimeSource: "native" }));
+    const failing = extensionHost(nativeStorage);
+    failing.api.pi.discoverAuthStorage = async () => { throw new Error("sensitive-lookup-failure"); };
+    await register(failing.api as never);
+    const output = stderr.mock.calls.map(call => String(call[0])).join("");
+    expect(output).toContain("credential lookup failed");
+    expect(output).not.toContain("sensitive-lookup-failure");
+    await failing.events.get("session_shutdown")?.();
+  } finally {
+    stderr.mockRestore();
+    nativeStorage?.close();
+    process.env = environment;
+  }
+});
+
+test("refresh reports offline stale, unauthorized, and a valid empty catalog distinctly", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const messages: string[] = [];
+    const notices: Array<{ message: string; kind: string }> = [];
+    const ctx = host.context({ notify(message: string, kind: string) { messages.push(message); notices.push({ message, kind }); } });
+    await host.events.get("session_start")!(undefined as never, ctx);
+    const command = host.commands.get("omniroute")!;
+    process.env.OMP_OMNIROUTE_API_KEY = `${RUNTIME_KEY}-replacement`;
+    await command.handler("refresh", ctx);
+    expect(notices.find(notice => notice.message.includes("checking live model catalog"))?.kind).toBe("info");
+    fixture.setModels(503);
+    await command.handler("refresh", ctx);
+    expect(messages.join(" ")).toContain("stale same-connection models=1");
+    messages.length = 0;
+    fixture.setModels(401);
+    await command.handler("refresh", ctx);
+    expect(messages.join(" ")).toContain("catalog request unauthorized");
+    messages.length = 0;
+    fixture.setModels(200, true);
+    await command.handler("refresh", ctx);
+    expect(messages.join(" ")).toContain("catalog valid; no chat-compatible models");
+    expect(messages.join(" ")).toContain("does not independently verify the runtime key");
+    expect(messages.join(" ")).not.toContain(RUNTIME_KEY);
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
+
+test("pending startup writes one safe diagnostic to stderr and leaves stdout untouched", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  const stderr = spyOn(process.stderr, "write").mockImplementation(() => true);
+  const stdout = spyOn(process.stdout, "write").mockImplementation(() => true);
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: "fixture-private-key", source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", pending: { endpoint: "https://private-gateway.example", generation: 1 } }));
+    host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const text = stderr.mock.calls.map(call => String(call[0])).join("");
+    expect(text).toContain("activation pending");
+    expect(text).toContain("/omniroute recover");
+    expect(text).not.toContain("private-gateway");
+    expect(text).not.toContain("fixture-private-key");
+    expect(stderr.mock.calls).toHaveLength(1);
+    expect(stdout.mock.calls).toHaveLength(0);
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    stderr.mockRestore();
+    stdout.mockRestore();
+    nativeStorage?.close();
+    process.env = environment;
+  }
+});
+
+test("headless pending startup leaves the host JSON channel parseable", async () => {
+  await isolated();
+  await updateConfig(current => ({ ...current, runtimeSource: "native", pending: { endpoint: "https://private-gateway.example", generation: 1 } }));
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, READINESS_FIXTURE_DIR: directory! };
+  for (const name of Object.keys(childEnv)) if (name.startsWith("OMP_OMNIROUTE_")) delete childEnv[name];
+  const script = `
+    import register from './src/index.ts';
+    import { setAgentDirResolverForTests } from './src/config.ts';
+    setAgentDirResolverForTests(() => process.env.READINESS_FIXTURE_DIR);
+    await register({ registerProvider() {}, unregisterProvider() {}, registerCommand() {}, on() {}, pi: { discoverAuthStorage() { throw new Error('unexpected credential lookup'); } } });
+    process.stdout.write(JSON.stringify({ models: [] }));
+  `;
+  const child = Bun.spawn([process.execPath, "-e", script], { cwd: process.cwd(), env: childEnv, stdout: "pipe", stderr: "pipe" });
+  const [output, errors, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(code).toBe(0);
+  expect(JSON.parse(output)).toEqual({ models: [] });
+  expect(errors).toContain("activation pending");
+  expect(errors).not.toContain("private-gateway");
+});
+
+test("status and setup summary report native precedence and multiple credentials without secrets", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    process.env.OMP_OMNIROUTE_BASE_URL = "https://private-environment.example";
+    process.env.OMP_OMNIROUTE_API_KEY = "private-environment-key";
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", [{ type: "api_key", key: "private-native-one", source: "login" }, { type: "api_key", key: "private-native-two", source: "login" }]);
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true, invitationDismissed: true, active: { endpoint: fixture.endpoint, generation: 1 } }));
+    host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const messages: string[] = [];
+    const selections = ["Summary", "Finish"];
+    const ctx = host.context({ notify(message: string) { messages.push(message); }, async select() { return selections.shift(); } });
+    await host.events.get("session_start")!(undefined as never, ctx);
+    await host.commands.get("omniroute")!.handler("status", ctx);
+    await host.commands.get("omniroute")!.handler("setup", ctx);
+    const text = messages.join(" ");
+    expect(text).toContain("source=native profile");
+    expect(text).toContain("native source never falls back");
+    expect(text).toContain("multiple native credential rows");
+    expect(text).toContain("does not independently verify the runtime key");
+    for (const secret of ["private-environment", "private-native", fixture.endpoint]) expect(text).not.toContain(secret);
+    const credentials = nativeStorage.credentials;
+    const originalList = credentials.list.bind(credentials);
+    credentials.list = provider => originalList(provider).map((row, index) => index === 0 ? { ...row, disabledCause: "disabled" } : row);
+    try {
+      messages.length = 0;
+      await host.commands.get("omniroute")!.handler("status", ctx);
+      expect(messages.join(" ")).toContain("multiple native credential rows");
+    } finally { credentials.list = originalList; }
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
 
 test("interactive recovery verifies a persisted native key while headless recovery does nothing", async () => {
   await isolated();

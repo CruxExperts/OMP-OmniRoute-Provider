@@ -51,6 +51,13 @@ optional environment credentials.
 
 Use `/omniroute` to inspect connection state. The former `/cruxomni`,
 `/cruxomni-admin`, and `/cruxomni-pricing` commands still work as aliases.
+Status, refresh, and the setup summary identify the selected source and explain
+pending activation, missing or ambiguous native credentials, and catalog
+failures. A public model catalog can succeed with an invalid key, so catalog
+readiness is not independent key verification. A native profile ignores runtime
+environment overrides; an environment connection requires both its URL and key.
+OMP owns its model picker and JSON output; actionable startup guidance appears
+on standard error and does not change either surface.
 
 ## Setup did not activate or remains auth-only
 

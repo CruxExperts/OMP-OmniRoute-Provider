@@ -14,6 +14,7 @@ import { readSellerPricing, PRICING_WARNING, type SellerPricing } from "./pricin
 import { requestJson, TransportError } from "./transport.ts";
 import type { AdminRuntime } from "./admin/runtime.ts";
 import { createBoundInferenceStream, OMNIROUTE_GUARDED_API } from "./inference.ts";
+import { formatReadiness, type CredentialPresence, type ReadinessIssue } from "./readiness.ts";
 
 const PROVIDER_ID = "omniroute";
 const RUNTIME_ENV = "OMP_OMNIROUTE_API_KEY";
@@ -95,6 +96,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		config = await loadConfig();
 	} catch (error) {
 		const reason = safeDetail(error);
+		const issue = reason === "config-conflict" || reason === "corrupt-config" || reason === "insecure-permissions" ? reason : "config";
+		process.stderr.write(`omniroute: ${formatReadiness({ source: "unknown", environmentUrl: false, environmentKey: false, profileConfigured: false, pending: false, recoveryBlocked: false, credential: "unknown", issue, health: { state: "unconfigured", modelCount: 0, rawModelCount: 0, stale: false } })}\n`);
 		const diagnosticCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 			description: `${DISPLAY_NAME} configuration diagnostics`,
 			handler: async (_args, ctx) => notify(ctx, `${DISPLAY_NAME}: configuration blocked (${reason}). Repair the private omniroute/config.json in this OMP profile, then restart. No credentials or requests were sent.`, "warning"),
@@ -126,6 +129,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let recoveryAborter: AbortController | undefined;
 	let recoveryBlocked = false;
 	let credentialRevision = 0;
+	let credentialPresence: CredentialPresence = "unknown";
+	let readinessIssue: ReadinessIssue | undefined;
 	let observedAuthStorage: ContextLike["modelRegistry"]["authStorage"] | undefined;
 	let observedNativeKey: string | undefined;
 	let unsubscribeCredentials: (() => void) | undefined;
@@ -335,13 +340,22 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		const changed = snapshot.state !== lastNotifiedState;
 		lastNotifiedState = snapshot.state;
 		if (!changed || !transitionNotifications || stopped || snapshot.state === "unconfigured") return;
-		if (snapshot.state === "checking") {
-			notify(context, "omniroute: checking connection…", "info");
-			return;
-		}
-		const kind = snapshot.state === "ready" || snapshot.state === "no-models" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
-		notify(context, `omniroute: state ${snapshot.state}; chat models=${snapshot.modelCount}; live rows=${snapshot.rawModelCount}${snapshot.state === "no-models" ? "; no chat-compatible models" : ""}${snapshot.lastError ? `; detail=${snapshot.lastError}` : ""}`, kind);
+		const kind = snapshot.state === "checking" || snapshot.state === "ready" || snapshot.state === "no-models" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
+		notify(context, `omniroute: ${readiness(snapshot)}`, kind);
 	}]);
+	function readiness(health = manager.status): string {
+		const environmentUrl = Boolean(process.env.OMP_OMNIROUTE_BASE_URL?.trim());
+		const environmentKey = Boolean(process.env.OMP_OMNIROUTE_API_KEY?.trim());
+		const source = config.runtimeSource === "native" ? "native" : environmentUrl || environmentKey ? "environment" : "legacy";
+		let credential: CredentialPresence = source === "environment" && environmentUrl && environmentKey ? "present" : credentialPresence;
+		if (source === "native" && context) {
+			try {
+				const rows = context.modelRegistry.authStorage.credentials.list(PROVIDER_ID).filter(row => row.provider === PROVIDER_ID);
+				credential = rows.length > 1 ? "multiple" : !rows[0] ? "missing" : rows[0].disabledCause !== null || rows[0].credential.type !== "api_key" || !rows[0].credential.key.trim() ? "unsupported" : "present";
+			} catch { credential = "unavailable"; }
+		}
+		return formatReadiness({ source, environmentUrl, environmentKey, profileConfigured: Boolean(config.active), pending: Boolean(config.pending && source !== "environment"), recoveryBlocked, credential, issue: readinessIssue, health });
+	}
 	const runtimeProviderConfig = (
 		endpoint?: string,
 		models?: CatalogProjection["models"],
@@ -495,7 +509,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	async function synchronizeBinding(ctx: ContextLike | undefined): Promise<{ pendingValidated: boolean }> {
 		const revision = credentialRevision;
 		let validConfiguration = false;
+		let phase: "config" | "credential" = "config";
 		try {
+			readinessIssue = undefined;
 			const previousActiveGeneration = config.active?.generation;
 			const loaded = await loadConfig();
 			config = loaded;
@@ -525,10 +541,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			}
 			publishCurrent();
 			if ((!active && !pending) || (pending && (!pendingCandidateKey || pendingCandidateEndpoint !== pending.endpoint))) {
+				credentialPresence = "unknown";
 				manager.setBinding(undefined, undefined);
 				publishCurrent();
 				return { pendingValidated: false };
 			}
+			phase = "credential";
 			const credential = environment?.credential ?? (ctx
 				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
 				: await resolveStartupRuntimeCredential(
@@ -536,6 +554,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					startupSignal ?? AbortSignal.timeout(10_000),
 					loaded,
 				));
+			credentialPresence = credential ? "present" : "missing";
+			phase = "config";
 			const confirmed = await loadConfig();
 			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
 				validConfiguration = false;
@@ -580,6 +600,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			return { pendingValidated: false };
 		} catch (error) {
 			if (!stopped && revision === credentialRevision) {
+				const code = safeDetail(error);
+				readinessIssue = code === "environment-partial" ? "environment-partial" : code === "config-conflict" || code === "corrupt-config" || code === "insecure-permissions" ? code : phase === "credential" || code === "persistence-failed" ? "credential-lookup" : code === "invalid-endpoint" || code === "insecure-http" ? "environment-invalid" : validConfiguration ? "binding" : "config";
 				if (!validConfiguration) {
 					runtimeEndpoint = undefined;
 					runtimeEnvironment = false;
@@ -610,22 +632,19 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			}
 			synchronized = await bindingSyncFlight;
 		} catch (error) {
-			if (manual) notify(ctx, `omniroute: binding unavailable (${safeDetail(error)})`, "warning");
+			if (manual) notify(ctx, `omniroute: ${readiness()}`, "warning");
 			return;
 		}
 		if (stopped) return;
 		if (!manager.currentBinding) {
-			if (manual) notify(ctx, config.pending
-				? "omniroute: setup is pending; use /omniroute recover in an interactive terminal or sign in again"
-					: "omniroute: setup required; use native sign-in, then /omniroute refresh", "info");
+			if (manual) notify(ctx, `omniroute: ${readiness()}`, "info");
 			return;
 		}
 		try {
 			if (!synchronized.pendingValidated) await manager.refresh({ force: manual });
-			const result = manager.currentResult;
-			if (manual && result) notify(ctx, `omniroute: refreshed ${result.projection.models.length} chat models from ${result.projection.rows.size} live rows${result.stale ? " (stale same-generation rows)" : result.projection.models.length === 0 ? "; no chat-compatible models" : ""}`, result.stale ? "warning" : "info");
+			if (manual) notify(ctx, `omniroute: ${readiness()}`, manager.status.stale ? "warning" : "info");
 		} catch (error) {
-			if (manual) notify(ctx, `omniroute: refresh failed; no new catalog accepted (${safeDetail(error)})`, "warning");
+			if (manual) notify(ctx, `omniroute: ${readiness()}`, "warning");
 		}
 		await synchronizeAdministration(config);
 	}
@@ -633,9 +652,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const setup = createSetupWizard({
 		credentials: optionalCredentials,
 		refresh: ctx => refresh(ctx, true),
-		status: () => manager.status.state === "checking"
-			? `checking connection; metadata=${metadataState}; catalogs=${catalogStatus()}`
-			: `${manager.status.state}; chat models=${manager.status.modelCount}; live rows=${manager.status.rawModelCount}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
+		status: () => `${readiness()}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
 		synchronizeAdmin: async ctx => {
 			setContext(ctx);
 			await synchronizeAdministration(await loadConfig());
@@ -716,12 +733,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				else if (inspection) notify(ctx, `omniroute pricing ${modelId}: ${inspection.state}; fields=${JSON.stringify(inspection.fields)}; cost=${JSON.stringify(inspection.cost)}; reasons=${inspection.reasons.join(",")}; ${PRICING_WARNING}`);
 				else notify(ctx, `omniroute pricing: ${pricingCurrent ? "current file" : "unavailable"}; ${PRICING_WARNING}`);
 			} else {
-				const status: HealthSnapshot = manager.status;
-				if (status.state === "checking") {
-					notify(ctx, `omniroute: checking connection; catalogs=${catalogStatus()}`);
-					return;
-				}
-				notify(ctx, `omniroute: ${status.state}; chat models=${status.modelCount}; live rows=${status.rawModelCount}${status.state === "no-models" ? "; no chat-compatible models" : ""}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}; catalogs=${catalogStatus()}`);
+				notify(ctx, `omniroute: ${readiness()}; catalogs=${catalogStatus()}`);
 			}
 		},
 	};
@@ -826,6 +838,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const deadline = setTimeout(() => controller.abort(), 10_000);
 	try {
 		await refresh(undefined, false);
+		if (!stopped && ((config.pending && !runtimeEnvironment) || readinessIssue || recoveryBlocked || manager.status.state === "checking" || manager.status.state === "no-models" || manager.status.state === "unauthorized" || manager.status.state === "offline" || manager.status.state === "degraded" || (config.active && !manager.currentBinding))) {
+			process.stderr.write(`omniroute: ${readiness()}\n`);
+		}
 	} finally {
 		clearTimeout(deadline);
 		startupAborter = undefined;
