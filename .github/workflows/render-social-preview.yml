@@ -1,0 +1,58 @@
+name: Render screenshot-led social preview
+
+on:
+  push:
+    branches: [design/real-ui-social-preview]
+    paths:
+      - assets/brand/social-real-ui.svg
+      - assets/brand/social-real-ui-provenance.json
+      - .github/workflows/render-social-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: true
+      - name: Install renderer
+        run: python3 -m pip install --break-system-packages 'CairoSVG==2.8.2' 'Pillow==10.2.0'
+      - name: Render social preview PNG
+        run: |
+          python3 - <<'PY'
+          import cairosvg
+          from PIL import Image, PngImagePlugin
+          from pathlib import Path
+          src = Path('assets/brand/social-real-ui.svg')
+          dst = Path('assets/brand/social-real-ui.png')
+          cairosvg.svg2png(bytestring=src.read_bytes(), write_to=str(dst), output_width=1280, output_height=640)
+          image = Image.open(dst).convert('RGB')
+          assert image.size == (1280,640)
+          info = PngImagePlugin.PngInfo()
+          info.add_itxt('Title','OMP OmniRoute Provider — screenshot-led social preview')
+          info.add_itxt('Copyright','Copyright © 2026 Crux Experts LLC')
+          info.add_itxt('Source','Official OmniRoute screenshot + genuine historical OMP 18.12.5 native capture; see social-real-ui-provenance.json')
+          image.save(dst, optimize=True, compress_level=9, pnginfo=info)
+          print(f'{dst}: {dst.stat().st_size} bytes')
+          PY
+          sha256sum assets/brand/social-real-ui.png
+      - name: Upload PNG for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: omp-social-real-ui
+          path: assets/brand/social-real-ui.png
+          retention-days: 30
+      - name: Commit generated PNG
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/brand/social-real-ui.png
+          if ! git diff --cached --quiet; then
+            git commit -m "design: render genuine UI screenshot social preview"
+            git push origin HEAD:design/real-ui-social-preview
+          fi
