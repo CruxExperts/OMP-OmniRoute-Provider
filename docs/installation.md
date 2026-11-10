@@ -16,10 +16,10 @@ preserving model names and native credential identity.
 
 ## Install the GitHub release
 
-Install the pinned `1.0.4` GitHub source tag through OMP's native plugin installer:
+Install the pinned `1.0.5` GitHub source tag through OMP's native plugin installer:
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.4
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.5
 ```
 
 Restart OMP and run `/omniroute setup`. This command installs from GitHub; it does

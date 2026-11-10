@@ -4,7 +4,7 @@
 
 ## Version and compatibility
 
-Source version: **1.0.4**. This identifies checkout source, not an npm publication or a completed platform qualification.
+Source version: **1.0.5**. This identifies checkout source, not an npm publication or a completed platform qualification.
 
 | Component | Declared source | Meaning |
 | --- | --- | --- |

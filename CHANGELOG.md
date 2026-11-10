@@ -2,13 +2,13 @@
 
 All notable changes to OMP OmniRoute Provider are recorded here.
 
-## Unreleased
+## 1.0.5 — 2026-11-10
 
 - Add configurable bounded fresh inference attempts for transient failures,
   including gateway restarts. Cancellation and connection changes stop retries;
-  tool calls and administration operations are not replayed. The default is
-  five total attempts with a 30-second delay; setting `reconnectMaxAttempts` to
-  `1` disables retries.
+  completed tool calls and administration operations are not replayed. The default is
+  five total attempts with a 30-second delay; both are configurable, and setting
+  `reconnectMaxAttempts` to `1` disables retries.
   The connector holds response text until successful generation instead of
   streaming live tokens. Failed partial output is discarded, and tool calls
   from failed attempts are never started.
