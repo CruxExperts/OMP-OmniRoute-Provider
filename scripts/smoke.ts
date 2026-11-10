@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import { isDeepStrictEqual, stripVTControlCharacters } from "node:util";
 import { DISPLAY_NAME, PROVIDER_LIST_NAME } from "../src/identity.ts";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
+import { ResearchTraceClient } from "./windows-research-trace-client.ts";
 
 type JsonObject = Record<string, unknown>;
 type CommandResult = { code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string; dialogueCompleted: number };
@@ -1193,7 +1194,7 @@ export async function writeNativeLoginDiagnostic(path: string, identity: NativeL
   }
 }
 
-async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv, diagnosticIdentity?: NativeLoginDiagnosticIdentity): Promise<{ prompted: boolean; cancelled: boolean }> {
+async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv, diagnosticIdentity?: NativeLoginDiagnosticIdentity, research?: { instrumented: boolean; observations: JsonObject }): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
     // Complete the visible command with Tab before submitting it with Enter.
@@ -1204,12 +1205,12 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
   const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
-  const endpoint = diagnosticPath ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
+  const endpoint = diagnosticPath || research ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
   const observations: JsonObject = { rendered: "not-observed", dispatched: "not-observed", delayed: "not-observed" };
   let result: CommandResult;
   try {
     result = await runPtyCommand(binary, {
-      cwd, env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint } : environment, timeoutMs: 30_000, dialogue,
+      cwd, env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint, ...(research?.instrumented ? { OMP_RESEARCH_INPUT_TRACE: "1" } : {}) } : environment, timeoutMs: 30_000, dialogue,
       ...(endpoint ? { diagnosticDispatch: async phase => {
         const started = Date.now();
         observations[phase] = await observeTuiDebug(endpoint);
@@ -1223,6 +1224,7 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
           }
           const elapsedMs = Date.now() - started;
           observations.delayed = { elapsedAfterDispatchMs: elapsedMs, ...await observeTuiDebug(endpoint) };
+          if (research?.instrumented) research.observations.trace = await new ResearchTraceClient(endpoint).read();
         }
       } } : {}),
     });
@@ -1233,6 +1235,15 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
     if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
   }
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  if (research) {
+    Object.assign(research.observations, observations, {
+      dialogueCompleted: result.dialogueCompleted,
+      timedOut: result.stderr === "command timeout",
+      selectorVisible: /Select provider to login[\s\S]*?Type to search/i.test(output),
+      prompted: /OmniRoute base URL/i.test(output),
+    });
+    return { prompted: /OmniRoute base URL/i.test(output), cancelled: result.dialogueCompleted === dialogue.length };
+  }
   const prompted = /OmniRoute base URL/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;
   if (!prompted || !cancelled || (result.code !== 0 && result.code !== 143 && result.signal !== "SIGTERM")) {
@@ -1770,6 +1781,48 @@ export interface SmokeResult {
   };
   installation: NpmInstallationEvidence;
   pluginLifecycle: { installed: true; disabled: true; enabled: true; uninstalled: true };
+}
+
+/** Research-only entrypoint. Never feeds the official package qualification result. */
+export async function runWindowsLoginResearch(options: {
+  binary: string; sha256: string; instrumented: boolean; output: string;
+}): Promise<JsonObject> {
+  if (process.platform !== "win32" || process.arch !== "x64") throw new Error("Windows x64 research requires a native Windows x64 runner");
+  if (!isAbsolute(options.binary) || !isAbsolute(options.output) || !/^[a-f0-9]{64}$/.test(options.sha256)) throw new Error("Research requires absolute paths and an exact binary digest");
+  const info = await lstat(options.binary);
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error("Research binary must be an ordinary file");
+  const digest = createHash("sha256").update(await readFile(options.binary)).digest("hex");
+  if (digest !== options.sha256) throw new Error("Research binary digest mismatch");
+  const root = await mkdtemp(join(await realpath(tmpdir()), "cruxomni-windows-research-"));
+  const profile = join(root, "profile");
+  const workspace = join(root, "workspace");
+  const environment = cleanEnvironment(process.env, profile);
+  let packed: PackageVerificationResult | undefined;
+  const observations: JsonObject = {};
+  const result: JsonObject = { recordKind: "windows-login-research", researchOnly: true, officialQualification: false, binarySha256: digest, instrumented: options.instrumented, architecture: process.arch, observations };
+  try {
+    await mkdir(profile, { recursive: true });
+    await mkdir(workspace, { recursive: true });
+    await mkdir(environment.TEMP!, { recursive: true });
+    const version = requireSuccess(await runCommand(options.binary, ["--version"], { cwd: workspace, env: environment }), "research host version").trim();
+    if (!/(?:^|\s)18\.12\.5(?:\s|$)/.test(version)) throw new Error("Research host must report 18.12.5");
+    result.hostVersion = "18.12.5";
+    await writeFile(options.output, JSON.stringify(result, null, 2), { flag: "wx", mode: 0o600 });
+    const archivePath = process.env.OMP_SMOKE_PACKAGE_ARCHIVE;
+    const expectedArchiveSha256 = process.env.OMP_SMOKE_PACKAGE_SHA256;
+    if (!archivePath || !expectedArchiveSha256 || !/^[a-f0-9]{64}$/.test(expectedArchiveSha256)) throw new Error("Research requires the exact exported package archive and digest");
+    packed = await verifyPackage({ keepTemporary: true, archivePath, expectedArchiveSha256 });
+    result.packageArchiveSha256 = packed.archiveSha256;
+    await installPackedPackage(options.binary, workspace, environment, profile, packed);
+    requireSuccess(await runCommand(options.binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: environment }), "research setup version");
+    await nativePromptCancel(options.binary, workspace, environment, undefined, { instrumented: options.instrumented, observations });
+    result.reproducedSubmissionFailure = observations.selectorVisible === false && observations.prompted === false && observations.dialogueCompleted === 3;
+    return result;
+  } finally {
+    await writeFile(options.output, JSON.stringify(result, null, 2), { mode: 0o600 });
+    if (packed) await rm(resolve(packed.extractedRoot, "..", ".."), { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
 }
 
 export async function runSmoke(): Promise<SmokeResult> {

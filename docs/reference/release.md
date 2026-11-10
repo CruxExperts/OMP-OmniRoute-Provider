@@ -144,6 +144,25 @@ sampling can perturb timing and must not be used as a qualification result.
 Draft observations expose only a fixed category, length, and line count, not raw
 text, distinguishing an emptied draft from a completed command with whitespace.
 
+The manual `windows-login-research.yml` workflow builds the pinned OMP 18.12.5
+source on a disposable GitHub-hosted Windows x64 runner with experimental Bun
+1.4.2. It checks the source archive, native addon, compiler template and
+instrumentation patch digests, installs only the three filtered upstream
+workspaces with the frozen lockfile and lifecycle scripts disabled, and builds
+the unmodified and instrumented hosts serially. The filtered dependency graph
+contains accepted high-severity advisories in sharp, zod and adm-zip; this
+research use is not a release approval. The hosted runner is not a Linux
+namespace sandbox and the install uses network access.
+
+The provider fixture uses the checkout-matched exported package. The real
+fixture runs against the baseline first; the instrumented dialogue runs only
+when the baseline reports the same submission failure. The seven-day artifact
+contains bounded observations and source, package and binary hashes, not host
+binaries, upstream archives or raw logs. A missing platform dependency, build
+failure, incomplete observation, or baseline that does not reproduce stops the
+research; none is a passing result. These experimental hosts and observations
+cannot replace official, unmodified Windows qualification.
+
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
 publication receipt. Publication still requires complete operation coverage,
