@@ -70,6 +70,25 @@ rerun that workflow against the already published `v1.0.0` tag or replace its
 immutable version with different bytes. Later publications use a new version
 and the applicable qualification requirements.
 
+## 1.0.5 release candidate
+
+Version `1.0.5` adds buffered inference recovery with five total attempts and a
+30-second delay by default. Both settings are configurable. Incoming events are
+drained independently of the response consumer; failed partial generations and
+their speculative tool calls are discarded before a fresh attempt.
+
+The candidate is intended for the protected GitHub and npm publication workflow
+below. Prepared source, local checks, and refreshed operation evidence are not a
+publication receipt. Publication still requires complete operation coverage,
+eight native results for the same archive, verified signatures, and the protected
+`release` environment with its required reviewer and npm credential. Do not use
+the earlier GitHub-only distribution as an exception to those gates.
+
+The refreshed candidate inventory contains 25 invokable operations with reviewed
+fixture outcomes, 16 non-invokable entries, and 1,193 unqualified operations.
+Refreshing the existing outcomes does not qualify the remaining inventory.
+Those coverage gaps prevent protected publication until independently resolved.
+
 ## Export a reviewed source snapshot
 
 Release preparation requires the pinned Bun toolchain, an existing Node.js/npm
