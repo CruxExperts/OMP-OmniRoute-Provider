@@ -222,7 +222,7 @@ export interface OperationDescriptor {
   readonly secrets: { readonly inputFields: readonly string[]; readonly outputFields: readonly string[] };
   readonly sideEffect: AdminSideEffect;
   readonly pagination: { readonly mode: "none" | "offset" | "cursor" | "unknown"; readonly parameters: readonly string[] };
-  readonly streaming: { readonly mode: "json" | "sse" | "websocket" | "binary" | "unknown"; readonly framing: string };
+  readonly streaming: { readonly mode: "json" | "text" | "sse" | "websocket" | "binary" | "unknown"; readonly framing: string };
   readonly confirmation: { readonly required: boolean; readonly reason: string };
   readonly retry: { readonly allowed: boolean; readonly maxAttempts: number; readonly statusCodes: readonly number[] };
   readonly source: { readonly file: string; readonly sha256: string; readonly gitBlobSha: string; readonly export: "direct" | "re-export" };
@@ -1151,6 +1151,14 @@ function projectNode(
 }
 
 function projectJsonResponse(descriptor: OperationDescriptor, response: unknown, privateTarget: boolean): unknown {
+  if (descriptor.streaming.mode === "text") {
+    const schema = descriptor.response.schema;
+    // Free-form text can carry secrets even when the server performs pattern redaction.
+    // Only a source-reviewed finite allowlist can safely cross the public projection boundary.
+    if (!schema || schema.type !== "string" || (!Array.isArray(schema.enum) && typeof schema.const !== "string")) {
+      throw new RegistryError("invalid-inventory", "text response lacks a finite source-reviewed projection", descriptor.operationId);
+    }
+  }
   if (response === undefined && descriptor.response.schema === null) return undefined;
   assertJsonValue(response, "response");
   if (Buffer.byteLength(JSON.stringify(response), "utf8") > 8 * 1024 * 1024) throw new RegistryError("invalid-inventory", "response size limit exceeded", descriptor.operationId);

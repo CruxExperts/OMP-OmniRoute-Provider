@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, writeSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createConnection } from "node:net";
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
@@ -1168,7 +1168,32 @@ async function observeTuiDebug(endpoint: string): Promise<JsonObject> {
   return state;
 }
 
-async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ prompted: boolean; cancelled: boolean }> {
+export type NativeLoginDiagnosticIdentity = {
+  runId: string;
+  sourceRevision: string;
+  archiveSha256: string;
+  hostSha256: string;
+  hostVersion: string;
+  architecture: "x64" | "arm64";
+};
+
+export async function writeNativeLoginDiagnostic(path: string, identity: NativeLoginDiagnosticIdentity, observations: JsonObject): Promise<void> {
+  if (!/^\d{1,20}$/.test(identity.runId) || !/^[0-9a-f]{40}$/.test(identity.sourceRevision)
+    || !/^[0-9a-f]{64}$/.test(identity.archiveSha256) || !/^[0-9a-f]{64}$/.test(identity.hostSha256)
+    || !/^\d+\.\d+\.\d+$/.test(identity.hostVersion) || !["x64", "arm64"].includes(identity.architecture)) {
+    throw new Error("native login diagnostic identity is invalid");
+  }
+  const { runId, sourceRevision, archiveSha256, hostSha256, hostVersion, architecture } = identity;
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify({ schemaVersion: 2, diagnostic: "native-login-debug", identity: { runId, sourceRevision, archiveSha256, hostSha256, hostVersion, architecture }, observations }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+    await rename(temporaryPath, path);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
+async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv, diagnosticIdentity?: NativeLoginDiagnosticIdentity): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
     // Complete the visible command with Tab before submitting it with Enter.
@@ -1202,8 +1227,8 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
       } } : {}),
     });
   } finally {
-    if (diagnosticPath) {
-      await writeFile(diagnosticPath, `${JSON.stringify({ schemaVersion: 1, diagnostic: "native-login-debug", observations }, null, 2)}\n`, { mode: 0o600 }).catch(() => undefined);
+    if (diagnosticPath && diagnosticIdentity) {
+      await writeNativeLoginDiagnostic(diagnosticPath, diagnosticIdentity, observations);
     }
     if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
   }
@@ -1812,6 +1837,20 @@ export async function runSmoke(): Promise<SmokeResult> {
       ...(packageArchivePath === undefined ? {} : { archivePath: packageArchivePath, expectedArchiveSha256: packageArchiveSha256! }),
     });
     if (isWithin(packageRootInfo, packageEvidence.extractedRoot)) throw new Error("package extraction is inside the source repository");
+    const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
+    let diagnosticIdentity: NativeLoginDiagnosticIdentity | undefined;
+    if (diagnosticPath) {
+      if (platform.os !== "windows" || host.mode !== "release-asset") throw new Error("native login diagnostics require a verified Windows release asset");
+      diagnosticIdentity = {
+        runId: process.env.GITHUB_RUN_ID ?? "",
+        sourceRevision: process.env.GITHUB_SHA ?? "",
+        archiveSha256: packageEvidence.archiveSha256,
+        hostSha256: host.digest,
+        hostVersion: host.version,
+        architecture: platform.architecture,
+      };
+      await writeNativeLoginDiagnostic(diagnosticPath, diagnosticIdentity, { rendered: "not-observed", dispatched: "not-observed", delayed: "not-observed" });
+    }
 
     await seedLegacyNativeCache(binary, workspace, environment, fixture);
     fixture.setModelsStatus(503);
@@ -1855,7 +1894,7 @@ export async function runSmoke(): Promise<SmokeResult> {
     const nativeEnvironment = cleanEnvironment(process.env, profile);
     const setupVersion = await runCommand(binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: nativeEnvironment });
     requireSuccess(setupVersion, "setup version initialization");
-    const cancelled = await nativePromptCancel(binary, workspace, nativeEnvironment);
+    const cancelled = await nativePromptCancel(binary, workspace, nativeEnvironment, diagnosticIdentity);
     const wizard = await nativeWizardCancel(binary, workspace, nativeEnvironment);
     environmentFixture = await startFixtureServer();
     const environmentA = {

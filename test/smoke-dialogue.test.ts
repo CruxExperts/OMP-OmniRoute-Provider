@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   availableOperationMenuPattern,
   createDialogueScheduler,
@@ -14,7 +17,35 @@ import {
   nativeLoginCommandRenderedPattern,
   nativeLoginCommandCompletedPattern,
   nativePtyDialogueText,
+  writeNativeLoginDiagnostic,
 } from "../scripts/smoke.ts";
+
+test("native login diagnostic preserves bounded identity before and after an interrupted dialogue", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "native-login-diagnostic-test-"));
+  const path = join(directory, "diagnostic.json");
+  const identity = { runId: "123", sourceRevision: "a".repeat(40), archiveSha256: "b".repeat(64), hostSha256: "c".repeat(64), hostVersion: "18.12.5", architecture: "x64" as const };
+  try {
+    await writeNativeLoginDiagnostic(path, identity, { rendered: "not-observed", dispatched: "not-observed", delayed: "not-observed" });
+    const before = JSON.parse(await readFile(path, "utf8"));
+    expect(before.identity).toEqual(identity);
+    expect(before.observations.dispatched).toBe("not-observed");
+    try {
+      throw new Error("fixture interruption");
+    } finally {
+      await writeNativeLoginDiagnostic(path, identity, { rendered: { submitReady: "unavailable" }, dispatched: "not-observed", delayed: "not-observed" });
+    }
+  } catch (error) {
+    expect((error as Error).message).toBe("fixture interruption");
+    const after = JSON.parse(await readFile(path, "utf8"));
+    expect(after.schemaVersion).toBe(2);
+    expect(after.identity).toEqual(identity);
+    expect(after.observations.rendered.submitReady).toBe("unavailable");
+    await expect(writeNativeLoginDiagnostic(path, { ...identity, runId: "123 private data" }, {})).rejects.toThrow("identity is invalid");
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(after);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("native operation availability is tied to that operation's complete description", () => {
   const operationId = "GET /api/fallback/chains";

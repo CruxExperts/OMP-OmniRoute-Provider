@@ -85,6 +85,14 @@ message. Linux x64 glibc smoke against the pinned OMP `18.12.5` release asset
 observed that read and continuation after this repair; other platforms still
 require their own native results for the final archive.
 
+An isolated Linux x64 check using the official `18.12.5` host and the source
+extension observed a dropped response, a refused connection while the fixture
+gateway was down, and recovery after a 30.032-second default retry wait. The
+original user prompt was unchanged, failed-attempt text remained hidden, and
+one native file read supplied its real result to the continuation request.
+This is source-extension evidence, not qualification of the final package
+archive or of another operating system.
+
 Archive verification compares canonical package-directory identities rather than
 lexical path spellings. This preserves destination and symlink checks while
 handling macOS temporary-directory aliases and native Windows normalization.
@@ -113,6 +121,12 @@ use the existing package exporter and target preparation, with
 `OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH` enabling read-only observations around the real
 terminal Enter. Only allowlisted state is uploaded; raw editor values are not.
 Neither diagnostic replaces any native qualification result.
+
+The native-host packet is initialized after host and archive verification and
+before native interaction. It retains bounded run and source identifiers, the
+archive SHA-256, verified host SHA-256 and version, and native architecture.
+An interrupted run may retain only initial unavailable observations; the packet
+is not evidence of readiness or qualification.
 
 Successful transport delivery alone does not prove that the host editor accepted
 or submitted the command. Actual-host diagnostics must retain real terminal input

@@ -52,7 +52,7 @@ documents:
     category_label: User guide
     category_slug: user-guide
     status: active
-    last_updated: "2026-11-05"
+    last_updated: "2026-11-10"
     doc_type: reference
     tags: [administration, confirmation, credentials]
   - id: upgrading
@@ -79,7 +79,7 @@ documents:
     category_label: Reference
     category_slug: reference
     status: active
-    last_updated: "2026-11-05"
+    last_updated: "2026-11-10"
     doc_type: runbook
     tags: [versioning, release, qualification]
   - id: maintenance

@@ -47,9 +47,11 @@ method is interchangeable:
 
 1. **Public probes and other non-JSON responses.** Review the pinned ingress
    policy and handler for each route, including exported HEAD and OPTIONS
-   handlers. Implement only transports the source actually requires; the current
-   adapter selection does not support `text/plain`. Exercise actual handlers,
-   response status, headers and body, authorization and error cases in isolated
+   handlers. Implement only transports the source actually requires. Bounded
+   UTF-8 `text/plain` transport is available only for qualified bodyless GETs
+   with an explicit finite response projection; arbitrary raw output remains
+   unavailable. The transport does not qualify any operation by itself. Exercise
+   actual handlers, response status, headers and body, authorization and error cases in isolated
    fixtures. An exported HEAD or OPTIONS handler is not a non-invokable exception
    merely because its method is shared or its response is empty.
 2. **Management reads.** Review each route family's request, authorization,

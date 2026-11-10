@@ -34,6 +34,11 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   submit with Enter. This distinguishes command completion from submission on
   the pinned Windows host. Real provider selection and cancellation remain
   required acceptance evidence.
+- Add bounded UTF-8 text transport for explicitly qualified bodyless
+  administration reads with finite response projections. Error bodies and
+  arbitrary raw output are not exposed; no additional operation is qualified.
+- Preserve bounded source, run, archive and verified-host identity before native
+  Windows login diagnostics, including when the dialogue is interrupted.
 
 ## 1.0.4 — 2026-11-05
 

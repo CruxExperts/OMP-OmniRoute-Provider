@@ -1645,7 +1645,7 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
   stringList(pagination.parameters, `${operationId}.pagination.parameters`);
   const streaming = requireRecord(contract.streaming, `${operationId}.contract.streaming`);
   assertKeys(streaming, `${operationId}.contract.streaming`, ["mode", "framing"]);
-  if (!["json", "sse", "websocket", "binary", "unknown"].includes(String(streaming.mode))) throw new Error(`${operationId}.streaming.mode is invalid`);
+  if (!["json", "text", "sse", "websocket", "binary", "unknown"].includes(String(streaming.mode))) throw new Error(`${operationId}.streaming.mode is invalid`);
   requireString(streaming.framing, `${operationId}.streaming.framing`);
   const confirmation = requireRecord(contract.confirmation, `${operationId}.contract.confirmation`);
   assertKeys(confirmation, `${operationId}.contract.confirmation`, ["required", "reason"]);

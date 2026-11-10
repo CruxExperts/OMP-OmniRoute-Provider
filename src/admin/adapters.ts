@@ -66,7 +66,7 @@ export interface RegisteredOperation {
   readonly pathTemplate: string;
   readonly mediaType?: { request?: string | null; response: string | null };
   readonly request?: Pick<OperationRequest, "pathParameters" | "body">;
-  readonly streaming?: { mode: "json" | "sse" | "websocket" | "binary" | "unknown"; framing: string };
+  readonly streaming?: { mode: "json" | "text" | "sse" | "websocket" | "binary" | "unknown"; framing: string };
   readonly auth?: { domain: string };
   readonly coverage?: { status: "invokable" | "unqualified" | "non-invokable" | "operator-required" };
 }
@@ -378,6 +378,29 @@ export async function invokeJsonAdapter(invocation: AdapterInvocation): Promise<
   }
 }
 
+/** Text is accepted only for a closed, qualified bodyless read; projection happens in the registry. */
+export async function invokeTextAdapter(invocation: AdapterInvocation): Promise<AdapterResponse> {
+  if (adapterFor(invocation.descriptor) !== "text" || invocation.body !== undefined) {
+    throw new AdminAdapterError("adapter_unavailable", "operation has no qualified text adapter");
+  }
+  const headers = headersFor(invocation.credential);
+  headers.set("accept", "text/plain, application/json");
+  const lifetime = await fetchTyped(invocation, undefined, headers);
+  try {
+    const response = lifetime.response;
+    const bytes = await readBounded(response, ADMIN_ADAPTER_LIMITS.maxResponseBytes, invocation.onProgress, lifetime.signal, invocation.signal);
+    if (!response.ok) return { status: response.status, headers: Object.fromEntries(response.headers.entries()) };
+    const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
+    if (contentType !== "text/plain") throw new AdminAdapterError("invalid_payload", "response was not text/plain", response.status);
+    let data: string;
+    try { data = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+    catch (error) { throw new AdminAdapterError("invalid_payload", "response was not valid UTF-8", response.status, { cause: error }); }
+    return { status: response.status, headers: Object.fromEntries(response.headers.entries()), data };
+  } finally {
+    lifetime.dispose();
+  }
+}
+
 export type MultipartFile = { field: string; path: string; filename?: string; contentType?: string };
 
 export async function invokeMultipartAdapter(invocation: AdapterInvocation, files: readonly MultipartFile[], fields: Readonly<Record<string, string>> = {}): Promise<AdapterResponse> {
@@ -549,7 +572,7 @@ export async function writeProtectedFile(input: string, bytes: Uint8Array): Prom
 }
 
 /** Select only an explicitly qualified protocol adapter; unknown metadata is never guessed. */
-export function adapterFor(descriptor: RegisteredOperation): "json" | "multipart" | "binary" | "sse" | "websocket" | "operator-required" | "unavailable" {
+export function adapterFor(descriptor: RegisteredOperation): "json" | "text" | "multipart" | "binary" | "sse" | "websocket" | "operator-required" | "unavailable" {
   ensureDescriptor(descriptor);
   if (descriptor.coverage?.status === "operator-required") return "operator-required";
   if (typeof descriptor.adapterId !== "string") return "unavailable";
@@ -562,6 +585,7 @@ export function adapterFor(descriptor: RegisteredOperation): "json" | "multipart
   if (descriptor.request?.body !== null && descriptor.request?.body !== undefined && request === null) return "unavailable";
   if (mode === "sse") return response === "text/event-stream" ? "sse" : "unavailable";
   if (mode === "binary") return response === "application/octet-stream" ? "binary" : "unavailable";
+  if (mode === "text") return response === "text/plain" && descriptor.coverage?.status === "invokable" && descriptor.method === "GET" && descriptor.request?.body === null && request === null ? "text" : "unavailable";
   if (request === "multipart/form-data") return "multipart";
   if (mode === "json" && (response === "application/json" || response.endsWith("+json"))) return "json";
   return "unavailable";

@@ -1,6 +1,6 @@
 import { unlink } from "node:fs/promises";
 import { expect, test } from "bun:test";
-import { ADMIN_ADAPTER_LIMITS, adapterFor, invokeJsonAdapter, invokeMultipartAdapter, invokeWebSocketAdapter, isLoopbackHostname, validateAdminEndpoint, writeProtectedFile } from "../src/admin/adapters.ts";
+import { ADMIN_ADAPTER_LIMITS, adapterFor, invokeJsonAdapter, invokeMultipartAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, validateAdminEndpoint, writeProtectedFile } from "../src/admin/adapters.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { createAdminCommandHandler } from "../src/admin/ui.ts";
@@ -88,6 +88,41 @@ test("operation protocol selection remains dedicated", () => {
   expect(adapterFor({ ...jsonDescriptor, mediaType: { request: "application/json", response: "application/octet-stream" }, streaming: { mode: "binary" as const, framing: "bytes" } })).toBe("binary");
   expect(adapterFor({ ...jsonDescriptor, mediaType: { request: "application/json", response: "application/octet-stream" } })).toBe("unavailable");
   expect(adapterFor({ ...jsonDescriptor, pathTemplate: "/api/oauth/login" })).toBe("json");
+});
+
+test("text transport is bounded and does not publish unreviewed raw output", async () => {
+  const descriptor = { ...jsonDescriptor, request: { body: null, pathParameters: [] },
+    coverage: { status: "invokable" as const }, mediaType: { request: null, response: "text/plain" },
+    streaming: { mode: "text" as const, framing: "utf-8" } };
+  const invocation = { descriptor, endpoint: "http://127.0.0.1:20128", resolvedPath: "/api/models", queryParameters: [] };
+  expect(adapterFor(descriptor)).toBe("text");
+  expect(adapterFor({ ...descriptor, coverage: { status: "unqualified" } })).toBe("unavailable");
+  expect(adapterFor({ ...descriptor, method: "POST" })).toBe("unavailable");
+  const originalFetch = globalThis.fetch;
+  let response = new Response("ready", { headers: { "content-type": "text/plain; charset=utf-8" } });
+  try {
+    globalThis.fetch = Object.assign(async () => response, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    expect((await invokeTextAdapter(invocation)).data).toBe("ready");
+    response = new Response("secret", { status: 403, headers: { "content-type": "application/json" } });
+    expect((await invokeTextAdapter(invocation)).data).toBeUndefined();
+    response = new Response("ready", { headers: { "content-type": "application/json" } });
+    await expect(invokeTextAdapter(invocation)).rejects.toMatchObject({ code: "invalid_payload" });
+    response = new Response(new Uint8Array([0xff]), { headers: { "content-type": "text/plain" } });
+    await expect(invokeTextAdapter(invocation)).rejects.toMatchObject({ code: "invalid_payload" });
+    response = new Response("large", { headers: { "content-type": "text/plain", "content-length": String(ADMIN_ADAPTER_LIMITS.maxResponseBytes + 1) } });
+    await expect(invokeTextAdapter(invocation)).rejects.toMatchObject({ code: "body_too_large" });
+    response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new Uint8Array(ADMIN_ADAPTER_LIMITS.maxResponseBytes + 1)); controller.close(); },
+    }), { headers: { "content-type": "text/plain" } });
+    await expect(invokeTextAdapter(invocation)).rejects.toMatchObject({ code: "body_too_large" });
+    const source = await publicReadDescriptor("GET /api/models", "/api/models");
+    const text = { ...source, streaming: { mode: "text" as const, framing: "utf-8" }, response: { ...source.response, schema: { type: "string", enum: ["ready"] } } };
+    expect(projectResponse(text, "ready")).toBe("ready");
+    expect(() => projectResponse(text, "secret")).toThrow();
+    expect(() => projectResponse({ ...text, response: { ...text.response, schema: { type: "string" } } }, "secret")).toThrow();
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("apply command remains human-only when the confirmation form is cancelled", async () => {
