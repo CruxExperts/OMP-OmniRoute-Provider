@@ -181,11 +181,14 @@ def main() -> None:
                 if digest(native) != NATIVE_SHA or digest(template) != BUN_TEMPLATE_SHA or digest(lock) != lock_sha:
                     raise ValueError("build input changed")
                 inputs = input_tree_sha256(source)
+                before_files = {path.relative_to(source).as_posix(): digest(path) for path in source.rglob("*") if path.is_file() and not path.is_symlink() and "binaries" not in path.relative_to(source).parts}
                 metadata[f"{variant}InputTreeSha256"] = inputs
                 command([bun, "scripts/ci-release-build-binaries.ts", "--targets", "win32-x64"], source, environment)
                 if digest(native) != NATIVE_SHA or digest(template) != BUN_TEMPLATE_SHA or digest(lock) != lock_sha:
                     raise ValueError("build input changed")
                 if input_tree_sha256(source) != inputs:
+                    after_files = {path.relative_to(source).as_posix(): digest(path) for path in source.rglob("*") if path.is_file() and not path.is_symlink() and "binaries" not in path.relative_to(source).parts}
+                    metadata["changedInputFiles"] = sorted(name for name in before_files.keys() | after_files.keys() if before_files.get(name) != after_files.get(name))[:32]
                     raise ValueError("build modified its source or installed inputs")
                 binary = source / "packages/coding-agent/binaries/omp-windows-x64.exe"
                 binaries[variant] = work / f"{variant}.exe"
