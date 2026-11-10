@@ -30,9 +30,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Use native private Windows access-control lists for profile configuration,
   retaining owner/trustee checks and file-identity checks instead of treating
   Windows file modes as proof of privacy.
-- Submit native login only after the editor visibly renders the command and its
-  completion, retaining bounded output received during the dispatch. Real
-  provider selection and cancellation remain required acceptance evidence.
+- Complete the native login command with Tab, wait for its argument hint, then
+  submit with Enter. This distinguishes command completion from submission on
+  the pinned Windows host. Real provider selection and cancellation remain
+  required acceptance evidence.
 
 ## 1.0.4 — 2026-11-05
 

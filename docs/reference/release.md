@@ -94,6 +94,12 @@ not POSIX file-mode bits. Only the current user, SYSTEM, and Administrators are
 trusted; inherited broad access and symbolic links remain rejected. Native
 Windows smoke must exercise this protection and the real login lifecycle.
 
+The login smoke completes `/login` with Tab and waits for the rendered argument
+hint before sending Enter. Native Windows observations showed that Enter on the
+open command completion changed `/login` to `/login ` without opening provider
+selection. Completing the command explicitly avoids treating that transition as
+submission; no extra Enter is sent blindly.
+
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
 The transport jobs send only fixture `/login` text and one carriage return to an

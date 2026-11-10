@@ -12,6 +12,7 @@ import {
   nativeEnvironmentSwitchConfirmationPattern,
   nativeLoginSelectorShowsProvider,
   nativeLoginCommandRenderedPattern,
+  nativeLoginCommandCompletedPattern,
   nativePtyDialogueText,
 } from "../scripts/smoke.ts";
 
@@ -80,37 +81,65 @@ test("composed native menu dialogue cancels after the selected available row", a
   scheduler.cancel();
 });
 
-test("login submits only after its editor rendering, including output during the write", async () => {
+test("login submits only after Tab completion renders, including output during writes", async () => {
   const written: string[] = [];
   const writeStarted = Promise.withResolvers<void>();
   const writeFinished = Promise.withResolvers<void>();
+  const tabStarted = Promise.withResolvers<void>();
+  const tabFinished = Promise.withResolvers<void>();
   const enterWritten = Promise.withResolvers<void>();
   const cancelWritten = Promise.withResolvers<void>();
   const scheduler = createDialogueScheduler([
     { when: /initial prompt/, text: "/login", afterMs: 0, captureDuringDispatch: true },
-    { when: nativeLoginCommandRenderedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
     { when: /Select provider to login/, text: "cancel", afterMs: 0 },
   ], async (_step, index, text) => {
     written.push(text);
     if (index === 0) {
       writeStarted.resolve();
       await writeFinished.promise;
-    } else if (index === 1) enterWritten.resolve();
+    } else if (index === 1) {
+      tabStarted.resolve();
+      await tabFinished.promise;
+    } else if (index === 2) enterWritten.resolve();
     else cancelWritten.resolve();
   });
   expect(scheduler.observe("initial prompt")).toBe(true);
   await writeStarted.promise;
-  expect(written).toEqual(["/login"]);
   scheduler.observe("╰─ /login\r\n❯ ⤵  login           Login: choose ");
   scheduler.observe("provider\r\n");
   expect(written).toEqual(["/login"]);
   writeFinished.resolve();
+  await tabStarted.promise;
+  expect(written).toEqual(["/login", "\t"]);
+  scheduler.observe("╰─ /login [provider|redirect URL]");
+  expect(written).toEqual(["/login", "\t"]);
+  tabFinished.resolve();
   await enterWritten.promise;
-  expect(written).toEqual(["/login", "\r"]);
+  expect(written).toEqual(["/login", "\t", "\r"]);
   scheduler.observe("Select provider to login");
   await cancelWritten.promise;
-  expect(written).toEqual(["/login", "\r", "cancel"]);
+  expect(written).toEqual(["/login", "\t", "\r", "cancel"]);
   scheduler.cancel();
+});
+
+test("login never submits when Tab completion is not observed", async () => {
+  const written: string[] = [];
+  const tabWritten = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0 },
+    { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0 },
+  ], async (_step, _index, text) => {
+    written.push(text);
+    if (text === "\t") tabWritten.resolve();
+  });
+  expect(scheduler.observe("╰─ /login\n❯ login  Login: choose provider")).toBe(true);
+  await tabWritten.promise;
+  expect(nativeLoginCommandCompletedPattern.test("╰─ /login [provider redirect URL]")).toBe(false);
+  scheduler.observe("unrelated redraw");
+  scheduler.cancel();
+  expect(written).toEqual(["\t"]);
 });
 
 test("dialogue waits for the delayed write before accepting another prompt", async () => {

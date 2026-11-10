@@ -861,6 +861,7 @@ export function nativePtyDialogueText(text: string): string {
 }
 
 export const nativeLoginCommandRenderedPattern = /\/login[^\n]*\n[^\n]*\blogin\s+Login: choose provider/i;
+export const nativeLoginCommandCompletedPattern = /\/login[ \t]+\[provider\|redirect URL\]/i;
 
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no\b/i;
@@ -1007,7 +1008,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     },
   });
   if (options.dialogue) {
-    dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, index, text) => {
+    dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, _index, text) => {
       if (text === "__OBSERVE_ONLY__") return;
       if (text === "__SIGTERM__") {
         child?.kill("SIGTERM");
@@ -1019,10 +1020,10 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
         setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
         return;
       }
-      if (index === 1 && options.diagnosticDispatch) await options.diagnosticDispatch("rendered").catch(() => undefined);
+      if (text === "\r" && options.diagnosticDispatch) await options.diagnosticDispatch("rendered").catch(() => undefined);
       if (terminal.closed) throw new Error("terminal closed before dialogue input was written");
       await writeInput(terminal, nativePtyDialogueText(text));
-      if (index === 1 && options.diagnosticDispatch) await options.diagnosticDispatch("dispatched").catch(() => undefined);
+      if (text === "\r" && options.diagnosticDispatch) await options.diagnosticDispatch("dispatched").catch(() => undefined);
     }, () => child?.kill("SIGTERM"));
   }
   child = Bun.spawn([binary], {
@@ -1170,9 +1171,9 @@ async function observeTuiDebug(endpoint: string): Promise<JsonObject> {
 async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
-    // The prepainted prompt can precede native input readiness. Wait until the
-    // editor actually renders the command and its completion before Enter.
-    { when: nativeLoginCommandRenderedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
+    // Complete the visible command with Tab before submitting it with Enter.
+    { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
     { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
     { when: /OmniRoute base URL/i, text: "\u001b", afterMs: 250 },
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
@@ -1250,7 +1251,10 @@ async function nativePromptSetup(
   let postSwitchEnvironmentRequestIndex: number | undefined;
   const dialogue: DialogueStep[] = [
     { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login", afterMs: scripted ? 0 : 4_000, captureDuringDispatch: !scripted },
-    ...(!scripted ? [{ when: nativeLoginCommandRenderedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true }] : []),
+    ...(!scripted ? [
+      { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
+      { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
+    ] : []),
     { when: /Select provider to login[\s\S]*?Type to search/i, text: scripted ? "__OBSERVE_ONLY__" : "omniroute\n", afterMs: scripted ? 0 : 250 },
     { when: nativeEnvironmentSwitchConfirmationPattern, text: scripted ? "__OBSERVE_ONLY__" : "yes\n", afterMs: scripted ? 0 : 250 },
     { when: /OmniRoute base URL/i, text: scripted ? "__OBSERVE_ONLY__" : `${fixtureUrl}\n`, afterMs: scripted ? 0 : 250 },
