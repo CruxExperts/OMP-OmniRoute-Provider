@@ -770,7 +770,7 @@ type CommandOptions = {
   dialogue?: DialogueStep[];
 };
 
-export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number };
+export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
 
 /**
  * Drives prompt-based input without treating a prompt redraw as a new prompt
@@ -787,9 +787,16 @@ export function createDialogueScheduler(
   let cancelled = false;
   let buffer = "";
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  let dispatchStarted = false;
+  let pendingOutput = "";
+  let pendingIndex = 0;
 
   const observe = (chunk: string): boolean => {
-    if (pending || failed || cancelled || completed >= steps.length) return false;
+    if (failed || cancelled || completed >= steps.length) return false;
+    if (pending) {
+      if (dispatchStarted && steps[pendingIndex]?.captureDuringDispatch) pendingOutput = `${pendingOutput}${chunk}`.slice(-32_768);
+      return false;
+    }
     buffer = `${buffer}${chunk}`.slice(-32_768);
     const step = steps[completed]!;
     const when = typeof step.when === "function" ? step.when() : step.when;
@@ -800,8 +807,10 @@ export function createDialogueScheduler(
     pending = true;
     buffer = "";
     const index = completed;
+    pendingIndex = index;
     pendingTimer = setTimeout(() => {
       pendingTimer = undefined;
+      dispatchStarted = true;
       void Promise.resolve().then(() => dispatch(step, index, typeof step.text === "string" ? step.text : step.text(match))).then(() => {
         if (!cancelled) completed = index + 1;
       }).catch(error => {
@@ -811,7 +820,11 @@ export function createDialogueScheduler(
       }).finally(() => {
         if (!cancelled) {
           pending = false;
+          dispatchStarted = false;
           buffer = "";
+          const output = pendingOutput;
+          pendingOutput = "";
+          if (!failed && output) observe(output);
         }
       });
     }, step.afterMs ?? 100);
@@ -844,6 +857,8 @@ export function availableOperationMenuPattern(category: string, operationId: str
 export function nativePtyDialogueText(text: string): string {
   return text === "__ESC__" ? "\u001b" : text;
 }
+
+export const nativeLoginCommandRenderedPattern = /\/login[^\n]*\n[^\n]*\blogin\s+Login: choose provider/i;
 
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no\b/i;
@@ -1070,7 +1085,10 @@ function requireJsonText(text: string, label: string): JsonObject {
 
 async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login\n", afterMs: 4_000 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
+    // The prepainted prompt can precede native input readiness. Wait until the
+    // editor actually renders the command and its completion before Enter.
+    { when: nativeLoginCommandRenderedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
     { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
     { when: /OmniRoute base URL/i, text: "\u001b", afterMs: 250 },
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
@@ -1119,7 +1137,8 @@ async function nativePromptSetup(
   const environmentRequestStart = environmentFixture.requests.length;
   let postSwitchEnvironmentRequestIndex: number | undefined;
   const dialogue: DialogueStep[] = [
-    { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login\n", afterMs: scripted ? 0 : 4_000 },
+    { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login", afterMs: scripted ? 0 : 4_000, captureDuringDispatch: !scripted },
+    ...(!scripted ? [{ when: nativeLoginCommandRenderedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true }] : []),
     { when: /Select provider to login[\s\S]*?Type to search/i, text: scripted ? "__OBSERVE_ONLY__" : "omniroute\n", afterMs: scripted ? 0 : 250 },
     { when: nativeEnvironmentSwitchConfirmationPattern, text: scripted ? "__OBSERVE_ONLY__" : "yes\n", afterMs: scripted ? 0 : 250 },
     { when: /OmniRoute base URL/i, text: scripted ? "__OBSERVE_ONLY__" : `${fixtureUrl}\n`, afterMs: scripted ? 0 : 250 },

@@ -80,6 +80,18 @@ method is interchangeable:
    Release remains blocked until every inventory entry meets the gate and the
    separate native platform qualification requirements are satisfied.
 
+The first health-probe family has direct pinned-handler lifecycle observations,
+but not independent framework-ingress authorization evidence. Qualification must
+not infer public access from matcher source alone. Acquisition of the pinned
+`next@16.3.8` research runtime was stopped after critical advisories
+[GHSA-673q-mjm6-r5xr](https://github.com/advisories/GHSA-673q-mjm6-r5xr) and
+[GHSA-2464-fhr4-w9xw](https://github.com/advisories/GHSA-2464-fhr4-w9xw) were
+confirmed. Their patched Next.js version is `16.4.1`; substituting it would not
+prove the historical pin. Keep those operations unavailable until an approved
+upstream provenance refresh or isolated historical-runtime research procedure
+establishes actual ingress behavior. This is not a claim that the connector
+runtime depends on Next.js or that the health matcher exercises those flaws.
+
 ## Inspect and change fallback chains
 
 Search for `/api/fallback/chains` to inspect or change a model's fallback chain.

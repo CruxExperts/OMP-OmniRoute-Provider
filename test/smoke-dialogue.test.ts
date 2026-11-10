@@ -11,6 +11,7 @@ import {
   nativeAdminUnknownOutcomePattern,
   nativeEnvironmentSwitchConfirmationPattern,
   nativeLoginSelectorShowsProvider,
+  nativeLoginCommandRenderedPattern,
   nativePtyDialogueText,
 } from "../scripts/smoke.ts";
 
@@ -76,6 +77,39 @@ test("composed native menu dialogue cancels after the selected available row", a
   await Bun.sleep(5);
   expect(written).toEqual(["\u001b"]);
   expect(scheduler.completed).toBe(1);
+  scheduler.cancel();
+});
+
+test("login submits only after its editor rendering, including output during the write", async () => {
+  const written: string[] = [];
+  const writeStarted = Promise.withResolvers<void>();
+  const writeFinished = Promise.withResolvers<void>();
+  const enterWritten = Promise.withResolvers<void>();
+  const cancelWritten = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    { when: /initial prompt/, text: "/login", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeLoginCommandRenderedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
+    { when: /Select provider to login/, text: "cancel", afterMs: 0 },
+  ], async (_step, index, text) => {
+    written.push(text);
+    if (index === 0) {
+      writeStarted.resolve();
+      await writeFinished.promise;
+    } else if (index === 1) enterWritten.resolve();
+    else cancelWritten.resolve();
+  });
+  expect(scheduler.observe("initial prompt")).toBe(true);
+  await writeStarted.promise;
+  expect(written).toEqual(["/login"]);
+  scheduler.observe("╰─ /login\r\n❯ ⤵  login           Login: choose ");
+  scheduler.observe("provider\r\n");
+  expect(written).toEqual(["/login"]);
+  writeFinished.resolve();
+  await enterWritten.promise;
+  expect(written).toEqual(["/login", "\r"]);
+  scheduler.observe("Select provider to login");
+  await cancelWritten.promise;
+  expect(written).toEqual(["/login", "\r", "cancel"]);
   scheduler.cancel();
 });
 
