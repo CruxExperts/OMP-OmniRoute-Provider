@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   CI: "true"
@@ -13,7 +14,29 @@ env:
   GH_PROMPT_DISABLED: "1"
 
 jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Export the checkout-matched provider package
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run check:upstreams
+          bun run prepare:upstream
+          bun run export:release
+          (cd release && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-login-research-package
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
   native-research:
+    needs: package
     name: native-windows-x64-research-only
     runs-on: windows-2025
     timeout-minutes: 30
@@ -28,16 +51,11 @@ jobs:
       - name: Install locked provider dependencies
         shell: bash
         run: bun install --frozen-lockfile --ignore-scripts
-      - name: Prepare checkout-matched provider package
+      - name: Download the same-run provider package
         shell: bash
         env:
-          CRUXOMNI_RELEASE_DIR: ${{ runner.temp }}/windows-research-release
-        run: |
-          set -euo pipefail
-          bun run check:upstreams
-          bun run prepare:upstream
-          bun run export:release
-          (cd "$CRUXOMNI_RELEASE_DIR" && sha256sum -c SHA256SUMS.txt)
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-login-research-package --dir "$RUNNER_TEMP/windows-research-release"
       - name: Build and observe research hosts
         shell: pwsh
         run: python scripts/build-windows-research.py
