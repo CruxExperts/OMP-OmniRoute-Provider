@@ -255,6 +255,31 @@ export function createBoundInferenceStream(options: BoundInferenceOptions) {
           } finally { attemptSignal.cleanup(); }
           if (terminal.type === "done") {
             if (!isCurrent() || composed.signal.aborted) throw inferenceError("OmniRoute inference binding is no longer active", "inference-binding-invalid");
+            // The host's replay-safe stream wrapper commits only on content events;
+            // a terminal-only successful tool call can be mistaken for an empty response.
+            // Reconstruct one lifecycle from the final accumulator, never failed attempts.
+            const partial = terminal.message;
+            outer.push({ type: "start", partial });
+            for (let contentIndex = 0; contentIndex < partial.content.length; contentIndex++) {
+              const block = partial.content[contentIndex]!;
+              if (block.type === "text" || block.type === "thinking") {
+                if (block.type === "text") {
+                  outer.push({ type: "text_start", contentIndex, partial });
+                  outer.push({ type: "text_delta", contentIndex, delta: block.text, partial });
+                  outer.push({ type: "text_end", contentIndex, content: block.text, partial });
+                } else {
+                  outer.push({ type: "thinking_start", contentIndex, partial });
+                  outer.push({ type: "thinking_delta", contentIndex, delta: block.thinking, partial });
+                  outer.push({ type: "thinking_end", contentIndex, content: block.thinking, partial });
+                }
+              } else if (block.type === "toolCall") {
+                outer.push({ type: "toolcall_start", contentIndex, partial });
+                outer.push({ type: "toolcall_delta", contentIndex, delta: JSON.stringify(block.arguments), partial });
+                outer.push({ type: "toolcall_end", contentIndex, toolCall: block, partial });
+              } else if (block.type === "image") {
+                outer.push({ type: "image_end", contentIndex, content: block, partial });
+              }
+            }
             outer.push(terminal);
             return;
           }

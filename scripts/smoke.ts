@@ -143,7 +143,7 @@ function expectedAssets(provenance: JsonObject, testedVersions: string[], assetN
 
 function isWithin(root: string, candidate: string): boolean {
   const path = relative(resolve(root), resolve(candidate));
-  return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -553,6 +553,25 @@ function hasNativeReadResult(body: JsonObject): boolean {
       && (typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? null)).includes(toolFileText);
   });
 }
+function nativeReadFailureSummary(body: JsonObject): string {
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const results = messages.filter((value): value is JsonObject => value !== null && typeof value === "object" && !Array.isArray(value) && (value as JsonObject).role === "tool");
+  const matching = results.filter(message => message.tool_call_id === toolReadCallId);
+  const shapes = messages.map(value => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return "non-object";
+    const message = value as JsonObject;
+    const role = ["system", "developer", "user", "assistant", "tool"].includes(String(message.role)) ? String(message.role) : "other";
+    return `${role}(tool_calls=${Array.isArray(message.tool_calls) ? message.tool_calls.length : 0},content=${Array.isArray(message.content) ? "array" : typeof message.content})`;
+  });
+  const contents = results.map(message => typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? null));
+  const category = contents.some(text => /no result provided|\baborted\b/i.test(text)) ? "synthetic-or-aborted"
+    : contents.some(text => /validat|invalid|required|parse error/i.test(text)) ? "validation"
+      : contents.some(text => /denied|permission|approval/i.test(text)) ? "permission"
+        : contents.some(text => /not found|no such file/i.test(text)) ? "not-found"
+          : contents.some(text => text.includes(toolFileText)) ? "result-under-different-id" : "other-or-absent";
+  return `tool results: ${results.length}; matching call ID: ${matching.length}; category: ${category}; message shapes: ${shapes.join(",")}`;
+}
+
 
 async function startFixtureServer(): Promise<FixtureServer> {
   const requests: FixtureRequest[] = [];
@@ -652,7 +671,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
             const input = { [pathField]: toolRead.path, ...(Object.hasOwn(properties, "i") ? { i: "Read the disposable continuation fixture." } : {}) };
             fixtureReadToolStream(response, expectedModel, input);
           } else {
-            if (!hasNativeReadResult(requestJson)) throw new Error("native continuation omitted the actual file read result");
+            if (!hasNativeReadResult(requestJson)) throw new Error(`native continuation omitted the actual file read result (${nativeReadFailureSummary(requestJson)})`);
             fixtureChatCompletionStream(response, record, expectedModel, toolReplyText);
           }
           return;
@@ -1617,7 +1636,7 @@ export async function runSmoke(): Promise<SmokeResult> {
   const host = await verifiedBinary(expectedAssets(releaseArtifacts, compatibility.tested, await nativeAssetName()), compatibility.range);
   const binary = host.path;
   const configuredTempRoot = process.env.OMP_SMOKE_TEMP_ROOT;
-  let tempRoot = tmpdir();
+  let tempRoot = await realpath(tmpdir());
   if (configuredTempRoot !== undefined) {
     if (!isAbsolute(configuredTempRoot)) throw new Error("OMP_SMOKE_TEMP_ROOT must be an absolute isolated directory");
     const requestedRoot = resolve(configuredTempRoot);

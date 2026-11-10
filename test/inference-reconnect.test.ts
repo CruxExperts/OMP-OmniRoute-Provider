@@ -75,7 +75,7 @@ test("partial text and completed tool calls from a failed attempt never escape",
   const stream = fixture(fetcher).run();
   for await (const event of stream) events.push(event);
   expect(calls).toBe(2);
-  expect(events.map(event => event.type)).toEqual(["done"]);
+  expect(events.map(event => event.type)).toEqual(["start", "text_start", "text_delta", "text_end", "done"]);
   expect(JSON.stringify(events)).not.toContain("discard me");
   expect(JSON.stringify(events)).not.toContain("call-1");
 });
@@ -104,8 +104,8 @@ test("structured connection errors wait between attempts and publish successful 
   for await (const event of state.run()) events.push(event);
   expect(started).toHaveLength(2);
   expect(started[1]! - started[0]!).toBeGreaterThanOrEqual(19);
-  expect(events.map(event => event.type)).toEqual(["done"]);
-  const final = events[0];
+  expect(events.map(event => event.type)).toEqual(["start", "toolcall_start", "toolcall_delta", "toolcall_end", "done"]);
+  const final = events.at(-1);
   expect(final?.type).toBe("done");
   if (final?.type === "done") {
     expect(final.message.stopReason).toBe("toolUse");
@@ -157,6 +157,6 @@ test("receiving drains independently while the host consumer is paused", async (
   const events = [];
   for await (const event of stream) events.push(event);
   expect(pulls).toBe(1001);
-  expect(events.map(event => event.type)).toEqual(["done"]);
+  expect(events.map(event => event.type)).toEqual(["start", "text_start", "text_delta", "text_end", "done"]);
   expect((await stream.result()).content).toEqual([{ type: "text", text: Array.from({ length: 1000 }, (_, i) => `${i + 1}: received chunk\n`).join("") }]);
 });

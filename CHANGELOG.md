@@ -15,6 +15,15 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Drain incoming response events independently of the host consumer, retaining
   the native response accumulator without a duplicate per-token event queue.
   Deliver successful output once; reject truncated streams before retrying.
+- Preserve pinned Alpine runtime hashes when the original package URL is gone:
+  use a retained mirror only after an HTTP 404, and reject any byte or signature
+  mismatch. Align the release gate with eligibility schema 3 without relaxing
+  operation or platform qualification.
+- Canonicalize the native smoke temporary root before checking profile
+  containment, including systems whose default temporary path is a symlink.
+- Publish a complete native content lifecycle only after a buffered generation
+  succeeds. This prevents the host's empty-response recovery from discarding a
+  successful tool call and preserves the actual tool result in continuation.
 
 ## 1.0.4 — 2026-11-05
 

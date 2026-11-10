@@ -77,6 +77,14 @@ Version `1.0.5` adds buffered inference recovery with five total attempts and a
 drained independently of the response consumer; failed partial generations and
 their speculative tool calls are discarded before a fresh attempt.
 
+Successful buffered messages publish their content lifecycle before the terminal
+event. A terminal-only tool message can be interpreted as an empty response by
+the host's replay-safe wrapper. Qualification must observe a real read result in
+the subsequent request, not merely the presence of a tool call in the final model
+message. Linux x64 glibc smoke against the pinned OMP `18.12.5` release asset
+observed that read and continuation after this repair; other platforms still
+require their own native results for the final archive.
+
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
 publication receipt. Publication still requires complete operation coverage,
@@ -88,6 +96,36 @@ The refreshed candidate inventory contains 25 invokable operations with reviewed
 fixture outcomes, 16 non-invokable entries, and 1,193 unqualified operations.
 Refreshing the existing outcomes does not qualify the remaining inventory.
 Those coverage gaps prevent protected publication until independently resolved.
+
+### Remaining qualification pipeline
+
+The remaining descriptors comprise 450 GET, 7 HEAD, 133 OPTIONS, 414 POST,
+62 PUT, 26 PATCH, and 101 DELETE operations. Generated unknown authorization
+and side-effect attributes are missing client qualification, not a claim that
+the server itself lacks access controls. Of these descriptors, 603 mutation
+entries also lack qualified preflight behavior and 222 have no OpenAPI mapping;
+these groups overlap.
+
+Process one source-owned route family at a time:
+
+1. Review its pinned handlers, imports, framework behavior, authorization, and
+   request/response contracts, including response redaction.
+2. Implement the client adapter and isolated backend fixtures, with explicit
+   side effects, mutation preflight, cancellation, and uncertain-outcome handling.
+3. Independently observe successful and denied requests, errors, target drift,
+   and mutation reconciliation against the pinned implementation. Expected
+   outcomes must not come from the helper generating the observed result.
+4. Review and bind the actual outcome to exact source and test bytes, regenerate
+   contracts, then run qualification freshness and contract verification.
+
+Advance only operations with that evidence. Do not substitute generated default
+attributes, broad route exclusions, or successful catalog reads for qualification.
+
+The protected environment must also allow the selected source branch or release
+tag. With self-review prevented, the account dispatching the publication cannot
+approve its own deployment; use a distinct authorized initiating account or a
+separately authorized reviewer. Provision `NPM_TOKEN` through GitHub environment
+secrets, never through release notes, issues, or committed configuration.
 
 ## Export a reviewed source snapshot
 
@@ -229,9 +267,12 @@ successful workflow run and all eight native job names.
 
 The two musl jobs rebuild the runtime from the immutable architecture-specific
 Bun 1.4.2 Alpine child-image digests and the frozen package list in
-`provenance/musl-runtime.json`. Each APK download must match its recorded URL,
-size, and SHA-256, and `apk verify` checks every package signature against the
-key in that exact base image. Image construction and package installation have
+`provenance/musl-runtime.json`. If the recorded Alpine URL returns HTTP 404,
+the job requests the same architecture and package filename from the Huawei
+Cloud Alpine mirror, which retains older package revisions. This mirror is not
+an immutable archive and availability is not guaranteed. Either source must
+match the recorded size and SHA-256; `apk verify` checks every package signature
+against the key in that exact base image. Image construction and package installation have
 network access disabled; package scripts are disabled and no repositories are
 configured. Before starting a runtime container, the job copies its installed
 APK database from a created, unstarted container and requires the exact

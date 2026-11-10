@@ -547,6 +547,38 @@ function parseApkDatabase(text: string, expectedArchitecture: string): MuslInven
   return sortMuslInventory(entries, "created-container APK database");
 }
 
+export async function fetchReviewedApk(url: URL, expectedSize: number, expectedDigest: string, name: string, fetcher: typeof fetch = fetch): Promise<Buffer> {
+  let requestedUrl = url;
+  let response = await fetcher(requestedUrl, { signal: AbortSignal.timeout(120_000), redirect: "error" });
+  if (response.status === 404) {
+    requestedUrl = new URL(url.pathname, "https://repo.huaweicloud.com");
+    response = await fetcher(requestedUrl, { signal: AbortSignal.timeout(120_000), redirect: "error" });
+  }
+  if (!response.ok || !response.body || response.url !== requestedUrl.toString()) throw new Error(`pinned Alpine APK download failed for ${name}: HTTP ${response.status}`);
+  const lengthHeader = response.headers.get("content-length");
+  if (lengthHeader !== null && Number(lengthHeader) !== expectedSize) throw new Error(`pinned Alpine APK length differs from provenance: ${name}`);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > expectedSize) {
+        await reader.cancel();
+        throw new Error(`pinned Alpine APK exceeds its exact size: ${name}`);
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = Buffer.concat(chunks, total);
+  if (bytes.byteLength !== expectedSize || await sha256(bytes) !== expectedDigest) throw new Error(`pinned Alpine APK bytes differ from provenance: ${name}`);
+  return bytes;
+}
+
 async function downloadReviewedApks(target: "linux-x64-musl" | "linux-arm64-musl", packagesDirectory: string): Promise<void> {
   const provenance = muslTargetProvenance(target);
   const packages = provenance.packages as JsonRecord[];
@@ -557,29 +589,7 @@ async function downloadReviewedApks(target: "linux-x64-musl" | "linux-arm64-musl
     const expectedDigest = digest(pkg.sha256, "musl APK SHA-256");
     const expectedSize = Number(pkg.sizeBytes);
     if (!Number.isSafeInteger(expectedSize) || expectedSize < 1 || expectedSize > 64 * 1024 * 1024) throw new Error(`pinned Alpine APK size is outside the allowed range: ${pkg.name}`);
-    const response = await fetch(url, { signal: AbortSignal.timeout(120_000), redirect: "error" });
-    if (!response.ok || !response.body || response.url !== url.toString()) throw new Error(`pinned Alpine APK download failed for ${pkg.name}: HTTP ${response.status}`);
-    const contentLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength !== expectedSize) throw new Error(`pinned Alpine APK length differs from provenance: ${pkg.name}`);
-    const reader = response.body.getReader();
-    const chunks: Buffer[] = [];
-    let total = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.byteLength;
-        if (total > expectedSize) {
-          await reader.cancel();
-          throw new Error(`pinned Alpine APK exceeds its exact size: ${pkg.name}`);
-        }
-        chunks.push(Buffer.from(value));
-      }
-    } finally {
-      reader.releaseLock();
-    }
-    const bytes = Buffer.concat(chunks, total);
-    if (bytes.byteLength !== expectedSize || await sha256(bytes) !== expectedDigest) throw new Error(`pinned Alpine APK bytes differ from provenance: ${pkg.name}`);
+    const bytes = await fetchReviewedApk(url, expectedSize, expectedDigest, String(pkg.name));
     const filename = basename(url.pathname);
     await writeFile(join(packagesDirectory, filename), bytes, { flag: "wx", mode: 0o600 });
   }
