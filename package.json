@@ -57,6 +57,20 @@
         "type": "boolean",
         "default": true,
         "description": "Show provider connection state transitions"
+      },
+      "reconnectMaxAttempts": {
+        "type": "number",
+        "default": 5,
+        "min": 1,
+        "max": 20,
+        "description": "Total inference attempts including the initial request; use 1 to disable retries"
+      },
+      "reconnectDelayMs": {
+        "type": "number",
+        "default": 30000,
+        "min": 1,
+        "max": 300000,
+        "description": "Delay in milliseconds between inference retry attempts"
       }
     },
     "extensions": [

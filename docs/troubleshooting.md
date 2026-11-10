@@ -111,6 +111,24 @@ its pending metadata request; it does not reset the runtime connection. A late
 response from that credential is discarded. Run `/omniroute refresh` to retry with
 the current credential, and check the separate metadata diagnostics.
 
+## Inference connection interrupted
+
+Transient inference failures, including interrupted streams during gateway
+restarts, can trigger a fresh generation after a delay. Response text is held
+until generation succeeds; the connector does not stream live tokens. Partial
+output from failed attempts is discarded, and their tool calls are never started.
+By default, the client allows 5 total attempts, including the initial request,
+with 30000 milliseconds between attempts. Terminal failures are not retried.
+Cancellation or a connection binding change stops retries. No synthetic resume
+prompt is sent, and administration operations are not replayed. A fresh
+inference attempt does not guarantee exactly-once processing by the model
+server or restart the OMP process.
+
+Set `reconnectMaxAttempts` to `1` to disable retries, or adjust the attempt
+count and delay using the [plugin settings](installation.md#inference-reconnect-settings).
+After attempts are exhausted, investigate the gateway and connection before
+trying again.
+
 ## An optional catalog is unavailable or its fields are missing
 
 Check **Catalogs (optional)** in setup and inspect `/omniroute` or **Summary**.

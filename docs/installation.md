@@ -111,6 +111,42 @@ Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.
 
+## Inference reconnect settings
+
+Configure these OMP plugin settings using the installed package identity, for
+example:
+
+```text
+omp plugin config set @cruxexperts/cruxomni-omp-client reconnectMaxAttempts 5
+omp plugin config set @cruxexperts/cruxomni-omp-client reconnectDelayMs 30000
+```
+
+`reconnectMaxAttempts` is an integer from 1 to 20 and defaults to 5 total
+attempts, including the initial request. Set it to `1` to disable retries.
+`reconnectDelayMs` is an integer from 1 to 300000 milliseconds and defaults to
+30000 milliseconds between attempts. Invalid runtime values fall back to the
+respective defaults. OMP merges global plugin settings with project overrides;
+project values take precedence. These are plugin settings, not credentials or
+fields in the provider's `config.json`.
+
+The connector buffers response text until generation succeeds, so live token
+streaming is not available. A recoverable interrupted stream starts a fresh
+generation; partial output from the failed attempt is discarded, and its tool
+calls are never started.
+
+The connector drains incoming events independently of OMP's response consumer
+and keeps the native response accumulator, rather than copying every growing
+partial response. A busy consumer therefore does not pause network intake.
+Successful output is delivered once, avoiding a burst of queued token updates.
+Memory use grows with the current response, not a second token-event history.
+This is asynchronous buffering, not a separate processing thread: a synchronous
+stall of the entire JavaScript event loop still delays parsing while the
+network stack buffers incoming bytes. It does not increase the model server's
+token generation rate.
+
+See [Troubleshooting and Recovery](troubleshooting.md#inference-connection-interrupted)
+for retry boundaries.
+
 ## Select a live model
 
 ```text
@@ -124,7 +160,7 @@ the full `--model` selector supports deferred extension-model resolution.
 
 Startup waits up to 10 seconds for live discovery, including resolution of
 the remembered native credential. Only discovered chat models become selectable;
-metadata and pricing do not delay that publication or the first streamed reply.
+metadata and pricing do not delay that publication or the first reply.
 Their optional enrichment is cancelled when the connection changes. A metadata
 credential replacement or removal cancels its own pending metadata request and
 discards late results without resetting live-model discovery. Refresh explicitly

@@ -1,4 +1,4 @@
-import { streamSimple, type Api, type AssistantMessageEventStream, type Context, type Model, type SimpleStreamOptions } from "@oh-my-pi/pi-ai";
+import { createAssistantMessageEventStream, streamSimple, type Api, type AssistantMessageEventStream, type AssistantMessageEvent, type Context, type Model, type SimpleStreamOptions } from "@oh-my-pi/pi-ai";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import type { EndpointApi } from "./catalog.ts";
 
@@ -18,6 +18,32 @@ export interface BoundInferenceOptions {
   currentModelApi(id: string): EndpointApi | undefined;
   currentSignal(): AbortSignal | undefined;
   stopped(): boolean;
+  reconnectSettings?(): ReconnectSettings;
+}
+
+export interface ReconnectSettings {
+  maxAttempts: number;
+  delayMs: number;
+}
+
+export function parseReconnectSettings(settings: Record<string, unknown>): ReconnectSettings {
+  const integer = (value: unknown, max: number, fallback: number): number =>
+    typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max ? value : fallback;
+  return { maxAttempts: integer(settings.reconnectMaxAttempts, 20, 5), delayMs: integer(settings.reconnectDelayMs, 300000, 30000) };
+}
+
+function retryableFailure(status: number | undefined, message: string | undefined): boolean {
+  if (status !== undefined) return status === 408 || status === 500 || status === 502 || status === 503 || status === 504;
+  return /(?:ECONNREFUSED|ConnectionRefused|ECONNRESET|ETIMEDOUT|UND_ERR_(?:SOCKET|CONNECT_TIMEOUT|HEADERS_TIMEOUT|BODY_TIMEOUT)|EPIPE|ENOTFOUND|EAI_AGAIN|socket (?:closed|hang up)|connection (?:refused|reset|closed|failed)|fetch failed|network[_ ]error|unexpected (?:eof|end)|stream (?:closed before|ended without)|terminated)/i.test(message ?? "");
+}
+
+function reconnectWait(ms: number, signal: AbortSignal): Promise<void> {
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  if (signal.aborted) { reject(signal.reason); return promise; }
+  const timer = setTimeout(() => { signal.removeEventListener("abort", abort); resolve(); }, ms);
+  const abort = () => { clearTimeout(timer); reject(signal.reason); };
+  signal.addEventListener("abort", abort, { once: true });
+  return promise;
 }
 
 function endpointApiRoot(endpoint: string): URL {
@@ -172,33 +198,82 @@ export function createBoundInferenceStream(options: BoundInferenceOptions) {
 
     const nativeApi = options.currentModelApi(model.id);
     if (!nativeApi) throw inferenceError("model is not in the validated live catalog", "inference-model-invalid");
-    const apiRoot = endpointApiRoot(binding.endpoint).toString().replace(/\/$/, "");
+    const isCurrent = () => {
+      const current = options.currentBinding();
+      return !options.stopped() && !generationSignal.aborted && options.currentSignal() === generationSignal && current !== undefined && current.endpoint === binding.endpoint && current.generation === binding.generation && current.credential === binding.credential && options.currentModelApi(model.id) === nativeApi;
+    };
+    const settings = options.reconnectSettings?.() ?? { maxAttempts: 5, delayMs: 30000 };
+    const outer = createAssistantMessageEventStream();
     const composed = composeAbortSignals(streamOptions?.signal, generationSignal);
-    let stream: AssistantMessageEventStream;
-    try {
-      const nativeModel = materializeNativeModel(model, nativeApi, apiRoot, binding.generation);
-      stream = streamSimple(nativeModel, context, {
-        ...streamOptions,
-        signal: composed.signal,
-        apiKey: binding.credential,
-        fetch: createSingleDispatchFetch(binding.endpoint, nativeApi, streamOptions?.fetch ?? globalThis.fetch, () => {
-          const current = options.currentBinding();
-          return !options.stopped() &&
-            !generationSignal.aborted &&
-            options.currentSignal() === generationSignal &&
-            current !== undefined &&
-            current.endpoint === binding.endpoint &&
-            current.generation === binding.generation &&
-            options.currentModelApi(model.id) === nativeApi;
-        }, binding.credential),
-        statefulResponses: false,
-        preferWebsockets: false,
-      });
-    } catch (error) {
-      composed.cleanup();
-      throw error;
-    }
-    void stream.result().then(composed.cleanup, composed.cleanup);
-    return stream;
+    void (async () => {
+      try {
+        for (let attempt = 1; attempt <= settings.maxAttempts; attempt++) {
+          if (!isCurrent() || composed.signal.aborted) throw inferenceError("OmniRoute inference binding is no longer active", "inference-binding-invalid");
+          const attemptSignal = composeAbortSignals(composed.signal);
+          let status: number | undefined;
+          let transportMessage: string | undefined;
+          const baseFetch = streamOptions?.fetch ?? globalThis.fetch;
+          const observedFetch: typeof fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+            try {
+              const response = await baseFetch(input, init);
+              if (!response.ok) status = response.status;
+              return response;
+            } catch (error) {
+              const details: string[] = [];
+              for (let cause: unknown = error, depth = 0; cause && typeof cause === "object" && depth < 4; depth++) {
+                if ("message" in cause && typeof cause.message === "string") details.push(cause.message);
+                if ("code" in cause && typeof cause.code === "string") details.push(cause.code);
+                cause = "cause" in cause ? cause.cause : undefined;
+              }
+              transportMessage = details.join(" ");
+              throw error;
+            }
+          }, { preconnect: baseFetch.preconnect });
+          const nativeModel = materializeNativeModel(model, nativeApi, endpointApiRoot(binding.endpoint).toString().replace(/\/$/, ""), binding.generation);
+          let terminal: Extract<AssistantMessageEvent, { type: "done" | "error" }> | undefined;
+          try {
+            const inner = streamSimple(nativeModel, context, {
+              ...streamOptions, signal: attemptSignal.signal, apiKey: binding.credential,
+              fetch: createSingleDispatchFetch(binding.endpoint, nativeApi, observedFetch, isCurrent, binding.credential),
+              statefulResponses: false, preferWebsockets: false, maxHttpAttempts: 1, acceptEmptyResponse: true,
+            });
+            for await (const event of inner) {
+              if (event.type === "done" || event.type === "error") { terminal = event; break; }
+            }
+            if (!terminal) throw inferenceError("inference stream ended without a result", "inference-stream-ended");
+          } catch (error) {
+            attemptSignal.cleanup();
+            const message = error instanceof Error ? error.message : "";
+            if (!composed.signal.aborted && isCurrent() && retryableFailure(status, transportMessage || message)) {
+              if (attempt < settings.maxAttempts) {
+                await reconnectWait(settings.delayMs, composed.signal);
+                continue;
+              }
+              throw inferenceError(`OmniRoute inference reconnect attempts exhausted (${settings.maxAttempts})`, "inference-attempts-exhausted");
+            }
+            throw error;
+          } finally { attemptSignal.cleanup(); }
+          if (terminal.type === "done") {
+            if (!isCurrent() || composed.signal.aborted) throw inferenceError("OmniRoute inference binding is no longer active", "inference-binding-invalid");
+            outer.push(terminal);
+            return;
+          }
+          const recoverable = !composed.signal.aborted && isCurrent() && retryableFailure(status ?? terminal.error.errorStatus, transportMessage || terminal.error.errorMessage);
+          if (recoverable && attempt < settings.maxAttempts) {
+            try { await reconnectWait(settings.delayMs, composed.signal); } catch { /* handled below */ }
+            if (!composed.signal.aborted && isCurrent()) continue;
+          }
+          const error = { ...terminal.error, content: [] };
+          if (composed.signal.aborted) { error.stopReason = "aborted"; error.errorMessage = "OmniRoute inference cancelled"; delete error.errorId; delete error.errorStatus; }
+          else if (!isCurrent()) { error.errorMessage = "OmniRoute inference binding is no longer active"; delete error.errorId; delete error.errorStatus; }
+          else if (recoverable) { error.errorMessage = `OmniRoute inference reconnect attempts exhausted (${settings.maxAttempts}); last failure category: ${status ? "gateway" : "transport"}`; delete error.errorId; delete error.errorStatus; }
+          if (composed.signal.aborted || !isCurrent() || recoverable) delete error.errorClassificationMessage;
+          outer.push({ type: "error", reason: error.stopReason === "aborted" ? "aborted" : "error", error });
+          return;
+        }
+      } catch (error) { outer.fail(error); }
+      finally { composed.cleanup(); }
+    })();
+    return outer;
   };
 }

@@ -13,7 +13,7 @@ import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./
 import { readSellerPricing, PRICING_WARNING, type SellerPricing } from "./pricing.ts";
 import { requestJson, TransportError } from "./transport.ts";
 import type { AdminRuntime } from "./admin/runtime.ts";
-import { createBoundInferenceStream, OMNIROUTE_GUARDED_API } from "./inference.ts";
+import { createBoundInferenceStream, OMNIROUTE_GUARDED_API, parseReconnectSettings } from "./inference.ts";
 import { formatReadiness, type CredentialPresence, type ReadinessIssue } from "./readiness.ts";
 
 const PROVIDER_ID = "omniroute";
@@ -112,6 +112,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let pricingCurrent = false;
 	let latestProjection: CatalogProjection | undefined;
 	let transitionNotifications = true;
+	let reconnectSettings = parseReconnectSettings({});
 	let pendingCandidateKey: string | undefined;
 	let pendingCandidateEndpoint: string | undefined;
 	let runtimeEndpoint: string | undefined;
@@ -371,6 +372,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			currentBinding: () => manager.currentBinding,
 			currentModelApi: id => manager.getModelApi(id),
 			currentSignal: () => manager.bindingSignal,
+			reconnectSettings: () => reconnectSettings,
 			stopped: () => stopped,
 		}) : undefined,
 		guardedApi,
@@ -772,6 +774,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		manager.resume();
 		await refresh(ctx, false);
 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
+		reconnectSettings = parseReconnectSettings(settings);
 		transitionNotifications = settings.notifyTransitions !== false;
 		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config)) {
 			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /omniroute setup. You can open setup at any time.`);
