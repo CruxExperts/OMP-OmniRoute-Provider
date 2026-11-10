@@ -99,6 +99,9 @@ hint before sending Enter. Native Windows observations showed that Enter on the
 open command completion changed `/login` to `/login ` without opening provider
 selection. Completing the command explicitly avoids treating that transition as
 submission; no extra Enter is sent blindly.
+This sequencing alone has not resolved the Windows submission stall: the real
+host still retained the completed draft after Enter. Windows qualification
+remains unaccepted while the host's input and submission gate are investigated.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
