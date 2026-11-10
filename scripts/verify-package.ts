@@ -561,13 +561,39 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     if (nearestDeclaration) candidates.push(nearestDeclaration);
     return candidates.some(candidate => hasImmutableIdentifier(candidate) || hasFixtureIdentifier(candidate));
   };
+  const pythonDigestAssignment = (text: string, start: number, value: string): boolean => {
+    const line = text.slice(text.lastIndexOf("\n", start - 1) + 1, start);
+    const name = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*(?::\s*[A-Za-z_][A-Za-z0-9_.\[\] |]*)?\s*=\s*$/)?.[1];
+    if (!name) return false;
+    if (hasImmutableIdentifier(name) && /^(?:[a-f\d]{40}|[a-f\d]{64}|[a-f\d]{96}|[a-f\d]{128})$/i.test(value)) return true;
+    if (!contextWords(name).includes("sri")) return false;
+    const sri = value.match(/^(?:(sha256|sha384|sha512)-)?([A-Za-z0-9+/]+={0,2})$/);
+    if (!sri) return false;
+    const bytes = Buffer.from(sri[2]!, "base64");
+    return bytes.toString("base64") === sri[2] && (sri[1]
+      ? bytes.length === Number(sri[1].slice(3)) / 8
+      : [32, 48, 64].includes(bytes.length));
+  };
+  const pythonFieldReference = (text: string, start: number, end: number, value: string): boolean => {
+    const before = text.slice(0, start);
+    const prefix = /(?:^|[^A-Za-z0-9_])[fF]$/.test(before) ? 1 : 0;
+    const field = prefix ? value.replace(/\{[A-Za-z_][A-Za-z0-9_]*\}/g, "") : value;
+    if (!isImmutableFieldName(field)) return false;
+    const left = before.slice(0, before.length - prefix).trimEnd();
+    const right = text.slice(end).trimStart();
+    return (/(?:[A-Za-z0-9_\])])\s*\[$/.test(left) && right.startsWith("]"))
+      || ((left.endsWith("{") || left.endsWith(",")) && right.startsWith(":"))
+      || (/\.get\($/.test(left) && /^[,)]/.test(right));
+  };
   const immutableSourceFieldPositions = (path: string, text: string): Set<number> => {
     const positions = new Set<number>();
     const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
     const visit = (node: ts.Node): void => {
       if (ts.isStringLiteral(node) && isImmutableFieldName(node.text)) {
         const parent = node.parent;
-        let fieldReference = (ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) && parent.name === node;
+        let fieldReference = ((ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) && parent.name === node)
+          || (ts.isElementAccessExpression(parent) && parent.argumentExpression === node)
+          || (ts.isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === ts.SyntaxKind.InKeyword);
         if (ts.isArrayLiteralExpression(parent)) {
           let initializer: ts.Node = parent;
           while (ts.isAsExpression(initializer.parent) || ts.isSatisfiesExpression(initializer.parent)
@@ -697,10 +723,17 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     let immutableSourceFields: Set<number> | undefined;
     for (const match of text.matchAll(literalPattern)) {
       const value = match[0].slice(1, -1);
-      if (!hasHighEntropy(value)) continue;
+      const start = match.index ?? -1;
+      const python = relativePath.endsWith(".py");
+      const formattedPython = python && /(?:^|[^A-Za-z0-9_])[fF]$/.test(text.slice(0, start));
+      const entropyValue = formattedPython
+        ? value.replace(/\{[A-Za-z_][A-Za-z0-9_]*(?:\([A-Za-z_][A-Za-z0-9_]*\))?\}/g, "").replace(/\\[0abfnrtv\\]/g, "")
+        : value;
+      if (!hasHighEntropy(entropyValue)) continue;
+      if (python && (pythonDigestAssignment(text, start, value) || pythonFieldReference(text, start, start + match[0].length, value))) continue;
       const jsonLiteral = jsonLiterals?.get(match.index ?? -1);
-      if (jsonLiteral ? jsonValueHasContext(relativePath, jsonLiteral.fieldPath, value) : (!jsonLiterals && sourceLiteralHasContext(text, match.index ?? -1))) continue;
-      if (!jsonLiterals && isImmutableFieldName(value)) {
+      if (jsonLiteral ? jsonValueHasContext(relativePath, jsonLiteral.fieldPath, value) : (!jsonLiterals && !python && sourceLiteralHasContext(text, match.index ?? -1))) continue;
+      if (!jsonLiterals && !python && isImmutableFieldName(value)) {
         // A documented JSON field name is public schema, while its value is still scanned.
         if (relativePath.endsWith(".md") && /^\s*:\s*"<[^>\r\n]+>"/.test(text.slice((match.index ?? 0) + match[0].length))) continue;
         immutableSourceFields ??= immutableSourceFieldPositions(relativePath, text);

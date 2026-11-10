@@ -158,6 +158,9 @@ atomic rename, including on Windows where an open handle otherwise prevents
 the rename. Cached archives still require the pinned digest before extraction.
 The source exporter treats archive output names as local paths, so Windows drive
 letters are not interpreted as remote tar destinations.
+Package scanning recognizes validated Python digest/integrity assignments and
+immutable schema-field references without exempting their assigned values;
+opaque credential-like values remain blocked in both Python and TypeScript.
 
 
 The provider fixture uses the checkout-matched exported package. The real

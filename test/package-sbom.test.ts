@@ -96,6 +96,47 @@ test("package scanning recognizes immutable field references without exempting o
   }
 });
 
+test("package scanning recognizes Python digests and schema references without hiding credentials", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-python-scan-"));
+  const issues: Parameters<typeof scanText>[2] = [];
+  const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+  const python = [
+    `SOURCE_SHA = ${JSON.stringify("a".repeat(64))}`,
+    `PACKAGE_SRI = ${JSON.stringify(["lq82LqVjSXAx9gNUcibCdfQdtrelh86FxQqlhpOdiV4S", "ZQAP8HHUxWhnfbjx2fqz+jzglwBvjmlEs7xFyONBZw=="].join(""))}`,
+    `metadata = {"compilerTemplateSha256": SOURCE_SHA}`,
+    `metadata["baselineBinarySha256"] = SOURCE_SHA`,
+    `metadata[f"{variant}BinarySha256"] = SOURCE_SHA`,
+    `value = metadata.get("packageArchiveSha256")`,
+    `environment = {"OMP_SMOKE_PACKAGE_SHA256": SOURCE_SHA}`,
+    `value = f"file\\0{key}\\0{digest(path)}\\0"`,
+  ].join("\n");
+  const typescript = `const value = metadata["packageArchiveSha256"];\nconst present = "packageArchiveSha256" in metadata;`;
+  try {
+    await writeFile(join(root, "metadata.py"), python);
+    await writeFile(join(root, "binding.ts"), typescript);
+    await scanText(root, ["metadata.py", "binding.ts"], issues);
+    expect(issues).toEqual([]);
+
+    for (const [file, source] of [
+      ["metadata.py", `${python}\nSOURCE_SHA = ${JSON.stringify(opaque)}`],
+      ["metadata.py", `${python}\nPACKAGE_SRI = ${JSON.stringify(opaque)}`],
+      ["metadata.py", `${python}\nmetadata["packageArchiveSha256"] = ${JSON.stringify(opaque)}`],
+      ["metadata.py", `${python}\nmetadata = {"packageArchiveSha256": ${JSON.stringify(opaque)}}`],
+      ["metadata.py", `${python}\nvalue = f"${opaque}{suffix}"`],
+      ["binding.ts", `${typescript}\nconst value = ${JSON.stringify(opaque)};`],
+      ["binding.ts", `${typescript}\nmetadata["packageArchiveSha256"] = ${JSON.stringify(opaque)};`],
+      ["binding.ts", `${typescript}\nconst present = ${JSON.stringify(opaque)} in metadata;`],
+    ]) {
+      issues.length = 0;
+      await writeFile(join(root, file!), source!);
+      await scanText(root, [file!], issues);
+      expect(issues).toContainEqual({ kind: "secret", path: file!, detail: "high-entropy secret-like literal" });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("package scanning preserves public model examples and authorization prose but rejects embedded bearer credentials", async () => {
   const root = await mkdtemp(join(tmpdir(), "crux-package-openapi-scan-"));
   const issues: Parameters<typeof scanText>[2] = [];
