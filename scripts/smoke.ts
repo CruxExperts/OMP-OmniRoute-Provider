@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, writeSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createConnection } from "node:net";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
@@ -768,6 +769,7 @@ type CommandOptions = {
   input?: string;
   inputSteps?: Array<{ afterMs: number; text: string }>;
   dialogue?: DialogueStep[];
+  diagnosticDispatch?: (phase: "rendered" | "dispatched") => Promise<void>;
 };
 
 export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
@@ -1005,7 +1007,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     },
   });
   if (options.dialogue) {
-    dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, _index, text) => {
+    dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, index, text) => {
       if (text === "__OBSERVE_ONLY__") return;
       if (text === "__SIGTERM__") {
         child?.kill("SIGTERM");
@@ -1017,8 +1019,10 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
         setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
         return;
       }
+      if (index === 1 && options.diagnosticDispatch) await options.diagnosticDispatch("rendered").catch(() => undefined);
       if (terminal.closed) throw new Error("terminal closed before dialogue input was written");
       await writeInput(terminal, nativePtyDialogueText(text));
+      if (index === 1 && options.diagnosticDispatch) await options.diagnosticDispatch("dispatched").catch(() => undefined);
     }, () => child?.kill("SIGTERM"));
   }
   child = Bun.spawn([binary], {
@@ -1083,6 +1087,63 @@ function requireJsonText(text: string, label: string): JsonObject {
   throw new Error(`${label} did not produce a JSON object`);
 }
 
+// Read only the pinned host's optional NDJSON interface. Responses are bounded
+// in memory and projected to an allowlist; raw component state is never saved.
+async function readTuiDebug(endpoint: string, op: "info" | "values"): Promise<JsonObject | undefined> {
+  const { promise, resolve: resolveRequest } = Promise.withResolvers<JsonObject | undefined>();
+  const socket = createConnection(endpoint);
+  let buffer = "";
+  let finished = false;
+  const finish = (value?: JsonObject): void => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    socket.destroy();
+    resolveRequest(value);
+  };
+  const timer = setTimeout(() => finish(), 1_000);
+  socket.on("error", () => finish());
+  socket.on("close", () => finish());
+  socket.on("connect", () => socket.write(`${JSON.stringify({ op })}\n`));
+  socket.on("data", chunk => {
+    buffer += chunk.toString();
+    if (buffer.length > 262_144) return finish();
+    const end = buffer.indexOf("\n");
+    if (end < 0) return;
+    try {
+      const value: unknown = JSON.parse(buffer.slice(0, end));
+      if (typeof value === "object" && value !== null && !Array.isArray(value) && (value as JsonObject).ok === true) return finish(value as JsonObject);
+    } catch { /* Unsupported or malformed protocol. */ }
+    finish();
+  });
+  return await promise;
+}
+
+async function observeTuiDebug(endpoint: string): Promise<JsonObject> {
+  const [info, values] = await Promise.all([readTuiDebug(endpoint, "info"), readTuiDebug(endpoint, "values")]);
+  const state: JsonObject = { interface: info ? "available" : "unavailable", submitReady: "unavailable" };
+  if (info) {
+    state.focus = info.focused === null ? "none" : info.focused === "Editor" || info.focused === "CustomEditor" ? info.focused : "other-or-unavailable";
+    state.altScreen = typeof info.alt_screen === "boolean" ? info.alt_screen : "unavailable";
+    state.overlays = typeof info.overlays === "number" && Number.isInteger(info.overlays) && info.overlays >= 0 && info.overlays <= 100 ? info.overlays : "unavailable";
+  }
+  const valueMap = values?.values;
+  if (typeof valueMap === "object" && valueMap !== null && !Array.isArray(valueMap)) {
+    const editors = Object.entries(valueMap).filter(([key]) => /^(?:CustomEditor|Editor)(?:\[|#)/.test(key));
+    if (editors.length === 1) {
+      const editor = editors[0]![1];
+      if (typeof editor === "object" && editor !== null && !Array.isArray(editor)) {
+        const fields = editor as JsonObject;
+        if (typeof fields.textPreview === "string" && typeof fields.textLength === "number" && typeof fields.previewTruncated === "boolean") {
+          state.fixtureCommandMatched = fields.textPreview === "/login" && fields.textLength === 6 && !fields.previewTruncated;
+        }
+      }
+    }
+  }
+  if (!("fixtureCommandMatched" in state)) state.fixtureCommandMatched = "unavailable";
+  return state;
+}
+
 async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
@@ -1093,7 +1154,21 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
     { when: /OmniRoute base URL/i, text: "\u001b", afterMs: 250 },
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 30_000, dialogue });
+  const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
+  const endpoint = diagnosticPath ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
+  const observations: JsonObject = { rendered: "not-observed", dispatched: "not-observed" };
+  let result: CommandResult;
+  try {
+    result = await runPtyCommand(binary, {
+      cwd, env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint } : environment, timeoutMs: 30_000, dialogue,
+      ...(endpoint ? { diagnosticDispatch: async phase => { observations[phase] = await observeTuiDebug(endpoint); } } : {}),
+    });
+  } finally {
+    if (diagnosticPath) {
+      await writeFile(diagnosticPath, `${JSON.stringify({ schemaVersion: 1, diagnostic: "native-login-debug", observations }, null, 2)}\n`, { mode: 0o600 }).catch(() => undefined);
+    }
+    if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
+  }
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   const prompted = /OmniRoute base URL/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;

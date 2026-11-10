@@ -5,8 +5,80 @@ on:
 
 permissions:
   contents: read
+  actions: read
+
+env:
+  CI: "true"
+  npm_config_ignore_scripts: "true"
+  GH_PROMPT_DISABLED: "1"
 
 jobs:
+  package:
+    name: prepare-diagnostic-package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Prepare package using the qualification exporter
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile --ignore-scripts
+          bun run check:upstreams
+          bun run prepare:upstream
+          bun run export:release
+          (cd release && sha256sum -c SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-diagnostic-release-input
+          path: release/
+          if-no-files-found: error
+          retention-days: 14
+
+  host:
+    name: native-login-${{ matrix.id }}
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            runner: windows-2025
+          - id: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Install exact locked dependencies
+        shell: bash
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Download this run's diagnostic package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name windows-diagnostic-release-input --dir "$RUNNER_TEMP/release"
+      - name: Observe pinned native host login
+        shell: bash
+        env:
+          QUALIFICATION_TARGET: ${{ matrix.id }}
+          OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH: ${{ runner.temp }}/native-login-diagnostic.json
+        run: bun run scripts/qualify-release.ts target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/diagnostic-output"
+      - name: Upload sanitized observation only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-login-diagnostic-${{ matrix.id }}
+          path: ${{ runner.temp }}/native-login-diagnostic.json
+          if-no-files-found: error
+          retention-days: 14
+
   probe:
     name: input-transport-${{ matrix.id }}
     strategy:

@@ -95,12 +95,24 @@ trusted; inherited broad access and symbolic links remain rejected. Native
 Windows smoke must exercise this protection and the real login lifecycle.
 
 When native Windows login stalls after command rendering, manually run
-`windows-input-diagnostic.yml` to isolate the terminal transport. It sends only
-fixture `/login` text and one carriage return to an owned raw-mode console child,
-then uploads bounded hexadecimal input and decoded key fields. The child restores
-its input mode before exiting. Missing input, timeout, or truncation fails the
-diagnostic. This does not exercise OMP's editor, establish a successful login, or
-replace any native qualification result.
+`windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
+The transport jobs send only fixture `/login` text and one carriage return to an
+owned raw-mode console child, then upload bounded hexadecimal input and decoded
+key fields. The child restores its input mode before exiting. Missing input,
+timeout, or truncation fails the transport diagnostic. Separate native-host jobs
+use the existing package exporter and target preparation, with
+`OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH` enabling read-only observations around the real
+terminal Enter. Only allowlisted state is uploaded; raw editor values are not.
+Neither diagnostic replaces any native qualification result.
+
+Successful transport delivery alone does not prove that the host editor accepted
+or submitted the command. Actual-host diagnostics must retain real terminal input
+and distinguish editor focus and draft changes from submission readiness. The
+optional `OMP_TUI_DEBUG` interface can expose component state when supported by
+the exact host binary; an absent interface is an unavailable observation, not a
+passing result. Editor text and cursor observations do not establish that the
+host's startup submission gate is open. Never substitute injected debug keys or
+an instrumented replacement host for native release qualification.
 
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
