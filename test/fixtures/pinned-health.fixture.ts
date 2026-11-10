@@ -1,5 +1,10 @@
+import { Database } from "bun:sqlite";
+import ts from "typescript";
+import { operationContractTemplate } from "../../scripts/generate-contracts.ts";
+import type { OperationSourceContract } from "../../src/admin/eligibility.ts";
+import { getOperation, type JsonSchema, type OperationDescriptor } from "../../src/admin/registry.ts";
 import * as perfHooks from "node:perf_hooks";
-import { loadPinnedModule, type PinnedExports } from "./pinned-handler.fixture.ts";
+import { loadPinnedModule, readPinnedSource, type PinnedExports } from "./pinned-handler.fixture.ts";
 
 type Lifecycle = PinnedExports & {
   markServerStarting(): void;
@@ -34,4 +39,81 @@ export function createPinnedHealthFixture() {
     return probe[request.method]();
   } });
   return { lifecycle, endpoint: server.url.origin, stop: () => server.stop(true) };
+}
+
+export const JSON_HEALTH_IDS = ["GET /api/health", "GET /api/health/ping"] as const;
+export type JsonHealthId = (typeof JSON_HEALTH_IDS)[number];
+const timestamp: JsonSchema = { type: "string", format: "date-time" };
+const liveResponse: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["ok"] }, timestamp }, required: ["status", "timestamp"], additionalProperties: false };
+const pingResponse: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["ok"] }, timestamp, latencyMs: { type: "number", minimum: 0 } }, required: ["status", "timestamp", "latencyMs"], additionalProperties: false };
+const pingError: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["error"] }, error: { type: "string", enum: ["db_query_failed", "ping_failed"] } }, required: ["status", "error"], additionalProperties: false };
+
+/** Candidate contracts only: framework ingress is not established by this fixture. */
+export function jsonHealthContract(id: JsonHealthId): OperationSourceContract {
+  const template = operationContractTemplate(id) as unknown as OperationSourceContract;
+  const ping = id === JSON_HEALTH_IDS[1];
+  const success = ping ? pingResponse : liveResponse;
+  return {
+    ...template,
+    auth: { ...template.auth, sourcePolicy: { status: "unknown" } },
+    response: { ...template.response, mediaType: "application/json", schema: ping ? { oneOf: [success, pingError] } : success,
+      variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? success : pingError })) })) },
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
+    pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
+    confirmation: { required: false, reason: "The pinned handlers only report liveness and database responsiveness." },
+    retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null, mutationSafety: null,
+  };
+}
+
+export function jsonHealthDescriptor(id: JsonHealthId): OperationDescriptor {
+  const original = getOperation(id);
+  if (!original) throw new Error(`Missing pinned operation ${id}`);
+  return { ...original, ...jsonHealthContract(id) };
+}
+
+/** Extract the exact receipt-verified pingDb declaration, injecting only its database boundary. */
+function sourcePingDb(getDbInstance: () => Database): () => boolean {
+  const path = "src/lib/db/core.ts";
+  const source = readPinnedSource(path);
+  const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declarations = file.statements.filter((statement): statement is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === "pingDb");
+  if (declarations.length !== 1) throw new Error("Pinned core must contain exactly one pingDb declaration");
+  const compiled = ts.transpileModule(declarations[0]!.getText(file), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const module = { exports: {} as { pingDb?: () => boolean } };
+  new Function("getDbInstance", "module", "exports", compiled)(getDbInstance, module, module.exports);
+  if (typeof module.exports.pingDb !== "function") throw new Error("Pinned pingDb export missing");
+  return module.exports.pingDb;
+}
+
+/** Direct receipt-verified routes and pingDb on disposable SQLite, not Next ingress or durable storage. */
+export class PinnedJsonHealthFixture {
+  readonly db = new Database(":memory:");
+  readonly #health: () => Promise<Response>;
+  readonly #ping: () => Promise<Response>;
+  failOpen = false;
+  throwFromPing = false;
+  constructor() {
+    const pingDb = sourcePingDb(() => {
+      if (this.failOpen) throw new Error("fixture-private-backend-error");
+      return this.db;
+    });
+    const next = { NextResponse: { json: Response.json.bind(Response) } };
+    const health = loadPinnedModule("src/app/api/health/route.ts", specifier => {
+      if (specifier === "next/server") return next;
+      throw new Error(`Unexpected health route dependency: ${specifier}`);
+    });
+    const ping = loadPinnedModule("src/app/api/health/ping/route.ts", specifier => {
+      if (specifier === "next/server") return next;
+      if (specifier === "@/lib/db/core") return { pingDb: () => {
+        if (this.throwFromPing) throw new Error("fixture-private-backend-error");
+        return pingDb();
+      } };
+      throw new Error(`Unexpected ping route dependency: ${specifier}`);
+    });
+    this.#health = health.GET as () => Promise<Response>;
+    this.#ping = ping.GET as () => Promise<Response>;
+  }
+  handle(id: JsonHealthId): Promise<Response> { return id === JSON_HEALTH_IDS[0] ? this.#health() : this.#ping(); }
+  close(): void { this.db.close(); }
 }

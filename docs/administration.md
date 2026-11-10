@@ -94,6 +94,17 @@ upstream provenance refresh or isolated historical-runtime research procedure
 establishes actual ingress behavior. This is not a claim that the connector
 runtime depends on Next.js or that the health matcher exercises those flaws.
 
+The `/api/health` and `/api/health/ping` candidate contracts likewise remain
+unqualified until the exact framework ingress is established. Their direct
+pinned-handler fixture exercises the liveness response and the source database
+ping using disposable in-memory SQLite, including database failures and bounded
+response projection. It bypasses Next.js and does not prove ingress access,
+durable persistence, or production database health. The route source describes
+these probes as public; the fixture does not impose a management credential or
+claim a denied-credential result. The pinned ping handler returns a fixed error
+body for an unexpected exception but also logs the exception server-side; the
+response redaction check is not a claim that server logs are secret-free.
+
 The cache-metrics GET and DELETE routes remain unqualified pending actual Next.js
 ingress evidence. In the pinned server, both calculate metrics from usage history;
 the deprecated DELETE does not clear that history. A database query failure can
