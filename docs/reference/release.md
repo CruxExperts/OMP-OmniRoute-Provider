@@ -156,6 +156,11 @@ namespace sandbox and the install uses network access.
 Source acquisition closes the downloaded temporary file before its verified
 atomic rename, including on Windows where an open handle otherwise prevents
 the rename. Cached archives still require the pinned digest before extraction.
+The Linux export job supplies the same-run checkout-matched provider archive
+to the native runner. Source and installed dependency hashes stay fixed across
+each build; only the coding-agent binaries and the pinned stats compiler's
+`packages/stats/dist/client` output are excluded from the input-tree digest.
+Unexpected input changes stop research and retain a bounded changed-path list.
 The source exporter treats archive output names as local paths, so Windows drive
 letters are not interpreted as remote tar destinations.
 Package scanning recognizes validated Python digest/integrity assignments and
