@@ -1153,6 +1153,15 @@ async function observeTuiDebug(endpoint: string): Promise<JsonObject> {
     if (selected) {
       const fields = selected[1] as JsonObject;
       state.fixtureCommandMatched = fields.textPreview === "/login" && fields.textLength === 6 && !fields.previewTruncated;
+      state.draftLength = Number.isSafeInteger(fields.textLength) && (fields.textLength as number) >= 0 && (fields.textLength as number) <= 262_144 ? fields.textLength : "unavailable";
+      state.lineCount = Number.isSafeInteger(fields.lineCount) && (fields.lineCount as number) >= 0 && (fields.lineCount as number) <= 262_144 ? fields.lineCount : "unavailable";
+      const preview = fields.textPreview as string;
+      state.draftCategory = fields.previewTruncated || preview.length !== fields.textLength ? "unavailable"
+        : preview === "" ? "empty"
+        : preview === "/login" ? "exact-login"
+        : /^\/login\s+$/.test(preview) ? "login-trailing-whitespace"
+        : /^\/login\s+\[provider\|redirect URL\]$/.test(preview) ? "login-usage-placeholder"
+        : "other";
     }
   }
   return state;

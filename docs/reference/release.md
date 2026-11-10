@@ -118,6 +118,8 @@ Diagnostic editor matching uses the returned state fields rather than compiled
 class names. A later read-only sample allows the host to process the single Enter;
 it does not send another key or prove that submission is enabled. Diagnostic
 sampling can perturb timing and must not be used as a qualification result.
+Draft observations expose only a fixed category, length, and line count, not raw
+text, distinguishing an emptied draft from a completed command with whitespace.
 
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
