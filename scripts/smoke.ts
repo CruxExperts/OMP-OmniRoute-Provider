@@ -1800,24 +1800,41 @@ export async function runWindowsLoginResearch(options: {
   let packed: PackageVerificationResult | undefined;
   const observations: JsonObject = {};
   const result: JsonObject = { recordKind: "windows-login-research", researchOnly: true, officialQualification: false, binarySha256: digest, instrumented: options.instrumented, architecture: process.arch, observations };
+  let stage = "workspace-initialization";
   try {
     await mkdir(profile, { recursive: true });
     await mkdir(workspace, { recursive: true });
     await mkdir(environment.TEMP!, { recursive: true });
-    const version = requireSuccess(await runCommand(options.binary, ["--version"], { cwd: workspace, env: environment }), "research host version").trim();
+    stage = "host-version";
+    const versionResult = await runCommand(options.binary, ["--version"], { cwd: workspace, env: environment });
+    result.hostStartup = {
+      exitCode: versionResult.code, signal: versionResult.signal,
+      stdoutLength: versionResult.stdout.length, stderrLength: versionResult.stderr.length,
+      moduleResolutionFailure: /Cannot find (?:package|module)|ModuleNotFound/u.test(`${versionResult.stdout}\n${versionResult.stderr}`),
+      nativeLoadFailure: /DLL|dlopen|LoadLibrary|native addon/iu.test(`${versionResult.stdout}\n${versionResult.stderr}`),
+    };
+    const version = requireSuccess(versionResult, "research host version").trim();
     if (!/(?:^|\s)18\.12\.5(?:\s|$)/.test(version)) throw new Error("Research host must report 18.12.5");
     result.hostVersion = "18.12.5";
     await writeFile(options.output, JSON.stringify(result, null, 2), { flag: "wx", mode: 0o600 });
     const archivePath = process.env.OMP_SMOKE_PACKAGE_ARCHIVE;
     const expectedArchiveSha256 = process.env.OMP_SMOKE_PACKAGE_SHA256;
     if (!archivePath || !expectedArchiveSha256 || !/^[a-f0-9]{64}$/.test(expectedArchiveSha256)) throw new Error("Research requires the exact exported package archive and digest");
+    stage = "package-verification";
     packed = await verifyPackage({ keepTemporary: true, archivePath, expectedArchiveSha256 });
     result.packageArchiveSha256 = packed.archiveSha256;
+    stage = "package-installation";
     await installPackedPackage(options.binary, workspace, environment, profile, packed);
+    stage = "setup-configuration";
     requireSuccess(await runCommand(options.binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: environment }), "research setup version");
+    stage = "native-dialogue";
     await nativePromptCancel(options.binary, workspace, environment, undefined, { instrumented: options.instrumented, observations });
     result.reproducedSubmissionFailure = observations.selectorVisible === false && observations.prompted === false && observations.dialogueCompleted === 3;
     return result;
+  } catch (error) {
+    result.failedStage = stage;
+    result.failureType = error instanceof Error ? error.name : "UnknownError";
+    throw error;
   } finally {
     await writeFile(options.output, JSON.stringify(result, null, 2), { mode: 0o600 });
     if (packed) await rm(resolve(packed.extractedRoot, "..", ".."), { recursive: true, force: true });
