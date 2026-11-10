@@ -94,6 +94,14 @@ not POSIX file-mode bits. Only the current user, SYSTEM, and Administrators are
 trusted; inherited broad access and symbolic links remain rejected. Native
 Windows smoke must exercise this protection and the real login lifecycle.
 
+When native Windows login stalls after command rendering, manually run
+`windows-input-diagnostic.yml` to isolate the terminal transport. It sends only
+fixture `/login` text and one carriage return to an owned raw-mode console child,
+then uploads bounded hexadecimal input and decoded key fields. The child restores
+its input mode before exiting. Missing input, timeout, or truncation fails the
+diagnostic. This does not exercise OMP's editor, establish a successful login, or
+replace any native qualification result.
+
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
 publication receipt. Publication still requires complete operation coverage,
