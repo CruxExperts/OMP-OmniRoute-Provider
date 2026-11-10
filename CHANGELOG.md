@@ -27,6 +27,9 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Compare native canonical extraction paths across Python and JavaScript so
   equivalent macOS temporary paths and Windows path spellings are accepted.
   Wrong destinations and symlinked extracted package directories remain rejected.
+- Use native private Windows access-control lists for profile configuration,
+  retaining owner/trustee checks and file-identity checks instead of treating
+  Windows file modes as proof of privacy.
 
 ## 1.0.4 — 2026-11-05
 

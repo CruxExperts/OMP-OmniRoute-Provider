@@ -89,6 +89,11 @@ Archive verification compares canonical package-directory identities rather than
 lexical path spellings. This preserves destination and symlink checks while
 handling macOS temporary-directory aliases and native Windows normalization.
 
+Windows profile configuration requires a protected native access-control list,
+not POSIX file-mode bits. Only the current user, SYSTEM, and Administrators are
+trusted; inherited broad access and symbolic links remain rejected. Native
+Windows smoke must exercise this protection and the real login lifecycle.
+
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
 publication receipt. Publication still requires complete operation coverage,
