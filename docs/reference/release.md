@@ -156,6 +156,8 @@ namespace sandbox and the install uses network access.
 Source acquisition closes the downloaded temporary file before its verified
 atomic rename, including on Windows where an open handle otherwise prevents
 the rename. Cached archives still require the pinned digest before extraction.
+The source exporter treats archive output names as local paths, so Windows drive
+letters are not interpreted as remote tar destinations.
 
 
 The provider fixture uses the checkout-matched exported package. The real

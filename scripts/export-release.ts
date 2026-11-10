@@ -149,7 +149,7 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
     await touchTree(sourceStage);
 
     const sourceName = `${REPOSITORY_SLUG}-v${packageManifest.version}-source.tar.gz`;
-    await command("tar", ["--sort=name", "--mtime=1980-01-01 UTC", "--owner=0", "--group=0", "--numeric-owner", "-czf", join(stage, sourceName), basename(sourceStage)], temporary);
+    await command("tar", ["--force-local", "--sort=name", "--mtime=1980-01-01 UTC", "--owner=0", "--group=0", "--numeric-owner", "-czf", join(stage, sourceName), basename(sourceStage)], temporary);
 
     packageEvidence = await (options.packageVerifier ?? (() => verifyPackage({ keepTemporary: true })))(root);
     const npmName = `cruxexperts-cruxomni-omp-client-${packageManifest.version}.tgz`;
