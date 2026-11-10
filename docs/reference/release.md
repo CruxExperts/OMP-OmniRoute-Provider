@@ -114,6 +114,11 @@ passing result. Editor text and cursor observations do not establish that the
 host's startup submission gate is open. Never substitute injected debug keys or
 an instrumented replacement host for native release qualification.
 
+Diagnostic editor matching uses the returned state fields rather than compiled
+class names. A later read-only sample allows the host to process the single Enter;
+it does not send another key or prove that submission is enabled. Diagnostic
+sampling can perturb timing and must not be used as a qualification result.
+
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
 publication receipt. Publication still requires complete operation coverage,

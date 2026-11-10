@@ -1123,24 +1123,38 @@ async function observeTuiDebug(endpoint: string): Promise<JsonObject> {
   const [info, values] = await Promise.all([readTuiDebug(endpoint, "info"), readTuiDebug(endpoint, "values")]);
   const state: JsonObject = { interface: info ? "available" : "unavailable", submitReady: "unavailable" };
   if (info) {
-    state.focus = info.focused === null ? "none" : info.focused === "Editor" || info.focused === "CustomEditor" ? info.focused : "other-or-unavailable";
+    state.focus = info.focused === null ? "none" : typeof info.focused === "string" ? "present" : "unavailable";
     state.altScreen = typeof info.alt_screen === "boolean" ? info.alt_screen : "unavailable";
     state.overlays = typeof info.overlays === "number" && Number.isInteger(info.overlays) && info.overlays >= 0 && info.overlays <= 100 ? info.overlays : "unavailable";
   }
+  state.editorCandidates = "unavailable";
+  state.focusMatchesEditor = "unavailable";
+  state.fixtureCommandMatched = "unavailable";
   const valueMap = values?.values;
   if (typeof valueMap === "object" && valueMap !== null && !Array.isArray(valueMap)) {
-    const editors = Object.entries(valueMap).filter(([key]) => /^(?:CustomEditor|Editor)(?:\[|#)/.test(key));
-    if (editors.length === 1) {
-      const editor = editors[0]![1];
-      if (typeof editor === "object" && editor !== null && !Array.isArray(editor)) {
-        const fields = editor as JsonObject;
-        if (typeof fields.textPreview === "string" && typeof fields.textLength === "number" && typeof fields.previewTruncated === "boolean") {
-          state.fixtureCommandMatched = fields.textPreview === "/login" && fields.textLength === 6 && !fields.previewTruncated;
-        }
-      }
+    const editors = Object.entries(valueMap).filter(([, value]) => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+      const fields = value as JsonObject;
+      return typeof fields.textPreview === "string" && typeof fields.textLength === "number" &&
+        typeof fields.previewTruncated === "boolean" && typeof fields.cursorLine === "number" &&
+        typeof fields.cursorCol === "number" && typeof fields.lineCount === "number";
+    });
+    state.editorCandidates = editors.length;
+    const focused = info?.focused;
+    const focusedEditors = typeof focused === "string"
+      ? editors.filter(([key]) => key.startsWith(`${focused}[`) || key.startsWith(`${focused}#`))
+      : [];
+    if (focused === null) state.focusMatchesEditor = false;
+    else if (typeof focused === "string" && editors.length > 0) {
+      state.focusMatchesEditor = focusedEditors.length > 0;
+      state.focusMatchBasis = "component-kind-only";
+    }
+    const selected = focusedEditors.length === 1 ? focusedEditors[0] : editors.length === 1 ? editors[0] : undefined;
+    if (selected) {
+      const fields = selected[1] as JsonObject;
+      state.fixtureCommandMatched = fields.textPreview === "/login" && fields.textLength === 6 && !fields.previewTruncated;
     }
   }
-  if (!("fixtureCommandMatched" in state)) state.fixtureCommandMatched = "unavailable";
   return state;
 }
 
@@ -1156,12 +1170,26 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
   ];
   const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
   const endpoint = diagnosticPath ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
-  const observations: JsonObject = { rendered: "not-observed", dispatched: "not-observed" };
+  const observations: JsonObject = { rendered: "not-observed", dispatched: "not-observed", delayed: "not-observed" };
   let result: CommandResult;
   try {
     result = await runPtyCommand(binary, {
       cwd, env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint } : environment, timeoutMs: 30_000, dialogue,
-      ...(endpoint ? { diagnosticDispatch: async phase => { observations[phase] = await observeTuiDebug(endpoint); } } : {}),
+      ...(endpoint ? { diagnosticDispatch: async phase => {
+        const started = Date.now();
+        observations[phase] = await observeTuiDebug(endpoint);
+        if (phase === "dispatched") {
+          // This diagnostic-only sample is taken at least one second after the PTY write.
+          const remaining = Math.max(0, 1_000 - (Date.now() - started));
+          if (remaining > 0) {
+            const { promise, resolve: done } = Promise.withResolvers<void>();
+            setTimeout(done, remaining);
+            await promise;
+          }
+          const elapsedMs = Date.now() - started;
+          observations.delayed = { elapsedAfterDispatchMs: elapsedMs, ...await observeTuiDebug(endpoint) };
+        }
+      } } : {}),
     });
   } finally {
     if (diagnosticPath) {
