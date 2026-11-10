@@ -2,6 +2,11 @@ name: windows-input-diagnostic
 
 on:
   workflow_dispatch:
+    inputs:
+      research:
+        description: Run source-built Windows x64 causal research instead of official diagnostics
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,6 +19,7 @@ env:
 
 jobs:
   package:
+    if: ${{ !inputs.research }}
     name: prepare-diagnostic-package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -39,6 +45,7 @@ jobs:
           retention-days: 14
 
   host:
+    if: ${{ !inputs.research }}
     name: native-login-${{ matrix.id }}
     needs: package
     strategy:
@@ -80,6 +87,7 @@ jobs:
           retention-days: 14
 
   probe:
+    if: ${{ !inputs.research }}
     name: input-transport-${{ matrix.id }}
     strategy:
       fail-fast: false
@@ -107,3 +115,9 @@ jobs:
           path: ${{ runner.temp }}/windows-input-diagnostic.json
           if-no-files-found: error
           retention-days: 14
+
+  research:
+    if: ${{ inputs.research }}
+    uses: ./.github/workflows/windows-login-research.yml
+    permissions:
+      contents: read
