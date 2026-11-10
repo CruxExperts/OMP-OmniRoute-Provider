@@ -87,6 +87,9 @@ def input_tree_sha256(root: Path) -> str:
         relative = base.relative_to(root).as_posix()
         if relative == "packages/coding-agent":
             directories[:] = [item for item in directories if item != "binaries"]
+        # The pinned stats build.ts recreates dist/client as a compiler output.
+        if relative == "packages/stats/dist":
+            directories[:] = [item for item in directories if item != "client"]
         for name in sorted(directories + files):
             path = base / name
             key = path.relative_to(root).as_posix()
