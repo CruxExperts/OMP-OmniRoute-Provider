@@ -94,6 +94,12 @@ upstream provenance refresh or isolated historical-runtime research procedure
 establishes actual ingress behavior. This is not a claim that the connector
 runtime depends on Next.js or that the health matcher exercises those flaws.
 
+The cache-metrics GET and DELETE routes remain unqualified pending actual Next.js
+ingress evidence. In the pinned server, both calculate metrics from usage history;
+the deprecated DELETE does not clear that history. A database query failure can
+also produce a successful response containing zero metrics, so zero is not proof
+that no cache activity occurred.
+
 ## Inspect and change fallback chains
 
 Search for `/api/fallback/chains` to inspect or change a model's fallback chain.

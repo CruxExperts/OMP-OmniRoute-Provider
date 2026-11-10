@@ -1107,9 +1107,16 @@ function projectNode(
   parentPath: readonly string[],
 ): JsonValue | undefined {
   if (depth > 24) throw new RegistryError("invalid-inventory", "response depth limit exceeded", descriptor.operationId);
-  if (!privateTarget && key && isSecretOutputField(key, value, parentPath, descriptor.secrets.outputFields)) return undefined;
-  const currentPath = key === undefined ? parentPath : [...parentPath, key];
   if (!schema) return undefined;
+  const fieldPath = key === undefined ? "" : [...parentPath, key].join(".").toLowerCase();
+  const explicitlySecret = key !== undefined && descriptor.secrets.outputFields.some(field => {
+    const normalized = field.toLowerCase();
+    return normalized.includes(".") ? normalized === fieldPath : normalized === key.toLowerCase();
+  });
+  const numericMetric = key !== undefined && schema.type === "number" && typeof value === "number" && Number.isFinite(value)
+    && ["totalInputTokens", "totalCachedTokens", "totalCacheCreationTokens", "tokensSaved", "inputTokens", "cachedTokens", "cacheCreationTokens"].includes(key);
+  if (!privateTarget && key && (explicitlySecret || (!numericMetric && isSecretOutputField(key, value, parentPath)))) return undefined;
+  const currentPath = key === undefined ? parentPath : [...parentPath, key];
   schema = projectionShape(schema, value, descriptor, depth);
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     if (schema.type === undefined && schema.enum === undefined && !Object.hasOwn(schema, "const")) throw new RegistryError("invalid-inventory", "response scalar lacks an explicit type", descriptor.operationId);
