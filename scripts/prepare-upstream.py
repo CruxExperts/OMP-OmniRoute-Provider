@@ -31,22 +31,22 @@ def prepare() -> None:
     if not archive.exists():
         with tempfile.NamedTemporaryFile(dir=state, delete=False) as temporary:
             staging = Path(temporary.name)
-            try:
-                # codeload serves the exact immutable GitHub archive and avoids HTML redirects.
+        try:
+            # Close the temporary handle before rename: Windows forbids renaming an open file.
+            with staging.open("wb") as output:
                 with urllib.request.urlopen(f"https://codeload.github.com/{upstream['repository']}/tar.gz/{commit}", timeout=60) as response:
                     total = 0
                     while chunk := response.read(1024 * 1024):
                         total += len(chunk)
                         if total > 512 * 1024 * 1024:
                             raise ValueError("Pinned source archive exceeds 512 MiB")
-                        temporary.write(chunk)
-                temporary.flush()
-                with staging.open("rb") as handle:
-                    if hashlib.file_digest(handle, "sha256").hexdigest() != digest:
-                        raise ValueError("Downloaded source archive digest mismatch")
-                staging.rename(archive)
-            finally:
-                staging.unlink(missing_ok=True)
+                        output.write(chunk)
+            with staging.open("rb") as handle:
+                if hashlib.file_digest(handle, "sha256").hexdigest() != digest:
+                    raise ValueError("Downloaded source archive digest mismatch")
+            staging.rename(archive)
+        finally:
+            staging.unlink(missing_ok=True)
     with archive.open("rb") as handle:
         if hashlib.file_digest(handle, "sha256").hexdigest() != digest:
             raise ValueError("Cached source archive digest mismatch")

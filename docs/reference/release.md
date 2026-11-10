@@ -153,6 +153,10 @@ the unmodified and instrumented hosts serially. The filtered dependency graph
 contains accepted high-severity advisories in sharp, zod and adm-zip; this
 research use is not a release approval. The hosted runner is not a Linux
 namespace sandbox and the install uses network access.
+Source acquisition closes the downloaded temporary file before its verified
+atomic rename, including on Windows where an open handle otherwise prevents
+the rename. Cached archives still require the pinned digest before extraction.
+
 
 The provider fixture uses the checkout-matched exported package. The real
 fixture runs against the baseline first; the instrumented dialogue runs only
