@@ -24,6 +24,9 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Publish a complete native content lifecycle only after a buffered generation
   succeeds. This prevents the host's empty-response recovery from discarding a
   successful tool call and preserves the actual tool result in continuation.
+- Compare native canonical extraction paths across Python and JavaScript so
+  equivalent macOS temporary paths and Windows path spellings are accepted.
+  Wrong destinations and symlinked extracted package directories remain rejected.
 
 ## 1.0.4 — 2026-11-05
 

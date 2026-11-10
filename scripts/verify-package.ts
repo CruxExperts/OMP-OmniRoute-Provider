@@ -2,7 +2,7 @@ import { decodeRouteSources } from "./route-source-store.ts";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { lstat, mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -743,6 +743,17 @@ async function verifyDocumentation(root: string, files: string[], issues: ScanIs
   }
 }
 
+export async function validateExtractedPackageRoot(extracted: string, destination: string): Promise<string> {
+  const expectedRoot = resolve(destination, "package");
+  const info = await lstat(extracted);
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("archive did not extract an ordinary package directory");
+  const expectedInfo = await lstat(expectedRoot);
+  if (!expectedInfo.isDirectory() || expectedInfo.isSymbolicLink()) throw new Error("archive did not extract an ordinary package directory");
+  const [actualCanonical, expectedCanonical] = await Promise.all([realpath(extracted), realpath(expectedRoot)]);
+  if (actualCanonical !== expectedCanonical) throw new Error("portable archive verifier returned an unexpected extraction directory");
+  return actualCanonical;
+}
+
 async function extractPackage(archive: string, destination: string): Promise<{ root: string; entries: string[] }> {
   const python = process.platform === "win32" ? "python" : "python3";
   const output = await command(python, [join(packageRoot, "scripts/package-archive.py"), "extract", archive, destination], packageRoot);
@@ -756,12 +767,8 @@ async function extractPackage(archive: string, destination: string): Promise<{ r
     || parsed.entries.some(entry => typeof entry !== "string")) {
     throw new Error("portable archive verifier returned an invalid extraction result");
   }
-  const extracted = resolve(parsed.root);
-  const expectedRoot = resolve(destination, "package");
-  if (extracted !== expectedRoot) throw new Error("portable archive verifier returned an unexpected extraction directory");
-  const info = await lstat(extracted);
-  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("archive did not extract an ordinary package directory");
-  return { root: extracted, entries: parsed.entries as string[] };
+  const root = await validateExtractedPackageRoot(resolve(parsed.root), destination);
+  return { root, entries: parsed.entries as string[] };
 }
 
 export function buildSbom(manifest: PackageManifest, lockfile: LockEvidence): Sbom {

@@ -85,6 +85,10 @@ message. Linux x64 glibc smoke against the pinned OMP `18.12.5` release asset
 observed that read and continuation after this repair; other platforms still
 require their own native results for the final archive.
 
+Archive verification compares canonical package-directory identities rather than
+lexical path spellings. This preserves destination and symlink checks while
+handling macOS temporary-directory aliases and native Windows normalization.
+
 The candidate is intended for the protected GitHub and npm publication workflow
 below. Prepared source, local checks, and refreshed operation evidence are not a
 publication receipt. Publication still requires complete operation coverage,
