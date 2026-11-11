@@ -868,6 +868,8 @@ export function nativePtyDialogueText(text: string): string {
 export const nativeLoginCommandRenderedPattern = /\/login[^\n]*\n[^\n]*\blogin\s+Login: choose provider/i;
 export const nativeLoginCommandCompletedPattern = /\/login[ \t]+\[provider\|redirect URL\]/i;
 
+// Native readiness requires the committed binding and a live chat catalog.
+export const nativeSetupActivatedPattern = /omniroute:[ \t]*source=native profile;\s*(?:runtime environment overrides ignored; native source never falls back;\s*)?catalog ready;\s*chat models=[1-9]\d*;\s*live rows=[1-9]\d*/i;
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
 export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
@@ -1016,14 +1018,8 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     dialogueScheduler = createDialogueScheduler(options.dialogue, async (_step, _index, text) => {
       if (text === "__OBSERVE_ONLY__") return;
       if (text === "__SIGTERM__") {
-        child?.kill("SIGTERM");
-        return;
-      }
-      if (text === "__REFRESH_AND_STOP__") {
-        if (terminal.closed) throw new Error("terminal closed before refresh dialogue input was written");
         if (options.beforeResearchStop) await options.beforeResearchStop();
-        await writeInput(terminal, "/omniroute refresh\n");
-        setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
+        child?.kill("SIGTERM");
         return;
       }
       if (text === "\r" && options.diagnosticDispatch) await options.diagnosticDispatch("rendered").catch(() => undefined);
@@ -1341,10 +1337,12 @@ async function nativePromptSetup(
       when: /Successfully logged in to omniroute/i,
       text: () => {
         postSwitchEnvironmentRequestIndex = environmentFixture.requests.length;
-        return "__REFRESH_AND_STOP__";
+        return "/omniroute refresh\n";
       },
       afterMs: 0,
+      captureDuringDispatch: true,
     },
+    { when: nativeSetupActivatedPattern, text: "__SIGTERM__", afterMs: 0 },
   ];
   const endpoint = research?.instrumented ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
   const traceClient = endpoint ? new ResearchTraceClient(endpoint) : undefined;
@@ -1360,9 +1358,9 @@ async function nativePromptSetup(
     result = await runPtyCommand(binary, {
       cwd,
       env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint, OMP_RESEARCH_INPUT_TRACE: "1" } : environment,
-      // Existing UI/network allowance plus the longest successful fresh-profile
-      // Windows path: 15 sequential ACL helpers, each bounded to 30 seconds.
-      timeoutMs: 75_000 + (process.platform === "win32" ? 15 * 30_000 : 0),
+      // Original 15 helpers, activation's 11, and a possible separate manual
+      // refresh's two; each Windows ACL helper is bounded to 30 seconds.
+      timeoutMs: 75_000 + (process.platform === "win32" ? 28 * 30_000 : 0),
       dialogue,
       ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
       ...(traceClient ? { beforeTimeoutTermination: (elapsedMs: number) => { research!.observations.timeoutElapsedMs = elapsedMs; return sampleTrace("timeout-before-termination"); }, beforeResearchStop: () => sampleTrace("success-before-stop") } : {}),

@@ -20,6 +20,7 @@ import {
   nativeLoginCommandRenderedPattern,
   nativeLoginCommandCompletedPattern,
   nativePtyDialogueText,
+  nativeSetupActivatedPattern,
   writeNativeLoginDiagnostic,
 } from "../scripts/smoke.ts";
 
@@ -28,6 +29,59 @@ test("persisted inference allows five Windows ACL reads without changing other d
   expect(nativeInferenceTimeoutMs("win32", false)).toBe(20_000);
   expect(nativeInferenceTimeoutMs("linux", true)).toBe(20_000);
   expect(nativeInferenceTimeoutMs("darwin", true)).toBe(20_000);
+});
+
+test("native setup stops only after the post-login native catalog is ready", async () => {
+  const written: string[] = [];
+  const refreshStarted = Promise.withResolvers<void>();
+  const refreshFinished = Promise.withResolvers<void>();
+  const stopped = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    { when: /Successfully logged in to omniroute/i, text: "/omniroute refresh\n", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeSetupActivatedPattern, text: "__SIGTERM__", afterMs: 0 },
+  ], async (_step, _index, text) => {
+    written.push(text);
+    if (text === "__SIGTERM__") stopped.resolve();
+    else { refreshStarted.resolve(); await refreshFinished.promise; }
+  });
+  scheduler.observe("Successfully logged in to omniroute");
+  await refreshStarted.promise;
+  scheduler.observe("omniroute: source=native profile; activation pending; use /omniroute recover\n");
+  scheduler.observe("omniroute: source=environment; catalog ready; chat models=1; live rows=1\n");
+  expect(written).toEqual(["/omniroute refresh\n"]);
+  refreshFinished.resolve();
+  scheduler.observe("omniroute: source=native profile; runtime environment overrides ignored; native source never falls back; catalog ready; chat models=2; live rows=2");
+  await stopped.promise;
+  expect(written).toEqual(["/omniroute refresh\n", "__SIGTERM__"]);
+  scheduler.cancel();
+});
+
+test("native setup retains ready output delivered while refresh input is written", async () => {
+  const started = Promise.withResolvers<void>();
+  const finished = Promise.withResolvers<void>();
+  const stopped = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    { when: /login success/, text: "refresh", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeSetupActivatedPattern, text: "stop", afterMs: 0 },
+  ], async (_step, _index, text) => {
+    if (text === "refresh") { started.resolve(); await finished.promise; }
+    else stopped.resolve();
+  });
+  scheduler.observe("login success");
+  await started.promise;
+  scheduler.observe("omniroute: source=native profile; catalog ready; chat models=1; live rows=1");
+  finished.resolve();
+  await stopped.promise;
+  scheduler.cancel();
+});
+
+test("native setup readiness rejects pending, failed and empty catalogs", () => {
+  for (const output of [
+    "omniroute: source=native profile; activation pending; catalog ready; chat models=1; live rows=1",
+    "omniroute: source=native profile; connection binding unavailable; inspect setup and retry",
+    "omniroute: source=native profile; catalog ready; chat models=0; live rows=1",
+    "omniroute: source=environment; catalog ready; chat models=1; live rows=1",
+  ]) expect(nativeSetupActivatedPattern.test(output)).toBe(false);
 });
 
 test("native login diagnostic preserves bounded identity before and after an interrupted dialogue", async () => {

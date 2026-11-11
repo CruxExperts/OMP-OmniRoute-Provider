@@ -164,17 +164,24 @@ from starting; that failure was not evidence of an instrumented-host crash.
 Research command failures retain only their exit/timeout classification, not raw
 output; a bounded scenario record is written before checking host startup.
 
-The Windows native setup smoke retains its existing 75-second UI and network
-allowance and adds `15 * 30 seconds` for the maximum sequential private-ACL
-helpers on this fixture's successful path, for a total of 525 seconds. The
-earlier cancellation session can persist the setup-invitation flag, so the
-subsequent setup session must account for an existing private config: one ACL
-check at registration, two during startup refresh, two during session refresh,
-one at login, seven while staging the pending config, and two during the
-pre-persistence refresh. The 75 seconds retain the existing UI allowance,
-two 10-second candidate-validation network budgets, discovery, and the
-six-second post-login stop. The individual helper timeout remains 30 seconds;
-the selection and cancellation deadlines and security checks are unchanged.
+The Windows native setup smoke retains its 75-second UI and network allowance
+and budgets up to 28 sequential private-ACL helpers at 30 seconds each, for
+915 seconds total. The original 15 cover setup through the pre-persistence
+refresh. After native credential persistence, activation can require 11 more:
+two binding reads, one recovery read, one commit read, six write checks, and
+one post-commit read. A separately executed manual refresh can add two reads.
+Individual helper limits, security checks, and other platforms' deadlines do
+not change.
+
+Host login success reports credential persistence, not completed activation.
+The smoke sends one manual refresh and waits for the provider's native-profile
+`catalog ready` notification with nonzero chat-model and live-row counts before
+stopping the owned terminal. Pending, unavailable, or environment-sourced
+readiness is not completion. The provider's binding synchronization compares
+the saved native key with the staged candidate, validates the live catalog,
+commits the pending configuration, and reloads it before native readiness can
+report this state. If completion is not observed, the smoke fails at its outer
+deadline; there is no timed success or extra login Enter.
 
 Official run `42981036057` completed setup on both Windows architectures but
 the subsequent persisted Chat Completions command reached its 20-second outer
@@ -190,6 +197,14 @@ seconds on Windows only, for 170 seconds. This is an outer allowance, not a
 change to ACL limits, credential validation, or security checks. Environment
 inference and other platforms retain their existing deadlines. These source
 bounds do not prove the observed timeout's cause or qualify either platform.
+
+In run `42982723874` at `a29a9cf`, both Windows architectures reached host
+login success but the later persisted inference exited with activation pending
+and the model unavailable, rather than timing out. The former six-second stop
+after sending refresh could interrupt activation, but that run alone does not
+prove the interruption caused its failure. The completion gate above must be
+exercised on the unmodified official hosts and exact final archive; this change
+is not platform qualification.
 
 
 In the instrumented Windows research run `42974498638`, helper 1 ran from
