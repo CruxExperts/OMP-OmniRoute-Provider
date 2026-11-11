@@ -16,6 +16,7 @@ import { requestJson, TransportError } from "./transport.ts";
 import type { AdminRuntime } from "./admin/runtime.ts";
 import { createBoundInferenceStream, OMNIROUTE_GUARDED_API, parseReconnectSettings } from "./inference.ts";
 import { formatReadiness, type CredentialPresence, type ReadinessIssue } from "./readiness.ts";
+import { diagnosticElapsed, windowsDiagnostic } from "./private-path.ts";
 
 const PROVIDER_ID = "omniroute";
 const RUNTIME_ENV = "OMP_OMNIROUTE_API_KEY";
@@ -88,13 +89,26 @@ function envBinding(config: PluginConfig): { endpoint: string; credential: strin
 	return { endpoint: binding.endpoint, credential: binding.credential.value, generation: binding.generation };
 }
 
+async function loadStartupConfig(signal?: AbortSignal): Promise<PluginConfig> {
+	const started = performance.now();
+	const abortedAtEntry = signal?.aborted ?? false;
+	try {
+		const result = await loadConfig();
+		windowsDiagnostic({ kind: "config", elapsedMs: diagnosticElapsed(started), outcome: "ok", abortedAtEntry });
+		return result;
+	} catch (error) {
+		windowsDiagnostic({ kind: "config", elapsedMs: diagnosticElapsed(started), outcome: "error", abortedAtEntry });
+		throw error;
+	}
+}
+
 export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promise<void> {
 	const guardedApi = `${OMNIROUTE_GUARDED_API}-${randomUUID()}` as Api;
 	let context: ContextLike | undefined;
 	let stopped = false;
 	let config: PluginConfig;
 	try {
-		config = await loadConfig();
+		config = await loadStartupConfig();
 	} catch (error) {
 		const reason = safeDetail(error);
 		const issue = reason === "config-conflict" || reason === "corrupt-config" || reason === "insecure-permissions" ? reason : "config";
@@ -538,7 +552,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			if (invitationFlight) await settleInvitation();
 			readinessIssue = undefined;
 			const previousActiveGeneration = config.active?.generation;
-			const loaded = await loadConfig();
+			const loaded = ctx ? await loadConfig() : await loadStartupConfig(startupSignal);
 			config = loaded;
 			if (recoveryBlocked) {
 				runtimeEndpoint = undefined;
@@ -581,7 +595,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				));
 			credentialPresence = credential ? "present" : "missing";
 			phase = "config";
-			const confirmed = await loadConfig();
+			const confirmed = ctx ? await loadConfig() : await loadStartupConfig(startupSignal);
 			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
 				validConfiguration = false;
 				throw Object.assign(new Error("binding changed during credential resolution"), { code: "binding_changed" });

@@ -71,6 +71,14 @@ or rejected credentials require a fresh sign-in through OMP's masked prompt.
 Recovery does not use environment or legacy credential fallback. A valid empty
 catalog is accepted as a connection with no chat models.
 
+For Windows native-login smoke investigations, the existing identity-bound
+diagnostic artifact records bounded configuration, credential, ACL, and staging
+outcomes and elapsed times. A credential entry marked already aborted can mean
+the startup deadline expired while configuration was still loading; it does not
+establish that credential lookup ran. The artifact contains no paths, endpoints,
+credentials, or raw exceptions. A reported staging failure stops that smoke
+setup promptly; it does not weaken ACL checks or change their timeouts.
+
 If the key check succeeds but setup reports no compatible chat models, the
 credential was verified and the current `/v1/models` response did not yield a
 runnable chat model. Check the route prefix and model availability separately;

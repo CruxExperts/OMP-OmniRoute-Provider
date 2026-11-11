@@ -191,13 +191,13 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/b93d3630f0cf2328c3b96bce73085e9eae6da53a025370a396e5f76ebe89a628.json",
-        "caseSha256": "2023e4718f0d963bbd373ca7922f3bc9a731ba41a0de849a7f17d15ab2a65d50",
+        "observedOutcome": "provenance/qualification/8f712624134cbc97a66afc80acbb80c6cca860be51afdcb9fd7855b124d47cce.json",
+        "caseSha256": "3df911e5f5638b3d60d9fe74287b73f5571e517b22e67be9ff0c6a6868ddcf2d",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f.json",
-        "sha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f"
+        "artifact": "provenance/qualification/ingress-a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109.json",
+        "sha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109"
       },
       "evidence": [
         {
@@ -708,8 +708,8 @@
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f.json",
-        "sha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f"
+        "artifact": "provenance/qualification/ingress-a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109.json",
+        "sha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109"
       },
       "evidence": [
         {

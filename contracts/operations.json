@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "0d429df3de56f395ff4ef9a0215fad15fbc5d6f4e06aeb47ddb608518d3227c2",
+    "eligibilitySha256": "b99e7d575f17c3525ddef98a53b4e034acabcbe363b4ed8e736ef01fa4e925e7",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -53793,10 +53793,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f",
+        "ingressSha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "2023e4718f0d963bbd373ca7922f3bc9a731ba41a0de849a7f17d15ab2a65d50",
+          "caseSha256": "3df911e5f5638b3d60d9fe74287b73f5571e517b22e67be9ff0c6a6868ddcf2d",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -54026,7 +54026,7 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f",
+        "ingressSha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
           "caseSha256": "42a8ea843565aa4359b8d23eb6687870fdf17be19f19837ac771d4495f506d13",

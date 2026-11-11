@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
-import { runWindowsLoginResearch } from "./smoke.ts";
+import { researchSetupFailureReproduced, runWindowsLoginResearch } from "./smoke.ts";
 
 const args = process.argv.slice(2);
 if (args.length !== 4 || !["baseline", "instrumented"].includes(args[0]!)) {
@@ -15,13 +15,8 @@ if (variant === "instrumented") {
     throw new Error("Instrumented research requires the matching unmodified baseline");
   }
   const observations = "observations" in baseline && typeof baseline.observations === "object" && baseline.observations !== null ? baseline.observations : {};
-  const setup = "setup" in observations && typeof observations.setup === "object" && observations.setup !== null ? observations.setup : {};
-  const setupFailure = "completed" in setup && setup.completed === false && "timedOut" in setup && setup.timedOut === true
-    && "dialogueCompleted" in setup && setup.dialogueCompleted === 7 && "setupEffects" in setup
-    && JSON.stringify(setup.setupEffects) === JSON.stringify([
-      { route: "key-verification", finished: true, closed: true, status: 200 },
-      { route: "models", finished: true, closed: true, status: 200 },
-    ]);
+  const setup = "setup" in observations && typeof observations.setup === "object" && observations.setup !== null && !Array.isArray(observations.setup) ? observations.setup as Record<string, unknown> : {};
+  const setupFailure = researchSetupFailureReproduced(setup);
   if (!("reproducedSubmissionFailure" in baseline && baseline.reproducedSubmissionFailure === true) && !setupFailure) {
     throw new Error("Instrumented research requires the unmodified baseline to reproduce first");
   }

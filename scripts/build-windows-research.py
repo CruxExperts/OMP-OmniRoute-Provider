@@ -24,12 +24,12 @@ NATIVE_SHA = "c511ffab8a070be6263d28f0bc5985fc160c7ad70f0ceb1b56ef97ff4d396da7"
 BUN_ARCHIVE_SHA = "3a4f6d0453afcc1ed1f736e3a4356306ff359efe75fa11c9a0d82c59f76d4801"
 BUN_SRI = "lq82LqVjSXAx9gNUcibCdfQdtrelh86FxQqlhpOdiV4SZQAP8HHUxWhnfbjx2fqz+jzglwBvjmlEs7xFyONBZw=="
 BUN_TEMPLATE_SHA = "15277c59ccd6c6c20f8dc9716c2b59c1776320d606b6a8658f70be8799519ca4"
-PROVIDER_SHA = "487c6214d4f7048f4399755ac06768ba8770113fa3abd03c041c0cb674fcb837"
-PROVIDER_PATCH_SHA = "1b451b8050cd7de805befd8b27194307845d2513c66121b064041d3df8ec77bc"
+PROVIDER_SHA = "cf27632ae02b070902dcb0b7344640a967f07235b84fa0d7a74a50e4c7bc85d5"
+PROVIDER_PATCH_SHA = "8b89d540722ca3ce400e779b5fd3dd4eb8333d3906fda56a3a50884ccb420574"
 OVERLAY_FILES = {
     "src/index.ts": PROVIDER_SHA,
     "src/config.ts": "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564",
-    "src/private-path.ts": "2276066f365400488e3ff64256ef2084d470107805886b8f093a82deb250e2d9",
+    "src/private-path.ts": "b5349373e78d76a0ba2bbfae6fe0550000b483568f84156d3b5eec92773b4c47",
 }
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -129,6 +129,24 @@ def command(args: list[str], cwd: Path, environment: dict[str, str]) -> None:
         raise CommandFailure(result.returncode)
 
 
+def setup_failure_reproduced(setup: dict) -> bool:
+    staging = setup.get("stagingFailure")
+    terminal_staging_failure = (
+        isinstance(staging, dict) and set(staging) == {"kind", "elapsedMs", "outcome", "error"}
+        and staging.get("kind") == "staging" and staging.get("outcome") == "error"
+        and type(staging.get("elapsedMs")) is int and 0 <= staging["elapsedMs"] <= 0xffffff
+        and staging.get("error") in {"none", "invalid-config", "corrupt-config", "insecure-permissions", "config-conflict", "pending-mismatch", "invalid-endpoint", "insecure-http", "other"}
+    )
+    return (
+        setup.get("completed") is False and (setup.get("timedOut") is True or terminal_staging_failure)
+        and setup.get("dialogueCompleted") == 7
+        and setup.get("setupEffects") == [
+            {"route": "key-verification", "finished": True, "closed": True, "status": 200},
+            {"route": "models", "finished": True, "closed": True, "status": 200},
+        ]
+    )
+
+
 def main() -> None:
     if sys.platform != "win32" or os.environ.get("PROCESSOR_ARCHITECTURE") != "AMD64":
         raise RuntimeError("native Windows x64 runner required")
@@ -222,15 +240,7 @@ def main() -> None:
             command([bun, "scripts/windows-login-research.ts", "baseline", str(binaries["baseline"]), str(metadata["baselineBinarySha256"]), str(output / "baseline.json")], ROOT, environment)
             observation = json.loads((output / "baseline.json").read_text(encoding="utf-8"))
             setup = observation.get("observations", {}).get("setup", {})
-            effects = setup.get("setupEffects", [])
-            setup_reproduced = (
-                setup.get("completed") is False and setup.get("timedOut") is True
-                and setup.get("dialogueCompleted") == 7
-                and effects == [
-                    {"route": "key-verification", "finished": True, "closed": True, "status": 200},
-                    {"route": "models", "finished": True, "closed": True, "status": 200},
-                ]
-            )
+            setup_reproduced = setup_failure_reproduced(setup)
             if (observation.get("researchOnly") is not True
                     or not (observation.get("reproducedSubmissionFailure") is True or setup_reproduced)
                     or observation.get("packageArchiveSha256") != package_sha

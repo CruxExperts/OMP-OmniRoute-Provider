@@ -56,7 +56,7 @@
  			readinessIssue = undefined;
  			const previousActiveGeneration = config.active?.generation;
 +			researchStartup(30);
- 			const loaded = await loadConfig();
+ 			const loaded = ctx ? await loadConfig() : await loadStartupConfig(startupSignal);
 +			researchStartup(31);
  			config = loaded;
  			if (recoveryBlocked) {
@@ -87,7 +87,7 @@
  			credentialPresence = credential ? "present" : "missing";
  			phase = "config";
 +			researchStartup(36);
- 			const confirmed = await loadConfig();
+ 			const confirmed = ctx ? await loadConfig() : await loadStartupConfig(startupSignal);
 +			researchStartup(37);
  			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
  				validConfiguration = false;
@@ -235,8 +235,8 @@
 +  if (typeof sink === "function") sink(marker, invocation);
 +}
  
- // Paths are passed over stdin, never interpolated into PowerShell source. The
- // directory is created with its DACL in place, before it can contain files.
+ // Opt-in smoke diagnostics contain only fixed fields, never filesystem data.
+ export function windowsDiagnostic(event: Record<string, string | number | boolean | null>): void {
 @@ -69,7 +78,10 @@
    const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
    const { promise, resolve, reject } = Promise.withResolvers<void>();
@@ -245,9 +245,9 @@
 +  researchMarker(80, invocation);
    const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedWindowsScript], { windowsHide: true, timeout: 30_000, ...(signal ? { signal } : {}) }, (error, _stdout, stderr) => {
 +    researchMarker(81, invocation);
-     if (error) {
-       if (signal?.aborted && error.name === "AbortError" && error.cause === signal.reason) {
-         reject(signal.reason);
+     // Retain only our fixed diagnostic, never arbitrary PowerShell output.
+     const sentinel = /(?:^|\r?\n)(ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr)?.[1] ?? "";
+     const exitCode = !error ? 0 : typeof error.code === "number" && Number.isInteger(error.code) && error.code >= 0 && error.code <= 255 ? error.code : null;
 @@ -80,12 +92,16 @@
        reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
      } else resolve();

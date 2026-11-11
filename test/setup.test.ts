@@ -568,6 +568,17 @@ test("catalog metadata sources require explicit opt-in and appear in the read-on
   expect(summary).toContain("openrouter:");
 });
 
+test("startup credential lookup does not open storage when already aborted", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let opened = false;
+  await expect(resolveStartupRuntimeCredential(async () => {
+    opened = true;
+    throw new Error("must not open");
+  }, controller.signal, { runtimeSource: "native" })).rejects.toMatchObject({ code: "cancelled" });
+  expect(opened).toBe(false);
+});
+
 test("startup cancellation closes a native storage handle that arrives after abort", async () => {
   await isolated();
   for (const name of Object.keys(process.env)) {

@@ -16,6 +16,7 @@ import {
   updateConfig,
 } from "./config.ts";
 import { requestJson, TransportError } from "./transport.ts";
+import { diagnosticElapsed, windowsDiagnostic } from "./private-path.ts";
 
 export const PROVIDER_ID = "omniroute";
 
@@ -124,6 +125,10 @@ export async function resolveStartupRuntimeCredential(
   signal: AbortSignal,
   config: Pick<PluginConfig, "runtimeSource">,
 ): Promise<string | undefined> {
+  const started = performance.now();
+  const abortedAtEntry = signal.aborted;
+  let outcome: "ok" | "error" | "aborted" = "error";
+  if (abortedAtEntry) windowsDiagnostic({ kind: "credential", elapsedMs: diagnosticElapsed(started), outcome: "aborted", abortedAtEntry });
   if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
 
   let storage: StartupAuthStorage | undefined;
@@ -148,8 +153,10 @@ export async function resolveStartupRuntimeCredential(
       : storage.keys.peek(PROVIDER_ID);
     const value = await awaitWithSignal(lookup, signal);
     if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
+    outcome = "ok";
     return typeof value === "string" && value.trim() !== "" ? value : undefined;
   } catch (error) {
+    outcome = signal.aborted ? "aborted" : "error";
     if (error instanceof AuthError) throw error;
     if (signal.aborted) throw new AuthError("cancelled", "native credential lookup cancelled");
     throw new AuthError("persistence-failed", "unable to read native OmniRoute credentials");
@@ -158,9 +165,14 @@ export async function resolveStartupRuntimeCredential(
       try {
         close(storage);
       } catch {
-        if (!signal.aborted) throw new AuthError("persistence-failed", "unable to close native credential storage");
+        if (!signal.aborted) {
+          outcome = "error";
+          windowsDiagnostic({ kind: "credential", elapsedMs: diagnosticElapsed(started), outcome, abortedAtEntry });
+          throw new AuthError("persistence-failed", "unable to close native credential storage");
+        }
       }
     }
+    windowsDiagnostic({ kind: "credential", elapsedMs: diagnosticElapsed(started), outcome, abortedAtEntry });
   }
 }
 
@@ -331,13 +343,17 @@ export function registerNativeLogin(options: NativeLoginOptions = {}): NativeLog
         generation: (config.active?.generation ?? 0) + 1,
         status: "validated",
       };
+      const stageStarted = performance.now();
       try {
         checkCancelled(callbacks.signal);
         await savePendingConfig(
           { ...config, runtimeSource: "native", allowInsecureHttp, pending },
           { expectedRevision: config.revision ?? null },
         );
+        windowsDiagnostic({ kind: "staging", elapsedMs: diagnosticElapsed(stageStarted), outcome: "ok", error: "none" });
       } catch (error) {
+        const code = error instanceof ConfigError && ["invalid-config", "corrupt-config", "insecure-permissions", "config-conflict", "pending-mismatch", "invalid-endpoint", "insecure-http"].includes(error.code) ? error.code : "other";
+        windowsDiagnostic({ kind: "staging", elapsedMs: diagnosticElapsed(stageStarted), outcome: "error", error: code });
         throw new AuthError("persistence-failed", "unable to stage OmniRoute endpoint", { cause: error });
       }
       pendingCandidate = { endpoint: pending.endpoint, generation: pending.generation, key };

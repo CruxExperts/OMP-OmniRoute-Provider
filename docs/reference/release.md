@@ -298,6 +298,12 @@ await. Missing sentinels, invalid or overflowing samples, and nonreproducing
 runs remain inconclusive. One trace client retains its cursor across the early
 sample and a bounded final sample before timeout termination; cleanup still runs
 if that sample fails. Neither the single Enter nor the dialogue deadline changes.
+For a terminal staging error, research records only the fixed-schema diagnostic
+and takes a final trace sample before terminating the owned process. Observation
+and cleanup are bounded; an unavailable sample is not evidence of success.
+A baseline staging error qualifies as a reproduction only after the same seven
+dialogue steps and both completed, closed, successful validation responses as a
+setup timeout. Archive and binary identity checks remain mandatory.
 Configuration and Windows ACL markers are armed immediately before native login
 and cleared when its promise settles, covering pre-prompt configuration loading,
 persistence, and activation refresh without recording paths, values, or output.

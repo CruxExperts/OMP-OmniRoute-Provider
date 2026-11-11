@@ -21,6 +21,9 @@ import {
   nativeLoginCommandCompletedPattern,
   nativePtyDialogueText,
   nativeSetupActivatedPattern,
+  parseWindowsDiagnostic,
+  researchSetupFailureReproduced,
+  terminateAfterStagingObservation,
   writeNativeLoginDiagnostic,
 } from "../scripts/smoke.ts";
 
@@ -82,6 +85,73 @@ test("native setup readiness rejects pending, failed and empty catalogs", () => 
     "omniroute: source=native profile; catalog ready; chat models=0; live rows=1",
     "omniroute: source=environment; catalog ready; chat models=1; live rows=1",
   ]) expect(nativeSetupActivatedPattern.test(output)).toBe(false);
+});
+
+test("Windows smoke diagnostics accept only bounded fixed fields", () => {
+  const parse = (value: unknown) => parseWindowsDiagnostic(`CRUX_WINDOWS_DIAGNOSTIC:${JSON.stringify(value)}`);
+  const credential = { kind: "credential", elapsedMs: 1, outcome: "aborted", abortedAtEntry: true };
+  const acl = { kind: "acl", elapsedMs: 30000, outcome: "error", abortedAtEntry: false, exitCode: 1, signal: null, sentinel: "ACL_DIAGNOSTIC:9:System.Exception:None" };
+  const staging = { kind: "staging", elapsedMs: 3, outcome: "error", error: "config-conflict" };
+  expect(parse(credential)).toEqual(credential);
+  expect(parse(acl)).toEqual(acl);
+  expect(parse(staging)).toEqual(staging);
+  expect(parse({ ...credential, secret: "private" })).toBeUndefined();
+  expect(parse({ ...acl, sentinel: "C:\\private\\secret" })).toBeUndefined();
+  expect(parse({ ...staging, error: "private exception" })).toBeUndefined();
+  expect(parse({ ...credential, elapsedMs: 0x1000000 })).toBeUndefined();
+});
+
+test("research setup reproduction requires the fixed staging failure and exact validation effects", () => {
+  const failure = { kind: "staging", elapsedMs: 2, outcome: "error", error: "config-conflict" };
+  const setup = { completed: false, timedOut: false, dialogueCompleted: 7, stagingFailure: failure, setupEffects: [
+    { route: "key-verification", finished: true, closed: true, status: 200 },
+    { route: "models", finished: true, closed: true, status: 200 },
+  ] };
+  expect(researchSetupFailureReproduced(setup)).toBe(true);
+  expect(researchSetupFailureReproduced({ ...setup, timedOut: true, stagingFailure: undefined })).toBe(true);
+  expect(researchSetupFailureReproduced({ ...setup, completed: true })).toBe(false);
+  expect(researchSetupFailureReproduced({ ...setup, dialogueCompleted: 6 })).toBe(false);
+  expect(researchSetupFailureReproduced({ ...setup, setupEffects: setup.setupEffects.slice(0, 1) })).toBe(false);
+  expect(researchSetupFailureReproduced({ ...setup, stagingFailure: { ...failure, error: "private data" } })).toBe(false);
+  expect(researchSetupFailureReproduced({ ...setup, stagingFailure: { ...failure, extra: "secret" } })).toBe(false);
+});
+
+test("staging observation finishes before termination and cannot block cleanup", async () => {
+  const events: string[] = [];
+  const gate = Promise.withResolvers<void>();
+  const pending = terminateAfterStagingObservation(async () => { events.push("sample"); await gate.promise; events.push("persist"); }, () => events.push("terminate"), 1_000);
+  expect(events).toEqual(["sample"]);
+  gate.resolve();
+  await pending;
+  expect(events).toEqual(["sample", "persist", "terminate"]);
+  const timed: string[] = [];
+  const stalled = Promise.withResolvers<void>();
+  await terminateAfterStagingObservation(() => stalled.promise, () => timed.push("terminate"), 10);
+  expect(timed).toEqual(["terminate"]);
+  await terminateAfterStagingObservation(async () => { throw new Error("trace unavailable"); }, () => timed.push("error-cleanup"), 10);
+  expect(timed).toEqual(["terminate", "error-cleanup"]);
+});
+
+test("Python research driver applies the same staging reproduction gate", () => {
+  const script = `
+import importlib.util, pathlib
+p = pathlib.Path("scripts/build-windows-research.py")
+s = importlib.util.spec_from_file_location("research_driver", p)
+m = importlib.util.module_from_spec(s)
+s.loader.exec_module(m)
+event = {"kind": "staging", "elapsedMs": 2, "outcome": "error", "error": "config-conflict"}
+effects = [{"route": "key-verification", "finished": True, "closed": True, "status": 200}, {"route": "models", "finished": True, "closed": True, "status": 200}]
+setup = {"completed": False, "timedOut": False, "dialogueCompleted": 7, "stagingFailure": event, "setupEffects": effects}
+assert m.setup_failure_reproduced(setup)
+assert m.setup_failure_reproduced({**setup, "timedOut": True, "stagingFailure": None})
+assert not m.setup_failure_reproduced({**setup, "dialogueCompleted": 6})
+assert not m.setup_failure_reproduced({**setup, "setupEffects": effects[:1]})
+assert not m.setup_failure_reproduced({**setup, "stagingFailure": {**event, "extra": "secret"}})
+assert not m.setup_failure_reproduced({**setup, "stagingFailure": {**event, "elapsedMs": True}})
+`;
+  const result = Bun.spawnSync([process.platform === "win32" ? "python" : "python3", "-c", script], { cwd: join(import.meta.dir, ".."), stdout: "pipe", stderr: "pipe" });
+  expect(result.stderr.toString()).toBe("");
+  expect(result.exitCode).toBe(0);
 });
 
 test("native login diagnostic preserves bounded identity before and after an interrupted dialogue", async () => {

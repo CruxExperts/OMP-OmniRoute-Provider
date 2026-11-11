@@ -1,6 +1,16 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 
+// Opt-in smoke diagnostics contain only fixed fields, never filesystem data.
+export function windowsDiagnostic(event: Record<string, string | number | boolean | null>): void {
+  if (process.platform !== "win32" || process.env.OMP_SMOKE_LOGIN_DIAGNOSTICS !== "1") return;
+  try { process.stderr.write(`CRUX_WINDOWS_DIAGNOSTIC:${JSON.stringify(event)}\n`); } catch { /* Diagnostics must not change behavior. */ }
+}
+
+export function diagnosticElapsed(started: number): number {
+  return Math.min(0xffffff, Math.max(0, Math.floor(performance.now() - started)));
+}
+
 // Paths are passed over stdin, never interpolated into PowerShell source. The
 // directory is created with its DACL in place, before it can contain files.
 export const windowsScript = String.raw`
@@ -65,18 +75,24 @@ foreach ($target in $request.targets) {
 const encodedWindowsScript = Buffer.from(windowsScript, "utf16le").toString("base64");
  
 async function windowsAcl(targets: Array<{ path: string; directory: boolean }>, create = false, signal?: AbortSignal): Promise<void> {
+  const started = performance.now();
+  const abortedAtEntry = signal?.aborted ?? false;
+  if (abortedAtEntry) windowsDiagnostic({ kind: "acl", elapsedMs: diagnosticElapsed(started), outcome: "aborted", abortedAtEntry, exitCode: null, signal: null, sentinel: "" });
   signal?.throwIfAborted();
   const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const { promise, resolve, reject } = Promise.withResolvers<void>();
   const closed = Promise.withResolvers<void>();
   const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedWindowsScript], { windowsHide: true, timeout: 30_000, ...(signal ? { signal } : {}) }, (error, _stdout, stderr) => {
+    // Retain only our fixed diagnostic, never arbitrary PowerShell output.
+    const sentinel = /(?:^|\r?\n)(ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr)?.[1] ?? "";
+    const exitCode = !error ? 0 : typeof error.code === "number" && Number.isInteger(error.code) && error.code >= 0 && error.code <= 255 ? error.code : null;
+    const childSignal = error && (error.signal === "SIGTERM" || error.signal === "SIGKILL") ? error.signal : null;
+    windowsDiagnostic({ kind: "acl", elapsedMs: diagnosticElapsed(started), outcome: error ? "error" : "ok", abortedAtEntry, exitCode, signal: childSignal, sentinel });
     if (error) {
       if (signal?.aborted && error.name === "AbortError" && error.cause === signal.reason) {
         reject(signal.reason);
         return;
       }
-      // Retain only our fixed diagnostic, never arbitrary PowerShell output.
-      const sentinel = /(?:^|\r?\n)(ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr)?.[1] ?? "";
       reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
     } else resolve();
   });

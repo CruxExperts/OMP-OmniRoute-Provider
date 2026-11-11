@@ -1,0 +1,509 @@
+{
+  "schemaVersion": 1,
+  "classification": "research-only-not-qualification",
+  "source": {
+    "version": "3.8.53",
+    "commit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+    "archiveSha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
+    "addedSourceSha256": {
+      "src/lib/db/settings/cacheMetrics.ts": "784114e9262a8a34348a17bcc510c29886fb1dc7af028bc2827ab3eb515fdca1",
+      "src/app/api/health/route.ts": "129fdf8eebcb6667b978d0a75dae16b923bb17447fbe61374973ff3528ac44d5",
+      "src/app/api/health/degradation/route.ts": {
+        "originalSha256": "1dee40edb3162a8c2775055bd13c900e2b4dc2dd0ab9f9a26c75b0856b53491a",
+        "executedSha256": "b607a1c072dfcad210e76f6cd55d1fc822b03aafa240c9ebaa5f37bbd2552b65"
+      },
+      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29",
+      "src/domain/degradation.ts": {
+        "originalSha256": "f720b66798f74fd10703bebeba37f564adf7cd6947a908b0884a0ee1da2a4f61",
+        "executedSha256": "f720b66798f74fd10703bebeba37f564adf7cd6947a908b0884a0ee1da2a4f61"
+      },
+      "src/app/api/settings/cache-metrics/route.ts": "1a8b1e376b02daa883d2d90eca5274684c4cdee7cb7a56d83d0a30f68032362a",
+      "src/lib/db/core.ts": "097ef3b46440d89f22ff2b483b4bc591df8165faea256f02e3aada22ef891ed4",
+      "src/app/api/health/ping/route.ts": "fd5acf337d91cdf8d709beff76f15e85832537c95cd5c8c9be3f1f0bcfe954b2",
+      "src/lib/db/apiKeys.ts": {
+        "originalSha256": "4e9bc2be404d6c74e1fbf9fc1d62b03853a84eead453ce70e2fc8cadd33673eb",
+        "executedSha256": "b0baa5c40bcdf2a9514ac7fdd5414e339aa8697de5b4ac70e198d8df84a0c229"
+      },
+      "src/lib/db/featureFlags.ts": {
+        "originalSha256": "62adb42a37ad5e437e36e4e0df4bb702739932aa1b63e46fc1d00da7cc273bc1",
+        "executedSha256": "39f9a28d226ede9a3d325629967e034fab2250153255c2ccaa6a45db28ce273a"
+      },
+      "src/lib/db/readCache.ts": {
+        "originalSha256": "97cb59fb5767005900c575e8f6db450c3b94abaa7a7058671dda1717da223448",
+        "executedSha256": "33ed4efa3a9aecca8e37dbd18128e1df26b8e9593075953ffb7e65ba59d9e5b6"
+      },
+      "src/lib/db/encryption.ts": {
+        "originalSha256": "630c8e0e3061bc634fcbeb1b1eb6e1443a52b76c7404af5964c1de9c411aa2ed",
+        "executedSha256": "37556f890ef282afa0d31b3373e2feef449c3d7bac8c8f067c05ca8d04a7bf60"
+      },
+      "src/lib/compliance/index.ts": {
+        "originalSha256": "d8a2607d81db1d717286868a8114571af8308a4d6e0700e93f223d320aec0c30",
+        "executedSha256": "ef2b0a1921b2224b675965c55a23e3d8a01b4f64e8b914536c49c483611efd41"
+      },
+      "src/lib/db/backup.ts": {
+        "originalSha256": "044878af22ecd3c8ef1bb43819c6a9dc7a5fa2025bc0c83309922949ab7ca574",
+        "executedSha256": "1144da959dec4aedcc73fbbb8531c82429edf82410dcd31de34ced1eb7b3d1c5"
+      },
+      "src/proxy.ts": "67f165a099f762f70dd26ea378ff72c2b4daa587ef149c2b84838223c0571395"
+    },
+    "pingDeclarationSha256": "824252315ac614d26f7fd92da50601b0e92adb9e6407acc7c4da540d7dee6677"
+  },
+  "inputs": {
+    "sha256": {
+      "test/pinned-ingress.test.ts": "5b06c8bd4401e41b0483f32c150318e77d08235d993b5d671f9ce247626915eb",
+      "test/pinned-ingress.test.ts.inputs.json": "30a2e8d0e8b1f4fa2eeba1c92b913b72baaee1a3794a2ec9867e88fee4082e5a",
+      ".github/workflows/qualification.yml": "e32b448be91a38775ea06251b62d28fe4e1c1009cb27b582ef17bcdd74b80d2b",
+      "scripts/pinned-ingress.py": "48981566d48279e6b68a69ef7a00a75214ff35d66e6e8ac41d3eceb50a7d2625",
+      "scripts/pinned-ingress-driver.mjs": "6ecf31a2d7e53caa9bc053888ef1119cd1dee58ff1d16fd5521f10a1d741ab29",
+      "test/fixtures/pinned-ingress/alias-map.json": "60407ee079bd32b41cdc2cfb3446ac534ce96eb0a3192b75e88f58df869aa734",
+      "test/fixtures/pinned-ingress/backend/core.ts": "b297d100fc39da0ba30efcfa020722cec6c11d6c0ad98e30c52cba2d9a0eaa1b",
+      "test/fixtures/pinned-ingress/backend/settings.ts": "0f50d7add65bb63371059a1501e04b8cd7c9dd4012389ac65f3f1d8a43d70bfb",
+      "test/fixtures/pinned-ingress/database-lifecycle.mjs": "cf3628dfbc6e597a1812fea9f3078ea05b3fec9c6a029727f01c4946146ed71e",
+      "test/fixtures/pinned-ingress/dependencies.json": "c4d0e617dca16f6000c2694a2c91b05e9edc070b3eab4c4420c638c2e51ef35f",
+      "test/fixtures/pinned-ingress/driver.mjs": "81f63b70fbb9231c574c623a8eb595df48a22ff2f0e180a1b3417041dada887b",
+      "test/fixtures/pinned-ingress/extracted/auth.ts": "7b0d42ab6aeae64260a89afd5bcd0b06c6d8da4c445cbaa6d71c32115850f9c7",
+      "test/fixtures/pinned-ingress/extracted/degradation-control.ts": "8a1568d22b55491fa476fbcd1a7e4bc4ed42d4c425c0fda52a70685c37bf781b",
+      "test/fixtures/pinned-ingress/extracted/feature-flag-cache.ts": "dd1e50f30a3523cfb78ffbff3d71e526f26874b9fa93e78860fcd43078da14e7",
+      "test/fixtures/pinned-ingress/extracted/runtime-settings.ts": "e07414a99f9c97ddd402cabfa3f25382ff8e8a33593be2971fa0fd3864af1d3a",
+      "test/fixtures/pinned-ingress/extracted/shutdown.ts": "f6191212cb27a5e6119959bebbd25bc451fc16cd71eb50543d9f89bceb7b3753",
+      "test/fixtures/pinned-ingress/extracted/sync.ts": "114aa1fae5a4b335f6cb32819ecf52a3bee97b179a5655ca08cfb9100167e508",
+      "test/fixtures/pinned-ingress/initialize.mjs": "c12112dd6f50cb21b05d26cf9b7207407c334e055fa1af742355323e03cc7283",
+      "test/fixtures/pinned-ingress/next.config.mjs": "e83738e7a4c573be4cc27da9ae58c0a9f925e531edd7e0850f544fa3afaabd96",
+      "test/fixtures/pinned-ingress/routes/management.ts": "c82daf9e2898b8dab3d8e000009e6687fda9d3cee9496171f09d61d3423b0726",
+      "test/fixtures/pinned-ingress/runtime.json": "9360df4ecbefd7a12b62f1dcd8999057cdadbaf43f0208c501413f5dd1ea4f53",
+      "test/fixtures/pinned-ingress/source-manifest.json": "f4a194b3539ad5cce1ab61d2ea8f6d2680f28c6b620c75dd3f39867e922860fc"
+    },
+    "nodeSha256": "62d66443847de1f527f74afe715900b12884ace52136dc9cd8e91e61acc2f527",
+    "runtime": {
+      "node": "24.17.0",
+      "next": "16.4.2",
+      "react": "19.2.8",
+      "react-dom": "19.2.8"
+    },
+    "sourceOverlaySha256": {
+      "src/lib/db/core.ts": {
+        "originalSha256": "097ef3b46440d89f22ff2b483b4bc591df8165faea256f02e3aada22ef891ed4",
+        "replacement": "backend/core.ts",
+        "executedSha256": "04ca5b861fedcf90be92c5c82a23d2a8d5b9cd6d9011341af76107d20c8f4727"
+      },
+      "src/lib/db/settings.ts": {
+        "originalSha256": "ac74c9b6cd397f7b3b569a039cc9b4166eb0215c602542a118d4bb0fe8ebd77b",
+        "replacement": "backend/settings.ts",
+        "executedSha256": "d7007c010b7d5c6149120a8d2a49d6532c8b33fdb886dc05545a76dfc42d3655"
+      },
+      "src/sse/services/auth.ts": {
+        "originalSha256": "ade9d1915bc72ccc46cff18573e1fcb29a6f0fb3cf15bbc1a6548ce2b4528356",
+        "replacement": "extracted/auth.ts",
+        "executedSha256": "7b0d42ab6aeae64260a89afd5bcd0b06c6d8da4c445cbaa6d71c32115850f9c7"
+      },
+      "src/lib/config/runtimeSettings.ts": {
+        "originalSha256": "f29722c40a0c2af66c7c448126f10c23b544e704e0a9265717d6cce9ade97e8d",
+        "replacement": "extracted/runtime-settings.ts",
+        "executedSha256": "e07414a99f9c97ddd402cabfa3f25382ff8e8a33593be2971fa0fd3864af1d3a"
+      },
+      "src/shared/services/modelSyncScheduler.ts": {
+        "originalSha256": "abf79ef2813d6b94ab055a31b4e58510e0d321d40ad9433551bc2455c43297ff",
+        "replacement": "extracted/sync.ts",
+        "executedSha256": "114aa1fae5a4b335f6cb32819ecf52a3bee97b179a5655ca08cfb9100167e508"
+      },
+      "src/lib/gracefulShutdown.ts": {
+        "originalSha256": "4ab961cfb6d6159043c9d7b4b0368044c4b3b9b5c75860695d630962ce2e197d",
+        "replacement": "extracted/shutdown.ts",
+        "executedSha256": "f6191212cb27a5e6119959bebbd25bc451fc16cd71eb50543d9f89bceb7b3753"
+      }
+    },
+    "executedOverlaySha256": {
+      "backend/core.ts": "04ca5b861fedcf90be92c5c82a23d2a8d5b9cd6d9011341af76107d20c8f4727",
+      "backend/settings.ts": "d7007c010b7d5c6149120a8d2a49d6532c8b33fdb886dc05545a76dfc42d3655"
+    }
+  },
+  "isolation": {
+    "namespacesDistinct": true,
+    "memoryLimitEnforced": true,
+    "cpuLimitEnforced": true,
+    "privateLoopbackOnly": true,
+    "environmentAllowlisted": true
+  },
+  "sharedAuthentication": [
+    {
+      "name": "default-bypass-health",
+      "input": {
+        "method": "GET",
+        "path": "/api/health",
+        "bypass": "source-default",
+        "credential": "none",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 200,
+        "routeClass": "PUBLIC",
+        "successMarkerPresent": true,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "disabled-bypass-health",
+      "input": {
+        "method": "GET",
+        "path": "/api/health",
+        "bypass": "disabled",
+        "credential": "none",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 200,
+        "routeClass": "PUBLIC",
+        "successMarkerPresent": true,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "default-bypass-management-denied",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "source-default",
+        "credential": "none",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 401,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "disabled-bypass-management-denied",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "none",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 401,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "session-allowed",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "valid-session",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 200,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": true,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "access-allowed",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "valid-admin-token",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 200,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": true,
+        "usageStampObserved": true
+      }
+    },
+    {
+      "name": "access-invalid",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "unknown-token",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 401,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "access-expired",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "expired-admin-token",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 401,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "access-revoked",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "revoked-admin-token",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 401,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "access-backend-error",
+      "input": {
+        "method": "GET",
+        "path": "/api/ingress-control",
+        "bypass": "disabled",
+        "credential": "admin-token-backend-error",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 503,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "sync-valid",
+      "input": {
+        "method": "GET",
+        "path": "/api/providers/fixture/models",
+        "bypass": "disabled",
+        "credential": "valid-internal-sync",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 200,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": true,
+        "usageStampObserved": false
+      }
+    },
+    {
+      "name": "sync-invalid",
+      "input": {
+        "method": "GET",
+        "path": "/api/providers/fixture/models",
+        "bypass": "disabled",
+        "credential": "invalid-internal-sync",
+        "requireLogin": true,
+        "setupComplete": true
+      },
+      "observed": {
+        "status": 401,
+        "routeClass": "MANAGEMENT",
+        "successMarkerPresent": false,
+        "usageStampObserved": false
+      }
+    }
+  ],
+  "health": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "status": 200,
+      "bodyKeys": [
+        "status",
+        "timestamp"
+      ],
+      "timestamp": "2026-11-11T08:29:12.037Z",
+      "cacheControl": "no-store, no-cache, must-revalidate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health/ping",
+      "status": 200,
+      "bodyKeys": [
+        "latencyMs",
+        "status",
+        "timestamp"
+      ],
+      "timestamp": "2026-11-11T08:29:12.119Z",
+      "cacheControl": "no-store, no-cache, must-revalidate",
+      "latencyMs": 4
+    }
+  ],
+  "cacheMetrics": [
+    {
+      "method": "GET",
+      "path": "/api/settings/cache-metrics",
+      "unauthenticatedStatus": 401,
+      "invalidTokenStatus": 401,
+      "sessionStatus": 200,
+      "selectedValues": {
+        "totalRequests": 3,
+        "requestsWithCacheControl": 2,
+        "totalInputTokens": 300,
+        "totalCachedTokens": 150,
+        "totalCacheCreationTokens": 10,
+        "alphaRequests": 2,
+        "directCachedTokens": 50
+      },
+      "usageRowsAfter": 3
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/settings/cache-metrics",
+      "unauthenticatedStatus": 401,
+      "invalidTokenStatus": 401,
+      "sessionStatus": 200,
+      "selectedValues": {
+        "totalRequests": 3,
+        "requestsWithCacheControl": 2,
+        "totalInputTokens": 300,
+        "totalCachedTokens": 150,
+        "totalCacheCreationTokens": 10,
+        "alphaRequests": 2,
+        "directCachedTokens": 50
+      },
+      "usageRowsAfter": 3
+    }
+  ],
+  "missingUsageHistory": {
+    "status": 200,
+    "totalRequests": 0,
+    "totalCachedTokens": 0,
+    "providerCount": 0
+  },
+  "drain": {
+    "path": "/api/health",
+    "statuses": [
+      503,
+      200
+    ]
+  },
+  "limitations": [
+    "Research observation only; not operation qualification.",
+    "Default Next bundler uses disposable source overlays; runtime observation is not production database qualification.",
+    "Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.",
+    "Degradation handler failure was not induced; fixture signals control only the disposable in-process source registry.",
+    "The IP filter denial and recovery exercise forwarding-header fallback with unknown peer locality under bare Next start. They do not demonstrate authenticated peer-stamp denial, peer locality, or reverse-proxy trust."
+  ],
+  "publicHealthHttp": {
+    "method": "GET",
+    "path": "/api/health",
+    "anonymous": true,
+    "status": 200,
+    "bodyKeys": [
+      "status",
+      "timestamp"
+    ],
+    "timestampFormatAndRequestWindowValid": true,
+    "cacheControl": "no-store, no-cache, must-revalidate",
+    "contentType": "application/json",
+    "routeClass": "PUBLIC",
+    "requestIdUuid": true,
+    "drain": {
+      "status": 503,
+      "code": "SERVICE_UNAVAILABLE",
+      "message": "Server is shutting down",
+      "requestIdUuid": true,
+      "correlationMatchesRequestId": true,
+      "retryAfter": "5",
+      "contentType": "application/json",
+      "routeClass": "PUBLIC",
+      "recoveryStatus": 200
+    },
+    "cors": {
+      "configuredAllowedOrigin": "https://allowed.example",
+      "allowedOriginEchoed": true,
+      "unlistedOriginOmitted": true,
+      "credentialsOmitted": true
+    }
+  },
+  "publicHealthIpFilter": {
+    "enabled": true,
+    "mode": "blacklist",
+    "configReadObserved": true,
+    "forwardedAddressFallback": {
+      "deniedStatus": 403,
+      "error": "IP blacklisted",
+      "recoveryStatus": 200,
+      "routeClass": "PUBLIC",
+      "requestIdUuid": true,
+      "allowedOriginEchoed": true
+    }
+  },
+  "degradation": {
+    "method": "GET",
+    "path": "/api/health/degradation",
+    "routeClass": "MANAGEMENT",
+    "anonymousStatus": 401,
+    "invalidCredentialStatus": 401,
+    "empty": {
+      "status": 200,
+      "summary": {
+        "full": 0,
+        "reduced": 0,
+        "minimal": 0,
+        "default": 0
+      }
+    },
+    "populated": {
+      "status": 200,
+      "summary": {
+        "full": 1,
+        "reduced": 1,
+        "minimal": 0,
+        "default": 1
+      },
+      "levels": [
+        "default",
+        "reduced",
+        "full"
+      ]
+    },
+    "summaryTrue": {
+      "status": 200,
+      "bodyKeys": [
+        "isDegraded",
+        "summary"
+      ]
+    },
+    "summaryFalseAndCapitalTrueReturnFullReport": true,
+    "recovery": {
+      "status": 200,
+      "summary": {
+        "full": 3,
+        "reduced": 0,
+        "minimal": 0,
+        "default": 0
+      },
+      "active": false
+    },
+    "handlerFailure": "unobserved"
+  }
+}

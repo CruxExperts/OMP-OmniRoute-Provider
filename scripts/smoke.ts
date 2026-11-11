@@ -774,6 +774,8 @@ type CommandOptions = {
   dialogue?: DialogueStep[];
   diagnosticDispatch?: (phase: "rendered" | "dispatched") => Promise<void>;
   beforeTimeoutTermination?: (elapsedMs: number) => Promise<void>;
+  windowsDiagnostic?: (event: JsonObject) => void;
+  beforeStagingTermination?: () => Promise<void>;
   beforeResearchStop?: () => Promise<void>;
 };
 
@@ -971,9 +973,54 @@ async function runCommand(command: string, args: string[], options: CommandOptio
   });
 }
 
+// Accept only the provider's fixed schema; terminal output is untrusted.
+export function parseWindowsDiagnostic(line: string): JsonObject | undefined {
+  const match = /^CRUX_WINDOWS_DIAGNOSTIC:(\{[^\r\n]{1,600}\})$/.exec(line);
+  if (!match) return undefined;
+  let event: unknown;
+  try { event = JSON.parse(match[1]!); } catch { return undefined; }
+  if (!event || typeof event !== "object" || Array.isArray(event)) return undefined;
+  const value = event as JsonObject;
+  if (!Number.isInteger(value.elapsedMs) || (value.elapsedMs as number) < 0 || (value.elapsedMs as number) > 0xffffff) return undefined;
+  const keys = Object.keys(value).sort().join(",");
+  if ((value.kind === "config" || value.kind === "credential") && keys === "abortedAtEntry,elapsedMs,kind,outcome"
+    && typeof value.abortedAtEntry === "boolean" && ["ok", "error", "aborted"].includes(String(value.outcome))) return value;
+  if (value.kind === "staging" && keys === "elapsedMs,error,kind,outcome" && ["ok", "error"].includes(String(value.outcome))
+    && ["none", "invalid-config", "corrupt-config", "insecure-permissions", "config-conflict", "pending-mismatch", "invalid-endpoint", "insecure-http", "other"].includes(String(value.error))) return value;
+  if (value.kind === "acl" && keys === "abortedAtEntry,elapsedMs,exitCode,kind,outcome,sentinel,signal"
+    && typeof value.abortedAtEntry === "boolean" && ["ok", "error", "aborted"].includes(String(value.outcome))
+    && (value.exitCode === null || (Number.isInteger(value.exitCode) && (value.exitCode as number) >= 0 && (value.exitCode as number) <= 255))
+    && (value.signal === null || value.signal === "SIGTERM" || value.signal === "SIGKILL")
+    && typeof value.sentinel === "string" && /^(?:|ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})$/.test(value.sentinel)) return value;
+  return undefined;
+}
+
+export function researchSetupFailureReproduced(setup: JsonObject): boolean {
+  const staging = parseWindowsDiagnostic(`CRUX_WINDOWS_DIAGNOSTIC:${JSON.stringify(setup.stagingFailure)}`);
+  return setup.completed === false && (setup.timedOut === true || (staging?.kind === "staging" && staging.outcome === "error"))
+    && setup.dialogueCompleted === 7 && JSON.stringify(setup.setupEffects) === JSON.stringify([
+      { route: "key-verification", finished: true, closed: true, status: 200 },
+      { route: "models", finished: true, closed: true, status: 200 },
+    ]);
+}
+
+export async function terminateAfterStagingObservation(observe: (() => Promise<void>) | undefined, terminate: () => void, timeoutMs = 1_500): Promise<void> {
+  const { promise, resolve: expire } = Promise.withResolvers<void>();
+  const timer = setTimeout(expire, timeoutMs);
+  try {
+    if (observe) await Promise.race([observe(), promise]);
+  } catch { /* Observation failure must not prevent process cleanup. */ }
+  finally {
+    clearTimeout(timer);
+    terminate();
+  }
+}
+
 async function runPtyCommand(binary: string, options: CommandOptions): Promise<CommandResult> {
   let stdout = "";
+  let diagnosticBuffer = "";
   let timedOut = false;
+  let stagingObservation: Promise<void> | undefined;
   const decoder = new TextDecoder();
   const writeInput = async (term: Bun.Terminal, text: string): Promise<void> => {
     if (!text.endsWith("\n")) {
@@ -1009,6 +1056,23 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
           writeSync(nativeCaptureFd, bytes);
         } catch {
           child?.kill("SIGTERM");
+        }
+      }
+      if (options.windowsDiagnostic) {
+        const lines = (diagnosticBuffer + stripVTControlCharacters(text)).split(/\r?\n/);
+        diagnosticBuffer = (lines.pop() ?? "").slice(-4096);
+        for (const line of lines) {
+          const start = line.indexOf("CRUX_WINDOWS_DIAGNOSTIC:");
+          const event = start < 0 ? undefined : parseWindowsDiagnostic(line.slice(start));
+          if (!event) continue;
+          options.windowsDiagnostic(event);
+          if (event.kind === "staging" && event.outcome === "error" && !stagingObservation) {
+            dialogueScheduler?.cancel();
+            stagingObservation = terminateAfterStagingObservation(options.beforeStagingTermination, () => {
+              child?.kill("SIGTERM");
+              setTimeout(() => child?.kill("SIGKILL"), 2_000).unref();
+            });
+          }
         }
       }
       dialogueScheduler?.observe(text);
@@ -1078,6 +1142,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
   const code = await child.exited;
   clearTimeout(timeout);
   await timeoutObservation;
+  await stagingObservation;
   dialogueScheduler?.cancel();
   if (!terminal.closed) terminal.close();
   return {
@@ -1317,11 +1382,13 @@ async function nativePromptSetup(
   environment: NodeJS.ProcessEnv,
   fixtureUrl: string,
   environmentFixture: FixtureServer,
-  research?: { instrumented: boolean; observations: JsonObject },
+  research?: { instrumented: boolean; observations: JsonObject; checkpoint?: () => Promise<void> },
+  windowsDiagnostic?: (event: JsonObject) => void,
 ): Promise<{ masked: boolean; postSwitchEnvironmentRequestIndex: number }> {
   const scriptedInput = process.env.OMP_SMOKE_NATIVE_INPUTS;
   const scripted = Boolean(scriptedInput);
   const environmentRequestStart = environmentFixture.requests.length;
+  let stagingFailed = false;
   let postSwitchEnvironmentRequestIndex: number | undefined;
   const dialogue: DialogueStep[] = [
     { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login", afterMs: scripted ? 0 : 4_000, captureDuringDispatch: !scripted },
@@ -1357,18 +1424,33 @@ async function nativePromptSetup(
   try {
     result = await runPtyCommand(binary, {
       cwd,
-      env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint, OMP_RESEARCH_INPUT_TRACE: "1" } : environment,
+      env: { ...environment, ...(endpoint ? { OMP_TUI_DEBUG: endpoint, OMP_RESEARCH_INPUT_TRACE: "1" } : {}), ...(process.platform === "win32" ? { OMP_SMOKE_LOGIN_DIAGNOSTICS: "1" } : {}) },
       // Original 15 helpers, activation's 11, and a possible separate manual
       // refresh's two; each Windows ACL helper is bounded to 30 seconds.
       timeoutMs: 75_000 + (process.platform === "win32" ? 28 * 30_000 : 0),
       dialogue,
+      ...(process.platform === "win32" ? { windowsDiagnostic: (event: JsonObject) => {
+        if (event.kind === "staging" && event.outcome === "error") {
+          stagingFailed = true;
+          if (research) research.observations.stagingFailure = event;
+        }
+        windowsDiagnostic?.(event);
+      } } : {}),
       ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
+      ...(research ? { beforeStagingTermination: async () => {
+        try {
+          if (traceClient) await sampleTrace("staging-failure-before-termination");
+        } finally {
+          await research.checkpoint?.();
+        }
+      } } : {}),
       ...(traceClient ? { beforeTimeoutTermination: (elapsedMs: number) => { research!.observations.timeoutElapsedMs = elapsedMs; return sampleTrace("timeout-before-termination"); }, beforeResearchStop: () => sampleTrace("success-before-stop") } : {}),
     });
   } finally {
     if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
   }
   if (research) Object.assign(research.observations, { dialogueCompleted: result.dialogueCompleted, timedOut: result.stderr === "command timeout", exitCode: result.code, signal: result.signal });
+  if (stagingFailed) throw new Error("native provider setup failed while staging configuration");
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   if ([runtimeKey, oldEnvKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error("native provider setup leaked fixture credentials");
   const controlledStop = result.signal === "SIGTERM" || (result.code === 143 && result.dialogueCompleted === dialogue.length);
@@ -1852,9 +1934,9 @@ export interface SmokeResult {
 /** Research-only mutation of an already verified disposable installation. */
 export async function applyWindowsResearchOverlay(installedRoot: string, patchPath: string): Promise<JsonObject> {
   const files = [
-    { file: "src/index.ts", originalSha256: "487c6214d4f7048f4399755ac06768ba8770113fa3abd03c041c0cb674fcb837" },
+    { file: "src/index.ts", originalSha256: "cf27632ae02b070902dcb0b7344640a967f07235b84fa0d7a74a50e4c7bc85d5" },
     { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
-    { file: "src/private-path.ts", originalSha256: "2276066f365400488e3ff64256ef2084d470107805886b8f093a82deb250e2d9" },
+    { file: "src/private-path.ts", originalSha256: "b5349373e78d76a0ba2bbfae6fe0550000b483568f84156d3b5eec92773b4c47" },
   ];
   const root = await realpath(installedRoot);
   for (const { file, originalSha256 } of files) {
@@ -1873,7 +1955,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "1b451b8050cd7de805befd8b27194307845d2513c66121b064041d3df8ec77bc") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "8b89d540722ca3ce400e779b5fd3dd4eb8333d3906fda56a3a50884ccb420574") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
@@ -1978,7 +2060,7 @@ export async function runWindowsLoginResearch(options: {
       environmentFixture = await startFixtureServer();
       const environmentA = { ...environment, OMP_OMNIROUTE_BASE_URL: environmentFixture.url, OMP_OMNIROUTE_API_KEY: oldEnvKey };
       try {
-        await nativePromptSetup(options.binary, workspace, environmentA, fixture.url, environmentFixture, { instrumented: options.instrumented, observations: setupObservations });
+        await nativePromptSetup(options.binary, workspace, environmentA, fixture.url, environmentFixture, { instrumented: options.instrumented, observations: setupObservations, checkpoint });
         setupObservations.completed = true;
       } catch (error) {
         setupObservations.completed = false;
@@ -2144,16 +2226,17 @@ export async function runSmoke(): Promise<SmokeResult> {
     let lastSetupObservation = "";
     let diagnosticWrite = Promise.resolve();
     let diagnosticError: unknown;
+    const windowsEvents: JsonObject[] = [];
     const captureSetupEffects = (): void => {
       if (!diagnosticPathForSetup || !diagnosticIdentity || !priorDiagnostic) return;
       const requests = fixture.requests.slice(setupRequestStart)
         .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
         .slice(0, 16)
         .map(request => ({ route: request.path === "/api/cloud/auth" ? "key-verification" : "models", finished: request.completedAt !== undefined, closed: request.closedAt !== undefined, status: request.status ?? null }));
-      const observation = JSON.stringify(requests);
+      const observation = JSON.stringify({ requests, windowsEvents });
       if (observation === lastSetupObservation) return;
       lastSetupObservation = observation;
-      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests })).catch(error => { diagnosticError ??= error; });
+      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents] })).catch(error => { diagnosticError ??= error; });
     };
     captureSetupEffects();
     await diagnosticWrite;
@@ -2161,7 +2244,10 @@ export async function runSmoke(): Promise<SmokeResult> {
     const diagnosticTimer = diagnosticPathForSetup ? setInterval(captureSetupEffects, 500) : undefined;
     let nativeSetup: { masked: boolean; postSwitchEnvironmentRequestIndex: number };
     try {
-      nativeSetup = await nativePromptSetup(binary, workspace, environmentA, fixture.url, environmentFixture);
+      nativeSetup = await nativePromptSetup(binary, workspace, environmentA, fixture.url, environmentFixture, undefined, diagnosticPathForSetup ? event => {
+        if (windowsEvents.length < 128) windowsEvents.push(event);
+        captureSetupEffects();
+      } : undefined);
     } finally {
       clearInterval(diagnosticTimer);
       captureSetupEffects();

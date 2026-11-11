@@ -114,7 +114,10 @@ test("pipeline and management responses sharing a status remain one conservative
   expect((forbidden?.sourceFiles as string[])).toContain("src/server/authz/policies/management.ts");
   expect(record((forbidden?.content as unknown[])[0]).schema).toBeNull();
   const ping = jsonHealthContract("GET /api/health/ping");
-  const ping503 = ping.response.variants.find(item => item.statusCode === "503");
+  const ping503s = ping.response.variants.filter(item => item.statusCode === "503");
+  expect(ping503s).toHaveLength(1);
+  const ping503 = ping503s[0];
+  expect(ping503?.sourceFiles).toContain("src/server/authz/pipeline.ts");
   expect(ping503?.content[0]?.schema).toBeNull();
 });
 
@@ -299,7 +302,7 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     const valid = await save(artifact);
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
     const degradationBinding = operationEvidenceBinding("GET /api/health/degradation", degradationContract());
-    const hosted = JSON.parse(await readFile(resolve(root, "provenance/qualification/ingress-2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f.json"), "utf8")) as Record<string, unknown>;
+    const hosted = JSON.parse(await readFile(resolve(root, "provenance/qualification/ingress-a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109.json"), "utf8")) as Record<string, unknown>;
     const hostedEvidence = await save(hosted);
     expect(() => validateHealthIngressEvidence(hostedEvidence, degradationBinding, "GET /api/health/degradation")).not.toThrow();
     expect(() => validateHealthIngressEvidence(hostedEvidence, { ...degradationBinding, handlerSha256: "0".repeat(64) }, "GET /api/health/degradation")).toThrow(/source mismatch/);
