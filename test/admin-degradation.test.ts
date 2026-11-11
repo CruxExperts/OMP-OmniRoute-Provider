@@ -12,8 +12,9 @@ async function read(fixture: PinnedDegradationFixture, query = ""): Promise<unkn
   return response.json();
 }
 
-test("pinned degradation route observes real registry transitions in both response branches", async () => {
+test("pinned degradation handler HTTP observes real registry transitions in both response branches", async () => {
   const fixture = new PinnedDegradationFixture();
+  try {
   const descriptor = degradationDescriptor();
   expect(await read(fixture)).toEqual({ active: false, summary: zero, features: [] });
   expect(await read(fixture, "?summary=true")).toEqual({ summary: zero, isDegraded: false });
@@ -38,15 +39,20 @@ test("pinned degradation route observes real registry transitions in both respon
   expect(projectResponse(descriptor, compact)).toEqual(compact);
   expect(await read(fixture, "?summary=false")).toEqual(body);
   expect(await read(fixture, "?summary=True")).toEqual(body);
+  expect(await read(fixture, "?summary=true&summary=false")).toEqual(compact);
+  expect(await read(fixture, "?summary=false&summary=true")).toEqual(body);
 
   fixture.domain.withDegradationSync("fallback", () => "recovered", () => "fallback", "default");
   fixture.domain.withDegradationSync("offline", () => "recovered", () => "fallback", "default");
   expect(await read(fixture, "?summary=true")).toEqual({ summary: { full: 3, reduced: 0, minimal: 0, default: 0 }, isDegraded: false });
   fixture.domain.resetDegradationRegistry();
   expect(await read(fixture)).toEqual({ active: false, summary: zero, features: [] });
+  } finally {
+    fixture.close();
+  }
 });
 
-test("pinned route catches a Next response failure without returning the private error", async () => {
+test("pinned handler HTTP catches a response failure without returning the private error", async () => {
   const fixture = new PinnedDegradationFixture();
   const log = spyOn(console, "error").mockImplementation(() => {});
   try {
@@ -58,6 +64,24 @@ test("pinned route catches a Next response failure without returning the private
     expect(JSON.stringify(body)).not.toContain("fixture-private-json-error");
     expect(projectResponse(degradationDescriptor(), body)).toEqual(body);
   } finally {
+    fixture.close();
     log.mockRestore();
+  }
+});
+
+test("pinned handler HTTP preserves dynamic registry cardinality and escapes control characters", async () => {
+  const fixture = new PinnedDegradationFixture();
+  try {
+    for (let index = 0; index < 128; index++) {
+      fixture.domain.withDegradationSync(`feature-${index}`, () => "ok", () => "fallback", "default", { fullCapability: "Available\nnow" });
+    }
+    const body = await read(fixture);
+    const projected = projectResponse(degradationDescriptor(), body);
+    expect(projected).toEqual({ active: false, summary: { full: 128, reduced: 0, minimal: 0, default: 0 }, features: Array.from({ length: 128 }, (_, index) => ({ level: "full", feature: `feature-${index}`, capability: "Available\\u000anow", since: DEGRADATION_TIME })) });
+    fixture.domain.withDegradationSync("x".repeat(8 * 1024 * 1024), () => "ok", () => "fallback", "default");
+    const oversized = await read(fixture);
+    expect(() => projectResponse(degradationDescriptor(), oversized)).toThrow("response size limit exceeded");
+  } finally {
+    fixture.close();
   }
 });

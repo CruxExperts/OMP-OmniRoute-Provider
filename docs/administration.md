@@ -17,11 +17,15 @@ Its timestamp is checked before normalization for deterministic comparison.
 This handler-only evidence does not replace the separately required Next ingress
 observation or make the operation available.
 
-The degradation report fixture separately exercises the pinned route and its
-actual in-process registry: report/summary branches, recovery, reset, safe error
-responses, and removal of diagnostic reasons from projected output. It does not
-establish shared ingress authorization or bounded complete registry output, so
-`GET /api/health/degradation` remains unavailable.
+The degradation report candidate exercises the pinned v3.8.53 handler over
+loopback HTTP with its actual process-local registry, not Next.js ingress or
+authorization. It covers report and exact `summary=true` branches, recovery,
+reset, safe error responses and bounded projection. Projection retains feature
+names and capability descriptions with control characters escaped, while
+removing reasons that may contain exception messages. The registry has no
+source-defined cardinality bound. Actual Next.js ingress and independent
+authorization evidence remain necessary before
+`GET /api/health/degradation` can become available.
 
 ## Start with read access
 

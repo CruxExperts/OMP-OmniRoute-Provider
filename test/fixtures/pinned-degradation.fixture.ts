@@ -15,10 +15,11 @@ type Domain = PinnedExports & {
   resetDegradationRegistry(): void;
 };
 
-/** Receipt-verified route and actual isolated registry; only NextResponse is substituted. */
+/** Receipt-verified handler HTTP fixture; this is not Next ingress or authorization. */
 export class PinnedDegradationFixture {
   readonly domain: Domain;
   readonly #get: (request: Request) => Promise<Response>;
+  readonly #server: { readonly url: URL; stop(closeActiveConnections?: boolean): unknown };
   failNextJson = false;
   constructor() {
     this.domain = loadPinnedModule(DOMAIN, specifier => { throw new Error(`Unexpected degradation domain dependency: ${specifier}`); }, { date: createPinnedFixtureDate(DEGRADATION_TIME) }) as Domain;
@@ -31,9 +32,17 @@ export class PinnedDegradationFixture {
       throw new Error(`Unexpected degradation route dependency: ${specifier}`);
     });
     this.#get = route.GET as (request: Request) => Promise<Response>;
+    this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => {
+      const url = new URL(request.url);
+      return request.method === "GET" && url.pathname === "/api/health/degradation"
+        ? this.#get(request) : new Response(null, { status: 404 });
+    } });
   }
   handle(query = ""): Promise<Response> {
-    return this.#get(new Request(`http://fixture.invalid/api/health/degradation${query}`));
+    return fetch(`${this.#server.url.origin}/api/health/degradation${query}`);
+  }
+  close(): void {
+    this.#server.stop(true);
   }
 }
 
@@ -44,7 +53,7 @@ const report: JsonSchema = { type: "object", properties: { active: { type: "bool
 const compact: JsonSchema = { type: "object", properties: { summary, isDegraded: { type: "boolean" } }, required: ["summary", "isDegraded"], additionalProperties: false };
 const error: JsonSchema = { type: "object", properties: { error: { type: "string", const: "Failed to fetch degradation report." } }, required: ["error"], additionalProperties: false };
 
-/** Review-only candidate: no claim that the unbounded registry is a complete safe output. */
+/** Review-only candidate; the process-local registry has no source-defined cardinality bound. */
 export function degradationContract(): OperationSourceContract {
   const template = operationContractTemplate(DEGRADATION_ID) as unknown as OperationSourceContract;
   const success: JsonSchema = { oneOf: [report, compact] };
