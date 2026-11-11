@@ -14,6 +14,32 @@
  
  type ContextLike = ExtensionContext;
  
+@@ -199,7 +206,9 @@
+ 		pendingCandidateEndpoint = endpoint;
+ 		pendingCandidateKey = candidateKey;
+ 		manager.reset();
++		researchStartup(43);
+ 		await refresh(context, false);
++		researchStartup(44);
+ 	};
+ 	const nativeLogin = registerNativeLogin({ providerName: PROVIDER_LIST_NAME, onSetupComplete });
+ 	const oauth: NonNullable<ProviderConfig["oauth"]> = {
+@@ -220,7 +229,14 @@
+ 				});
+ 				return typeof answer === "string" && /^(?:y|yes)$/i.test(answer.trim());
+ 			},
+-			onMessage: message => callbacks.onProgress?.(message),
++			onMessage: message => {
++				researchStartup(41);
++				const result: unknown = callbacks.onProgress?.(message);
++				if (result != null && (typeof result === "object" || typeof result === "function") && typeof (result as { then?: unknown }).then === "function") {
++					return Promise.resolve(result).then(() => { researchStartup(42); });
++				}
++				researchStartup(42);
++			},
+ 			});
+ 		},
+ 	};
 @@ -538,7 +545,9 @@
  			if (invitationFlight) await settleInvitation();
  			readinessIssue = undefined;

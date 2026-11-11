@@ -774,6 +774,7 @@ type CommandOptions = {
   dialogue?: DialogueStep[];
   diagnosticDispatch?: (phase: "rendered" | "dispatched") => Promise<void>;
   beforeTimeoutTermination?: () => Promise<void>;
+  beforeResearchStop?: () => Promise<void>;
 };
 
 export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
@@ -1020,6 +1021,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
       }
       if (text === "__REFRESH_AND_STOP__") {
         if (terminal.closed) throw new Error("terminal closed before refresh dialogue input was written");
+        if (options.beforeResearchStop) await options.beforeResearchStop();
         await writeInput(terminal, "/omniroute refresh\n");
         setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
         return;
@@ -1317,6 +1319,7 @@ async function nativePromptSetup(
   environment: NodeJS.ProcessEnv,
   fixtureUrl: string,
   environmentFixture: FixtureServer,
+  research?: { instrumented: boolean; observations: JsonObject },
 ): Promise<{ masked: boolean; postSwitchEnvironmentRequestIndex: number }> {
   const scriptedInput = process.env.OMP_SMOKE_NATIVE_INPUTS;
   const scripted = Boolean(scriptedInput);
@@ -1341,13 +1344,29 @@ async function nativePromptSetup(
       afterMs: 0,
     },
   ];
-  const result = await runPtyCommand(binary, {
-    cwd,
-    env: environment,
-    timeoutMs: 75_000,
-    dialogue,
-    ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
-  });
+  const endpoint = research?.instrumented ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
+  const traceClient = endpoint ? new ResearchTraceClient(endpoint) : undefined;
+  const traceSamples: JsonObject[] = [];
+  const sampleTrace = async (phase: string): Promise<void> => {
+    if (!traceClient || !research) return;
+    const trace = await traceClient.read();
+    traceSamples.push({ phase, ...trace });
+    research.observations.traceSamples = traceSamples;
+  };
+  let result: CommandResult;
+  try {
+    result = await runPtyCommand(binary, {
+      cwd,
+      env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint, OMP_RESEARCH_INPUT_TRACE: "1" } : environment,
+      timeoutMs: 75_000,
+      dialogue,
+      ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
+      ...(traceClient ? { beforeTimeoutTermination: () => sampleTrace("timeout-before-termination"), beforeResearchStop: () => sampleTrace("success-before-stop") } : {}),
+    });
+  } finally {
+    if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
+  }
+  if (research) Object.assign(research.observations, { dialogueCompleted: result.dialogueCompleted, timedOut: result.stderr === "command timeout", exitCode: result.code, signal: result.signal });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   if ([runtimeKey, oldEnvKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error("native provider setup leaked fixture credentials");
   const controlledStop = result.signal === "SIGTERM" || (result.code === 143 && result.dialogueCompleted === dialogue.length);
@@ -1835,7 +1854,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   if ((patch.match(/^--- /gm) ?? []).length !== 1 || (patch.match(/^\+\+\+ /gm) ?? []).length !== 1
     || !patch.startsWith("--- a/src/index.ts\n+++ b/src/index.ts\n")) throw new Error("research overlay may change only src/index.ts");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "344dfe4a491886c59966c78584bc2ce26c11e9c269b28f466874c7a014b31dd9") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "47b594e74e70342ce51687c5b14e5cf83e57bc1144eca7ff86de7791e500e643") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
@@ -1901,6 +1920,30 @@ export async function runWindowsLoginResearch(options: {
         && "status" in sample && sample.status === "available" && "overflow" in sample && sample.overflow === false);
       result.causalTraceStatus = result.reproducedSubmissionFailure === true && observations.providerSentinelObserved === true && usable
         ? "available-for-await-analysis" : "inconclusive";
+    }
+    stage = "native-setup-research";
+    const setupObservations: JsonObject = {};
+    observations.setup = setupObservations;
+    const fixture = await startFixtureServer();
+    let environmentFixture: FixtureServer | undefined;
+    try {
+      environmentFixture = await startFixtureServer();
+      const environmentA = { ...environment, OMP_OMNIROUTE_BASE_URL: environmentFixture.url, OMP_OMNIROUTE_API_KEY: oldEnvKey };
+      try {
+        await nativePromptSetup(options.binary, workspace, environmentA, fixture.url, environmentFixture, { instrumented: options.instrumented, observations: setupObservations });
+        setupObservations.completed = true;
+      } catch (error) {
+        setupObservations.completed = false;
+        setupObservations.failureType = error instanceof Error ? error.name : "UnknownError";
+      } finally {
+        setupObservations.setupEffects = fixture.requests
+          .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
+          .slice(0, 16)
+          .map(request => ({ route: request.path === "/api/cloud/auth" ? "key-verification" : "models", finished: request.completedAt !== undefined, closed: request.closedAt !== undefined, status: request.status ?? null }));
+      }
+    } finally {
+      if (environmentFixture) await environmentFixture.close();
+      await fixture.close();
     }
     return result;
   } catch (error) {

@@ -132,6 +132,13 @@ tests or increasing their timeout. The official x64 login subsequently reached
 API-key validation but did not finish setup. The bounded diagnostic now records
 fixture verification/model-request completion and closure during that setup;
 these observations do not establish a cause or replace native acceptance.
+Both official Windows architectures subsequently completed the fixture's key
+verification and model-list HTTP responses, while setup still timed out. The
+research-only scenario now exercises that setup path and captures progress and
+activation-refresh entry/completion markers before stopping its owned terminal.
+Missing completion can also mean rejection; completed fixture responses do not
+alone establish that validation, configuration persistence, or activation finished.
+The provider overlay remains restricted to the disposable installed `src/index.ts`.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
