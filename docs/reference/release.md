@@ -484,16 +484,18 @@ must retain the native outputs so the receipt can be checked against their
 actual bytes.
 
 Every native smoke run must also complete a confirmed administration cycle
-against disposable fallback-chain data: read the absent baseline, create one
-chain through the installed OMP interface, read its runtime value, confirm
-deletion, and read the cleaned runtime state. Both changes require typed
-confirmation. Both outcomes must remain unknown because the upstream fallback
-policy can silently fail persistence; the proof explicitly marks durability
-unverified and rejects an applied claim. It binds authorization, exact request
-bodies, one dispatch per mutation, and absence of unexpected administration
-requests. The target collector and standalone release gate apply the same
-complete native-output validator; labels and output hashes alone cannot qualify
-a target.
+against disposable model-combo-mapping data: read the absent collection baseline,
+create one mapping through the installed OMP interface, read its exact runtime
+row and capture its ID, confirm deletion using that ID, and read the cleaned
+collection. Both changes require typed confirmation and each is dispatched once.
+The fixture injects acknowledgement loss after each state change by returning an
+incomplete JSON body; HTTP status and headers may arrive, and the HTTP response
+finishes, but no valid acknowledgement is received. Both outcomes remain unknown.
+Runtime reads do not establish durability. The proof
+binds authorization, exact create and bodyless delete requests, the item preflight,
+and absence of unexpected administration requests. The target collector and
+standalone release gate apply the same complete native-output validator; labels
+and output hashes alone cannot qualify a target.
 
 The two Linux musl evidence files also require a strict `runtime` binding.
 It binds the source revision and package archive to the exact runtime-provenance

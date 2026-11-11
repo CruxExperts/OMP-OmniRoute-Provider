@@ -607,17 +607,12 @@ def main() -> int:
             lambda value: "OMP OmniRoute Provider" in value and "Setup" in value and "Connection" in value and "Administration (optional)" in value,
             "setup wizard",
         )
-        fallback = selected_frame(
+        mapping = selected_frame(
             frames,
-            lambda value: "GET /api/fallback/chains [available]" in value and "Operation ID" in value,
-            "fallback-chain administration browser",
+            lambda value: "GET /api/model-combo-mappings · available" in value and "Operations in api/model-combo-mappings" in value,
+            "model-combo-mappings administration browser",
         )
-        capability = selected_frame(
-            frames,
-            lambda value: "GET /api/model-capability-overrides [available]" in value and "Operation ID" in value,
-            "model-capability administration browser",
-        )
-        selected = [wizard, fallback, capability]
+        selected = [wizard, mapping]
         screen_details: list[dict[str, Any]] = []
         for item in selected:
             safe_text = plain_text(item["safeAnsi"])
@@ -625,13 +620,11 @@ def main() -> int:
                 raise RuntimeError("public transcript would contain fixture credentials")
             file_name = {
                 "setup wizard": "setup-wizard.png",
-                "fallback-chain administration browser": "admin-fallback-chains.png",
-                "model-capability administration browser": "admin-model-capability-overrides.png",
+                "model-combo-mappings administration browser": "admin-model-combo-mappings.png",
             }[item["label"]]
             alt = {
                 "setup wizard": "Oh My Pi terminal showing OMP OmniRoute Provider's setup wizard menu with Connection, Metadata, Catalogs, Administration, Pricing, Summary, and Finish choices. The walkthrough cancels before entering configuration.",
-                "fallback-chain administration browser": "Oh My Pi terminal administration browser showing fallback-chain operations as available in this captured source snapshot, plus the operation prompt. The walkthrough cancels before sending a request; later release eligibility may differ.",
-                "model-capability administration browser": "Oh My Pi terminal administration browser showing model-capability-override operations as available in this captured source snapshot, plus the operation prompt. The walkthrough cancels before sending a request; later release eligibility may differ.",
+                "model-combo-mappings administration browser": "Oh My Pi terminal administration browser showing model-combo-mapping operations as available in this captured source snapshot, plus the operation prompt. The walkthrough cancels before sending a request; later release eligibility may differ.",
             }[item["label"]]
             size = render_terminal(item["safeAnsi"], temp_output / file_name, Path(tool_evidence["fontPath"]), alt)
             screen_details.append({
@@ -704,8 +697,8 @@ SOFTWARE.
         shutil.rmtree(video_dir)
         video_info = json.loads(run_text([tool_evidence["tools"]["ffprobe"], "-v", "error", "-show_entries", "format=duration:format_tags", "-of", "json", str(video_path)]))
         duration = float(video_info["format"]["duration"])
-        if abs(duration - 6.0) > 0.01:
-            raise RuntimeError(f"rendered walkthrough did not hold the three selected screens for two seconds each: {duration}")
+        if abs(duration - 4.0) > 0.01:
+            raise RuntimeError(f"rendered walkthrough did not hold the two selected screens for two seconds each: {duration}")
 
         accessible = f"""# Native OMP setup and administration walkthrough
 
@@ -713,21 +706,19 @@ This walkthrough was captured from a real Oh My Pi (OMP) 18.12.5 process running
 
 The setup screenshot shows the actual setup menu: Connection, Metadata (optional), Catalogs (optional), Administration (optional), Pricing (optional), Summary, and Finish. The setup flow was cancelled before any credentials or configuration were entered.
 
-The administration screenshots show the actual `/cruxomni-admin` browser after enabling administration in a disposable private profile. The six selected descriptors from two families appeared as available in the captured source snapshot: three fallback-chain operations and three model-capability-override operations. They are representative screens, not a complete operation inventory. Current release eligibility may differ; see [the captured provenance](provenance.json) and [the current eligibility inventory](../../../contracts/release-eligibility.json). Each screen was cancelled at the operation prompt. No administration operation was dispatched, and the local fixture server was not treated as a live OmniRoute server or as an oracle for management behavior.
+The administration screenshot shows the actual `/cruxomni-admin` browser after enabling administration in a disposable private profile. Model-combo-mapping operations appeared as available in the captured source snapshot. This is a representative screen, not a complete operation inventory. Current release eligibility may differ; see [the captured provenance](provenance.json) and [the current eligibility inventory](../../../contracts/release-eligibility.json). The browser was cancelled at the operation prompt without dispatching an operation.
 
 ## Screenshots
 
 ![Setup wizard menu: Connection, optional metadata and catalogs, optional administration and pricing, Summary, and Finish. The capture cancels before configuration.](setup-wizard.png)
 
-![Native administration browser showing the available fallback-chain operations and the operation prompt. The request is cancelled before dispatch.](admin-fallback-chains.png)
-
-![Native administration browser showing the available model-capability-override operations and the operation prompt. The request is cancelled before dispatch.](admin-model-capability-overrides.png)
+![Native administration browser showing available model-combo-mapping operations and the operation prompt. The request is cancelled before dispatch.](admin-model-combo-mappings.png)
 
 ## Video and text alternative
 
-The short video has no audio. It holds three selected genuine screens for two seconds each, in this order: setup wizard, fallback-chain browser, model-capability browser. The descriptions above and this transcript provide a static text alternative.
+The short video has no audio. It holds two selected genuine screens for two seconds each: setup wizard and model-combo-mapping browser. The descriptions above and this transcript provide a static text alternative.
 
-The native UI confirms the setup menu, then displays the fallback-chain operation list and the model-capability-override operation list. Each shown descriptor was marked `[available]` in this captured source snapshot; later eligibility may differ. The human-facing operation prompt appears next; the walkthrough sends Escape and makes no request. This is evidence of what the client UI rendered in the private, disposable fixture run. It does not establish a live server response or production account result.
+The native UI displays the setup menu and the model-combo-mapping operation list. The human-facing operation prompt appears next; the walkthrough sends Escape and makes no request. This is evidence of what the client UI rendered in the private, disposable fixture run. It does not establish a live server response or production account result.
 
 {OWNER}. {WEBSITE}
 
@@ -771,7 +762,7 @@ The native UI confirms the setup menu, then displays the fallback-chain operatio
                 "bunVersion": tool_evidence["bunVersion"],
                 "host": {"os": sys.platform, "architecture": os.uname().machine if hasattr(os, "uname") else "unknown", "libc": "glibc"},
                 "captureMethod": "private Bun.Terminal PTY output mirrored through a named FIFO to a tmux 3.4 PTY; tmux capture-pane -e; no desktop or user tmux server was accessed",
-                "fixtureBoundary": "local loopback fixture used by the existing smoke workflow; no admin request was dispatched and no live-server behavior was asserted",
+                "fixtureBoundary": "local loopback fixture; no admin request during the browse capture, followed by a confirmed mutation smoke with deliberately lost acknowledgements; no live-server behavior was asserted",
             },
             "renderer": {
                 "pythonVersion": tool_evidence["pythonVersion"],

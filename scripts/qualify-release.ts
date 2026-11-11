@@ -916,16 +916,16 @@ export function validateNativeSmokeOutput(value: unknown, target: TargetId, arch
   const administration = object(native.administration, "native administration I/O evidence");
   const administrationFields = ["family", "route", "readOperationId", "mutationOperationId", "cleanupOperationId",
     "readRequests", "mutationRequests", "cleanupRequests", "confirmedMutationAttempts", "unknownOutcomes",
-    "durability", "fixtureAuthorization", "exactMutationBodies", "baselineAbsent", "runtimeReadBack",
+    "durability", "injectedAcknowledgementLoss", "incompleteAcknowledgementBody", "fixtureAuthorization", "exactMutationBodies", "baselineAbsent", "runtimeReadBack",
     "cleanupRead", "noUnexpectedAdminRequests"];
-  if (administration.family !== "fallback-chains" || administration.route !== "/api/fallback/chains"
-    || administration.readOperationId !== "GET /api/fallback/chains"
-    || administration.mutationOperationId !== "POST /api/fallback/chains"
-    || administration.cleanupOperationId !== "DELETE /api/fallback/chains"
-    || !Number.isInteger(administration.readRequests) || Number(administration.readRequests) < 3 || Number(administration.readRequests) > 20
+  if (administration.family !== "model-combo-mappings" || administration.route !== "/api/model-combo-mappings"
+    || administration.readOperationId !== "GET /api/model-combo-mappings"
+    || administration.mutationOperationId !== "POST /api/model-combo-mappings"
+    || administration.cleanupOperationId !== "DELETE /api/model-combo-mappings/{id}"
+    || !Number.isInteger(administration.readRequests) || Number(administration.readRequests) < 7 || Number(administration.readRequests) > 20
     || administration.mutationRequests !== 1 || administration.cleanupRequests !== 1
     || administration.confirmedMutationAttempts !== 2 || administration.unknownOutcomes !== 2
-    || administration.durability !== "unverified"
+    || administration.durability !== "unverified" || administration.injectedAcknowledgementLoss !== true || administration.incompleteAcknowledgementBody !== true
     || administration.fixtureAuthorization !== true || administration.exactMutationBodies !== true
     || administration.baselineAbsent !== true || administration.runtimeReadBack !== true || administration.cleanupRead !== true
     || administration.noUnexpectedAdminRequests !== true

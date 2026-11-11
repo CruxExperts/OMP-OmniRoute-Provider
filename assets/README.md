@@ -57,23 +57,19 @@ qualified native package, preserving the captured source and output provenance.
 
 [`native/omp-18.12.5/`](native/omp-18.12.5/walkthrough.md) contains a genuine
 capture of the compiled OMP 18.12.5 terminal running this plugin in a disposable
-profile. The setup screenshot shows the real setup menu. The two administration
-screenshots show the fallback-chain and model-capability-override browsers. The
-six selected descriptors from two families appeared as available in the captured
-source snapshot; they are representative screens, not a complete operation
-inventory. Current release eligibility may differ. See the linked [capture provenance](native/omp-18.12.5/provenance.json)
-and [current eligibility inventory](../contracts/release-eligibility.json). The
-walkthrough cancels at each operation prompt; it sends no administration request
-and makes no claim about a live OmniRoute server. The local fixture is used only
-by the existing smoke setup and is not an oracle for server administration
-behavior.
+profile. The setup screenshot shows the real setup menu. Administration browser
+screens show representative operations available in the captured source snapshot,
+not a complete operation inventory. The [walkthrough](native/omp-18.12.5/walkthrough.md)
+identifies the screens in the current capture. Current release eligibility may
+differ; see the [capture provenance](native/omp-18.12.5/provenance.json) and
+[current eligibility inventory](../contracts/release-eligibility.json). The
+browser capture cancels at the operation prompt without sending an administration
+request; it makes no claim about a live OmniRoute server.
 
 | File | Description |
 | --- | --- |
 | [setup-wizard.png](native/omp-18.12.5/setup-wizard.png) | Native setup menu; configuration is cancelled before entry. |
-| [admin-fallback-chains.png](native/omp-18.12.5/admin-fallback-chains.png) | Fallback-chain operations shown as available in the captured source snapshot, with the cancelable operation prompt. |
-| [admin-model-capability-overrides.png](native/omp-18.12.5/admin-model-capability-overrides.png) | Override operations shown as available in the captured source snapshot, with the cancelable operation prompt. |
-| [native-walkthrough.mp4](native/omp-18.12.5/native-walkthrough.mp4) | Three selected actual PTY screens, each held for two seconds; no audio. |
+| [native-walkthrough.mp4](native/omp-18.12.5/native-walkthrough.mp4) | Selected actual PTY screens, each held for two seconds; no audio. |
 | [walkthrough.md](native/omp-18.12.5/walkthrough.md) | Accessible static descriptions and a text alternative to the video. |
 | [terminal-transcript.txt](native/omp-18.12.5/terminal-transcript.txt) | Sanitized screen text captured from the same run. |
 | `native/omp-18.12.5/provenance.json` | Source, OMP binary, font, tool, renderer and output digests. |

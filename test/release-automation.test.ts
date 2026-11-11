@@ -224,10 +224,10 @@ async function syntheticNativeSmoke(id: typeof qualificationTargetIds[number], a
       legacyCache: { seeded: true, seederUninstalled: true, modelId: "fixture-legacy-model", api: "openai-responses", liveDiscoveryStatus: 503, selectable: false, inferencePosts: 0 },
       toolContinuation: { modelId: "fixture-model", api: "openai-completions", postCount: 2, tool: "read", fileResultObserved: true, streamedContinuation: true },
       administration: {
-        family: "fallback-chains", route: "/api/fallback/chains",
-        readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains",
+        family: "model-combo-mappings", route: "/api/model-combo-mappings",
+        readOperationId: "GET /api/model-combo-mappings", mutationOperationId: "POST /api/model-combo-mappings", cleanupOperationId: "DELETE /api/model-combo-mappings/{id}",
         readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedMutationAttempts: 2,
-        unknownOutcomes: 2, durability: "unverified",
+        unknownOutcomes: 2, durability: "unverified", injectedAcknowledgementLoss: true, incompleteAcknowledgementBody: true,
         fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
         runtimeReadBack: true, cleanupRead: true, noUnexpectedAdminRequests: true,
       },
@@ -1023,10 +1023,10 @@ describe("release automation", () => {
         legacyCache: { seeded: true, seederUninstalled: true, modelId: "fixture-legacy-model", api: "openai-responses", liveDiscoveryStatus: 503, selectable: false, inferencePosts: 0 },
         toolContinuation: { modelId: "fixture-model", api: "openai-completions", postCount: 2, tool: "read", fileResultObserved: true, streamedContinuation: true },
         administration: {
-          family: "fallback-chains", route: "/api/fallback/chains",
-          readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains",
+          family: "model-combo-mappings", route: "/api/model-combo-mappings",
+          readOperationId: "GET /api/model-combo-mappings", mutationOperationId: "POST /api/model-combo-mappings", cleanupOperationId: "DELETE /api/model-combo-mappings/{id}",
           readRequests: 7, mutationRequests: 1, cleanupRequests: 1, confirmedMutationAttempts: 2,
-          unknownOutcomes: 2, durability: "unverified",
+          unknownOutcomes: 2, durability: "unverified", injectedAcknowledgementLoss: true, incompleteAcknowledgementBody: true,
           fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
           runtimeReadBack: true, cleanupRead: true, noUnexpectedAdminRequests: true,
         },
@@ -1043,6 +1043,12 @@ describe("release automation", () => {
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, cleanupRead: false } } }, "linux-x64-glibc", hashA))
       .toThrow("unknown-outcome administration I/O");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, unknownOutcomes: 1 } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, injectedAcknowledgementLoss: false } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, incompleteAcknowledgementBody: false } } }, "linux-x64-glibc", hashA))
+      .toThrow("unknown-outcome administration I/O");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, family: "fallback-chains", route: "/api/fallback/chains", readOperationId: "GET /api/fallback/chains", mutationOperationId: "POST /api/fallback/chains", cleanupOperationId: "DELETE /api/fallback/chains" } } }, "linux-x64-glibc", hashA))
       .toThrow("unknown-outcome administration I/O");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { ...native, administration: { ...native.administration, durability: "verified" } } }, "linux-x64-glibc", hashA))
       .toThrow("unknown-outcome administration I/O");

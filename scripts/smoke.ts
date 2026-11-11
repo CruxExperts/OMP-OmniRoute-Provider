@@ -25,6 +25,8 @@ type FixtureRequest = {
   closedAt?: number;
   firstTokenAt?: number;
   stalled?: boolean;
+  acknowledgementLostAfterMutation?: true;
+  incompleteAcknowledgementBody?: true;
   failure?: string;
 };
 type FixtureServer = {
@@ -34,6 +36,7 @@ type FixtureServer = {
   stallMetadata(): void;
   releaseMetadata(): void;
   setToolRead(path: string | undefined): void;
+  setMappingAcknowledgementLoss(enabled: boolean): void;
   close(): Promise<void>;
 };
 type InferenceProtocol = "responses" | "chat-completions";
@@ -73,9 +76,9 @@ const toolReplyText = "Fixture tool result received; continuation complete.";
 const toolFileText = "Native tool continuation fixture file content.";
 const toolReadCallId = "call_fixture_native_read";
 const legacyCacheSeederName = "@fixture/omp-legacy-dynamic-cache-seeder";
-const adminFallbackPath = "/api/fallback/chains";
-const adminFallbackModel = "fixture-native-admin-model";
-const adminFallbackChain = [{ provider: "fixture-native-primary", priority: 1, enabled: true }];
+const adminMappingPath = "/api/model-combo-mappings";
+const adminMappingBody = { pattern: "fixture-native-admin-model", comboId: "fixture-native-combo", priority: 1, enabled: true, description: "Native administration smoke" };
+const adminMappingRow = { id: "fixture-native-mapping", ...adminMappingBody, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
 const commandTimeoutMs = 45_000;
 const sensitiveEnvironment = /(api[_-]?key|access[_-]?token|secret|password|credential|authorization|private[_-]?key|openai|anthropic|gemini|aws_|azure_)/i;
 const installedCliMode = "installed-cli";
@@ -577,9 +580,10 @@ function nativeReadFailureSummary(body: JsonObject): string {
 }
 
 
-async function startFixtureServer(): Promise<FixtureServer> {
+export async function startFixtureServer(): Promise<FixtureServer> {
   const requests: FixtureRequest[] = [];
-  const fallbackChains: JsonObject = {};
+  let mapping: typeof adminMappingRow | undefined;
+  let loseMappingAcknowledgements = false;
   const metadataWaiters = new Set<() => void>();
   let modelsStatus: 200 | 503 = 200;
   let metadataStalled = false;
@@ -607,7 +611,6 @@ async function startFixtureServer(): Promise<FixtureServer> {
       record.completedAt = Date.now();
     });
     response.once("close", () => {
-      record.status = response.statusCode;
       record.closedAt = Date.now();
     });
     try {
@@ -706,28 +709,39 @@ async function startFixtureServer(): Promise<FixtureServer> {
         });
         return;
       }
-      if (path === adminFallbackPath) {
+      if (path === adminMappingPath || path === `${adminMappingPath}/${adminMappingRow.id}`) {
         if (request.headers.authorization !== `Bearer ${adminKey}`) {
           fixtureResponse(response, 401, { error: "admin_unauthorized" });
           return;
         }
         if (request.method === "GET" && requestJson === undefined) {
-          record.responseBody = structuredClone(fallbackChains);
-          fixtureResponse(response, 200, record.responseBody);
+          record.responseBody = path === adminMappingPath
+            ? { mappings: mapping ? [mapping] : [], total: mapping ? 1 : 0 }
+            : { mapping: mapping ?? null };
+          fixtureResponse(response, mapping || path === adminMappingPath ? 200 : 404, record.responseBody);
           return;
         }
-        if (request.method === "POST" && isDeepStrictEqual(requestJson, { model: adminFallbackModel, chain: adminFallbackChain })) {
-          fallbackChains[adminFallbackModel] = structuredClone(adminFallbackChain);
-          fixtureResponse(response, 200, { success: true, model: adminFallbackModel });
+        if (path === adminMappingPath && request.method === "POST" && isDeepStrictEqual(requestJson, adminMappingBody) && !mapping) {
+          mapping = { ...adminMappingRow };
+          if (loseMappingAcknowledgements) {
+            record.acknowledgementLostAfterMutation = true;
+            record.incompleteAcknowledgementBody = true;
+            response.writeHead(201, { "content-type": "application/json" });
+            response.end('{"mapping":');
+          } else fixtureResponse(response, 201, { mapping });
           return;
         }
-        if (request.method === "DELETE" && isDeepStrictEqual(requestJson, { model: adminFallbackModel })) {
-          const removed = Object.hasOwn(fallbackChains, adminFallbackModel);
-          delete fallbackChains[adminFallbackModel];
-          fixtureResponse(response, 200, { success: true, removed });
+        if (path === `${adminMappingPath}/${adminMappingRow.id}` && request.method === "DELETE" && requestJson === undefined && mapping) {
+          mapping = undefined;
+          if (loseMappingAcknowledgements) {
+            record.acknowledgementLostAfterMutation = true;
+            record.incompleteAcknowledgementBody = true;
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end('{"success":');
+          } else fixtureResponse(response, 200, { success: true });
           return;
         }
-        fixtureResponse(response, 400, { error: "unexpected_fallback_request" });
+        fixtureResponse(response, 400, { error: "unexpected_mapping_request" });
         return;
       }
       if (path.startsWith("/api/")) {
@@ -755,6 +769,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
     requests,
     setModelsStatus: status => { modelsStatus = status; },
     setToolRead: path => { toolRead = path === undefined ? undefined : { path, callSent: false }; },
+    setMappingAcknowledgementLoss: enabled => { loseMappingAcknowledgements = enabled; },
     stallMetadata: () => { metadataStalled = true; },
     releaseMetadata,
     close: async () => {
@@ -899,7 +914,8 @@ const nativeAdminNoLabel = nativeAdminLabelPattern("No");
 export const nativeAdminEnableConfirmationPattern = new RegExp(`Enable OmniRoute administration[\\s\\S]{0,1000}${nativeAdminYesLabel}[\\s\\S]{0,1000}${nativeAdminNoLabel}`, "i");
 export const nativeAdminApplyConfirmationPattern = new RegExp(`Confirm this exact target, side effect, and irreversible consequence\\?[\\s\\S]{0,1000}❯[ \\t]*${nativeAdminYesLabel}[\\s\\S]{0,1000}${nativeAdminNoLabel}`, "i");
 export const nativeAdminUnknownOutcomePattern = /administration outcome is unknown; reconcile before retrying \(([a-z0-9-]+)\)/i;
-export const nativeAdminEmptyFallbackReadPattern = /read result for GET \/api\/fallback\/chains:[ \t]*\{[ \t]*\}/i;
+export const nativeAdminEmptyMappingReadPattern = /read result for GET \/api\/model-combo-mappings:[\s\S]{0,200}?"mappings"\s*:\s*\[\s*\]\s*,\s*"total"\s*:\s*0\s*\}/i;
+export const nativeAdminMappingReadPattern = /read result for GET \/api\/model-combo-mappings:[\s\S]{0,1500}?\{[^{}]*?"id"\s*:\s*"([a-z0-9-]+)"[^{}]*?"pattern"\s*:\s*"fixture-native-admin-model"[^{}]*?\}/i;
 
 // Terminal bytes stay in memory; only fixed confirmation markers are retained.
 export function nativeAdminSelectorSnapshot(output: string, dialogueCompleted: number): JsonObject {
@@ -1538,33 +1554,24 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
   const dialogue = [
     nativeAdminInitialStep,
     { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 250 },
-    { when: prompt, text: "/omniroute-admin fallback/chains\n", afterMs: 500 },
-    { when: /Administration category[\s\S]{0,1000}api\/fallback/i, text: "\n", afterMs: 250 },
-    { when: availableOperationMenuPattern("api/fallback", "GET /api/fallback/chains"), text: "__ESC__", afterMs: 500 },
-    { when: prompt, text: "/omniroute-admin model-capability-overrides\n", afterMs: 500 },
-    { when: /Administration category[\s\S]{0,1000}api\/model-capability-overrides/i, text: "\n", afterMs: 250 },
-    { when: availableOperationMenuPattern("api/model-capability-overrides", "GET /api/model-capability-overrides"), text: "__ESC__", afterMs: 500 },
+    { when: prompt, text: "/omniroute-admin model-combo-mappings\n", afterMs: 500 },
+    { when: /Administration category[\s\S]{0,1000}api\/model-combo-mappings/i, text: "\n", afterMs: 250 },
+    { when: availableOperationMenuPattern("api/model-combo-mappings", "GET /api/model-combo-mappings"), text: "__ESC__", afterMs: 500 },
     { when: prompt, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, argv: ["/omniroute-admin status"], timeoutMs: 45_000, dialogue });
   const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   const requiredOperations = [
-    "GET /api/fallback/chains",
-    "POST /api/fallback/chains",
-    "DELETE /api/fallback/chains",
-    "GET /api/model-capability-overrides",
+    "GET /api/model-combo-mappings",
+    "POST /api/model-combo-mappings",
+    "DELETE /api/model-combo-mappings/{id}",
   ];
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
-    throw new Error(`native administration walkthrough did not select both categories, cancel operation menus, and stop cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length}, exit ${result.code ?? "unknown"})`);
+    throw new Error(`native administration walkthrough did not select the category, cancel its operation menu, and stop cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length}, exit ${result.code ?? "unknown"})`);
   }
   for (const operationId of requiredOperations) {
     if (!hasNativeAvailableOperationDescription(output, operationId)) {
       throw new Error(`native administration browse did not show the source-qualified operation as available: ${operationId}`);
-    }
-  }
-  for (const operationId of ["PATCH /api/model-capability-overrides", "DELETE /api/model-capability-overrides"]) {
-    if (hasNativeAvailableOperationDescription(output, operationId)) {
-      throw new Error(`native administration browse unexpectedly offered the held operation: ${operationId}`);
     }
   }
   if (/operation failed|read result for|plan [a-z0-9-]+ created|administration plan applied/i.test(output)) {
@@ -1573,11 +1580,11 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
 }
 
 type NativeAdministrationEvidence = {
-  family: "fallback-chains";
-  route: typeof adminFallbackPath;
-  readOperationId: "GET /api/fallback/chains";
-  mutationOperationId: "POST /api/fallback/chains";
-  cleanupOperationId: "DELETE /api/fallback/chains";
+  family: "model-combo-mappings";
+  route: typeof adminMappingPath;
+  readOperationId: "GET /api/model-combo-mappings";
+  mutationOperationId: "POST /api/model-combo-mappings";
+  cleanupOperationId: "DELETE /api/model-combo-mappings/{id}";
   readRequests: number;
   mutationRequests: 1;
   cleanupRequests: 1;
@@ -1586,6 +1593,8 @@ type NativeAdministrationEvidence = {
   durability: "unverified";
   fixtureAuthorization: true;
   exactMutationBodies: true;
+  injectedAcknowledgementLoss: true;
+  incompleteAcknowledgementBody: true;
   baselineAbsent: true;
   runtimeReadBack: true;
   cleanupRead: true;
@@ -1601,9 +1610,10 @@ async function nativeAdministrationIo(
   selectorDiagnostic?: (snapshot: JsonObject) => void,
 ): Promise<NativeAdministrationEvidence> {
   const start = fixture.requests.length;
-  const readId = "GET /api/fallback/chains";
-  const postId = "POST /api/fallback/chains";
-  const deleteId = "DELETE /api/fallback/chains";
+  const readId = "GET /api/model-combo-mappings";
+  const postId = "POST /api/model-combo-mappings";
+  const deleteId = "DELETE /api/model-combo-mappings/{id}";
+  let createdId: string | undefined;
   const planIds: string[] = [];
   const input = (body: JsonObject): string => `${JSON.stringify(body)}\n`;
   const planCommand = (match: RegExpExecArray): string => {
@@ -1619,24 +1629,30 @@ async function nativeAdministrationIo(
     nativeAdminInitialStep,
     { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 250 },
     { when: /administration enabled for exact endpoint/i, text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
-    { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
-    { when: /read result for GET \/api\/fallback\/chains/i, text: `/omniroute-admin ${postId}\n`, afterMs: 500 },
-    { when: /Validated JSON input for POST \/api\/fallback\/chains/i, text: input({ body: { model: adminFallbackModel, chain: adminFallbackChain } }), afterMs: 250 },
+    { when: /Validated JSON input for GET \/api\/model-combo-mappings/i, text: "{}\n", afterMs: 250 },
+    { when: nativeAdminEmptyMappingReadPattern, text: `/omniroute-admin ${postId}\n`, afterMs: 500 },
+    { when: /Validated JSON input for POST \/api\/model-combo-mappings/i, text: input({ body: adminMappingBody }), afterMs: 250 },
     { when: /plan ([a-z0-9-]+) created/i, text: planCommand, afterMs: 500 },
     { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
     { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
     { when: () => unknownOutcomeFor(0), text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
-    { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
-    { when: new RegExp(`read result for ${escapeRegExp(readId)}:[\\s\\S]{0,1500}${escapeRegExp(adminFallbackModel)}[\\s\\S]{0,1500}${escapeRegExp(adminFallbackChain[0]!.provider)}`, "i"), text: `/omniroute-admin ${deleteId}\n`, afterMs: 500 },
-    { when: /Validated JSON input for DELETE \/api\/fallback\/chains/i, text: input({ body: { model: adminFallbackModel } }), afterMs: 250 },
+    { when: /Validated JSON input for GET \/api\/model-combo-mappings/i, text: "{}\n", afterMs: 250 },
+    { when: nativeAdminMappingReadPattern, text: match => { createdId = match[1]; if (!createdId) throw new Error("native mapping ID was not captured"); return `/omniroute-admin ${deleteId}\n`; }, afterMs: 500 },
+    { when: /Validated JSON input for DELETE \/api\/model-combo-mappings\/\{id\}/i, text: () => { if (!createdId) throw new Error("native mapping ID was not captured"); return input({ path: { id: createdId } }); }, afterMs: 250 },
     { when: () => nativeAdminNewPlanPattern(planIds[0] ?? "__missing__"), text: planCommand, afterMs: 500 },
     { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
     { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
     { when: () => unknownOutcomeFor(1), text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
-    { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
-    { when: nativeAdminEmptyFallbackReadPattern, text: "__SIGTERM__", afterMs: 500 },
+    { when: /Validated JSON input for GET \/api\/model-combo-mappings/i, text: "{}\n", afterMs: 250 },
+    { when: nativeAdminEmptyMappingReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey, ...(windowsDiagnostic ? { OMP_SMOKE_LOGIN_DIAGNOSTICS: "1" } : {}) }, argv: ["/omniroute-admin status"], timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue, ...(windowsDiagnostic ? { windowsDiagnostic } : {}) });
+  fixture.setMappingAcknowledgementLoss(true);
+  let result: CommandResult;
+  try {
+    result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey, ...(windowsDiagnostic ? { OMP_SMOKE_LOGIN_DIAGNOSTICS: "1" } : {}) }, argv: ["/omniroute-admin status"], timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue, ...(windowsDiagnostic ? { windowsDiagnostic } : {}) });
+  } finally {
+    fixture.setMappingAcknowledgementLoss(false);
+  }
   const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
@@ -1648,40 +1664,44 @@ async function nativeAdministrationIo(
   }
   const requests = fixture.requests.slice(start);
   const adminRequests = requests.filter(request => request.path.startsWith("/api/") && request.path !== "/api/health");
-  if (adminRequests.some(request => request.path !== adminFallbackPath)) throw new Error("native administration I/O sent an unexpected administration request");
-  const fallbackRequests = adminRequests.filter(request => request.path === adminFallbackPath);
-  if (fallbackRequests.some(request => request.authorization !== `Bearer ${adminKey}` || request.status !== 200 || request.failure
-    || request.completedAt === undefined)) throw new Error("native administration I/O request failed or used the wrong fixture credential");
-  const reads = fallbackRequests.filter(request => request.method === "GET");
-  const posts = fallbackRequests.filter(request => request.method === "POST");
-  const deletes = fallbackRequests.filter(request => request.method === "DELETE");
-  if (fallbackRequests.length !== reads.length + posts.length + deletes.length || reads.length < 3 || reads.length > 20
+  if (!createdId || createdId !== adminMappingRow.id) throw new Error("native administration did not capture the created mapping ID");
+  const itemPath = `${adminMappingPath}/${createdId}`;
+  if (adminRequests.some(request => request.path !== adminMappingPath && request.path !== itemPath)) throw new Error("native administration I/O sent an unexpected administration request");
+  if (adminRequests.some(request => request.authorization !== `Bearer ${adminKey}` || request.failure
+    || (request.method === "GET" ? request.status !== 200 || request.completedAt === undefined
+      : request.status !== (request.method === "POST" ? 201 : 200) || request.completedAt === undefined || request.closedAt === undefined
+        || request.acknowledgementLostAfterMutation !== true || request.incompleteAcknowledgementBody !== true))) throw new Error("native administration I/O request failed or did not lose its mutation acknowledgement");
+  const reads = adminRequests.filter(request => request.method === "GET");
+  const posts = adminRequests.filter(request => request.method === "POST");
+  const deletes = adminRequests.filter(request => request.method === "DELETE");
+  if (adminRequests.length !== reads.length + posts.length + deletes.length || reads.length < 7 || reads.length > 20
     || posts.length !== 1 || deletes.length !== 1) throw new Error("native administration I/O used unexpected methods or dispatch counts");
-  if (reads.some(request => request.body !== undefined)
-    || !isDeepStrictEqual(posts[0]!.body, { model: adminFallbackModel, chain: adminFallbackChain })
-    || !isDeepStrictEqual(deletes[0]!.body, { model: adminFallbackModel })) {
-    throw new Error("native administration I/O sent unexpected source-contract request bodies");
+  if (reads.some(request => request.body !== undefined) || posts[0]!.path !== adminMappingPath
+    || !isDeepStrictEqual(posts[0]!.body, adminMappingBody) || deletes[0]!.path !== itemPath || deletes[0]!.body !== undefined) {
+    throw new Error("native administration I/O sent unexpected source-contract requests");
   }
-  const expectedRuntimeChain = { [adminFallbackModel]: adminFallbackChain };
-  const postIndex = fallbackRequests.indexOf(posts[0]!);
-  const deleteIndex = fallbackRequests.indexOf(deletes[0]!);
-  const baselineIndex = fallbackRequests.findIndex((request, index) => index < postIndex && request.method === "GET" && isDeepStrictEqual(request.responseBody, {}));
-  const runtimeIndex = fallbackRequests.findIndex((request, index) => index > postIndex && index < deleteIndex
-    && request.method === "GET" && isDeepStrictEqual(request.responseBody, expectedRuntimeChain));
-  const cleanupIndex = fallbackRequests.findIndex((request, index) => index > deleteIndex
-    && request.method === "GET" && isDeepStrictEqual(request.responseBody, {}));
-  if (postIndex < 0 || deleteIndex <= postIndex || baselineIndex < 0 || runtimeIndex < 0 || cleanupIndex < 0
-    || fallbackRequests.at(-1)?.method !== "GET" || !isDeepStrictEqual(fallbackRequests.at(-1)?.responseBody, {})) {
-    throw new Error("native administration I/O did not observe the exact baseline, runtime chain, and cleaned-up runtime state");
+  const empty = { mappings: [], total: 0 };
+  const expectedRuntime = { mappings: [adminMappingRow], total: 1 };
+  const postIndex = adminRequests.indexOf(posts[0]!);
+  const deleteIndex = adminRequests.indexOf(deletes[0]!);
+  const baselineIndex = adminRequests.findIndex((request, index) => index < postIndex && request.method === "GET" && request.path === adminMappingPath && isDeepStrictEqual(request.responseBody, empty));
+  const runtimeIndex = adminRequests.findIndex((request, index) => index > postIndex && index < deleteIndex && request.method === "GET" && request.path === adminMappingPath && isDeepStrictEqual(request.responseBody, expectedRuntime));
+  const itemIndex = adminRequests.findIndex((request, index) => index > postIndex && index < deleteIndex && request.method === "GET" && request.path === itemPath && isDeepStrictEqual(request.responseBody, { mapping: adminMappingRow }));
+  const cleanupIndex = adminRequests.findIndex((request, index) => index > deleteIndex && request.method === "GET" && request.path === adminMappingPath && isDeepStrictEqual(request.responseBody, empty));
+  const collectionPreflights = adminRequests.filter((request, index) => index < postIndex && request.method === "GET" && request.path === adminMappingPath && isDeepStrictEqual(request.responseBody, empty));
+  const itemPreflights = adminRequests.filter((request, index) => index > postIndex && index < deleteIndex && request.method === "GET" && request.path === itemPath && isDeepStrictEqual(request.responseBody, { mapping: adminMappingRow }));
+  if (postIndex < 0 || deleteIndex <= postIndex || baselineIndex < 0 || runtimeIndex < 0 || itemIndex < 0 || cleanupIndex < 0 || collectionPreflights.length < 3 || itemPreflights.length < 2
+    || adminRequests.at(-1)?.path !== adminMappingPath || !isDeepStrictEqual(adminRequests.at(-1)?.responseBody, empty)) {
+    throw new Error("native administration I/O did not observe the exact baseline, runtime mapping, item preflight, and cleaned-up runtime state");
   }
   if (!hasNativeUnknownOutcomes(output, planIds)) {
     throw new Error("native administration I/O did not show unknown outcomes for both distinct plans");
   }
   return {
-    family: "fallback-chains", route: adminFallbackPath,
+    family: "model-combo-mappings", route: adminMappingPath,
     readOperationId: readId, mutationOperationId: postId, cleanupOperationId: deleteId,
     readRequests: reads.length, mutationRequests: 1, cleanupRequests: 1, confirmedMutationAttempts: 2,
-    unknownOutcomes: 2, durability: "unverified",
+    unknownOutcomes: 2, durability: "unverified", injectedAcknowledgementLoss: true, incompleteAcknowledgementBody: true,
     fixtureAuthorization: true, exactMutationBodies: true, baselineAbsent: true,
     runtimeReadBack: true, cleanupRead: true, noUnexpectedAdminRequests: true,
   };
@@ -2345,7 +2365,7 @@ export async function runSmoke(): Promise<SmokeResult> {
       const beforeAdminBrowse = fixture.requests.length;
       await nativeAdminWalkthrough(binary, workspace, nativeEnvironment);
       const adminRequests = fixture.requests.slice(beforeAdminBrowse).filter(request =>
-        /^\/(?:api\/fallback\/chains|api\/model-capability-overrides)(?:\/|\?|$)/.test(request.path),
+        request.path === adminMappingPath || request.path.startsWith(`${adminMappingPath}/`),
       );
       if (adminRequests.length > 0) throw new Error("native admin browser sent an operation request instead of cancelling at the operation prompt");
     }

@@ -3,6 +3,10 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { invokeJsonAdapter } from "../src/admin/adapters.ts";
+import { createAdminExecutor } from "../src/admin/executor.ts";
+import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot } from "../src/admin/relations.ts";
+import { canonicalizeJson, getOperationRegistry } from "../src/admin/registry.ts";
 import {
   applyWindowsResearchOverlay,
   availableOperationMenuPattern,
@@ -12,7 +16,8 @@ import {
   hasNativeAvailableOperationDescription,
   nativeAdminApplyConfirmationPattern,
   nativeAdminEnableConfirmationPattern,
-  nativeAdminEmptyFallbackReadPattern,
+  nativeAdminEmptyMappingReadPattern,
+  nativeAdminMappingReadPattern,
   nativeAdminInitialStep,
   nativeAdminIoTimeoutMs,
   nativeAdminNewPlanPattern,
@@ -29,6 +34,7 @@ import {
   normalizeTerminalOutput,
   parseWindowsDiagnostic,
   researchSetupFailureReproduced,
+  startFixtureServer,
   terminateAfterStagingObservation,
   writeNativeLoginDiagnostic,
 } from "../scripts/smoke.ts";
@@ -511,9 +517,93 @@ test("second plan ignores an earlier plan redrawn while DELETE is in progress", 
   scheduler.cancel();
 });
 
-test("final native read selector waits for the cleaned fallback map", () => {
-  expect(nativeAdminEmptyFallbackReadPattern.test('read result for GET /api/fallback/chains: {}')).toBe(true);
-  expect(nativeAdminEmptyFallbackReadPattern.test('read result for GET /api/fallback/chains: { "fixture-native-admin-model": [] }')).toBe(false);
+test("final native read selector waits for the cleaned mapping list", () => {
+  expect(nativeAdminEmptyMappingReadPattern.test('read result for GET /api/model-combo-mappings: {"mappings":[],"total":0}')).toBe(true);
+  expect(nativeAdminEmptyMappingReadPattern.test('read result for GET /api/model-combo-mappings: {"mappings":[{"id":"x"}],"total":1}')).toBe(false);
+});
+
+test("native mapping read captures the ID from the displayed runtime row", () => {
+  const result = 'read result for GET /api/model-combo-mappings: {"mappings":[{"id":"created-runtime-id","pattern":"fixture-native-admin-model"}],"total":1}';
+  expect(nativeAdminMappingReadPattern.exec(result)?.[1]).toBe("created-runtime-id");
+  expect(nativeAdminMappingReadPattern.test('read result for GET /api/model-combo-mappings: {"mappings":[],"total":0}')).toBe(false);
+  expect(nativeAdminMappingReadPattern.test('read result for GET /api/model-combo-mappings: {"mappings":[{"id":"wrong","pattern":"other"},{"pattern":"fixture-native-admin-model"}],"total":2}')).toBe(false);
+});
+
+test("mapping fixture loses acknowledgements only after state changes and normally returns 201", async () => {
+  const fixture = await startFixtureServer();
+  const path = "/api/model-combo-mappings";
+  const body = { pattern: "fixture-native-admin-model", comboId: "fixture-native-combo", priority: 1, enabled: true, description: "Native administration smoke" };
+  const headers = { authorization: "Bearer fixture-only-admin-key", "content-type": "application/json" };
+  const create = () => fetch(`${fixture.url}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  const remove = (id: string) => fetch(`${fixture.url}${path}/${id}`, { method: "DELETE", headers });
+  const registry = getOperationRegistry();
+  const errors: unknown[] = [];
+  const executor = createAdminExecutor({
+    registry,
+    readTarget: async context => {
+      const adapter = registry.require(context.readOperation.operationId);
+      const input = adapter.validate(mapRelationInput(context.relation.inputs, context.payload));
+      assertSafetyReadRequest(context.readCompleteness, adapter.descriptor, input);
+      const response = await invokeJsonAdapter({ descriptor: { ...adapter.descriptor, adapterId: adapter.adapterId }, endpoint: context.auth.endpoint,
+        ...(context.auth.credential === undefined ? {} : { credential: context.auth.credential }), resolvedPath: adapter.buildPath(input), queryParameters: adapter.buildQuery(input) });
+      assertSafetyReadResponse(context.readCompleteness, adapter.descriptor, response.data);
+      const snapshot = projectRelationSnapshot(context.relation, response.data, context.payload);
+      return { snapshot, digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex") };
+    },
+    dispatch: async (request, context) => {
+      const adapter = registry.require(request.operationId);
+      expect(context.retryAllowed).toBe(false);
+      expect(context.maxAttempts).toBe(1);
+      try {
+        const response = await invokeJsonAdapter({ descriptor: { ...adapter.descriptor, adapterId: adapter.adapterId }, endpoint: context.auth.endpoint,
+          ...(context.auth.credential === undefined ? {} : { credential: context.auth.credential }), resolvedPath: request.path, queryParameters: request.queryParameters,
+          ...(request.body === undefined ? {} : { body: request.body }) });
+        return { kind: "response", status: response.status, body: response.data };
+      } catch (error) {
+        errors.push(error);
+        throw Object.assign(new Error("operation outcome could not be observed"), { code: "network-lost-response", uncertain: true });
+      }
+    },
+  });
+  executor.bindCredential({ profileId: "omniroute", endpoint: fixture.url, apiKey: "fixture-only-admin-key" });
+  const dispatch = async (method: "POST" | "DELETE", id?: string) => {
+    const plan = await executor.plan(`${method} ${path}${id ? "/{id}" : ""}`, method === "POST" ? { body } : { path: { id } });
+    const result = await executor.apply(plan.planId, { confirmed: true });
+    expect(result).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+    await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+  };
+  const list = async () => (await fetch(`${fixture.url}${path}`, { headers })).json() as Promise<{ mappings: Array<{ id: string }>; total: number }>;
+  try {
+    expect(await list()).toEqual({ mappings: [], total: 0 });
+    const normal = await create();
+    expect(normal.status).toBe(201);
+    const created = await normal.json() as { mapping: { id: string } };
+    expect((await remove(created.mapping.id)).status).toBe(200);
+    const mutationStart = fixture.requests.length;
+    fixture.setMappingAcknowledgementLoss(true);
+    await dispatch("POST");
+    const afterCreate = await list();
+    expect(afterCreate.total).toBe(1);
+    expect(afterCreate.mappings[0]?.id).toBe(created.mapping.id);
+    const item = await fetch(`${fixture.url}${path}/${created.mapping.id}`, { headers });
+    expect(item.status).toBe(200);
+    expect(await item.json()).toEqual({ mapping: created.mapping });
+    expect(afterCreate.mappings[0]).toEqual(created.mapping);
+    await dispatch("DELETE", created.mapping.id);
+    expect(await list()).toEqual({ mappings: [], total: 0 });
+    expect(fixture.requests.slice(mutationStart).filter(request => request.method === "POST" || request.method === "DELETE").map(request => request.method)).toEqual(["POST", "DELETE"]);
+    expect(errors).toHaveLength(2);
+    expect(errors.every(error => error instanceof Error && "code" in error && error.code === "request_failed" && error.message === "response was not valid JSON")).toBe(true);
+    const lost = fixture.requests.filter(request => request.acknowledgementLostAfterMutation);
+    expect(lost.map(request => request.method)).toEqual(["POST", "DELETE"]);
+    expect(lost[0]?.body).toEqual(body);
+    expect(lost[1]?.body).toBeUndefined();
+    expect(lost.map(request => request.status)).toEqual([201, 200]);
+    expect(lost.every(request => request.completedAt !== undefined && request.closedAt !== undefined && request.incompleteAcknowledgementBody === true)).toBe(true);
+  } finally {
+    executor.shutdown();
+    await fixture.close();
+  }
 });
 
 test("native apply confirmation matches the visible question and selected Yes after a long preview scrolls the title away", () => {
