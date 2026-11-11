@@ -207,7 +207,7 @@ function aclFailure(stderr: string): AclFailure | null {
   return stage >= 1 && stage <= 15 ? { stage, exceptionType: match[2]!, innerExceptionType: match[3]! } : null;
 }
 
-async function aclProbe(output: string): Promise<void> {
+export async function aclProbe(output: string): Promise<boolean> {
   const phases: AclPhase[] = [];
   let readyMs: number | null = null;
   let eofMs: number | null = null;
@@ -283,13 +283,16 @@ async function aclProbe(output: string): Promise<void> {
   }
   const success = phases.every(item => item.status === "ok") && readyMs !== null && eofMs !== null && stdinFinishedMs !== null;
   writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-private-acl", success, scriptSha256, helperFailure, scriptFailure, handshake: { readyMs, stdinFinishedMs, eofMs }, phases }, null, 2)}\n`);
-  if (!success) process.exitCode = 1;
+  return success;
 }
 
-if (process.argv[2] === "--child") child();
-else if (process.platform === "win32" && process.argv[2] === "--acl" && process.argv[3] && process.argv.length === 4) await aclProbe(process.argv[3]);
-else if (process.platform === "win32" && process.argv[2] && process.argv.length === 3) await parent(process.argv[2]);
-else {
-  console.error("Usage on Windows: bun run scripts/windows-input-probe.ts [--acl] <output.json>");
-  process.exitCode = 1;
+if (import.meta.main) {
+  if (process.argv[2] === "--child") child();
+  else if (process.platform === "win32" && process.argv[2] === "--acl" && process.argv[3] && process.argv.length === 4) {
+    if (!await aclProbe(process.argv[3])) process.exitCode = 1;
+  } else if (process.platform === "win32" && process.argv[2] && process.argv.length === 3) await parent(process.argv[2]);
+  else {
+    console.error("Usage on Windows: bun run scripts/windows-input-probe.ts [--acl] <output.json>");
+    process.exitCode = 1;
+  }
 }

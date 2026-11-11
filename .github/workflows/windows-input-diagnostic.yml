@@ -105,7 +105,7 @@ jobs:
           - id: windows-arm64
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }
@@ -119,6 +119,27 @@ jobs:
         if: always()
         shell: pwsh
         run: bun run scripts/windows-input-probe.ts --acl "$env:RUNNER_TEMP/windows-acl-diagnostic.json"
+      - name: Prepare isolated Bun test probe
+        if: ${{ always() && inputs.acl_only }}
+        shell: bash
+        run: |
+          bun -e 'import {writeFileSync} from "node:fs";import {join} from "node:path";import {pathToFileURL} from "node:url";const probe=pathToFileURL(join(process.env.GITHUB_WORKSPACE,"scripts/windows-input-probe.ts")).href;writeFileSync(join(process.env.RUNNER_TEMP,"windows-acl-runtime.test.ts"),`import {test,expect} from "bun:test";import {aclProbe} from ${JSON.stringify(probe)};test("native ACL runtime comparison",async()=>{expect(await aclProbe(process.env.ACL_COMPARE_OUTPUT!)).toBe(true);},120000);`);'
+      - name: Compare native ACL operations in Bash Bun run
+        if: ${{ always() && inputs.acl_only }}
+        shell: bash
+        run: bun run scripts/windows-input-probe.ts --acl "$RUNNER_TEMP/windows-acl-bash-run.json"
+      - name: Compare native ACL operations in Bash Bun test
+        if: ${{ always() && inputs.acl_only }}
+        shell: bash
+        env:
+          ACL_COMPARE_OUTPUT: ${{ runner.temp }}/windows-acl-bash-test.json
+        run: bun test "$RUNNER_TEMP/windows-acl-runtime.test.ts" --timeout=120000
+      - name: Compare native ACL operations in PowerShell Bun test
+        if: ${{ always() && inputs.acl_only }}
+        shell: pwsh
+        env:
+          ACL_COMPARE_OUTPUT: ${{ runner.temp }}/windows-acl-pwsh-test.json
+        run: bun test "$env:RUNNER_TEMP/windows-acl-runtime.test.ts" --timeout=120000
       - name: Upload bounded diagnostic only
         if: ${{ always() && !inputs.acl_only }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -133,6 +154,17 @@ jobs:
         with:
           name: windows-acl-diagnostic-${{ matrix.id }}
           path: ${{ runner.temp }}/windows-acl-diagnostic.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload isolated runtime comparisons
+        if: ${{ always() && inputs.acl_only }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-acl-runtime-comparison-${{ matrix.id }}
+          path: |
+            ${{ runner.temp }}/windows-acl-bash-run.json
+            ${{ runner.temp }}/windows-acl-bash-test.json
+            ${{ runner.temp }}/windows-acl-pwsh-test.json
           if-no-files-found: error
           retention-days: 14
 

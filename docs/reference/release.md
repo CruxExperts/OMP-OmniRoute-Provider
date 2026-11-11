@@ -138,6 +138,10 @@ and the actual private-directory and file ACL helpers on both Windows
 architectures. It records phase status and duration only, not paths, ACL contents,
 or credentials. This isolates persistence failures without repeating the full
 login smoke and never supplies qualification evidence.
+With `acl_only`, the same helper also runs in isolated Bun CLI and Bun test
+processes under both Bash and PowerShell. Each comparison writes only bounded
+phase, timing, and fixed-stage failure fields. This distinguishes shell/runtime
+transport failures without increasing the helper's timeout or changing ACL rules.
 
 The native-host packet is initialized after host and archive verification and
 before native interaction. It retains bounded run and source identifiers, the
