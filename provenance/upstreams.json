@@ -17,109 +17,149 @@
       "repository": "diegosouzapw/OmniRoute",
       "compatibility_role": "descriptor-corpus provenance only; not a runtime package or exact server requirement",
       "release": {
-        "tag": "v3.8.52",
-        "version": "3.8.52",
-        "release_id": 417692858,
-        "release_url": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.52",
+        "tag": "v3.8.53",
+        "version": "3.8.53",
+        "release_id": 436389472,
+        "release_url": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.53",
         "selector_url": "https://github.com/diegosouzapw/OmniRoute/releases/latest",
         "api_url": "https://api.github.com/repos/diegosouzapw/OmniRoute/releases/latest",
-        "tag_ref": "refs/tags/v3.8.52",
-        "annotated_tag_object": "cac024bcf3999e46092a763a18eefced77e36acf",
-        "peeled_commit": "ad6f33f66bda34eba98645d3bfdabbde294bc843",
-        "commit_url": "https://github.com/diegosouzapw/OmniRoute/commit/ad6f33f66bda34eba98645d3bfdabbde294bc843",
-        "retrieved_at": "2026-10-21T01:39:23Z",
-        "published_at": "2026-10-19T20:02:45Z",
+        "tag_ref": "refs/tags/v3.8.53",
+        "annotated_tag_object": "599a2d832522badb1ee74b101caf966f131e8024",
+        "peeled_commit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "commit_url": "https://github.com/diegosouzapw/OmniRoute/commit/191dce8d534ceb56c28a08e71381284a9a87838f",
+        "retrieved_at": "2026-11-10T23:35:15Z",
+        "published_at": "2026-11-06T10:53:35Z",
         "selector_and_api_agree": true
       },
       "artifact_integrity": {
-        "source_archive_url": "https://github.com/diegosouzapw/OmniRoute/archive/ad6f33f66bda34eba98645d3bfdabbde294bc843.tar.gz",
-        "source_archive_sha256": "78bb31f9c45b9975f99a9ebe67ed2e6996d39524ab3379a2ecba961d7c70358c",
-        "source_archive_status": "verified_disposable_acquisition",
+        "source_archive_url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-v3.8.53.source.tar.gz",
+        "source_archive_sha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
+        "source_archive_status": "verified_release_asset_all_files_match_immutable_git_tree",
         "release_assets_with_api_digests": [
           {
-            "name": "CHANGELOG-v3.8.52.md",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/CHANGELOG-v3.8.52.md",
-            "digest": "sha256:f9dff728e9430afe0e747863621734723c8af2283c7d7e1a5689785f9488bed7"
+            "name": "CHANGELOG-v3.8.53.md",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/CHANGELOG-v3.8.53.md",
+            "digest": "sha256:fba3e2e373fcfc14764a4540fb9f6eb4a4a1bedf9a89d1bf98f4bd85d219055a"
           },
           {
             "name": "latest-linux-arm64.yml",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest-linux-arm64.yml",
-            "digest": "sha256:4b03dd436b3116d46fc62098e4b095c5ccbff0972159cc5078ac74d7d31cc1fe"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/latest-linux-arm64.yml",
+            "digest": "sha256:455ea07a0e460cd593a9b5c7b4930c61c6999f910613cb564fc911ebbe9c1eda"
           },
           {
             "name": "latest-linux.yml",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest-linux.yml",
-            "digest": "sha256:22935a90a8220bdd34a87fcd38247042888051b13769ffb9cb95e66b038260e6"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/latest-linux.yml",
+            "digest": "sha256:db039cfabb7e2501a0bc349503330fe158949cc93c033e9f962e1a082ce27453"
           },
           {
             "name": "latest-mac.yml",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest-mac.yml",
-            "digest": "sha256:c16b09e2f1b3c13effdf41bb132820869779abacf238de3369321d8d05de8c31"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/latest-mac.yml",
+            "digest": "sha256:21d71ff67c992d92aa750b9a66c601e7fdd3de5dee2c2738918f6f8954edf477"
           },
           {
             "name": "latest.yml",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/latest.yml",
-            "digest": "sha256:ee00b595bd0f86881bb445e723b49bff006dd7b162012f653be467be923a8b44"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/latest.yml",
+            "digest": "sha256:7cd3c40ad32107e128ca71b289cb495f90d007cb53333637e15a385f1ed92aa9"
           },
           {
-            "name": "OmniRoute-3.8.52-arm64.AppImage",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52-arm64.AppImage",
-            "digest": "sha256:64518cbd30ccdd57a5544af18b96f3e196d87fbe957ef8ffc4b5aec395a5b8ff"
+            "name": "OmniRoute-3.8.53-arm64.AppImage",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-3.8.53-arm64.AppImage",
+            "digest": "sha256:5a617efe5011e641e5f031ae9f3b339e9e5a702ab1abfa9f557171f75cfbded1"
           },
           {
-            "name": "OmniRoute-3.8.52-arm64.dmg",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52-arm64.dmg",
-            "digest": "sha256:d56ca0fc0422fefaf85313d0ec1c14d79412a5480d93debe56468bb2947fd81b"
+            "name": "OmniRoute-3.8.53-arm64.dmg",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-3.8.53-arm64.dmg",
+            "digest": "sha256:c869acac9f3c9f95af519b2c962fe32d08686adedc4fd51cae2e561e26b6989b"
           },
           {
-            "name": "OmniRoute-3.8.52.AppImage",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52.AppImage",
-            "digest": "sha256:453bbdc26f2eb9efb5041ae2fdd36cfc71fa742462a83503b7e05f5142a59c76"
+            "name": "OmniRoute-3.8.53.AppImage",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-3.8.53.AppImage",
+            "digest": "sha256:d5e9f52f633c04a1d67111723d56c0226986b28af4caf34ebe59338aa83a2052"
           },
           {
-            "name": "OmniRoute-3.8.52.dmg",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-3.8.52.dmg",
-            "digest": "sha256:354f12c1f268bd9f309acbe1d49ebf5929be19e060e74b975d36304d8699dd5c"
+            "name": "OmniRoute-3.8.53.dmg",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-3.8.53.dmg",
+            "digest": "sha256:57eb52491739137db667bda359adea879690b1e7e94d207b4b80658e219f1389"
           },
           {
-            "name": "omniroute-desktop_3.8.52_amd64.deb",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/omniroute-desktop_3.8.52_amd64.deb",
-            "digest": "sha256:033e7fd1b51190570dae26dafdd09f92db813b4f96c6f2363fd637cd05fc1cd8"
+            "name": "omniroute-desktop_3.8.53_amd64.deb",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/omniroute-desktop_3.8.53_amd64.deb",
+            "digest": "sha256:363dc6551f503d2c54a96ac3f099460d111d9d0ca52a064fb317b4efb4c2492a"
           },
           {
-            "name": "omniroute-desktop_3.8.52_arm64.deb",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/omniroute-desktop_3.8.52_arm64.deb",
-            "digest": "sha256:7a39055bab446672df0d9e7c89120ccd05d8b3deab372263945bf192857a1c80"
+            "name": "omniroute-desktop_3.8.53_arm64.deb",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/omniroute-desktop_3.8.53_arm64.deb",
+            "digest": "sha256:156bf8f12d2a81725c3951b7767afb6c320d000f73c6c140c41652302664bea4"
           },
           {
-            "name": "OmniRoute-v3.8.52.source.tar.gz",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-v3.8.52.source.tar.gz",
-            "digest": "sha256:ccd206e9c0aef0f9e55a5d3a083820bbc91353935fe7eaf66ceb5e46ff2940b6"
+            "name": "OmniRoute-v3.8.53.source.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-v3.8.53.source.tar.gz",
+            "digest": "sha256:2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b"
           },
           {
-            "name": "OmniRoute-v3.8.52.source.zip",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute-v3.8.52.source.zip",
-            "digest": "sha256:85398ba601bc097a007ee0420a57b66d8a20b3a15973e57c69613ff7129afe01"
+            "name": "OmniRoute-v3.8.53.source.zip",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-v3.8.53.source.zip",
+            "digest": "sha256:ead832b03ab623c7d7e1099858548845c2c114130b21a6db3090163b5b93877c"
           },
           {
-            "name": "OmniRoute.3.8.52.exe",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute.3.8.52.exe",
-            "digest": "sha256:555b34ea494c1709c00800487ee1c1e95a7c4a8a77cc4d0046bf463d56b56c79"
+            "name": "OmniRoute.3.8.53.exe",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute.3.8.53.exe",
+            "digest": "sha256:613fa0255720dd1f4f84f7b19cc2f7d458b15e76826373b763d59e0f7fbd3f1f"
           },
           {
             "name": "OmniRoute.exe",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute.exe",
-            "digest": "sha256:555b34ea494c1709c00800487ee1c1e95a7c4a8a77cc4d0046bf463d56b56c79"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute.exe",
+            "digest": "sha256:613fa0255720dd1f4f84f7b19cc2f7d458b15e76826373b763d59e0f7fbd3f1f"
           },
           {
-            "name": "OmniRoute.Setup.3.8.52.exe",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/OmniRoute.Setup.3.8.52.exe",
-            "digest": "sha256:5888fea85c0f9bb092e5d351fda1e5a11c6f71b2e75df6932d3dc008d440154d"
+            "name": "OmniRoute.Setup.3.8.53.exe",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute.Setup.3.8.53.exe",
+            "digest": "sha256:757bc68dff73e9680d18fe1d2d1a8ad3b78318de5948c8218bf02a46ea69ccfe"
+          },
+          {
+            "name": "optional-pack-browser-runtime-0dc8ebdd9a7b739e0c5f6409daeff6dc50cc7a294db4b396a2de0d8e04de659a.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-browser-runtime-0dc8ebdd9a7b739e0c5f6409daeff6dc50cc7a294db4b396a2de0d8e04de659a.tar.gz",
+            "digest": "sha256:0dc8ebdd9a7b739e0c5f6409daeff6dc50cc7a294db4b396a2de0d8e04de659a"
+          },
+          {
+            "name": "optional-pack-browser-runtime-7d6acdbbede1a614707a6ccfe9d28a755b366d78264621d19e2f32cc0406ccac.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-browser-runtime-7d6acdbbede1a614707a6ccfe9d28a755b366d78264621d19e2f32cc0406ccac.tar.gz",
+            "digest": "sha256:7d6acdbbede1a614707a6ccfe9d28a755b366d78264621d19e2f32cc0406ccac"
+          },
+          {
+            "name": "optional-pack-browser-runtime-96d636cca638d9dde3ac3bd22db1940b1fec93b1a57707c2a8a8c897f6c5a180.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-browser-runtime-96d636cca638d9dde3ac3bd22db1940b1fec93b1a57707c2a8a8c897f6c5a180.tar.gz",
+            "digest": "sha256:96d636cca638d9dde3ac3bd22db1940b1fec93b1a57707c2a8a8c897f6c5a180"
+          },
+          {
+            "name": "optional-pack-browser-runtime-b58491d77a3a875ea70a2ce060b31cd82a8aa942b5a7ad589dcc05fcf1c727ee.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-browser-runtime-b58491d77a3a875ea70a2ce060b31cd82a8aa942b5a7ad589dcc05fcf1c727ee.tar.gz",
+            "digest": "sha256:b58491d77a3a875ea70a2ce060b31cd82a8aa942b5a7ad589dcc05fcf1c727ee"
+          },
+          {
+            "name": "optional-pack-ml-runtime-2c9a0437752e3910b6f7f709f8c77a04d344ce75b054a7262481927252163db5.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-ml-runtime-2c9a0437752e3910b6f7f709f8c77a04d344ce75b054a7262481927252163db5.tar.gz",
+            "digest": "sha256:2c9a0437752e3910b6f7f709f8c77a04d344ce75b054a7262481927252163db5"
+          },
+          {
+            "name": "optional-pack-ml-runtime-397548791dd6f5d61534ae5d7ae254d6962ee0ba48a44b4c15d51fef1484504d.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-ml-runtime-397548791dd6f5d61534ae5d7ae254d6962ee0ba48a44b4c15d51fef1484504d.tar.gz",
+            "digest": "sha256:397548791dd6f5d61534ae5d7ae254d6962ee0ba48a44b4c15d51fef1484504d"
+          },
+          {
+            "name": "optional-pack-ml-runtime-3cbd11739ebe381bbc8ca4a2d9f2ae21c655036f87873bee798b83cf8d83e8dc.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-ml-runtime-3cbd11739ebe381bbc8ca4a2d9f2ae21c655036f87873bee798b83cf8d83e8dc.tar.gz",
+            "digest": "sha256:3cbd11739ebe381bbc8ca4a2d9f2ae21c655036f87873bee798b83cf8d83e8dc"
+          },
+          {
+            "name": "optional-pack-ml-runtime-f7b6496554065cb1b25fc59294e7b019633fc1bb2b55686e231120fca6147d2d.tar.gz",
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/optional-pack-ml-runtime-f7b6496554065cb1b25fc59294e7b019633fc1bb2b55686e231120fca6147d2d.tar.gz",
+            "digest": "sha256:f7b6496554065cb1b25fc59294e7b019633fc1bb2b55686e231120fca6147d2d"
           },
           {
             "name": "sbom-npm.cdx.json",
-            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.52/sbom-npm.cdx.json",
-            "digest": "sha256:61d02897ce1ba9c7694ce1a6840ba7e35a9573361785dd7279ce3d502ad4faea"
+            "url": "https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/sbom-npm.cdx.json",
+            "digest": "sha256:ef40e8e42bbd75f6819f1063629b19ca0818c3cee72191bf495c034a03682de4"
           }
         ]
       },
@@ -127,14 +167,14 @@
         {
           "path": "package.json",
           "algorithm": "git-blob-sha1",
-          "hash": "10d2cd5b3608cc8f71da360aa2a701ed1888b71c",
-          "url": "https://github.com/diegosouzapw/OmniRoute/blob/ad6f33f66bda34eba98645d3bfdabbde294bc843/package.json"
+          "hash": "aae64599f360c537ef650f354c0425bfd18f3b96",
+          "url": "https://github.com/diegosouzapw/OmniRoute/blob/191dce8d534ceb56c28a08e71381284a9a87838f/package.json"
         },
         {
           "path": "commit-tree",
           "algorithm": "git-tree-sha1",
-          "hash": "b2f3332f645ad60de52f12a4a484eb288693f0ea",
-          "url": "https://github.com/diegosouzapw/OmniRoute/tree/ad6f33f66bda34eba98645d3bfdabbde294bc843"
+          "hash": "db751032d8d864956ceb98106b5f2b282defca34",
+          "url": "https://github.com/diegosouzapw/OmniRoute/tree/191dce8d534ceb56c28a08e71381284a9a87838f"
         }
       ]
     },

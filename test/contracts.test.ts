@@ -24,7 +24,7 @@ function sourceRequestAdapter(operationId: string) {
       domain: "management",
       sourcePolicy: {
         status: "qualified",
-        source: "omniroute-v3.8.52",
+        source: "omniroute-v3.8.53",
         routeClass: "management",
         localOnly: false,
         handlerGuard: "none",
@@ -44,6 +44,17 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+test("OpenAPI nullable without type preserves enum constraints without inventing a type", () => {
+  const request = record(operationContractTemplate("POST /api/v1/music/detailed").request);
+  const schema = record(record(request.body).schema);
+  const branches = schema.oneOf as unknown[];
+  const first = record(record(branches[0]).properties);
+  const second = record(record(branches[1]).properties);
+  expect(first.composition_plan).toEqual({ enum: [null] });
+  expect(second.prompt).toEqual({ enum: [null] });
+  expect(record(record(schema.properties).composition_plan).type).toEqual(["object", "null"]);
+});
+
 test("observed outcomes enforce bound explicit output-secret paths and typed token metadata", async () => {
   const operationId = "GET /.well-known/agent-card.json";
   const testId = "test/contracts.test.ts";
@@ -53,7 +64,7 @@ test("observed outcomes enforce bound explicit output-secret paths and typed tok
     auth: {
       ...record(template.auth),
       domain: "public",
-      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.52", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
+      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
     },
     secrets: { inputFields: [], outputFields: ["providers.connections.lastError", "config.apiKey"] },
     sideEffect: "read",
@@ -140,4 +151,32 @@ test("source-bound preflight views remain valid when settlement is unknown", () 
     ...contract,
     mutationSafety: { ...safety, preflight: { ...safety.preflight, observations: [wrongRead] } },
   })).toThrow(/source relation preflight does not match/);
+});
+
+test("auxiliary input changes invalidate only consuming receipt cases", async () => {
+  const directory = `test/.auxiliary-evidence-${crypto.randomUUID()}`;
+  const root = resolve(import.meta.dir, "..");
+  const consumer = `${directory}/consumer.ts`;
+  const unrelated = `${directory}/unrelated.ts`;
+  const input = `${directory}/driver.py`;
+  const overlay = `${directory}/overlay.ts`;
+  await mkdir(resolve(root, directory));
+  try {
+    await writeFile(resolve(root, consumer), "export const response = { status: 200 };\n");
+    await writeFile(resolve(root, unrelated), "export const response = { status: 200 };\n");
+    await writeFile(resolve(root, input), "print(200)\n");
+    await writeFile(resolve(root, overlay), 'import { handler } from "@/upstream-only-owner"; export { handler };\n');
+    await writeFile(resolve(root, `${consumer}.inputs.json`), JSON.stringify({ schemaVersion: 1, files: [input, overlay] }));
+    const consumerBefore = testCaseSourceHash(consumer);
+    const unrelatedBefore = testCaseSourceHash(unrelated);
+    await writeFile(resolve(root, input), "# changed backend\nprint(200)\n");
+    expect(testCaseSourceHash(consumer)).not.toBe(consumerBefore);
+    expect(testCaseSourceHash(unrelated)).toBe(unrelatedBefore);
+    for (const files of [[input, input], ["../outside.py"], [".agents/state/private.json"], [`${directory}/missing.py`]]) {
+      await writeFile(resolve(root, `${consumer}.inputs.json`), JSON.stringify({ schemaVersion: 1, files }));
+      expect(() => testCaseSourceHash(consumer)).toThrow(/auxiliary evidence/);
+    }
+  } finally {
+    await rm(resolve(root, directory), { recursive: true, force: true });
+  }
 });

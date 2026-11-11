@@ -263,7 +263,7 @@ function mappingAuth(base: OperationSourceContract["auth"], operationId: ModelCo
     specificationAlternatives: base.specificationAlternatives,
     sourcePolicy: {
       status: "qualified",
-      source: "omniroute-v3.8.52",
+      source: "omniroute-v3.8.53",
       routeClass: "management",
       localOnly: false,
       handlerGuard: "requireManagementAuth",

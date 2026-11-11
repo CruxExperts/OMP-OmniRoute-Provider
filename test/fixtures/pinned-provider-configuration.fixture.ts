@@ -75,10 +75,11 @@ export function createPinnedProviderConfigurationHandlers(
   const credentialPatterns = loadPinnedModule("open-sse/utils/credentialPatterns.ts", () => {
     throw new Error("Pinned error credential patterns have no runtime imports");
   });
+  const featureFlags = loadPinnedModule("open-sse/utils/registeredFeatureFlag.ts", specifier => {
+    throw new Error(`Unapproved pinned feature-flag import: ${specifier}`);
+  });
   const providerSafety = loadPinnedModule("open-sse/utils/providerSafety.ts", specifier => {
-    if (specifier === "./registeredFeatureFlag.ts") {
-      return { isRegisteredFeatureFlagEnabled: () => false };
-    }
+    if (specifier === "./registeredFeatureFlag.ts") return featureFlags;
     throw new Error(`Unapproved pinned provider-safety import: ${specifier}`);
   });
   const sanitization = loadPinnedModule("open-sse/utils/errorSanitization.ts", specifier => {
@@ -113,6 +114,10 @@ export function createPinnedProviderConfigurationHandlers(
     if (specifier === "./providerSafety.ts") return providerSafety;
     throw new Error(`Unapproved pinned Tencent-envelope import: ${specifier}`);
   });
+  const publicErrorIdentifiers = loadPinnedModule("open-sse/utils/publicErrorIdentifiers.ts", specifier => {
+    if (specifier === "./providerSafety.ts") return providerSafety;
+    throw new Error(`Unapproved pinned public-error-identifier import: ${specifier}`);
+  });
   const logPayloadFunctions = loadExtractedPinnedDeclarations(
     ["src/lib/logPayloads.ts"],
     ["normalizePayloadForLog"],
@@ -127,7 +132,8 @@ export function createPinnedProviderConfigurationHandlers(
     if (specifier === "../config/errorConfig.ts") return errorConfig;
     if (specifier === "@/lib/logPayloads") return logPayloadFunctions;
     if (specifier === "./upstreamErrorPassthrough.ts") return passthrough;
-    if (specifier === "@/shared/utils/featureFlags") return { isFeatureFlagEnabled: () => false };
+    if (specifier === "./registeredFeatureFlag.ts") return featureFlags;
+    if (specifier === "./publicErrorIdentifiers.ts") return publicErrorIdentifiers;
     if (specifier === "./retryAfterInstant.ts") return retryAfter;
     if (specifier === "./proseRetryDelay.ts") return proseRetry;
     if (specifier === "../services/retryAfterJson.ts") return retryAfterJson;

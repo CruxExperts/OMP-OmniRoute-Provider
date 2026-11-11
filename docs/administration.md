@@ -33,13 +33,14 @@ client rejects operations without the required qualification evidence.
 
 ## Qualification work pipeline
 
-The pinned OmniRoute v3.8.52 inventory currently contains 1,234 operations:
-25 invokable, 16 source-justified non-invokable, and 1,193 unqualified. Of the
-unqualified operations, 450 are GET, 7 HEAD, 133 OPTIONS, 414 POST, 62 PUT,
-26 PATCH, and 101 DELETE. These are method counts, not safety classifications.
-All 1,193 currently have unknown generated authorization and side-effect
-semantics; all 603 non-GET/HEAD/OPTIONS entries also have unavailable mutation
-preflight. The 222 operations absent from the OpenAPI specification overlap
+The previous OmniRoute v3.8.52 inventory contained 1,234 operations:
+25 invokable, 16 source-justified non-invokable, and 1,193 unqualified. These
+figures describe the previous source baseline, not qualification of the current
+v3.8.53 pin. Of the previously unqualified operations, 450 were GET, 7 HEAD,
+133 OPTIONS, 414 POST, 62 PUT, 26 PATCH, and 101 DELETE. These are method counts,
+not safety classifications. All 1,193 previously had unknown generated authorization and side-effect
+semantics; all 603 non-GET/HEAD/OPTIONS entries also had unavailable mutation
+preflight. The 222 operations absent from the OpenAPI specification overlapped
 these groups. Unknown metadata is not proof that the server lacks a capability.
 
 The remaining work is organized by source behavior, not by assuming every HTTP
@@ -106,10 +107,14 @@ body for an unexpected exception but also logs the exception server-side; the
 response redaction check is not a claim that server logs are secret-free.
 
 The cache-metrics GET and DELETE routes remain unqualified pending actual Next.js
-ingress evidence. In the pinned server, both calculate metrics from usage history;
-the deprecated DELETE does not clear that history. A database query failure can
-also produce a successful response containing zero metrics, so zero is not proof
-that no cache activity occurred.
+ingress evidence. Their candidate contracts describe the pinned management guard
+and responses, not a production authorization result. Both calculate metrics
+from usage history; the deprecated DELETE does not clear that history. A query
+failure can return zero metrics with HTTP 200, so zero is not proof that no cache
+activity occurred. Cost savings are an estimate using fixed source assumptions,
+not actual billing. The direct handler fixture uses in-memory SQLite and does not
+establish durable storage or production behavior. Error responses are bounded,
+but the server also logs exceptions; response redaction does not cover those logs.
 
 ## Inspect and change fallback chains
 

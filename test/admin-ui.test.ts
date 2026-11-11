@@ -33,7 +33,7 @@ async function publicReadDescriptor(operationId: string, pathTemplate: string, q
     auth: {
       ...source.auth,
       domain: "public",
-      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.52", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
+      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
     },
     request: { ...source.request, body: null },
     response: { ...source.response, schema: {
@@ -517,7 +517,7 @@ test("local schema refs constrain validation and projection while external refs 
     auth: {
       ...descriptor.auth,
       domain: "public",
-      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.52", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
+      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
     },
     sideEffect: "read",
     coverage: { status: "invokable", adapterId: "fixture.local-refs", reason: null },

@@ -20,7 +20,7 @@ with tarfile.open(archive,'w:gz') as bundle:
  if sys.argv[2]=='link':
   link=tarfile.TarInfo('source/escape');link.type=tarfile.SYMTYPE;link.linkname='/outside';bundle.addfile(link)
 digest=hashlib.sha256(archive.read_bytes()).hexdigest()
-(root/'provenance/upstreams.json').write_text(json.dumps({'upstreams':[{'id':'omniroute','repository':'diegosouzapw/OmniRoute','release':{'version':'4.5.6','tag':'v4.5.6','peeled_commit':'a'*40},'artifact_integrity':{'source_archive_sha256':digest,'source_archive_url':'https://github.com/diegosouzapw/OmniRoute/archive/'+('a'*40)+'.tar.gz'}}]}))
+(root/'provenance/upstreams.json').write_text(json.dumps({'upstreams':[{'id':'omniroute','repository':'diegosouzapw/OmniRoute','release':{'version':'4.5.6','tag':'v4.5.6','peeled_commit':'a'*40},'artifact_integrity':{'source_archive_sha256':digest,'source_archive_url':'https://github.com/diegosouzapw/OmniRoute/releases/download/v4.5.6/OmniRoute-v4.5.6.source.tar.gz'}}]}))
 if sys.argv[2]=='tamper':archive.write_bytes(b'tampered')
 `;
     const run = `

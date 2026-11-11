@@ -61,7 +61,7 @@ function fixtureAuthorizationPolicy(
 ): OperationDescriptor["auth"]["sourcePolicy"] {
   if (domain === "management") return {
     status: "qualified",
-    source: "omniroute-v3.8.52",
+    source: "omniroute-v3.8.53",
     routeClass: "management",
     localOnly: false,
     handlerGuard: "none",
@@ -73,27 +73,27 @@ function fixtureAuthorizationPolicy(
   };
   if (domain === "runtime") return {
     status: "qualified",
-    source: "omniroute-v3.8.52",
+    source: "omniroute-v3.8.53",
     routeClass: "client-api",
     localOnly: false,
     alternatives: [{ kind: "runtime-api-key", sourceScopes: ["fixture:runtime"] }],
   };
   if (domain === "metadata") return {
     status: "qualified",
-    source: "omniroute-v3.8.52",
+    source: "omniroute-v3.8.53",
     routeClass: "client-api",
     localOnly: false,
     alternatives: [{ kind: "metadata-api-key", sourceScopes: ["fixture:metadata"] }],
   };
   if (domain === "public") return {
     status: "qualified",
-    source: "omniroute-v3.8.52",
+    source: "omniroute-v3.8.53",
     routeClass: "public",
     alternatives: [{ kind: "anonymous" }],
   };
   return {
     status: "qualified",
-    source: "omniroute-v3.8.52",
+    source: "omniroute-v3.8.53",
     routeClass: "local",
     localOnly: true,
     alternatives: [{ kind: "trusted-local", loopbackOnly: true }],

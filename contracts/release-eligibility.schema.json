@@ -35,10 +35,10 @@
           "const": "diegosouzapw/OmniRoute"
         },
         "tag": {
-          "const": "v3.8.52"
+          "const": "v3.8.53"
         },
         "commit": {
-          "const": "ad6f33f66bda34eba98645d3bfdabbde294bc843"
+          "const": "191dce8d534ceb56c28a08e71381284a9a87838f"
         }
       }
     },

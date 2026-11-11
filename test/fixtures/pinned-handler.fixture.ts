@@ -6,7 +6,7 @@ import * as zod from "zod";
 import { readRouteSources } from "../../scripts/route-source-store.ts";
 
 const pinnedNodeCrypto = { createHash, createHmac, randomUUID, timingSafeEqual };
-const UPSTREAM_ROOT = resolve(process.cwd(), ".agents/state/omp-provider-release/upstream/omniroute-v3.8.52");
+const UPSTREAM_ROOT = resolve(process.cwd(), ".agents/state/omp-provider-release/upstream/omniroute-v3.8.53");
 const MANIFEST_PATH = resolve(process.cwd(), "provenance/route-sources.json");
 
 interface SourceReceipt {
@@ -57,7 +57,7 @@ function manifest(): SourceManifest {
     throw new Error("Pinned OmniRoute source manifest is not an object");
   }
   const candidate = value as Partial<SourceManifest>;
-  if (candidate.release?.tag !== "v3.8.52" || candidate.release.commit !== "ad6f33f66bda34eba98645d3bfdabbde294bc843") {
+  if (candidate.release?.tag !== "v3.8.53" || candidate.release.commit !== "191dce8d534ceb56c28a08e71381284a9a87838f") {
     throw new Error("Pinned OmniRoute handler fixture is bound to unexpected upstream source");
   }
   if (!Array.isArray(candidate.sourceCorpus?.files)) throw new Error("Pinned source manifest omitted corpus receipts");
@@ -108,7 +108,7 @@ export function createPinnedFixtureDate(isoTimestamp: string): DateConstructor {
 }
 
 /**
- * Execute the pinned v3.8.52 management pipeline and route guard around one
+ * Execute the pinned v3.8.53 management pipeline and route guard around one
  * in-memory handler. Only infrastructure edges (settings, session verifier,
  * key/token stores, IP filter, body-size check and unrelated route classes) are
  * fixture-backed. Route classification, peer stamping/locality, scope checks,
@@ -148,6 +148,9 @@ export function createPinnedManagementAuthorization(
     if (specifier === "./routeGuard") return routeGuard;
     throw new Error(`Unapproved pinned peer-stamp import: ${specifier}`);
   });
+  const trustProxyMode = loadPinnedModule("src/server/origin/trustProxyMode.ts", () => {
+    throw new Error("Pinned proxy-trust settings module has no runtime dependencies");
+  });
   const peerContext = loadPinnedModule("src/server/authz/peerContext.ts", specifier => {
     if (specifier === "node:crypto") return nodeCrypto;
     if (specifier === "../../lib/machineToken") return {
@@ -156,6 +159,7 @@ export function createPinnedManagementAuthorization(
     };
     if (specifier === "./headers") return headers;
     if (specifier === "./peerStamp") return peerStamp;
+    if (specifier === "../origin/trustProxyMode") return trustProxyMode;
     if (specifier === "./routeGuard") return routeGuard;
     throw new Error(`Unapproved pinned peer-context import: ${specifier}`);
   });
@@ -194,8 +198,8 @@ export function createPinnedManagementAuthorization(
       getOrCreateBootstrapToken: () => "fixture-bootstrap-token",
       peekBootstrapToken: (token: string | null) => token === "fixture-bootstrap-token",
     };
-    if (specifier === "@/lib/db/settings") return {
-      getSettings: async () => ({
+    if (specifier === "@/lib/db/readCache") return {
+      getCachedSettings: async () => ({
         requireLogin: activeAuthRequired,
         password: "fixture-password",
         setupComplete: true,
@@ -221,6 +225,30 @@ export function createPinnedManagementAuthorization(
     if (specifier === "node:crypto") return nodeCrypto;
     throw new Error(`Unapproved pinned internal-service-auth import: ${specifier}`);
   });
+  const featureFlags = loadPinnedModule("open-sse/utils/registeredFeatureFlag.ts", specifier => {
+    throw new Error(`Unapproved pinned feature-flag import: ${specifier}`);
+  });
+  const providerSafety = loadPinnedModule("open-sse/utils/providerSafety.ts", specifier => {
+    if (specifier === "./registeredFeatureFlag.ts") return featureFlags;
+    throw new Error(`Unapproved pinned provider-safety import: ${specifier}`);
+  });
+  const errorPathRedaction = loadPinnedModule("open-sse/utils/errorPathRedaction.ts", specifier => {
+    throw new Error(`Unapproved pinned error-path-redaction import: ${specifier}`);
+  });
+  const credentialPatterns = loadPinnedModule("open-sse/utils/credentialPatterns.ts", specifier => {
+    throw new Error(`Unapproved pinned credential-pattern import: ${specifier}`);
+  });
+  const errorSanitization = loadPinnedModule("open-sse/utils/errorSanitization.ts", specifier => {
+    if (specifier === "./errorPathRedaction.ts") return errorPathRedaction;
+    if (specifier === "./credentialPatterns.ts") return credentialPatterns;
+    if (specifier === "./providerSafety.ts") return providerSafety;
+    throw new Error(`Unapproved pinned error-sanitization import: ${specifier}`);
+  });
+  const errorResponse = loadPinnedModule("src/lib/api/errorResponse.ts", specifier => {
+    if (specifier === "crypto") return nodeCrypto;
+    if (specifier === "@omniroute/open-sse/utils/errorSanitization.ts") return errorSanitization;
+    throw new Error(`Unapproved pinned error-response import: ${specifier}`);
+  });
   const requireManagementAuth = loadPinnedModule("src/lib/api/requireManagementAuth.ts", specifier => {
     if (specifier === "@/shared/utils/apiAuth") return apiAuth;
     if (specifier === "@/lib/api/errorResponse") return errorResponse;
@@ -245,7 +273,7 @@ export function createPinnedManagementAuthorization(
     if (specifier === "../context") return context;
     if (specifier === "../../../sse/services/auth") return apiKeyAuth;
     if (specifier === "../../../lib/db/apiKeys") return { getApiKeyMetadata: (key: string) => backends.getApiKeyMetadata(key) };
-    if (specifier === "../../../lib/api/requireManagementAuth") return managementScopes;
+    if (specifier === "../../../lib/api/requireManagementAuth") return requireManagementAuth;
     if (specifier === "../../../shared/constants/managementScopes") return managementScopes;
     if (specifier === "../accessTokenAuth") return accessTokens;
     if (specifier === "../../../lib/api/internalServiceAuth") return internalServiceAuth;
@@ -272,9 +300,6 @@ export function createPinnedManagementAuthorization(
     if (specifier === "@/shared/constants/dashboardCsrf") return csrfConstants;
     throw new Error(`Unapproved pinned CSRF import: ${specifier}`);
   });
-  const trustProxyMode = loadPinnedModule("src/server/origin/trustProxyMode.ts", () => {
-    throw new Error("Pinned proxy-trust settings module has no runtime dependencies");
-  });
   const publicOrigin = loadPinnedModule("src/server/origin/publicOrigin.ts", specifier => {
     if (specifier === "@/server/authz/routeGuard") return routeGuard;
     if (specifier === "@/server/authz/headers") return headers;
@@ -282,10 +307,19 @@ export function createPinnedManagementAuthorization(
     if (specifier === "./trustProxyMode") return trustProxyMode;
     throw new Error(`Unapproved pinned origin-policy import: ${specifier}`);
   });
+  const anthropicErrors = loadPinnedModule("src/shared/utils/anthropicErrorEnvelope.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/utils/errorSanitization.ts") return errorSanitization;
+    throw new Error(`Unapproved pinned Anthropic-error import: ${specifier}`);
+  });
+  const mcpOrigin = loadPinnedModule("src/server/origin/mcpOrigin.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/utils/error.ts") return errorSanitization;
+    if (specifier === "./publicOrigin") return publicOrigin;
+    throw new Error(`Unapproved pinned MCP-origin import: ${specifier}`);
+  });
   const nextResponse = createFixtureNextResponse();
   const pipeline = loadPinnedModule("src/server/authz/pipeline.ts", specifier => {
     if (specifier === "next/server") return { NextResponse: nextResponse.NextResponse };
-    if (specifier === "../../lib/db/readCache") return { getCachedSettings: async () => ({}) };
+    if (specifier === "../../lib/db/readCache") return { getCachedBodySizeSettings: async () => ({}) };
     if (specifier === "../../lib/gracefulShutdown") return { isDraining: () => false };
     if (specifier === "../../shared/middleware/bodySizeGuard") return {
       checkBodySize: () => null,
@@ -293,7 +327,9 @@ export function createPinnedManagementAuthorization(
     };
     if (specifier === "@/shared/utils/dashboardSessionToken") return sessionVerifier;
     if (specifier === "../../shared/utils/requestId") return { generateRequestId: () => randomUUID() };
+    if (specifier === "../../shared/utils/anthropicErrorEnvelope") return anthropicErrors;
     if (specifier === "../cors/origins") return { applyCorsHeaders: () => undefined };
+    if (specifier === "../origin/mcpOrigin") return mcpOrigin;
     if (specifier === "../origin/publicOrigin") return publicOrigin;
     if (specifier === "./classify") return classifier;
     if (specifier === "./csrf") return csrf;
@@ -436,11 +472,6 @@ function createFixtureNextResponse(): {
   };
 }
 
-const errorResponse = loadPinnedModule("src/lib/api/errorResponse.ts", specifier => {
-    if (specifier === "crypto") return pinnedNodeCrypto;
-  if (specifier === "@omniroute/open-sse/utils/errorSanitization.ts") return { sanitizeErrorMessage: (message: string) => message };
-  throw new Error(`Unapproved pinned error-response import: ${specifier}`);
-});
 
 export function loadExtractedPinnedDeclarations(
   files: readonly string[],
@@ -484,7 +515,7 @@ function executeCommonJs(
   dateConstructor: DateConstructor = globalThis.Date,
 ): PinnedExports {
   const compiled = ts.transpileModule(source, {
-    fileName: path,
+    fileName: path.replace(/\.mjs$/, ".js"),
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2022,

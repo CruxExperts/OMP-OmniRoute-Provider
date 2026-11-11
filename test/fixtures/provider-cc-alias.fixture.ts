@@ -68,7 +68,7 @@ function managementAuth(
     specificationAlternatives: template.auth.specificationAlternatives,
     sourcePolicy: {
       status: "qualified",
-      source: "omniroute-v3.8.52",
+      source: "omniroute-v3.8.53",
       routeClass: "management",
       localOnly: false,
       handlerGuard: "requireManagementAuth",
@@ -235,9 +235,14 @@ function createPinnedAliasRoute(
     if (specifier === "./models/modelCatalogWriteSignals") return modelCatalogSignals;
     throw new Error(`Unapproved pinned feature-flag import: ${specifier}`);
   });
+  const catalogOverrides = loadPinnedModule("src/lib/db/catalogOverrides.ts", specifier => {
+    if (specifier === "./core") return { getDbInstance: () => database };
+    throw new Error(`Unapproved pinned catalog-overrides import: ${specifier}`);
+  });
   const aliases = loadPinnedModule("src/lib/db/ccDiscoveryAliases.ts", specifier => {
     if (specifier === "./featureFlags") return featureFlags;
     if (specifier === "./core") return { getDbInstance: () => database };
+    if (specifier === "./catalogOverrides") return catalogOverrides;
     if (specifier === "./models/modelCatalogWriteSignals") return modelCatalogSignals;
     throw new Error(`Unapproved pinned cc-alias persistence import: ${specifier}`);
   });
@@ -257,9 +262,16 @@ function createPinnedAliasRoute(
   const credentialPatterns = loadPinnedModule("open-sse/utils/credentialPatterns.ts", () => {
     throw new Error("Pinned credential patterns have no runtime imports");
   });
+  const registeredFeatureFlag = loadPinnedModule("open-sse/utils/registeredFeatureFlag.ts", specifier => {
+    throw new Error(`Unapproved pinned registered-feature-flag import: ${specifier}`);
+  });
   const providerSafety = loadPinnedModule("open-sse/utils/providerSafety.ts", specifier => {
-    if (specifier === "./registeredFeatureFlag.ts") return { isRegisteredFeatureFlagEnabled: () => false };
+    if (specifier === "./registeredFeatureFlag.ts") return registeredFeatureFlag;
     throw new Error(`Unapproved pinned provider-safety import: ${specifier}`);
+  });
+  const publicErrorIdentifiers = loadPinnedModule("open-sse/utils/publicErrorIdentifiers.ts", specifier => {
+    if (specifier === "./providerSafety.ts") return providerSafety;
+    throw new Error(`Unapproved pinned public-error-identifiers import: ${specifier}`);
   });
   const sanitization = loadPinnedModule("open-sse/utils/errorSanitization.ts", specifier => {
     if (specifier === "./errorPathRedaction.ts") return pathRedaction;
@@ -304,10 +316,11 @@ function createPinnedAliasRoute(
     if (specifier === "./tencentEnvelope.ts") return tencent;
     if (specifier === "./providerSafety.ts") return providerSafety;
     if (specifier === "./errorSanitization.ts") return sanitization;
+    if (specifier === "./registeredFeatureFlag.ts") return registeredFeatureFlag;
+    if (specifier === "./publicErrorIdentifiers.ts") return publicErrorIdentifiers;
     if (specifier === "../config/errorConfig.ts") return errorConfig;
     if (specifier === "@/lib/logPayloads") return logPayloadFunctions;
     if (specifier === "./upstreamErrorPassthrough.ts") return passthrough;
-    if (specifier === "@/shared/utils/featureFlags") return { isFeatureFlagEnabled: () => false };
     if (specifier === "./retryAfterInstant.ts") return retryAfter;
     if (specifier === "./proseRetryDelay.ts") return proseRetry;
     if (specifier === "../services/retryAfterJson.ts") return retryAfterJson;

@@ -116,11 +116,13 @@ export function testCaseSourceHash(testId: string): string {
     throw new Error(`test.id must name an existing package-relative test source file: ${testId}`);
   }
   const seen = new Set<string>();
+  const parsedSources = new Set<string>();
   const receipts = new Map<string, TestSourceReceipt>();
-  const visit = (file: string): void => {
+  const visit = (file: string, followImports = true): void => {
     const absolute = resolve(file);
-    if (seen.has(absolute)) return;
+    if (seen.has(absolute) && (!followImports || parsedSources.has(absolute))) return;
     seen.add(absolute);
+    if (followImports) parsedSources.add(absolute);
     const bytes = readFileSync(absolute);
     const path = relative(packageRoot, absolute).split(sep).join("/");
     const gitBlob = createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${bytes.byteLength}\0`), bytes])).digest("hex");
@@ -130,8 +132,31 @@ export function testCaseSourceHash(testId: string): string {
       sha256: createHash("sha256").update(bytes).digest("hex"),
       gitBlobSha: gitBlob,
     });
+    // Subprocesses and dynamic fixture files are not discoverable from imports.
+    const declaration = `${absolute}.inputs.json`;
+    if (existsSync(declaration)) {
+      const declared: unknown = JSON.parse(readFileSync(declaration, "utf8"));
+      if (!isRecord(declared) || declared.schemaVersion !== 1 || Object.keys(declared).sort().join(",") !== "files,schemaVersion"
+        || !Array.isArray(declared.files) || declared.files.length === 0 || declared.files.length > 256) {
+        throw new Error(`invalid auxiliary evidence declaration for ${path}`);
+      }
+      visit(declaration);
+      const inputs = new Set<string>();
+      for (const input of declared.files) {
+        if (typeof input !== "string" || input.includes("\\") || input.includes("\0") || input.split("/").some(part => !part || part === "." || part === ".." || part === ".agents" || part === "node_modules" || part === ".git")) {
+          throw new Error(`invalid auxiliary evidence path for ${path}`);
+        }
+        const auxiliary = resolve(packageRoot, input);
+        if (relative(packageRoot, auxiliary).split(sep).join("/") !== input || inputs.has(input)
+          || !existsSync(auxiliary) || !lstatSync(auxiliary).isFile() || realpathSync(auxiliary) !== auxiliary) {
+          throw new Error(`auxiliary evidence input must be a unique repository-contained regular file: ${input}`);
+        }
+        inputs.add(input);
+        visit(auxiliary, false);
+      }
+    }
     const extension = extname(absolute);
-    if (extension === ".json" || !TEST_SOURCE_EXTENSIONS.some(candidate => candidate === extension)) return;
+    if (!followImports || extension === ".json" || !TEST_SOURCE_EXTENSIONS.some(candidate => candidate === extension)) return;
     const text = bytes.toString("utf8");
     const kind = absolute.endsWith(".tsx") ? ts.ScriptKind.TSX
       : absolute.endsWith(".jsx") ? ts.ScriptKind.JSX
@@ -360,9 +385,11 @@ function convertSchema(value: unknown, label: string, depth = 0): Json {
   if (schema.exclusiveMaximum === true) delete output.maximum;
   if (schema.nullable === true) {
     const rawType = output.type;
-    if (rawType === undefined) throw new Error(`${label}.nullable requires type`);
-    const types = Array.isArray(rawType) ? rawType : [rawType];
-    output.type = types.includes("null") ? types : [...types, "null"];
+    // OpenAPI 3.0 nullable only adds null when a type is explicitly declared.
+    if (rawType !== undefined) {
+      const types = Array.isArray(rawType) ? rawType : [rawType];
+      output.type = types.includes("null") ? types : [...types, "null"];
+    }
   }
   if (output.type === "array" && output.items === undefined) throw new Error(`${label} is an array without an item schema`);
   if (Array.isArray(output.type) && output.type.includes("array") && output.items === undefined) throw new Error(`${label} is a nullable array without an item schema`);
@@ -1523,7 +1550,7 @@ function validateMutationSafety(value: unknown, operationId: string, sideEffect:
 
 function validateSourceAuthorizationPolicy(value: unknown, domain: string, operationId: string): void {
   const policy = requireRecord(value, `${operationId}.contract.auth.sourcePolicy`);
-  if (policy.status !== "qualified" || policy.source !== "omniroute-v3.8.52") {
+  if (policy.status !== "qualified" || policy.source !== "omniroute-v3.8.53") {
     throw new Error(`${operationId}.contract.auth.sourcePolicy must be qualified against the pinned source`);
   }
   const routeClass = requireString(policy.routeClass, `${operationId}.auth.sourcePolicy.routeClass`);
@@ -2031,6 +2058,24 @@ export function operationContractTemplate(operationId: string): RecordValue {
   const source = sourceOperationFor(operationId);
   const operation = makeOperation(source.manifest, source.route, source.method, new Map(), source.frameworkContextSha256, source.centralIngress);
   return contractFromOperation(operation);
+}
+/** Fail closed if the reviewed cache implementation is no longer in the pinned handler closure. */
+export function assertCacheMetricsSourceBinding(operationId: string): void {
+  if (operationId !== "GET /api/settings/cache-metrics" && operationId !== "DELETE /api/settings/cache-metrics") {
+    throw new Error(`not a reviewed cache metrics operation: ${operationId}`);
+  }
+  const { manifest, route } = sourceOperationFor(operationId);
+  const backend = "src/lib/db/settings/cacheMetrics.ts";
+  const corpus = requireRecord(manifest.sourceCorpus, "manifest.sourceCorpus");
+  const receipts = requireArray(corpus.files, "manifest.sourceCorpus.files")
+    .map((value, index) => requireRecord(value, `manifest.sourceCorpus.files[${index}]`))
+    .filter(receipt => receipt.path === backend);
+  if (route.sha256 !== "1a8b1e376b02daa883d2d90eca5274684c4cdee7cb7a56d83d0a30f68032362a"
+    || !requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes(backend)
+    || receipts.length !== 1 || receipts[0]?.sha256 !== "784114e9262a8a34348a17bcc510c29886fb1dc7af028bc2827ab3eb515fdca1"
+    || receipts[0]?.gitBlobSha !== "4a2ce8d5ecf2b8c7115d82a9922239a27ca04373") {
+    throw new Error(`${operationId} cache metrics source differs from the reviewed handler and backend`);
+  }
 }
 
 /** Compute a source/contract binding only; explicit contracts never create eligibility. */

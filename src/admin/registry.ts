@@ -27,7 +27,7 @@ export type OperationSourceAuthorizationPolicy =
   | { readonly status: "unknown" }
   | {
       readonly status: "qualified";
-      readonly source: "omniroute-v3.8.52";
+      readonly source: "omniroute-v3.8.53";
       readonly routeClass: "management";
       readonly localOnly: boolean;
       readonly handlerGuard: "none" | "requireManagementAuth";
@@ -36,20 +36,20 @@ export type OperationSourceAuthorizationPolicy =
     }
   | {
       readonly status: "qualified";
-      readonly source: "omniroute-v3.8.52";
+      readonly source: "omniroute-v3.8.53";
       readonly routeClass: "client-api";
       readonly localOnly: boolean;
       readonly alternatives: readonly ClientApiAuthorizationAlternative[];
     }
   | {
       readonly status: "qualified";
-      readonly source: "omniroute-v3.8.52";
+      readonly source: "omniroute-v3.8.53";
       readonly routeClass: "public";
       readonly alternatives: readonly [{ readonly kind: "anonymous" }];
     }
   | {
       readonly status: "qualified";
-      readonly source: "omniroute-v3.8.52";
+      readonly source: "omniroute-v3.8.53";
       readonly routeClass: "local";
       readonly localOnly: true;
       readonly alternatives: readonly [{ readonly kind: "trusted-local"; readonly loopbackOnly: true }];
@@ -413,7 +413,7 @@ function assertSourceAuthorizationPolicy(descriptor: OperationDescriptor): void 
     exactKeys(policy, ["status"], operationId);
     return;
   }
-  if (policy.status !== "qualified" || policy.source !== "omniroute-v3.8.52" || !Array.isArray(policy.alternatives)) {
+  if (policy.status !== "qualified" || policy.source !== "omniroute-v3.8.53" || !Array.isArray(policy.alternatives)) {
     throw new RegistryError("invalid-inventory", "authorization policy is not source-qualified", operationId);
   }
   if (policy.alternatives.length === 0) throw new RegistryError("invalid-inventory", "authorization policy has no alternatives", operationId);

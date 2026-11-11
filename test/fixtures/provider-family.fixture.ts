@@ -114,7 +114,7 @@ function managementAuth(template: ProviderFamilyContract, scope: "read" | "admin
     domain: "management",
     specificationAlternatives: template.auth.specificationAlternatives,
     sourcePolicy: {
-      status: "qualified", source: "omniroute-v3.8.52", routeClass: "management",
+      status: "qualified", source: "omniroute-v3.8.53", routeClass: "management",
       localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none",
       alternatives: [
         { kind: "management-api-key", anyOf: ["manage", "admin"] },

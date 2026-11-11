@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
-import { operationContractTemplate } from "../../scripts/generate-contracts.ts";
+import { assertCacheMetricsSourceBinding, operationContractTemplate, operationEvidenceBinding } from "../../scripts/generate-contracts.ts";
+import { requiredOmaScope } from "../../src/admin/authorization-policy.ts";
 import type { OperationSourceContract } from "../../src/admin/eligibility.ts";
 import { getOperation, type JsonSchema, type OperationDescriptor } from "../../src/admin/registry.ts";
 import { createPinnedManagementAuthorization as makeAuth, loadPinnedModule } from "./pinned-handler.fixture.ts";
@@ -27,10 +28,19 @@ const centralError: JsonSchema = { type: "object", properties: { error: { type: 
 const combined: JsonSchema = { oneOf: [metrics, routeError, authError, centralError] };
 
 export function cacheMetricsContract(id: CacheMetricsId): OperationSourceContract {
+  assertCacheMetricsSourceBinding(id);
   const template = operationContractTemplate(id) as unknown as OperationSourceContract;
   return {
     ...template,
-    auth: { ...template.auth, sourcePolicy: { status: "unknown" } },
+    auth: { domain: "management", specificationAlternatives: template.auth.specificationAlternatives, sourcePolicy: {
+      status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false,
+      handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [
+        { kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" },
+        { kind: "auth-disabled", when: "central-and-handler-auth-not-required" },
+        { kind: "oma-access-token", minimumScope: requiredOmaScope(id.slice(0, id.indexOf(" ")), "/api/settings/cache-metrics") },
+        { kind: "trusted-local", loopbackOnly: true },
+      ],
+    } },
     response: { ...template.response, mediaType: "application/json", schema: combined,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? metrics : variant.statusCode === "500" ? routeError : { oneOf: [authError, centralError] } })) })) },
     secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
@@ -44,6 +54,10 @@ export function cacheMetricsDescriptor(id: CacheMetricsId): OperationDescriptor 
   const original = getOperation(id);
   if (!original) throw new Error(`Missing pinned operation ${id}`);
   const contract = cacheMetricsContract(id);
+  const binding = operationEvidenceBinding(id, contract);
+  if (binding.handlerSha256 !== original.source.sha256 || binding.handlerGitBlobSha !== original.source.gitBlobSha) {
+    throw new Error(`cache metrics source contract does not match the pinned handler: ${id}`);
+  }
   return { ...original, ...contract, mediaType: { request: null, response: "application/json" }, coverage: { status: "invokable", adapterId: `typed.fixture.cache-metrics.${id.startsWith("GET") ? "get" : "delete"}`, reason: null } };
 }
 

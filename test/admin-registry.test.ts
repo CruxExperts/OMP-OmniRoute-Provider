@@ -28,7 +28,7 @@ function fixtureOperation(body: JsonSchema | null = null): OperationDescriptor {
     auth: {
       domain: "public",
       specificationAlternatives: [],
-      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.52", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
+      sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] },
     },
     secrets: { inputFields: [], outputFields: [] },
     sideEffect: "mutation", confirmation: { required: true, reason: "Synthetic fixture mutation." },
@@ -241,7 +241,7 @@ test("source-only approvals and changed authentication or reconciliation contrac
     domain: "management",
     sourcePolicy: {
       status: "qualified",
-      source: "omniroute-v3.8.52",
+      source: "omniroute-v3.8.53",
       routeClass: "management",
       localOnly: false,
       handlerGuard: "none",

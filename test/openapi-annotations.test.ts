@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { reviewedOpenApiAnnotation } from "../scripts/openapi-annotations.ts";
 
 test("only exact pinned malformed prose receives an annotation-only repair", () => {
-  const source = { commit: "ad6f33f66bda34eba98645d3bfdabbde294bc843", sha256: "b5ca0929a47416f4f223c79572c58c5e070595483cd36f13f6312149e50a9b03" };
+  const source = { commit: "191dce8d534ceb56c28a08e71381284a9a87838f", sha256: "382c51388159e411dfe79d002aff2bbe3bd8bdcdcbad3b08201fbf14815d63bc" };
   const label = "GET /api/system/version.responses.200.application/json.schema.properties.news";
   const malformed = { description: "Active release-news payload", "or null.": null };
   expect(reviewedOpenApiAnnotation(malformed, label, source)).toEqual({ description: "Active release-news payload, or null." });

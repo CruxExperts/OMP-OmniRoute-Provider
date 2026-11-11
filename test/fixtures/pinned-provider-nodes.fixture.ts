@@ -98,10 +98,14 @@ function loadFeatureFlagResolver(core: { readonly getDbInstance: () => Database 
     if (specifier === "@/shared/utils/processSingleton") return processSingleton;
     throw new Error(`Unexpected feature-flag bridge dependency: ${specifier}`);
   });
+  const requireApiKeyValue = loadPinnedModule("src/shared/utils/requireApiKeyValue.mjs", specifier => {
+    throw new Error(`Unexpected API-key value parser dependency: ${specifier}`);
+  });
   return loadPinnedModule("src/shared/utils/featureFlags.ts", specifier => {
     if (specifier === "@/lib/db/featureFlags") return featureFlagStore;
     if (specifier === "@/shared/constants/featureFlagDefinitions") return definitions;
     if (specifier === "@/shared/utils/featureFlagResolverBridge") return bridge;
+    if (specifier === "@/shared/utils/requireApiKeyValue.mjs") return requireApiKeyValue;
     throw new Error(`Unexpected feature-flag resolver dependency: ${specifier}`);
   });
 }

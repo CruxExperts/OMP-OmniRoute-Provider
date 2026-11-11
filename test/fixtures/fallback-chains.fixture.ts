@@ -150,7 +150,7 @@ function operationAuth(base: OperationSourceContract["auth"], operationId: Fallb
     specificationAlternatives: base.specificationAlternatives,
     sourcePolicy: {
       status: "qualified",
-      source: "omniroute-v3.8.52",
+      source: "omniroute-v3.8.53",
       routeClass: "management",
       localOnly: false,
       handlerGuard: "none",

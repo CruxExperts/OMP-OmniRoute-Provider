@@ -60,14 +60,14 @@
       "required": ["repository", "tag", "commit", "releaseId", "latestSelectorUrl", "latestApiUrl", "releaseUrl", "selectorKind", "latestRedirectTarget", "selectorCheckedAt", "publishedAt", "readmeNpmBadgeIsNotSelector"],
       "properties": {
         "repository": {"const": "diegosouzapw/OmniRoute"},
-        "tag": {"const": "v3.8.52"},
-        "commit": {"const": "ad6f33f66bda34eba98645d3bfdabbde294bc843"},
+        "tag": {"const": "v3.8.53"},
+        "commit": {"const": "191dce8d534ceb56c28a08e71381284a9a87838f"},
         "releaseId": {"type": "integer", "minimum": 1},
         "latestSelectorUrl": {"type": "string", "format": "uri"},
         "latestApiUrl": {"type": "string", "format": "uri"},
-        "releaseUrl": {"const": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.52"},
+        "releaseUrl": {"const": "https://github.com/diegosouzapw/OmniRoute/releases/tag/v3.8.53"},
         "selectorKind": {"const": "github-latest-release"},
-        "latestRedirectTarget": {"const": "v3.8.52"},
+        "latestRedirectTarget": {"const": "v3.8.53"},
         "selectorCheckedAt": {"type": "string", "format": "date-time"},
         "publishedAt": {"type": "string", "format": "date-time"},
         "readmeNpmBadgeIsNotSelector": {"const": true}

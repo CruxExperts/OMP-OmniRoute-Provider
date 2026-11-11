@@ -832,7 +832,7 @@ for (const [memberPath, member] of archiveMembers) {
     throw new Error(`extracted source bytes do not match the pinned archive: ${sourcePath}`);
   }
 }
-if (archiveRoots.size !== 1 || ![...archiveRoots][0]!.endsWith(`-${expectedCommit}`)) throw new Error("pinned archive source root does not match its release commit");
+if (archiveRoots.size !== 1 || [...archiveRoots][0] !== `OmniRoute-v${expectedVersion}`) throw new Error("pinned archive source root does not match its release version");
 // Load only after all imported classifier bytes and their full runtime closure have matched the pinned archive.
 const classifierArtifact: unknown = await import(pathToFileURL(classifierImportPath).href);
 if (!isRecord(classifierArtifact) || typeof classifierArtifact.classifyRoute !== "function") {

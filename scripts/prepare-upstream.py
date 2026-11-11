@@ -21,9 +21,9 @@ def prepare() -> None:
         raise ValueError("Invalid pinned OmniRoute source identity")
     if not re.fullmatch(r"[a-f0-9]{64}", digest) or upstream["repository"] != "diegosouzapw/OmniRoute":
         raise ValueError("Invalid pinned source digest or repository")
-    url = f"https://github.com/{upstream['repository']}/archive/{commit}.tar.gz"
+    url = f"https://github.com/{upstream['repository']}/releases/download/v{version}/OmniRoute-v{version}.source.tar.gz"
     if integrity["source_archive_url"] != url:
-        raise ValueError("Source URL differs from the immutable repository commit")
+        raise ValueError("Source URL differs from the pinned release asset")
     state = ROOT / ".agents/state/omp-provider-release/upstream"
     state.mkdir(parents=True, exist_ok=True)
     archive = state / f"omniroute-v{version}-{commit}.tar.gz"
@@ -34,7 +34,7 @@ def prepare() -> None:
         try:
             # Close the temporary handle before rename: Windows forbids renaming an open file.
             with staging.open("wb") as output:
-                with urllib.request.urlopen(f"https://codeload.github.com/{upstream['repository']}/tar.gz/{commit}", timeout=60) as response:
+                with urllib.request.urlopen(url, timeout=60) as response:
                     total = 0
                     while chunk := response.read(1024 * 1024):
                         total += len(chunk)

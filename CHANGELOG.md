@@ -56,6 +56,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Bound publication readback streams by approved asset lengths and metadata size;
   disable npm publication transport retries so uncertain writes require explicit
   reconciliation instead of automatic replay.
+- Refresh the pinned OmniRoute source inventory to 3.8.53 and retire prior active
+  operation receipts into immutable history. Changed handlers, framework inputs,
+  and test closures require fresh qualification; historical passes do not grant
+  candidate administration access.
 
 ## 1.0.4 — 2026-11-05
 

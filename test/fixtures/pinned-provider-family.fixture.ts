@@ -1,4 +1,5 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
+import { dirname, extname, posix } from "node:path";
 import {
   createPinnedManagementAuthorization,
   createPinnedFixtureDate,
@@ -20,6 +21,7 @@ type ProviderStore = PinnedExports & {
   createProviderConnection(data: Record<string, unknown>): Promise<Record<string, unknown>>;
   updateProviderConnection(id: string, data: Record<string, unknown>): Promise<Record<string, unknown> | null>;
   deleteProviderConnections(ids: string[]): Promise<number>;
+  getProviderNodes(filter?: Record<string, unknown>): Promise<Record<string, unknown>[]>;
   resolveProviderNodeForConnection(idOrType: string): Promise<Record<string, unknown> | null>;
   isCloudEnabled(): Promise<boolean>;
 };
@@ -92,6 +94,7 @@ function loadProviderConstants(): PinnedExports {
     if (cached) return cached;
     const module = loadPinnedModule(`src/shared/constants/providers/${name}.ts`, specifier => {
       if (specifier === "@/shared/constants/gitlabDuoSetupMessage") return gitlabSetup;
+      if (name === "apikey/gateways" && specifier === "./ainetcafe") return loadChildCatalog("apikey/ainetcafe");
       if (name === "apikey/gateways" && specifier === "./onomeo") return loadChildCatalog("apikey/onomeo");
       if (name === "apikey/gateways" && specifier === "./unifically") return loadChildCatalog("apikey/unifically");
       throw new Error(`Unapproved provider catalog child dependency ${specifier} in ${name}`);
@@ -127,6 +130,37 @@ function loadProviderConstants(): PinnedExports {
   return catalogs;
 }
 
+/** Load the pinned, pure provider catalog and its source-owned dependency graph. */
+function loadProviderRegistry(date: FixtureDate): PinnedExports {
+  const modules = new Map<string, PinnedExports>();
+  const loading = new Set<string>();
+  const load = (path: string): PinnedExports => {
+    const cached = modules.get(path);
+    if (cached) return cached;
+    if (loading.has(path)) throw new Error(`Circular pinned provider catalog dependency: ${path}`);
+    loading.add(path);
+    try {
+      const result = loadPinnedModule(path, specifier => {
+        let dependency: string;
+        if (specifier.startsWith(".")) dependency = posix.normalize(posix.join(dirname(path), specifier));
+        else if (specifier.startsWith("@/")) dependency = `src/${specifier.slice(2)}`;
+        else if (specifier.startsWith("@omniroute/open-sse/")) dependency = `open-sse/${specifier.slice("@omniroute/open-sse/".length)}`;
+        else throw new Error(`Unapproved provider registry dependency ${specifier} in ${path}`);
+        if (!extname(dependency)) dependency += ".ts";
+        if (!dependency.startsWith("open-sse/") && !dependency.startsWith("src/")) {
+          throw new Error(`Provider registry dependency escaped pinned source: ${specifier}`);
+        }
+        return load(dependency);
+      }, { date });
+      modules.set(path, result);
+      return result;
+    } finally {
+      loading.delete(path);
+    }
+  };
+  return load("open-sse/config/providerRegistry.ts");
+}
+
 function loadProviderSchema(constants: PinnedExports): PinnedExports {
   const catalogLeaf = (path: string) => loadPinnedModule(path, specifier => {
     throw new Error(`Unapproved provider validation dependency ${specifier} in ${path}`);
@@ -139,6 +173,7 @@ function loadProviderSchema(constants: PinnedExports): PinnedExports {
     if (specifier === "@/shared/constants/modelConcurrency") return catalogLeaf("src/shared/constants/modelConcurrency.ts");
     if (specifier === "@/shared/constants/modelSupportedEndpoints") return catalogLeaf("src/shared/constants/modelSupportedEndpoints.ts");
     if (specifier === "@/shared/constants/openRouterPreset") return catalogLeaf("src/shared/constants/openRouterPreset.ts");
+    if (specifier === "@omniroute/open-sse/services/githubCreditLimit.ts") return catalogLeaf("open-sse/services/githubCreditLimit.ts");
     throw new Error(`Unapproved provider-specific validation dependency: ${specifier}`);
   });
   const misc = loadPinnedModule("src/shared/validation/schemas/misc.ts", specifier => {
@@ -170,8 +205,10 @@ function loadRequestDefaults(constants: PinnedExports): PinnedExports {
   const leaf = (path: string) => loadPinnedModule(path, specifier => {
     throw new Error(`Unapproved request-default helper import ${specifier} in ${path}`);
   });
-  const secretFields = loadPinnedModule("src/lib/db/providers/providerSpecificDataSecrets.ts", () => {
-    throw new Error("Provider-specific secret metadata is source-local");
+  const wordpress = leaf("open-sse/utils/wordpressSessionKey.ts");
+  const secretFields = loadPinnedModule("src/lib/db/providers/providerSpecificDataSecrets.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/utils/wordpressSessionKey.ts") return wordpress;
+    throw new Error(`Unapproved provider-specific secret helper: ${specifier}`);
   });
   const wildcardRouter = loadPinnedModule("open-sse/services/wildcardRouter.ts", () => {
     throw new Error("Pinned wildcard matching has no runtime dependencies");
@@ -211,6 +248,11 @@ function loadProviderReferenceCleanup(db: Database, date: FixtureDate, effects: 
   }, { date });
   const steps = loadPinnedModule("src/lib/combos/steps.ts", () => ({}), { date });
   const invariants = loadPinnedModule("src/lib/combos/invariants.ts", () => ({}), { date });
+  const comboAccess = loadPinnedModule("src/shared/constants/comboAccess.ts", specifier => { throw new Error(`Unapproved combo access import: ${specifier}`); });
+  const comboGrants = loadPinnedModule("src/lib/db/apiKeys/comboGrantRevocation.ts", specifier => {
+    if (specifier === "@/shared/constants/comboAccess") return comboAccess;
+    throw new Error(`Unapproved combo grant import: ${specifier}`);
+  });
   const sqliteCombos = loadPinnedModule("src/lib/db/repositories/sqliteComboRepository.ts", specifier => {
     if (specifier === "uuid") return { v4: fixtureUuid };
     if (specifier === "@/lib/combos/steps") return steps;
@@ -220,6 +262,8 @@ function loadProviderReferenceCleanup(db: Database, date: FixtureDate, effects: 
     if (specifier === "../proxies/rotation") return { clearRotationState: () => undefined };
     if (specifier === "../proxies/registryGeneration") return { bumpProxyRegistryGeneration: () => undefined };
     if (specifier === "../readCache") return readCache;
+    if (specifier === "../apiKeys/comboGrantRevocation") return comboGrants;
+    if (specifier === "../apiKeys") return { clearApiKeyCaches: () => { effects.cacheInvalidations.push("api-keys"); } };
     throw new Error(`Unapproved SQLite combo repository import: ${specifier}`);
   }, { date });
   const routingRepositories = loadPinnedModule("src/lib/db/repositories/routingConfigRepositories.ts", specifier => {
@@ -274,7 +318,11 @@ function loadProviderStore(
     if (specifier === "@/shared/constants/modelConcurrency") return loadPinnedModule("src/shared/constants/modelConcurrency.ts", () => ({}));
     throw new Error(`Unapproved provider columns dependency: ${specifier}`);
   });
-  const secrets = loadPinnedModule("src/lib/db/providers/providerSpecificDataSecrets.ts", () => ({}));
+  const wordpressSecrets = loadPinnedModule("open-sse/utils/wordpressSessionKey.ts", specifier => { throw new Error(`Unapproved WordPress key helper import: ${specifier}`); });
+  const secrets = loadPinnedModule("src/lib/db/providers/providerSpecificDataSecrets.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/utils/wordpressSessionKey.ts") return wordpressSecrets;
+    throw new Error(`Unapproved provider secret-field import: ${specifier}`);
+  });
   const providerData = loadPinnedModule("src/lib/db/providers/providerSpecificData.ts", specifier => {
     if (specifier === "@/lib/providers/requestDefaults") return requestDefaults;
     if (specifier === "@/shared/constants/providers") return constants;
@@ -301,6 +349,10 @@ function loadProviderStore(
     if (specifier === "./columns") return columns;
     throw new Error(`Unapproved lazy provider-view dependency: ${specifier}`);
   });
+  const discoveryState = loadPinnedModule("src/lib/db/discoveryState.ts", specifier => {
+    if (specifier === "./core") return core;
+    throw new Error(`Unapproved discovery-state import: ${specifier}`);
+  }, { date });
   const deletion = loadPinnedModule("src/lib/db/providers/deletion.ts", specifier => {
     if (specifier === "../core") return core;
     if (specifier === "../backup") return { backupDbFile: (reason: string) => { effects.backups.push(reason); } };
@@ -315,6 +367,7 @@ function loadProviderStore(
     if (specifier === "../reasoningRoutingRules") return { invalidateReasoningRoutingRuleCache: () => { effects.cacheInvalidations.push("reasoning"); } };
     if (specifier === "../settings") return { bumpProxyConfigGeneration: () => { effects.cacheInvalidations.push("proxy-generation"); } };
     if (specifier === "../models/syncedAvailableModelPersistence") return syncedModelPersistence;
+    if (specifier === "../discoveryState") return discoveryState;
     if (specifier === "./columns") return columns;
     throw new Error(`Unapproved provider-deletion import: ${specifier}`);
   }, { date });
@@ -362,6 +415,7 @@ function loadProviderStore(
   }, { date });
   const codexState = loadPinnedModule("src/lib/db/providers/codexAccountState.ts", () => ({}), { date });
   store = loadPinnedModule("src/lib/db/providers.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/utils/registeredConnectionStore.ts") return loadPinnedModule("open-sse/utils/registeredConnectionStore.ts", dependency => { throw new Error(`Unapproved connection-store dependency: ${dependency}`); });
     if (specifier === "uuid") return { v4: fixtureUuid };
     if (specifier === "@/shared/constants/chatgptWebRetirement") return retirement;
     if (specifier === "./core") return core;
@@ -394,6 +448,7 @@ function loadProviderStore(
   }, { date }) as ProviderStore;
   return {
     ...store,
+    getProviderNodes: nodes.getProviderNodes as ProviderStore["getProviderNodes"],
     updateProviderConnection: async (id, data) => {
       const updated = await store.updateProviderConnection(id, data);
       if (updated) effects.updates.push(id);
@@ -480,7 +535,26 @@ function loadProviderRoute(
     if (specifier === "@/shared/utils/apiKeyMask") return loadPinnedModule("src/shared/utils/apiKeyMask.ts", () => ({}), { date });
     throw new Error(`Unapproved API-key exposure dependency: ${specifier}`);
   }, { date });
+  const sourceDb = createNodeSqliteBindingAdapter(database);
+  const discoveryState = loadPinnedModule("src/lib/db/discoveryState.ts", specifier => {
+    if (specifier === "./core") return { getDbInstance: () => sourceDb };
+    throw new Error(`Unapproved provider discovery-state dependency: ${specifier}`);
+  }, { date });
+  const m365RefreshToken = loadPinnedModule("src/lib/providers/m365RefreshToken.ts", specifier => {
+    if (specifier === "@/shared/validation/schemas/provider") return providerSchema;
+    throw new Error(`Unapproved M365 refresh-token dependency: ${specifier}`);
+  }, { date });
+  const providerRegistry = loadProviderRegistry(date);
+  const prefixCollision = loadPinnedModule("src/lib/providers/providerPrefixCollision.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/config/providerRegistry.ts") return providerRegistry;
+    if (specifier === "@/lib/db/providers") return { getProviderConnectionsCount: store.getProviderConnectionsCount };
+    if (specifier === "@/lib/db/readCache") return { getCachedProviderNodes: () => store.getProviderNodes() };
+    throw new Error(`Unapproved provider prefix-collision dependency: ${specifier}`);
+  }, { date });
   return loadPinnedModule("src/app/api/providers/route.ts", specifier => {
+    if (specifier === "@/lib/providers/providerPrefixCollision") return prefixCollision;
+    if (specifier === "@/lib/db/discoveryState") return discoveryState;
+    if (specifier === "@/lib/providers/m365RefreshToken") return m365RefreshToken;
     if (specifier === "@/lib/db/providerLimits") return { getAllProviderLimitsCache: () => ({}) };
     if (specifier === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };
     if (specifier === "@/lib/db/settings") return { getSettings: async () => ({}) };

@@ -13,7 +13,7 @@ const ADMIN_PROFILE = "omniroute";
 const ADMIN_ENDPOINT = "http://127.0.0.1:20128";
 const MANAGEMENT_POLICY: OperationDescriptor["auth"]["sourcePolicy"] = {
   status: "qualified",
-  source: "omniroute-v3.8.52",
+  source: "omniroute-v3.8.53",
   routeClass: "management",
   localOnly: false,
   handlerGuard: "none",
@@ -22,7 +22,7 @@ const MANAGEMENT_POLICY: OperationDescriptor["auth"]["sourcePolicy"] = {
 };
 const PUBLIC_POLICY: OperationDescriptor["auth"]["sourcePolicy"] = {
   status: "qualified",
-  source: "omniroute-v3.8.52",
+  source: "omniroute-v3.8.53",
   routeClass: "public",
   alternatives: [{ kind: "anonymous" }],
 };

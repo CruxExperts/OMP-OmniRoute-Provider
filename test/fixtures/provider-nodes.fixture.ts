@@ -52,7 +52,7 @@ function managementAuth(template: ProviderNodesContract["auth"]): ProviderNodesC
     specificationAlternatives: template.specificationAlternatives,
     sourcePolicy: {
       status: "qualified",
-      source: "omniroute-v3.8.52",
+      source: "omniroute-v3.8.53",
       routeClass: "management",
       localOnly: false,
       handlerGuard: "none",

@@ -10,7 +10,7 @@ Source version: **1.0.5**. This identifies checkout source, not an npm publicati
 | --- | --- | --- |
 | OMP host | >=18.12.2 <19 | Declared compatible range |
 | OMP host test matrix | 18.12.2, 18.12.5, 18.12.6, 18.16.0 | Requested test versions; require fresh release receipts |
-| omniroute | v3.8.52 (ad6f33f66bda34eba98645d3bfdabbde294bc843) | Pinned provenance; latest release must be rechecked |
+| omniroute | v3.8.53 (191dce8d534ceb56c28a08e71381284a9a87838f) | Pinned provenance; latest release must be rechecked |
 | omp | v18.12.5 (d5cd750e41fede277f9eb933455da92a0738915e) | Pinned provenance; latest release must be rechecked |
 
 ## Registered commands
@@ -40,15 +40,15 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/agent-skills | 0 | 5 | 0 |
 | api/analytics | 0 | 3 | 0 |
 | api/assess | 0 | 2 | 0 |
-| api/auth | 0 | 6 | 0 |
+| api/auth | 0 | 12 | 0 |
 | api/batches | 0 | 2 | 0 |
 | api/cache | 0 | 8 | 0 |
 | api/chaos | 0 | 4 | 0 |
 | api/cli | 0 | 5 | 0 |
-| api/cli-tools | 0 | 77 | 0 |
+| api/cli-tools | 0 | 79 | 0 |
 | api/cloud | 0 | 5 | 0 |
 | api/codex | 0 | 2 | 0 |
-| api/combos | 6 | 7 | 0 |
+| api/combos | 0 | 15 | 0 |
 | api/compliance | 0 | 1 | 0 |
 | api/compression | 0 | 7 | 0 |
 | api/conductor | 0 | 5 | 0 |
@@ -62,7 +62,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/discovery | 0 | 5 | 0 |
 | api/docs | 0 | 2 | 0 |
 | api/evals | 0 | 7 | 0 |
-| api/fallback | 3 | 0 | 0 |
+| api/fallback | 0 | 3 | 0 |
 | api/files | 0 | 2 | 0 |
 | api/free-models | 0 | 1 | 0 |
 | api/free-provider-rankings | 0 | 2 | 0 |
@@ -85,23 +85,23 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/memory | 0 | 12 | 0 |
 | api/middleware | 0 | 5 | 0 |
 | api/modality-bridge | 0 | 6 | 0 |
-| api/model-capability-overrides | 1 | 2 | 0 |
-| api/model-combo-mappings | 5 | 0 | 0 |
+| api/model-capability-overrides | 0 | 3 | 0 |
+| api/model-combo-mappings | 0 | 5 | 0 |
 | api/models | 0 | 9 | 0 |
-| api/monitoring | 0 | 3 | 0 |
+| api/monitoring | 0 | 4 | 0 |
 | api/network | 0 | 1 | 0 |
-| api/oauth | 0 | 21 | 0 |
+| api/oauth | 0 | 22 | 0 |
 | api/omniroute | 0 | 2 | 0 |
 | api/openapi | 0 | 1 | 1 |
 | api/playground | 0 | 10 | 0 |
 | api/plugins | 0 | 19 | 0 |
 | api/policies | 0 | 2 | 0 |
-| api/pricing | 0 | 8 | 0 |
+| api/pricing | 0 | 9 | 0 |
 | api/provider-metrics | 0 | 1 | 0 |
 | api/provider-models | 0 | 6 | 0 |
-| api/provider-nodes | 1 | 4 | 0 |
+| api/provider-nodes | 0 | 5 | 0 |
 | api/provider-stats | 0 | 1 | 0 |
-| api/providers | 9 | 68 | 0 |
+| api/providers | 0 | 77 | 0 |
 | api/proxy-fallback | 0 | 1 | 0 |
 | api/quota | 0 | 19 | 0 |
 | api/radar | 0 | 26 | 0 |
@@ -112,17 +112,18 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/restart | 0 | 1 | 0 |
 | api/routing | 0 | 1 | 0 |
 | api/search | 0 | 2 | 0 |
-| api/services | 0 | 68 | 0 |
+| api/services | 0 | 76 | 0 |
 | api/session-pools | 0 | 2 | 0 |
 | api/sessions | 0 | 1 | 0 |
-| api/settings | 0 | 149 | 0 |
+| api/settings | 0 | 151 | 0 |
 | api/shutdown | 0 | 1 | 0 |
 | api/skills | 0 | 13 | 0 |
 | api/storage | 0 | 1 | 0 |
 | api/sync | 0 | 8 | 0 |
 | api/synced-available-models | 0 | 1 | 0 |
-| api/system | 0 | 4 | 0 |
+| api/system | 0 | 5 | 0 |
 | api/tags | 0 | 2 | 0 |
+| api/teams | 0 | 9 | 0 |
 | api/telegram | 0 | 1 | 0 |
 | api/telemetry | 0 | 1 | 0 |
 | api/token-health | 0 | 1 | 0 |
@@ -130,8 +131,9 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/translator | 0 | 5 | 0 |
 | api/tunnels | 0 | 11 | 0 |
 | api/upstream-proxy | 0 | 3 | 0 |
-| api/usage | 0 | 41 | 0 |
-| api/v1 | 0 | 227 | 7 |
+| api/usage | 0 | 42 | 0 |
+| api/v0 | 0 | 3 | 0 |
+| api/v1 | 0 | 248 | 7 |
 | api/v1beta | 0 | 4 | 0 |
 | api/version-manager | 0 | 6 | 0 |
 | api/vnc-session | 0 | 4 | 0 |
