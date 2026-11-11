@@ -6,27 +6,29 @@
     "commit": "191dce8d534ceb56c28a08e71381284a9a87838f",
     "archiveSha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
     "addedSourceSha256": {
-      "src/app/api/health/route.ts": "129fdf8eebcb6667b978d0a75dae16b923bb17447fbe61374973ff3528ac44d5",
-      "src/domain/degradation.ts": {
-        "originalSha256": "f720b66798f74fd10703bebeba37f564adf7cd6947a908b0884a0ee1da2a4f61",
-        "executedSha256": "f720b66798f74fd10703bebeba37f564adf7cd6947a908b0884a0ee1da2a4f61"
-      },
-      "src/app/api/model-combo-mappings/[id]/route.ts": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
-      "src/lib/db/settings/cacheMetrics.ts": "784114e9262a8a34348a17bcc510c29886fb1dc7af028bc2827ab3eb515fdca1",
-      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29",
+      "src/app/api/agent-skills/route.ts": "ef1419c32e4e23102c0f4a00b7fa31b4ca71e29bfa7750d0c83809404b0e0bee",
       "src/app/api/health/degradation/route.ts": {
         "originalSha256": "1dee40edb3162a8c2775055bd13c900e2b4dc2dd0ab9f9a26c75b0856b53491a",
         "executedSha256": "b607a1c072dfcad210e76f6cd55d1fc822b03aafa240c9ebaa5f37bbd2552b65"
       },
-      "src/lib/agentSkills/catalog.ts": "510105da6df8e6cb6b782254968ff4b4ca6a86b073db9c80cd75b40873cd9647",
-      "src/app/api/health/ping/route.ts": "fd5acf337d91cdf8d709beff76f15e85832537c95cd5c8c9be3f1f0bcfe954b2",
-      "src/app/api/settings/cache-metrics/route.ts": "1a8b1e376b02daa883d2d90eca5274684c4cdee7cb7a56d83d0a30f68032362a",
-      "src/app/api/agent-skills/route.ts": "ef1419c32e4e23102c0f4a00b7fa31b4ca71e29bfa7750d0c83809404b0e0bee",
-      "src/lib/agentSkills/schemas.ts": "2de130cc6677b76ec6958ff687739dc255fce948d826293362ca39c978713744",
+      "src/app/api/agent-skills/[id]/route.ts": "7d54ab86113edf7a342acdaa089fed28fbdd8a7db23efd26cc70c81262acae42",
       "src/app/api/model-combo-mappings/route.ts": "138658e09787bc715fa360c2edead37f0e63f3bfc13027185bc292b7a29dd137",
-      "src/shared/constants/agentSkills.ts": "6962da6b34f1532e270c1744dd2ec0cc19f74acc46f217a85f5a987805cf7e38",
+      "src/lib/agentSkills/catalog.ts": "510105da6df8e6cb6b782254968ff4b4ca6a86b073db9c80cd75b40873cd9647",
+      "src/app/api/model-combo-mappings/[id]/route.ts": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+      "src/domain/degradation.ts": {
+        "originalSha256": "f720b66798f74fd10703bebeba37f564adf7cd6947a908b0884a0ee1da2a4f61",
+        "executedSha256": "f720b66798f74fd10703bebeba37f564adf7cd6947a908b0884a0ee1da2a4f61"
+      },
       "src/lib/agentSkills/types.ts": "a035a3497bfce905b1987dcadb888747df72fc65d7a21964d5b5e62f8c855b53",
+      "src/app/api/health/route.ts": "129fdf8eebcb6667b978d0a75dae16b923bb17447fbe61374973ff3528ac44d5",
       "src/lib/db/core.ts": "097ef3b46440d89f22ff2b483b4bc591df8165faea256f02e3aada22ef891ed4",
+      "src/shared/constants/agentSkills.ts": "6962da6b34f1532e270c1744dd2ec0cc19f74acc46f217a85f5a987805cf7e38",
+      "src/lib/db/settings/cacheMetrics.ts": "784114e9262a8a34348a17bcc510c29886fb1dc7af028bc2827ab3eb515fdca1",
+      "src/app/api/settings/cache-metrics/route.ts": "1a8b1e376b02daa883d2d90eca5274684c4cdee7cb7a56d83d0a30f68032362a",
+      "src/app/api/agent-skills/coverage/route.ts": "0f0c4fba434692f7c95a78cb491827a39f0f5738a7e8e9f5ba8fd25fe63d54c8",
+      "src/lib/agentSkills/schemas.ts": "2de130cc6677b76ec6958ff687739dc255fce948d826293362ca39c978713744",
+      "src/app/api/health/ping/route.ts": "fd5acf337d91cdf8d709beff76f15e85832537c95cd5c8c9be3f1f0bcfe954b2",
+      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29",
       "src/lib/db/apiKeys.ts": {
         "originalSha256": "4e9bc2be404d6c74e1fbf9fc1d62b03853a84eead453ce70e2fc8cadd33673eb",
         "executedSha256": "b0baa5c40bcdf2a9514ac7fdd5414e339aa8697de5b4ac70e198d8df84a0c229"
@@ -57,11 +59,11 @@
   },
   "inputs": {
     "sha256": {
-      "test/pinned-ingress.test.ts": "34b2894051ed49faaae1e453817ff2d5e792843c5aa28dccb522f86fe0e68989",
+      "test/pinned-ingress.test.ts": "557e9aaad96bbb5e225fb084b9d74786e4d7360aae3ad5c6ad923f1b53ef71d0",
       "test/pinned-ingress.test.ts.inputs.json": "30a2e8d0e8b1f4fa2eeba1c92b913b72baaee1a3794a2ec9867e88fee4082e5a",
-      ".github/workflows/qualification.yml": "e32b448be91a38775ea06251b62d28fe4e1c1009cb27b582ef17bcdd74b80d2b",
-      "scripts/pinned-ingress.py": "5b7044431e82149617c392680cef933c5eb772040cae14f7d7d61ba22a82ec9d",
-      "scripts/pinned-ingress-driver.mjs": "4b526598059a9e3663b006555fbd770e19a1d04bb3baa4908b782877270b6956",
+      ".github/workflows/qualification.yml": "52ac34f6a26341e030cc37470c3cd5864a5782651dcdea13ddbb4cdfc3144771",
+      "scripts/pinned-ingress.py": "b7387937575fc21d6481f50f4ba2ced82ac6f4ad06fcf6b81ab1e2db1509c2b1",
+      "scripts/pinned-ingress-driver.mjs": "d15ee2bd313025df0cbcccbb928661a7cda408333d9634168284a7d0a6d2242b",
       "test/fixtures/pinned-ingress/alias-map.json": "60407ee079bd32b41cdc2cfb3446ac534ce96eb0a3192b75e88f58df869aa734",
       "test/fixtures/pinned-ingress/backend/core.ts": "b297d100fc39da0ba30efcfa020722cec6c11d6c0ad98e30c52cba2d9a0eaa1b",
       "test/fixtures/pinned-ingress/backend/settings.ts": "0f50d7add65bb63371059a1501e04b8cd7c9dd4012389ac65f3f1d8a43d70bfb",
@@ -346,7 +348,7 @@
         "status",
         "timestamp"
       ],
-      "timestamp": "2026-11-11T10:03:45.846Z",
+      "timestamp": "2026-11-11T10:45:57.095Z",
       "cacheControl": "no-store, no-cache, must-revalidate"
     },
     {
@@ -358,7 +360,7 @@
         "status",
         "timestamp"
       ],
-      "timestamp": "2026-11-11T10:03:45.926Z",
+      "timestamp": "2026-11-11T10:45:57.167Z",
       "cacheControl": "no-store, no-cache, must-revalidate",
       "latencyMs": 1
     }
@@ -527,6 +529,24 @@
       "config-codex-cli"
     ]
   },
+  "agentSkillsReads": [
+    {
+      "method": "GET",
+      "path": "/api/agent-skills/config-codex-cli",
+      "routeClass": "MANAGEMENT",
+      "anonymousStatus": 401,
+      "invalidCredentialStatus": 401,
+      "authorizedStatus": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/agent-skills/coverage",
+      "routeClass": "MANAGEMENT",
+      "anonymousStatus": 401,
+      "invalidCredentialStatus": 401,
+      "authorizedStatus": 200
+    }
+  ],
   "modelComboMappingPolicy": [
     {
       "method": "GET",
