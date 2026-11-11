@@ -343,11 +343,11 @@
 +	return { available: true, pid: process.pid, events: events.filter(event => event.seq > cursor), cursor: events.length, overflow: dropped > 0, dropped, bytes };
 +}
 +
-+// Record only control-byte categories, never the byte sequence or arbitrary text length.
++// Record only categories containing CR or LF; ESC-only terminal traffic is not Enter evidence.
 +export function researchReceived(stage: "received" | "sequence", data: string): void {
 +	if (!enabled) return;
 +	const category = (data.includes("\r") ? 1 : 0) | (data.includes("\n") ? 2 : 0) | (data.includes("\x1b") ? 4 : 0);
-+	if (category) researchEvent(stage, 0, category);
++	if (category & 3) researchEvent(stage, 0, category);
 +}
 +
 +// Inspect only already-parsed canonical values and categorize; never retain input.

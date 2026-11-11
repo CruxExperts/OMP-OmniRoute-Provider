@@ -229,6 +229,11 @@ focused editor dispatch, autocomplete handling and the bootstrap submit gate.
 Startup checkpoints distinguish stream-publisher, extension-hook and session
 reconciliation waits; the trace never opens the gate or substitutes a passing
 result when initialization remains incomplete.
+Raw transport samples omit ESC-only traffic; CR/LF categories, decoded Enter,
+and semantic setup checkpoints remain observable. This avoids exhausting the
+256-event buffer with terminal-control traffic before setup completes. The
+32-KiB bound and overflow reporting remain unchanged; filtering is diagnostic
+only and does not change terminal input or provider execution.
 The research-only provider overlay is applied only after the disposable installed
 package matches every archive file. Only `src/index.ts` may change; its original,
 patch, and resulting hashes are recorded separately from the archive digest.
