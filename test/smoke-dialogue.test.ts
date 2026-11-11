@@ -16,6 +16,7 @@ import {
   nativeAdminIoTimeoutMs,
   nativeAdminNewPlanPattern,
   nativeAdminPromptPattern,
+  nativeAdminSelectorSnapshot,
   nativeAdminUnknownOutcomePattern,
   nativeEnvironmentSwitchConfirmationPattern,
   nativeInferenceTimeoutMs,
@@ -89,6 +90,18 @@ test("native administration retains confirmation rendered during enable dispatch
   finished.resolve();
   await confirmed.promise;
   scheduler.cancel();
+});
+
+test("admin failure snapshot retains only bounded confirmation markers", () => {
+  expect(nativeAdminSelectorSnapshot("secret Yes No", 1)).toEqual({
+    phase: "awaiting-enable-confirmation", title: "not-observed", yes: true, no: true, titleToYes: null, yesToNo: 1, enableRegexMatched: false, outputTruncated: false,
+  });
+  const snapshot = nativeAdminSelectorSnapshot("private endpoint\n\u001b[31mEnable OmniRoute administration\u001b[0m\n❯ Yes\nNo\nsecret-token", 1);
+  expect(snapshot).toEqual({ phase: "awaiting-enable-confirmation", title: "Enable OmniRoute administration", yes: true, no: true, titleToYes: 3, yesToNo: 1, enableRegexMatched: true, outputTruncated: false });
+  expect(JSON.stringify(snapshot)).not.toContain("secret-token");
+  expect(nativeAdminSelectorSnapshot("Enable OmniRoute administration\nYes\n" + "x".repeat(2_001) + "\nNo", 2)).toEqual({
+    phase: "after-enable-confirmation", title: "Enable OmniRoute administration", yes: true, no: true, titleToYes: 1, yesToNo: 2003, enableRegexMatched: false, outputTruncated: false,
+  });
 });
 
 test("native setup stops only after the post-login native catalog is ready", async () => {

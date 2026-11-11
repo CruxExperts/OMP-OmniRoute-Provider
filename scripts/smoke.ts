@@ -889,9 +889,31 @@ export const nativeAdminInitialStep: DialogueStep = {
   captureDuringDispatch: true,
 };
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
+export const nativeAdminEnableConfirmationPattern = /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i;
 export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
 export const nativeAdminUnknownOutcomePattern = /administration outcome is unknown; reconcile before retrying \(([a-z0-9-]+)\)/i;
 export const nativeAdminEmptyFallbackReadPattern = /read result for GET \/api\/fallback\/chains:[ \t]*\{[ \t]*\}/i;
+
+// Terminal bytes stay in memory; only fixed confirmation markers are retained.
+export function nativeAdminSelectorSnapshot(output: string, dialogueCompleted: number): JsonObject {
+  const fullOutput = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
+  const visible = fullOutput.slice(-32_768);
+  const title = "Enable OmniRoute administration";
+  const titleIndex = visible.lastIndexOf(title);
+  const selector = titleIndex < 0 ? visible.slice(-2_000) : visible.slice(titleIndex);
+  const yes = /\bYes\b/i.exec(selector);
+  const no = yes ? /\bNo\b/i.exec(selector.slice(yes.index + yes[0].length)) : null;
+  return {
+    phase: dialogueCompleted === 0 ? "before-enable" : dialogueCompleted === 1 ? "awaiting-enable-confirmation" : "after-enable-confirmation",
+    title: titleIndex < 0 ? "not-observed" : title,
+    yes: yes !== null,
+    no: /\bNo\b/i.test(selector),
+    titleToYes: titleIndex >= 0 && yes ? yes.index - title.length : null,
+    yesToNo: no?.index ?? null,
+    enableRegexMatched: nativeAdminEnableConfirmationPattern.test(fullOutput),
+    outputTruncated: fullOutput.length > visible.length,
+  };
+}
 
 export function nativeLoginSelectorShowsProvider(output: string): boolean {
   const visible = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
@@ -1507,7 +1529,7 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
   const prompt = nativeAdminPromptPattern;
   const dialogue = [
     nativeAdminInitialStep,
-    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
+    { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 250 },
     { when: prompt, text: "/omniroute-admin fallback/chains\n", afterMs: 500 },
     { when: /Administration category[\s\S]{0,1000}api\/fallback/i, text: "\n", afterMs: 250 },
     { when: availableOperationMenuPattern("api/fallback", "GET /api/fallback/chains"), text: "__ESC__", afterMs: 500 },
@@ -1568,6 +1590,7 @@ async function nativeAdministrationIo(
   environment: NodeJS.ProcessEnv,
   fixture: FixtureServer,
   windowsDiagnostic?: (event: JsonObject) => void,
+  selectorDiagnostic?: (snapshot: JsonObject) => void,
 ): Promise<NativeAdministrationEvidence> {
   const start = fixture.requests.length;
   const readId = "GET /api/fallback/chains";
@@ -1586,7 +1609,7 @@ async function nativeAdministrationIo(
     new RegExp(`administration outcome is unknown; reconcile before retrying \\(${escapeRegExp(planIds[index] ?? "__missing__")}\\)`, "i");
   const dialogue: DialogueStep[] = [
     nativeAdminInitialStep,
-    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
+    { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 250 },
     { when: /administration enabled for exact endpoint/i, text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
     { when: /read result for GET \/api\/fallback\/chains/i, text: `/omniroute-admin ${postId}\n`, afterMs: 500 },
@@ -1609,6 +1632,7 @@ async function nativeAdministrationIo(
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).replace(/\r\n?/g, "\n");
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
+    selectorDiagnostic?.(nativeAdminSelectorSnapshot(result.stdout, result.dialogueCompleted));
     throw new Error(`native administration I/O did not complete the baseline, two confirmed mutation attempts, runtime reads, and cleanup (dialogue ${result.dialogueCompleted}/${dialogue.length}, exit ${result.code ?? "unknown"})`);
   }
   if (/operation failed|administration apply failed|administration plan was not applied|unknown or non-invokable|administration plan applied:/i.test(output)) {
@@ -2264,16 +2288,17 @@ export async function runSmoke(): Promise<SmokeResult> {
     const windowsEvents: JsonObject[] = [];
     const inferenceWindowsEvents: JsonObject[] = [];
     const adminWindowsEvents: JsonObject[] = [];
+    let adminSelectorSnapshot: JsonObject | undefined;
     const captureSetupEffects = (): void => {
       if (!diagnosticPathForSetup || !diagnosticIdentity || !priorDiagnostic) return;
       const requests = fixture.requests.slice(setupRequestStart, setupRequestEnd)
         .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
         .slice(0, 16)
         .map(request => ({ route: request.path === "/api/cloud/auth" ? "key-verification" : "models", finished: request.completedAt !== undefined, closed: request.closedAt !== undefined, status: request.status ?? null }));
-      const observation = JSON.stringify({ requests, windowsEvents, inferenceWindowsEvents, adminWindowsEvents });
+      const observation = JSON.stringify({ requests, windowsEvents, inferenceWindowsEvents, adminWindowsEvents, adminSelectorSnapshot });
       if (observation === lastSetupObservation) return;
       lastSetupObservation = observation;
-      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents], inferenceWindowsEvents: [...inferenceWindowsEvents], adminWindowsEvents: [...adminWindowsEvents] })).catch(error => { diagnosticError ??= error; });
+      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents], inferenceWindowsEvents: [...inferenceWindowsEvents], adminWindowsEvents: [...adminWindowsEvents], ...(adminSelectorSnapshot ? { adminSelectorSnapshot } : {}) })).catch(error => { diagnosticError ??= error; });
     };
     captureSetupEffects();
     await diagnosticWrite;
@@ -2321,7 +2346,7 @@ export async function runSmoke(): Promise<SmokeResult> {
       administration = await nativeAdministrationIo(binary, workspace, nativeEnvironment, fixture, diagnosticPathForSetup ? event => {
         if (adminWindowsEvents.length < 128) adminWindowsEvents.push(event);
         captureSetupEffects();
-      } : undefined);
+      } : undefined, diagnosticPathForSetup ? snapshot => { adminSelectorSnapshot = snapshot; captureSetupEffects(); } : undefined);
     } finally {
       captureSetupEffects();
       await diagnosticWrite;

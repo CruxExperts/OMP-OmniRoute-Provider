@@ -81,11 +81,13 @@ establish that lookup ran. A reported staging failure stops that smoke setup
 promptly; it does not weaken ACL checks or change their timeouts.
 The administration child records separate bounded enable-entry and
 pre-confirmation phases, including ACL callback and child-close observations;
-these are retained on failure. In run 43006110977, Windows x64 reached the
-status barrier but timed out at administration dialogue 1/19: whether enable
-entered its handler or reached confirmation was not established. Windows arm64
-separately reported staging `insecure-permissions` after 30067 ms. Neither
-observation establishes the other's cause or qualifies the platform.
+these are retained on failure. Run 43011692946 reached endpoint resolution on
+both Windows architectures, then timed out at administration dialogue 1/19.
+Terminal-derived event records can omit events; a missing confirmation marker
+does not establish a provider hang. The failure artifact also records fixed
+selector markers, bounded character distances, and the enable-pattern match
+result, without retaining terminal text. Neither platform is qualified by this
+diagnostic result.
 
 
 Windows qualification limits the complete smoke to 55 minutes; other native
