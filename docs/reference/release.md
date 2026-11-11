@@ -150,7 +150,7 @@ research-only scenario now exercises that setup path and captures progress and
 activation-refresh entry/completion markers before stopping its owned terminal.
 Missing completion can also mean rejection; completed fixture responses do not
 alone establish that validation, configuration persistence, or activation finished.
-The provider overlay remains restricted to the disposable installed `src/index.ts`.
+The provider overlay is restricted to three disposable installed sources, as described below.
 The host-side research sink accepts the added setup markers 41–44 explicitly;
 an actual patched-module probe rejected adjacent unsupported markers, strings,
 and fractional values. This fixes trace delivery, not the Windows setup stall.
@@ -245,8 +245,10 @@ await. Missing sentinels, invalid or overflowing samples, and nonreproducing
 runs remain inconclusive. One trace client retains its cursor across the early
 sample and a bounded final sample before timeout termination; cleanup still runs
 if that sample fails. Neither the single Enter nor the dialogue deadline changes.
-Setup-only configuration markers bracket filesystem awaits and Windows ACL
-subprocess callback/close boundaries without recording paths, values, or output.
+Configuration and Windows ACL markers are armed immediately before native login
+and cleared when its promise settles, covering pre-prompt configuration loading,
+persistence, and activation refresh without recording paths, values, or output.
+The preceding invitation settlement remains outside that window.
 These markers locate the remaining wait; they do not establish its cause until
 the exact dependency and its outcome have been inspected.
 For ACL markers 80–85, `id` identifies the invocation (1–256; later

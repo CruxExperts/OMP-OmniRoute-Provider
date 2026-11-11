@@ -14,18 +14,25 @@
  
  type ContextLike = ExtensionContext;
  
-@@ -199,7 +206,10 @@
+@@ -199,12 +206,16 @@
  		pendingCandidateEndpoint = endpoint;
  		pendingCandidateKey = candidateKey;
  		manager.reset();
-+		(globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.setup.v1")] = true;
 +		researchStartup(43);
  		await refresh(context, false);
 +		researchStartup(44);
  	};
  	const nativeLogin = registerNativeLogin({ providerName: PROVIDER_LIST_NAME, onSetupComplete });
  	const oauth: NonNullable<ProviderConfig["oauth"]> = {
-@@ -220,7 +229,14 @@
+ 		name: nativeLogin.name,
+ 		login: async callbacks => {
+ 			await settleInvitation();
+-			return nativeLogin.login({
++			(globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.setup.v1")] = true;
++			try {
++			return await nativeLogin.login({
+ 			...(callbacks.signal ? { signal: callbacks.signal } : {}),
+@@ -220,7 +231,17 @@
  				});
  				return typeof answer === "string" && /^(?:y|yes)$/i.test(answer.trim());
  			},
@@ -39,9 +46,12 @@
 +				researchStartup(42);
 +			},
  			});
++			} finally {
++				(globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.setup.v1")] = false;
++			}
  		},
  	};
-@@ -538,7 +545,9 @@
+@@ -538,7 +559,9 @@
  			if (invitationFlight) await settleInvitation();
  			readinessIssue = undefined;
  			const previousActiveGeneration = config.active?.generation;
@@ -51,7 +61,7 @@
  			config = loaded;
  			if (recoveryBlocked) {
  				runtimeEndpoint = undefined;
-@@ -547,7 +556,9 @@
+@@ -547,7 +570,9 @@
  				publishCurrent();
  				return { pendingValidated: false };
  			}
@@ -61,7 +71,7 @@
  			const environment = envBinding(config);
  			const pending = environment ? undefined : config.pending;
  			const active = environment ?? config.active;
-@@ -572,6 +583,7 @@
+@@ -572,6 +597,7 @@
  				return { pendingValidated: false };
  			}
  			phase = "credential";
@@ -69,7 +79,7 @@
  			const credential = environment?.credential ?? (ctx
  				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
  				: await resolveStartupRuntimeCredential(
-@@ -579,9 +591,12 @@
+@@ -579,9 +605,12 @@
  					startupSignal ?? AbortSignal.timeout(10_000),
  					loaded,
  				));
@@ -82,7 +92,7 @@
  			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
  				validConfiguration = false;
  				throw Object.assign(new Error("binding changed during credential resolution"), { code: "binding_changed" });
-@@ -666,7 +681,9 @@
+@@ -666,7 +695,9 @@
  			return;
  		}
  		try {
@@ -92,7 +102,7 @@
  			if (manual) notify(ctx, `omniroute: ${readiness()}`, manager.status.stale ? "warning" : "info");
  		} catch (error) {
  			if (manual) notify(ctx, `omniroute: ${readiness()}`, "warning");
-@@ -807,7 +824,10 @@
+@@ -807,7 +838,10 @@
  		await rebindCurrentModel(ctx);
  	});
  	pi.on("session_start", async (_event, ctx) => {
@@ -103,7 +113,7 @@
  		stopped = false;
  		if (!owner) {
  			registry = ctx.modelRegistry;
-@@ -822,11 +842,17 @@
+@@ -822,11 +856,17 @@
  		setContext(ctx);
  		transitionNotifications = false;
  		manager.resume();
@@ -121,7 +131,7 @@
  		if (stopped) return;
  		reconnectSettings = parseReconnectSettings(settings);
  		transitionNotifications = settings.notifyTransitions !== false;
-@@ -836,9 +862,11 @@
+@@ -836,9 +876,11 @@
  			// In particular, Windows ACL checks can involve several child processes.
  			const controller = new AbortController();
  			invitationAborter = controller;
@@ -141,7 +151,7 @@
  import type { CatalogSourceId } from "./catalog-sources.ts";
  import { createPrivateWindowsDirectory, verifyPrivateWindowsConfig, verifyPrivateWindowsPath } from "./private-path.ts";
 +
-+// Research overlay: emit fixed categories only after setup reaches its refresh.
++// Research overlay: emit fixed categories only while native login is pending.
 +function researchMarker(marker: number): void {
 +  const state = globalThis as typeof globalThis & { [key: symbol]: unknown };
 +  if (state[Symbol.for("cruxomni.windowsResearch.setup.v1")] !== true) return;
@@ -216,7 +226,7 @@
  import { execFile } from "node:child_process";
  import { join } from "node:path";
 +
-+// Research overlay: emit fixed categories only after setup reaches its refresh.
++// Research overlay: emit fixed categories only while native login is pending.
 +let researchInvocation = 0;
 +function researchMarker(marker: number, invocation: number): void {
 +  const state = globalThis as typeof globalThis & { [key: symbol]: unknown };

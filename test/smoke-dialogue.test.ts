@@ -327,6 +327,39 @@ test("research provider overlay changes only three verified disposable installed
     expect(instrumented).toContain('researchStartup(28);\n\t\t\tconst flight = updateConfig');
     expect(instrumented).toContain('() => { researchStartup(29); }');
     expect(instrumented).toContain('error => {\n\t\t\t\t\tresearchStartup(40);');
+    const loginStart = instrumented.indexOf("login: async callbacks => {");
+    const loginEnd = instrumented.indexOf("\n\t\t},\n\t};", loginStart);
+    expect(loginStart).toBeGreaterThanOrEqual(0);
+    expect(loginEnd).toBeGreaterThan(loginStart);
+    const loginExpression = instrumented.slice(loginStart + "login: ".length, loginEnd + "\n\t\t}".length);
+    const compiled = new Bun.Transpiler({ loader: "ts" }).transformSync(`const run = ${loginExpression};`);
+    const state = globalThis as typeof globalThis & { [key: symbol]: unknown };
+    const setupKey = Symbol.for("cruxomni.windowsResearch.setup.v1");
+    for (const reject of [false, true]) {
+      const { promise: gate, resolve: settle } = Promise.withResolvers<void>();
+      const observed: boolean[] = [];
+      const failure = new Error("login failed");
+      const nativeLogin = { login: async () => {
+        observed.push(state[setupKey] === true); // pre-prompt configuration load
+        await gate;
+        observed.push(state[setupKey] === true); // persistence
+        observed.push(state[setupKey] === true); // activation refresh
+        if (reject) throw failure;
+        return "complete";
+      } };
+      const run = new Function("nativeLogin", "settleInvitation", "researchStartup", `${compiled}\nreturn run;`)(
+        nativeLogin, async () => undefined, () => undefined,
+      ) as (callbacks: object) => Promise<string>;
+      const pending = run({});
+      await Promise.resolve();
+      expect(state[setupKey]).toBe(true);
+      settle();
+      if (reject) await expect(pending).rejects.toBe(failure);
+      else await expect(pending).resolves.toBe("complete");
+      expect(observed).toEqual([true, true, true]);
+      expect(state[setupKey]).toBe(false);
+    }
+    delete state[setupKey];
     const privatePath = await readFile(join(directory, "src/private-path.ts"), "utf8");
     for (const marker of [80, 81, 82, 83, 84, 85]) expect(privatePath).toContain(`researchMarker(${marker}, invocation)`);
     expect(privatePath).toContain("const invocation = ++researchInvocation;");
