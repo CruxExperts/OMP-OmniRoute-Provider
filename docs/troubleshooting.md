@@ -88,6 +88,13 @@ does not establish a provider hang. The failure artifact also records fixed
 selector markers, bounded character distances, and the enable-pattern match
 result, without retaining terminal text. Neither platform is qualified by this
 diagnostic result.
+The administration smoke recognizes both ordinary Yes/No labels and the known
+Windows redraw form with an `X` immediately before the terminal border, while
+rejecting longer words. The sanitized selector snapshot from run 43017516109
+used the same earlier label boundary, so it cannot establish whether that run
+contained the redraw form. Official Windows qualification remains pending fresh
+successful native evidence.
+
 
 
 Windows qualification limits the complete smoke to 55 minutes; other native

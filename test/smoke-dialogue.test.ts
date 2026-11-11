@@ -11,6 +11,7 @@ import {
   hasNativeUnknownOutcomes,
   hasNativeAvailableOperationDescription,
   nativeAdminApplyConfirmationPattern,
+  nativeAdminEnableConfirmationPattern,
   nativeAdminEmptyFallbackReadPattern,
   nativeAdminInitialStep,
   nativeAdminIoTimeoutMs,
@@ -50,7 +51,7 @@ test("native administration waits for the complete startup status and enables on
   const finished = Promise.withResolvers<void>();
   const scheduler = createDialogueScheduler([
     nativeAdminInitialStep,
-    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 0 },
+    { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 0 },
   ], async (_step, index, text) => {
     written.push(text);
     if (index === 0) { started.resolve(); await finished.promise; }
@@ -79,7 +80,7 @@ test("native administration retains confirmation rendered during enable dispatch
   const confirmed = Promise.withResolvers<void>();
   const scheduler = createDialogueScheduler([
     nativeAdminInitialStep,
-    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 0 },
+    { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 0 },
   ], async (_step, index) => {
     if (index === 0) { started.resolve(); await finished.promise; }
     else confirmed.resolve();
@@ -102,6 +103,28 @@ test("admin failure snapshot retains only bounded confirmation markers", () => {
   expect(nativeAdminSelectorSnapshot("Enable OmniRoute administration\nYes\n" + "x".repeat(2_001) + "\nNo", 2)).toEqual({
     phase: "after-enable-confirmation", title: "Enable OmniRoute administration", yes: true, no: true, titleToYes: 1, yesToNo: 2003, enableRegexMatched: false, outputTruncated: false,
   });
+});
+
+test("admin confirmation labels accept native redraw borders without matching longer or embedded words", () => {
+  const enable = "Enable OmniRoute administration";
+  const apply = "Confirm this exact target, side effect, and irreversible consequence?";
+  for (const suffix of ["", "│", "X│"]) {
+    const labels = `❯ Yes${suffix}\nNo${suffix}`;
+    const selector = `${enable}\n${labels}`;
+    expect(nativeAdminEnableConfirmationPattern.test(selector)).toBe(true);
+    expect(nativeAdminApplyConfirmationPattern.test(`${apply}\n${labels}`)).toBe(true);
+    expect(nativeAdminSelectorSnapshot(selector, 1)).toMatchObject({ yes: true, no: true, enableRegexMatched: true });
+  }
+  for (const labels of ["❯ Yesman\nNo", "❯ Yes\nNotebook", "❯ PrefixYes\nNo", "❯ Yes\nPrefixNo", "❯ YesX\nNo", "❯ Yes\nNoX"]) {
+    const selector = `${enable}\n${labels}`;
+    expect(nativeAdminEnableConfirmationPattern.test(selector)).toBe(false);
+    expect(nativeAdminApplyConfirmationPattern.test(`${apply}\n${labels}`)).toBe(false);
+    expect(nativeAdminSelectorSnapshot(selector, 1).enableRegexMatched).toBe(false);
+    expect(nativeAdminSelectorSnapshot(selector, 1)).toMatchObject({
+      yes: !/Yesman|PrefixYes|YesX/.test(labels),
+      no: !/Notebook|PrefixNo|NoX/.test(labels),
+    });
+  }
 });
 
 test("native setup stops only after the post-login native catalog is ready", async () => {

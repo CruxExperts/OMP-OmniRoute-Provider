@@ -889,8 +889,11 @@ export const nativeAdminInitialStep: DialogueStep = {
   captureDuringDispatch: true,
 };
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
-export const nativeAdminEnableConfirmationPattern = /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i;
-export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
+const nativeAdminLabelPattern = (label: "Yes" | "No") => `\\b${label}(?=X?│|[ \\t\\r\\n]|$)`;
+const nativeAdminYesLabel = nativeAdminLabelPattern("Yes");
+const nativeAdminNoLabel = nativeAdminLabelPattern("No");
+export const nativeAdminEnableConfirmationPattern = new RegExp(`Enable OmniRoute administration[\\s\\S]{0,1000}${nativeAdminYesLabel}[\\s\\S]{0,1000}${nativeAdminNoLabel}`, "i");
+export const nativeAdminApplyConfirmationPattern = new RegExp(`Confirm this exact target, side effect, and irreversible consequence\\?[\\s\\S]{0,1000}❯[ \\t]*${nativeAdminYesLabel}[\\s\\S]{0,1000}${nativeAdminNoLabel}`, "i");
 export const nativeAdminUnknownOutcomePattern = /administration outcome is unknown; reconcile before retrying \(([a-z0-9-]+)\)/i;
 export const nativeAdminEmptyFallbackReadPattern = /read result for GET \/api\/fallback\/chains:[ \t]*\{[ \t]*\}/i;
 
@@ -901,13 +904,13 @@ export function nativeAdminSelectorSnapshot(output: string, dialogueCompleted: n
   const title = "Enable OmniRoute administration";
   const titleIndex = visible.lastIndexOf(title);
   const selector = titleIndex < 0 ? visible.slice(-2_000) : visible.slice(titleIndex);
-  const yes = /\bYes\b/i.exec(selector);
-  const no = yes ? /\bNo\b/i.exec(selector.slice(yes.index + yes[0].length)) : null;
+  const yes = new RegExp(nativeAdminYesLabel, "i").exec(selector);
+  const no = yes ? new RegExp(nativeAdminNoLabel, "i").exec(selector.slice(yes.index + yes[0].length)) : null;
   return {
     phase: dialogueCompleted === 0 ? "before-enable" : dialogueCompleted === 1 ? "awaiting-enable-confirmation" : "after-enable-confirmation",
     title: titleIndex < 0 ? "not-observed" : title,
     yes: yes !== null,
-    no: /\bNo\b/i.test(selector),
+    no: new RegExp(nativeAdminNoLabel, "i").test(selector),
     titleToYes: titleIndex >= 0 && yes ? yes.index - title.length : null,
     yesToNo: no?.index ?? null,
     enableRegexMatched: nativeAdminEnableConfirmationPattern.test(fullOutput),
