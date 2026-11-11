@@ -17,6 +17,12 @@ Its timestamp is checked before normalization for deterministic comparison.
 This handler-only evidence does not replace the separately required Next ingress
 observation or make the operation available.
 
+The degradation report fixture separately exercises the pinned route and its
+actual in-process registry: report/summary branches, recovery, reset, safe error
+responses, and removal of diagnostic reasons from projected output. It does not
+establish shared ingress authorization or bounded complete registry output, so
+`GET /api/health/degradation` remains unavailable.
+
 ## Start with read access
 
 Connect with `/omniroute setup`, then use `/omniroute-admin status` to inspect whether
