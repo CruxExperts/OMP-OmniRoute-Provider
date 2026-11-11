@@ -191,13 +191,13 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/57f8e3fc539224ad25d5b94360bcaf003e14c80708d4915462f51e68241addd8.json",
-        "caseSha256": "e065609fc03acfe5bd61bee059353c75053704c09435a4132cab7eb6a13985fa",
+        "observedOutcome": "provenance/qualification/2dc7682fbda67d2e1eed70eb107fda6ca2d2e8aa47c4259f9abfaf87af77b399.json",
+        "caseSha256": "00b46d43a87ed4c0ab55b7ed39a19659af134d0f64573440b0f4d6065dc6231a",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8.json",
-        "sha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8"
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
       },
       "evidence": [
         {
@@ -703,13 +703,13 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/2f4f067a0cbc4ae7f1af60605ea9d0bdaa2dff10e60cd84d7be29c8f2528bd56.json",
-        "caseSha256": "320b2e3e3f6a5d0a56e70cafad5f7354f1b2e326ab317816f0914f1adb508f3c",
+        "observedOutcome": "provenance/qualification/8eb41fe078358aedf707d76cdf10aa86b4b9e18ab63ffbeefbf394c7dc4ccb8a.json",
+        "caseSha256": "2c0cf17bb94e473c248417e11b7c0094c98ebd8f32a0ef1096cc0f1fa00f93dc",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8.json",
-        "sha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8"
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
       },
       "evidence": [
         {
@@ -1374,13 +1374,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/04386783f46dd24ee239da9cdb22d5c8ee27068b139c717891015cd25442851e.json",
-        "caseSha256": "2db30722cdb8d533e2b0623be347c0f4912c4172e1da7df8333ce9fd8d769851",
+        "observedOutcome": "provenance/qualification/e7830506c9f97b1c2840a7523bfff01a686e0f11c64f1e9cdd0ffc3c6fbb89d5.json",
+        "caseSha256": "5f9ab451cf29b6ffc32ff7308a60f9779296061d519098c95cb60a0f175ef978",
         "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8.json",
-        "sha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8"
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
       },
       "evidence": [
         {
@@ -1394,6 +1394,3721 @@
         {
           "kind": "fixture",
           "detail": "The pinned handler was exercised over loopback with disposable files; separate isolated Next ingress observations cover access and filters, not production deployment behavior."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/model-combo-mappings",
+      "status": "verified",
+      "reason": "Pinned handler observations and isolated ingress policy evidence bind this operation to its reviewed source contract.",
+      "source": {
+        "file": "src/app/api/model-combo-mappings/route.ts",
+        "sha256": "138658e09787bc715fa360c2edead37f0e63f3bfc13027185bc292b7a29dd137",
+        "gitBlobSha": "0d7605b5296ab835ab90eaa536462d83258b3cb8"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 200
+              }
+            },
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true,
+          "sourceNormalizer": "omniroute-v3.8.53.model-combo-mappings.list-query"
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "400",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mappings",
+                  "total"
+                ],
+                "properties": {
+                  "mappings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "pattern",
+                        "comboId",
+                        "priority",
+                        "enabled",
+                        "description",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "pattern": {
+                          "type": "string",
+                          "maxLength": 500
+                        },
+                        "comboId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "comboName": {
+                          "type": "string"
+                        },
+                        "priority": {
+                          "type": "integer"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 1000
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "details"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "details": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "field",
+                            "message"
+                          ],
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "keys": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error",
+                  "requestId"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "type"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "invalid_request",
+                          "not_found",
+                          "conflict",
+                          "server_error"
+                        ]
+                      },
+                      "details": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "mappings",
+                      "total"
+                    ],
+                    "properties": {
+                      "mappings": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "pattern",
+                            "comboId",
+                            "priority",
+                            "enabled",
+                            "description",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "pattern": {
+                              "type": "string",
+                              "maxLength": 500
+                            },
+                            "comboId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "comboName": {
+                              "type": "string"
+                            },
+                            "priority": {
+                              "type": "integer"
+                            },
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 1000
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      },
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "details"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "details": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "field",
+                                "message"
+                              ],
+                              "properties": {
+                                "field": {
+                                  "type": "string"
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "keys": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "offset",
+          "parameters": [
+            "limit",
+            "offset"
+          ]
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Source-defined ordinary mapping read; the management authorization boundary remains enforced."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "ade242b48579ac9e32bab339fe3ef57675ce6113b11f045a175d96dba13a425e",
+        "authSha256": "f16d6efe26ac45f558493d56b134ce46f96410e2060b0d67d578925b01d83b66",
+        "sideEffect": "read",
+        "responseProjectionSha256": "cae8aaf8d82bed18b62f4b215b8fb16cc7cffbe459cb786d961b3252ff55d89c",
+        "operationSemanticsSha256": "08ade1e32ccdbe557a602c3433866918b0d25cdf4bd6a2903c47959ac6bb6a8e",
+        "routeImportsSha256": "2db4766e7112e99846694b260ae400f10b593d5d1977fc497b1d07e13c9a7f3f",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-model-combo-mappings.test.ts",
+        "observedOutcome": "provenance/qualification/5eb6cb6c773bdd8f961d2dad89f6c7a8749aafa383971154709f5c570e9e91d9.json",
+        "caseSha256": "16d3ba63f902c384d2825bceb27437bdf96bf516d3f05f5a1a21fc8006a02d08",
+        "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned handler, resolved imports and framework authorization context bind the reviewed operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The pinned handler was independently exercised over loopback with disposable state; observed before, after and response are retained."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Separate isolated Next ingress research records management classification and anonymous, invalid credential and authorized status; it does not prove production deployment behavior."
+        }
+      ]
+    },
+    {
+      "operationId": "POST /api/model-combo-mappings",
+      "status": "verified",
+      "reason": "Pinned handler observations and isolated ingress policy evidence bind this operation to its reviewed source contract.",
+      "source": {
+        "file": "src/app/api/model-combo-mappings/route.ts",
+        "sha256": "138658e09787bc715fa360c2edead37f0e63f3bfc13027185bc292b7a29dd137",
+        "gitBlobSha": "0d7605b5296ab835ab90eaa536462d83258b3cb8"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": {
+            "required": true,
+            "mediaType": "application/json",
+            "schema": {
+              "type": "object",
+              "required": [
+                "pattern",
+                "comboId"
+              ],
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "comboId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "priority": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "additionalProperties": true
+            },
+            "contentVariants": [
+              {
+                "mediaType": "application/json",
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "pattern",
+                    "comboId"
+                  ],
+                  "properties": {
+                    "pattern": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "comboId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "priority": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1000
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            ]
+          },
+          "specificationDocumented": true,
+          "sourceNormalizer": "omniroute-v3.8.53.model-combo-mappings.create"
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "write"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "201",
+            "400",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mapping"
+                ],
+                "properties": {
+                  "mapping": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "pattern",
+                      "comboId",
+                      "priority",
+                      "enabled",
+                      "description",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "pattern": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "comboId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "priority": {
+                        "type": "integer"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 1000
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "updatedAt": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "details"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "details": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "field",
+                            "message"
+                          ],
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "keys": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error",
+                  "requestId"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "type"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "invalid_request",
+                          "not_found",
+                          "conflict",
+                          "server_error"
+                        ]
+                      },
+                      "details": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [],
+              "headers": {}
+            },
+            {
+              "statusCode": "201",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "mapping"
+                    ],
+                    "properties": {
+                      "mapping": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "pattern",
+                          "comboId",
+                          "priority",
+                          "enabled",
+                          "description",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "pattern": {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          "comboId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "priority": {
+                            "type": "integer"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "details"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "details": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "field",
+                                "message"
+                              ],
+                              "properties": {
+                                "field": {
+                                  "type": "string"
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "keys": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/shared/validation/helpers.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/shared/validation/helpers.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Human confirmation is required before creating, updating, or deleting a model-combo mapping."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": {
+          "targetRead": {
+            "operationId": "GET /api/model-combo-mappings",
+            "inputs": [],
+            "snapshot": {
+              "kind": "collection",
+              "collectionPath": [
+                "mappings"
+              ],
+              "identity": [
+                {
+                  "name": "id",
+                  "path": [
+                    "id"
+                  ]
+                }
+              ],
+              "state": [
+                {
+                  "name": "pattern",
+                  "path": [
+                    "pattern"
+                  ]
+                },
+                {
+                  "name": "comboId",
+                  "path": [
+                    "comboId"
+                  ]
+                },
+                {
+                  "name": "priority",
+                  "path": [
+                    "priority"
+                  ]
+                },
+                {
+                  "name": "enabled",
+                  "path": [
+                    "enabled"
+                  ]
+                },
+                {
+                  "name": "description",
+                  "path": [
+                    "description"
+                  ]
+                }
+              ]
+            },
+            "sourceView": "omniroute-v3.8.53.model-combo-mappings.create-reconcile"
+          },
+          "reconcile": {
+            "operationId": "GET /api/model-combo-mappings",
+            "inputs": [],
+            "outcome": {
+              "kind": "exists",
+              "identityFields": [
+                "id"
+              ],
+              "stateFields": [
+                "pattern",
+                "comboId",
+                "priority",
+                "enabled",
+                "description"
+              ],
+              "expectedFromInput": [
+                {
+                  "name": "pattern",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "pattern"
+                    ]
+                  }
+                },
+                {
+                  "name": "comboId",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "comboId"
+                    ]
+                  }
+                },
+                {
+                  "name": "priority",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "priority"
+                    ]
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "enabled"
+                    ]
+                  }
+                },
+                {
+                  "name": "description",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "description"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "mutationSafety": {
+          "preflight": {
+            "kind": "required",
+            "observations": [
+              {
+                "name": "model-combo-mapping-collection",
+                "read": {
+                  "operationId": "GET /api/model-combo-mappings",
+                  "inputs": [],
+                  "snapshot": {
+                    "kind": "collection",
+                    "collectionPath": [
+                      "mappings"
+                    ],
+                    "identity": [
+                      {
+                        "name": "id",
+                        "path": [
+                          "id"
+                        ]
+                      }
+                    ],
+                    "state": [
+                      {
+                        "name": "pattern",
+                        "path": [
+                          "pattern"
+                        ]
+                      },
+                      {
+                        "name": "comboId",
+                        "path": [
+                          "comboId"
+                        ]
+                      },
+                      {
+                        "name": "priority",
+                        "path": [
+                          "priority"
+                        ]
+                      },
+                      {
+                        "name": "enabled",
+                        "path": [
+                          "enabled"
+                        ]
+                      },
+                      {
+                        "name": "description",
+                        "path": [
+                          "description"
+                        ]
+                      }
+                    ]
+                  },
+                  "sourceView": "omniroute-v3.8.53.model-combo-mappings.create-reconcile"
+                },
+                "readCompleteness": {
+                  "kind": "unpaginated-list",
+                  "sourceReason": "The pinned v3.8.53 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
+                  "itemsPath": [
+                    "mappings"
+                  ],
+                  "totalPath": [
+                    "total"
+                  ],
+                  "identityPaths": [
+                    [
+                      "id"
+                    ]
+                  ]
+                }
+              }
+            ]
+          },
+          "reconciliation": {
+            "kind": "unknown"
+          },
+          "settlement": {
+            "responseComplete": {
+              "statusCodes": [
+                201
+              ]
+            },
+            "definiteRejection": null
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "8e7cb38d23e5c864e3c1677385fa48cfd0b3add66f97281bc3b88c5670715bc6",
+        "authSha256": "035ec928eaead184e1d771c0be33ad8bfe0442b8012d07601c7dcd3f520b6f62",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "5aeaa96a19d7b2890fa1851606405f588b061eebcadf5082453893e69abc2e62",
+        "operationSemanticsSha256": "50e197c347c2563382320867a2be1abd8d0101772560415ab8dd969f4ccf1ca4",
+        "routeImportsSha256": "2db4766e7112e99846694b260ae400f10b593d5d1977fc497b1d07e13c9a7f3f",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "aefe5664e23d03bf6247344e28ca21ef4af4aded47ab8d981bc27d7a22767309"
+      },
+      "test": {
+        "id": "test/admin-model-combo-mappings.test.ts",
+        "observedOutcome": "provenance/qualification/5379069ba29b2cb4f888d0c117c2b2b5e625d81e4671f0a4bc91acb68928692d.json",
+        "caseSha256": "16d3ba63f902c384d2825bceb27437bdf96bf516d3f05f5a1a21fc8006a02d08",
+        "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned handler, resolved imports and framework authorization context bind the reviewed operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The pinned handler was independently exercised over loopback with disposable state; observed before, after and response are retained."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Separate isolated Next ingress research records management classification and anonymous, invalid credential and authorized status; it does not prove production deployment behavior."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/model-combo-mappings/{id}",
+      "status": "verified",
+      "reason": "Pinned handler observations and isolated ingress policy evidence bind this operation to its reviewed source contract.",
+      "source": {
+        "file": "src/app/api/model-combo-mappings/[id]/route.ts",
+        "sha256": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+        "gitBlobSha": "750c10ccccb695dd9eaa345050773b74c83d51e2"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "404",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mapping"
+                ],
+                "properties": {
+                  "mapping": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "pattern",
+                      "comboId",
+                      "priority",
+                      "enabled",
+                      "description",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "pattern": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "comboId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "comboName": {
+                        "type": "string"
+                      },
+                      "priority": {
+                        "type": "integer"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 1000
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "updatedAt": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error",
+                  "requestId"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "type"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "invalid_request",
+                          "not_found",
+                          "conflict",
+                          "server_error"
+                        ]
+                      },
+                      "details": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "mapping"
+                    ],
+                    "properties": {
+                      "mapping": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "pattern",
+                          "comboId",
+                          "priority",
+                          "enabled",
+                          "description",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "pattern": {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          "comboId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "comboName": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "type": "integer"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "404",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Source-defined ordinary mapping read; the management authorization boundary remains enforced."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "e4a0f488a31773213a722d14ea91f590cd106680885eeef70fdfa648319e3dec",
+        "authSha256": "f16d6efe26ac45f558493d56b134ce46f96410e2060b0d67d578925b01d83b66",
+        "sideEffect": "read",
+        "responseProjectionSha256": "cd0c385e54a61e790c0f6d35f74583e5bf8ab7f777a241064cc3a5d77ba33631",
+        "operationSemanticsSha256": "4f3aecef28759e013e92f3d9d78135ba816c2963c453f9abd896853909ed8b56",
+        "routeImportsSha256": "7b74439ce3b23718b76d5cafb91f6a5c949bcf5251cf15ff86dedc8a6627db0b",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-model-combo-mappings.test.ts",
+        "observedOutcome": "provenance/qualification/b5606f061f36dc0586da2e11c5e26dba1b199e552e0e801eaba09518bf207a66.json",
+        "caseSha256": "16d3ba63f902c384d2825bceb27437bdf96bf516d3f05f5a1a21fc8006a02d08",
+        "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned handler, resolved imports and framework authorization context bind the reviewed operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The pinned handler was independently exercised over loopback with disposable state; observed before, after and response are retained."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Separate isolated Next ingress research records management classification and anonymous, invalid credential and authorized status; it does not prove production deployment behavior."
+        }
+      ]
+    },
+    {
+      "operationId": "PUT /api/model-combo-mappings/{id}",
+      "status": "verified",
+      "reason": "Pinned handler observations and isolated ingress policy evidence bind this operation to its reviewed source contract.",
+      "source": {
+        "file": "src/app/api/model-combo-mappings/[id]/route.ts",
+        "sha256": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+        "gitBlobSha": "750c10ccccb695dd9eaa345050773b74c83d51e2"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": {
+            "required": true,
+            "mediaType": "application/json",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "comboId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "priority": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "additionalProperties": true
+            },
+            "contentVariants": [
+              {
+                "mediaType": "application/json",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pattern": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    },
+                    "comboId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "priority": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 1000
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            ]
+          },
+          "specificationDocumented": true,
+          "sourceNormalizer": "omniroute-v3.8.53.model-combo-mappings.update"
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "write"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "400",
+            "401",
+            "403",
+            "404",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "mapping"
+                ],
+                "properties": {
+                  "mapping": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "pattern",
+                      "comboId",
+                      "priority",
+                      "enabled",
+                      "description",
+                      "createdAt",
+                      "updatedAt"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "pattern": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "comboId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "comboName": {
+                        "type": "string"
+                      },
+                      "priority": {
+                        "type": "integer"
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 1000
+                      },
+                      "createdAt": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "updatedAt": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "details"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "details": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "field",
+                            "message"
+                          ],
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "keys": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error",
+                  "requestId"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "type"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "invalid_request",
+                          "not_found",
+                          "conflict",
+                          "server_error"
+                        ]
+                      },
+                      "details": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "mapping"
+                    ],
+                    "properties": {
+                      "mapping": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "pattern",
+                          "comboId",
+                          "priority",
+                          "enabled",
+                          "description",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "pattern": {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          "comboId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "comboName": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "type": "integer"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "details"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "details": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "required": [
+                                "field",
+                                "message"
+                              ],
+                              "properties": {
+                                "field": {
+                                  "type": "string"
+                                },
+                                "message": {
+                                  "type": "string"
+                                },
+                                "keys": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "404",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Human confirmation is required before creating, updating, or deleting a model-combo mapping."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": {
+          "targetRead": {
+            "operationId": "GET /api/model-combo-mappings/{id}",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "snapshot": {
+              "kind": "resource",
+              "identity": [
+                {
+                  "name": "id",
+                  "path": [
+                    "mapping",
+                    "id"
+                  ]
+                }
+              ],
+              "state": [
+                {
+                  "name": "pattern",
+                  "path": [
+                    "mapping",
+                    "pattern"
+                  ]
+                },
+                {
+                  "name": "comboId",
+                  "path": [
+                    "mapping",
+                    "comboId"
+                  ]
+                },
+                {
+                  "name": "priority",
+                  "path": [
+                    "mapping",
+                    "priority"
+                  ]
+                },
+                {
+                  "name": "enabled",
+                  "path": [
+                    "mapping",
+                    "enabled"
+                  ]
+                },
+                {
+                  "name": "description",
+                  "path": [
+                    "mapping",
+                    "description"
+                  ]
+                }
+              ]
+            },
+            "sourceView": "omniroute-v3.8.53.model-combo-mappings.update-reconcile"
+          },
+          "reconcile": {
+            "operationId": "GET /api/model-combo-mappings/{id}",
+            "inputs": [
+              {
+                "target": {
+                  "section": "path",
+                  "field": "id"
+                },
+                "source": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                }
+              }
+            ],
+            "outcome": {
+              "kind": "matches",
+              "identityFields": [
+                "id"
+              ],
+              "stateFields": [
+                "pattern",
+                "comboId",
+                "priority",
+                "enabled",
+                "description"
+              ],
+              "expectedFromInput": [
+                {
+                  "name": "pattern",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "pattern"
+                    ]
+                  }
+                },
+                {
+                  "name": "comboId",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "comboId"
+                    ]
+                  }
+                },
+                {
+                  "name": "priority",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "priority"
+                    ]
+                  }
+                },
+                {
+                  "name": "enabled",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "enabled"
+                    ]
+                  }
+                },
+                {
+                  "name": "description",
+                  "source": {
+                    "section": "body",
+                    "path": [
+                      "description"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "mutationSafety": {
+          "preflight": {
+            "kind": "required",
+            "observations": [
+              {
+                "name": "selected-model-combo-mapping",
+                "read": {
+                  "operationId": "GET /api/model-combo-mappings/{id}",
+                  "inputs": [
+                    {
+                      "target": {
+                        "section": "path",
+                        "field": "id"
+                      },
+                      "source": {
+                        "section": "path",
+                        "path": [
+                          "id"
+                        ]
+                      }
+                    }
+                  ],
+                  "snapshot": {
+                    "kind": "resource",
+                    "identity": [
+                      {
+                        "name": "id",
+                        "path": [
+                          "mapping",
+                          "id"
+                        ]
+                      }
+                    ],
+                    "state": [
+                      {
+                        "name": "pattern",
+                        "path": [
+                          "mapping",
+                          "pattern"
+                        ]
+                      },
+                      {
+                        "name": "comboId",
+                        "path": [
+                          "mapping",
+                          "comboId"
+                        ]
+                      },
+                      {
+                        "name": "priority",
+                        "path": [
+                          "mapping",
+                          "priority"
+                        ]
+                      },
+                      {
+                        "name": "enabled",
+                        "path": [
+                          "mapping",
+                          "enabled"
+                        ]
+                      },
+                      {
+                        "name": "description",
+                        "path": [
+                          "mapping",
+                          "description"
+                        ]
+                      }
+                    ]
+                  },
+                  "sourceView": "omniroute-v3.8.53.model-combo-mappings.update-reconcile"
+                },
+                "readCompleteness": {
+                  "kind": "single-response",
+                  "sourceReason": "The pinned v3.8.53 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination."
+                }
+              }
+            ]
+          },
+          "reconciliation": {
+            "kind": "unknown"
+          },
+          "settlement": {
+            "responseComplete": {
+              "statusCodes": [
+                200
+              ]
+            },
+            "definiteRejection": null
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "04b6cafd02c5c06c888787030ab0247f4eaac60562639aabd04d6bce4255c9bd",
+        "authSha256": "035ec928eaead184e1d771c0be33ad8bfe0442b8012d07601c7dcd3f520b6f62",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "7ad715307a30a8955b167fd4be1ca462cdad4fef11d8903f2184d5e6ef1d02c8",
+        "operationSemanticsSha256": "bd696447f08ac8141f0af929a5c7cb4819314fc8c540b90fcba0f735e1bf1b45",
+        "routeImportsSha256": "7b74439ce3b23718b76d5cafb91f6a5c949bcf5251cf15ff86dedc8a6627db0b",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "fa3ea94b84d5db3e86e3b6935184b6f589317b4c8b4acfd71c64f120be37a8a7"
+      },
+      "test": {
+        "id": "test/admin-model-combo-mappings.test.ts",
+        "observedOutcome": "provenance/qualification/4256ed676ab51f7f255deacfa3f5862d720219cff71588bf6882fa417915f2b3.json",
+        "caseSha256": "16d3ba63f902c384d2825bceb27437bdf96bf516d3f05f5a1a21fc8006a02d08",
+        "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned handler, resolved imports and framework authorization context bind the reviewed operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The pinned handler was independently exercised over loopback with disposable state; observed before, after and response are retained."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Separate isolated Next ingress research records management classification and anonymous, invalid credential and authorized status; it does not prove production deployment behavior."
+        }
+      ]
+    },
+    {
+      "operationId": "DELETE /api/model-combo-mappings/{id}",
+      "status": "verified",
+      "reason": "Pinned handler observations and isolated ingress policy evidence bind this operation to its reviewed source contract.",
+      "source": {
+        "file": "src/app/api/model-combo-mappings/[id]/route.ts",
+        "sha256": "88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec",
+        "gitBlobSha": "750c10ccccb695dd9eaa345050773b74c83d51e2"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [
+            {
+              "name": "id",
+              "specName": "id",
+              "serialization": "simple",
+              "required": true
+            }
+          ],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "write"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "404",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "success"
+                ],
+                "properties": {
+                  "success": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error",
+                  "requestId"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "type"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "invalid_request",
+                          "not_found",
+                          "conflict",
+                          "server_error"
+                        ]
+                      },
+                      "details": {}
+                    },
+                    "additionalProperties": false
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "success"
+                    ],
+                    "properties": {
+                      "success": {
+                        "type": "boolean",
+                        "const": true
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "404",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-combo-mappings/[id]/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "error",
+                      "requestId"
+                    ],
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "required": [
+                          "message",
+                          "type"
+                        ],
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_request",
+                              "not_found",
+                              "conflict",
+                              "server_error"
+                            ]
+                          },
+                          "details": {}
+                        },
+                        "additionalProperties": false
+                      },
+                      "requestId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-combo-mappings/[id]/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "mutation",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "Human confirmation is required before creating, updating, or deleting a model-combo mapping."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": {
+          "targetRead": {
+            "operationId": "GET /api/model-combo-mappings",
+            "inputs": [],
+            "snapshot": {
+              "kind": "collection",
+              "collectionPath": [
+                "mappings"
+              ],
+              "identity": [
+                {
+                  "name": "id",
+                  "path": [
+                    "id"
+                  ]
+                }
+              ],
+              "state": [
+                {
+                  "name": "pattern",
+                  "path": [
+                    "pattern"
+                  ]
+                },
+                {
+                  "name": "comboId",
+                  "path": [
+                    "comboId"
+                  ]
+                },
+                {
+                  "name": "priority",
+                  "path": [
+                    "priority"
+                  ]
+                },
+                {
+                  "name": "enabled",
+                  "path": [
+                    "enabled"
+                  ]
+                },
+                {
+                  "name": "description",
+                  "path": [
+                    "description"
+                  ]
+                }
+              ],
+              "selection": {
+                "input": {
+                  "section": "path",
+                  "path": [
+                    "id"
+                  ]
+                },
+                "rowPath": [
+                  "id"
+                ]
+              }
+            },
+            "sourceView": "omniroute-v3.8.53.model-combo-mappings.delete-reconcile"
+          },
+          "reconcile": {
+            "operationId": "GET /api/model-combo-mappings",
+            "inputs": [],
+            "outcome": {
+              "kind": "absent",
+              "identityFields": [
+                "id"
+              ],
+              "stateFields": []
+            }
+          }
+        },
+        "mutationSafety": {
+          "preflight": {
+            "kind": "required",
+            "observations": [
+              {
+                "name": "selected-model-combo-delete-target",
+                "read": {
+                  "operationId": "GET /api/model-combo-mappings/{id}",
+                  "inputs": [
+                    {
+                      "target": {
+                        "section": "path",
+                        "field": "id"
+                      },
+                      "source": {
+                        "section": "path",
+                        "path": [
+                          "id"
+                        ]
+                      }
+                    }
+                  ],
+                  "snapshot": {
+                    "kind": "resource",
+                    "identity": [
+                      {
+                        "name": "id",
+                        "path": [
+                          "mapping",
+                          "id"
+                        ]
+                      }
+                    ],
+                    "state": [
+                      {
+                        "name": "pattern",
+                        "path": [
+                          "mapping",
+                          "pattern"
+                        ]
+                      },
+                      {
+                        "name": "comboId",
+                        "path": [
+                          "mapping",
+                          "comboId"
+                        ]
+                      },
+                      {
+                        "name": "priority",
+                        "path": [
+                          "mapping",
+                          "priority"
+                        ]
+                      },
+                      {
+                        "name": "enabled",
+                        "path": [
+                          "mapping",
+                          "enabled"
+                        ]
+                      },
+                      {
+                        "name": "description",
+                        "path": [
+                          "mapping",
+                          "description"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "readCompleteness": {
+                  "kind": "single-response",
+                  "sourceReason": "The pinned v3.8.53 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination."
+                }
+              }
+            ]
+          },
+          "reconciliation": {
+            "kind": "unknown"
+          },
+          "settlement": {
+            "responseComplete": {
+              "statusCodes": [
+                200
+              ]
+            },
+            "definiteRejection": null
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "e4a0f488a31773213a722d14ea91f590cd106680885eeef70fdfa648319e3dec",
+        "authSha256": "035ec928eaead184e1d771c0be33ad8bfe0442b8012d07601c7dcd3f520b6f62",
+        "sideEffect": "mutation",
+        "responseProjectionSha256": "a9e9b1c4c78a018d039e9790c76afa41f5cdc707ded4707be5a7eedb40cd6f0c",
+        "operationSemanticsSha256": "4b7a3e23c329d8f746ec8e083ecc9cc2b072626a5b9c6d2296a9618abd2c6ee0",
+        "routeImportsSha256": "7b74439ce3b23718b76d5cafb91f6a5c949bcf5251cf15ff86dedc8a6627db0b",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "574eb11c4e5cf1ede44e586d41ff278c7f3f062a836ecf0e560519d32f24fb2f"
+      },
+      "test": {
+        "id": "test/admin-model-combo-mappings.test.ts",
+        "observedOutcome": "provenance/qualification/a363d25b31d3e4a4e15af47efa373eca4440ebb994c1d83e25a83569001c3413.json",
+        "caseSha256": "16d3ba63f902c384d2825bceb27437bdf96bf516d3f05f5a1a21fc8006a02d08",
+        "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21.json",
+        "sha256": "036bac353aadbfbe06bce705f7b1fe73f0a0c0438f817c280290dd7b81273e21"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned handler, resolved imports and framework authorization context bind the reviewed operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The pinned handler was independently exercised over loopback with disposable state; observed before, after and response are retained."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Separate isolated Next ingress research records management classification and anonymous, invalid credential and authorized status; it does not prove production deployment behavior."
         }
       ]
     }
