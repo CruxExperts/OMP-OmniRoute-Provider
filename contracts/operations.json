@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1049,
-    "invokableOperations": 2,
+    "invokableOperations": 3,
     "methodCounts": {
       "DELETE": 111,
       "GET": 485,
@@ -18,12 +18,12 @@
     "routeFiles": 798,
     "sourceOperations": 1292,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1274
+    "unqualifiedOperations": 1273
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "b99e7d575f17c3525ddef98a53b4e034acabcbe363b4ed8e736ef01fa4e925e7",
+    "eligibilitySha256": "417cce3eae42aa899ce495ddd226ebfca0c2702fd9a8af570f6887eb21b10673",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -27834,20 +27834,45 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "read"
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "none",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.53",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "The handler reads a static catalog and checks skill files without writing.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.api.agent.skills",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -27861,6 +27886,28 @@
         "parameters": []
       },
       "pathTemplate": "/api/agent-skills",
+      "qualification": {
+        "binding": {
+          "authSha256": "e9da96181d8c7f6971e14452c71683d44fb8a81eb16d1ae1bac97a383e0333b3",
+          "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+          "handlerGitBlobSha": "4652f2cf3d322292e7c29e60a0a76cfafca258d7",
+          "handlerSha256": "ef1419c32e4e23102c0f4a00b7fa31b4ca71e29bfa7750d0c83809404b0e0bee",
+          "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "operationSemanticsSha256": "7c8017c6984a44a11130b842cbd8631f55bb4706c6c335f9a00db02610cc9241",
+          "requestSchemaSha256": "b255b2ee78d58bcccd7e559ada1d69c07f0f8ecf3dcd1a35aa42a80dca30efaa",
+          "responseProjectionSha256": "74fd2de1cdc712bca3b34dcb78790cbf1ae7168a4a03bb0c46ce734ad76fc7b4",
+          "routeImportsSha256": "a6658bd55f98a43afa1241d3c700be4035969a049b17f5d545b8fae128378d38",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "ingressSha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8",
+        "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "test": {
+          "caseSha256": "2db30722cdb8d533e2b0623be347c0f4912c4172e1da7df8333ce9fd8d769851",
+          "id": "test/admin-agent-skills-source.test.ts",
+          "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -27909,7 +27956,8 @@
             "category": {
               "enum": [
                 "api",
-                "cli"
+                "cli",
+                "config"
               ],
               "type": "string"
             }
@@ -27921,183 +27969,193 @@
       "response": {
         "mediaType": "application/json",
         "schema": {
-          "properties": {
-            "count": {
-              "type": "integer"
-            },
-            "coverage": {
-              "description": "Coverage statistics for the Agent Skills catalog: how many of the 22 REST API skills and 20 CLI skills have generated SKILL.md files on the local filesystem.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
               "properties": {
-                "api": {
-                  "properties": {
-                    "have": {
-                      "description": "Number of API skills with SKILL.md on disk",
-                      "maximum": 22,
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "total": {
-                      "description": "Canonical API skill count (always 22)",
-                      "enum": [
-                        22
-                      ],
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "have",
-                    "total"
-                  ],
-                  "type": "object"
-                },
-                "cli": {
-                  "properties": {
-                    "have": {
-                      "description": "Number of CLI skills with SKILL.md on disk",
-                      "maximum": 20,
-                      "minimum": 0,
-                      "type": "integer"
-                    },
-                    "total": {
-                      "description": "Canonical CLI skill count (always 20)",
-                      "enum": [
-                        20
-                      ],
-                      "type": "integer"
-                    }
-                  },
-                  "required": [
-                    "have",
-                    "total"
-                  ],
-                  "type": "object"
-                },
-                "generatedAt": {
-                  "description": "ISO datetime when coverage was last computed",
-                  "format": "date-time",
-                  "type": "string"
-                },
-                "totalSkills": {
-                  "description": "Sum of api.have + cli.have",
-                  "maximum": 42,
+                "count": {
                   "minimum": 0,
                   "type": "integer"
+                },
+                "coverage": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "api": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "have": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "total": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "have",
+                        "total"
+                      ],
+                      "type": "object"
+                    },
+                    "cli": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "have": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "total": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "have",
+                        "total"
+                      ],
+                      "type": "object"
+                    },
+                    "config": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "have": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "total": {
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "have",
+                        "total"
+                      ],
+                      "type": "object"
+                    },
+                    "generatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "totalSkills": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "api",
+                    "cli",
+                    "config",
+                    "totalSkills",
+                    "generatedAt"
+                  ],
+                  "type": "object"
+                },
+                "skills": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "area": {
+                        "type": "string"
+                      },
+                      "category": {
+                        "enum": [
+                          "api",
+                          "cli",
+                          "config",
+                          "external"
+                        ],
+                        "type": "string"
+                      },
+                      "cliCommands": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "endpoints": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      },
+                      "githubUrl": {
+                        "type": "string"
+                      },
+                      "icon": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "isEntry": {
+                        "type": "boolean"
+                      },
+                      "isNew": {
+                        "type": "boolean"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "rawUrl": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "description",
+                      "category",
+                      "area",
+                      "rawUrl",
+                      "githubUrl"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 }
               },
               "required": [
-                "api",
-                "cli",
-                "totalSkills",
-                "generatedAt"
+                "skills",
+                "count",
+                "coverage"
               ],
               "type": "object"
             },
-            "skills": {
-              "items": {
-                "description": "Single entry in the Agent Skills catalog. Describes one OmniRoute REST API surface (category: api) or CLI subcommand group (category: cli) with a canonical ID and a link to its SKILL.md documentation file.",
-                "properties": {
-                  "area": {
-                    "description": "Functional area slug (e.g. \"providers\", \"combos-routing\", \"cli-serve\")",
-                    "example": "providers",
-                    "maxLength": 50,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "category": {
-                    "description": "api = REST API skill; cli = CLI subcommand skill",
-                    "enum": [
-                      "api",
-                      "cli"
-                    ],
-                    "type": "string"
-                  },
-                  "cliCommands": {
-                    "description": "CLI subcommand names (present for cli-category skills only)",
-                    "example": [
-                      "providers list",
-                      "providers test",
-                      "providers rotate"
-                    ],
-                    "items": {
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
                       "type": "string"
                     },
-                    "type": "array"
-                  },
-                  "description": {
-                    "description": "One-paragraph description of what the skill covers",
-                    "maxLength": 2000,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "endpoints": {
-                    "description": "REST API endpoints (present for api-category skills only)",
-                    "example": [
-                      "POST /api/providers",
-                      "GET /api/providers/:id"
-                    ],
-                    "items": {
+                    "message": {
                       "type": "string"
                     },
-                    "type": "array"
+                    "type": {
+                      "type": "string"
+                    }
                   },
-                  "githubUrl": {
-                    "description": "GitHub blob URL for viewing the SKILL.md in the browser",
-                    "example": "https://github.com/diegosouzapw/OmniRoute/blob/main/skills/omni-providers/SKILL.md",
-                    "format": "uri",
-                    "type": "string"
-                  },
-                  "icon": {
-                    "description": "Material symbol icon name for dashboard display",
-                    "type": "string"
-                  },
-                  "id": {
-                    "description": "Canonical skill ID (e.g. \"omni-providers\", \"cli-serve\")",
-                    "example": "omni-providers",
-                    "pattern": "^[a-z][a-z0-9-]*$",
-                    "type": "string"
-                  },
-                  "isEntry": {
-                    "description": "Whether this is a recommended starting point",
-                    "type": "boolean"
-                  },
-                  "isNew": {
-                    "description": "Whether this skill was added in a recent release",
-                    "type": "boolean"
-                  },
-                  "name": {
-                    "description": "Human-readable skill name",
-                    "example": "Provider Management",
-                    "maxLength": 100,
-                    "minLength": 1,
-                    "type": "string"
-                  },
-                  "rawUrl": {
-                    "description": "GitHub raw URL of the SKILL.md file",
-                    "example": "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/omni-providers/SKILL.md",
-                    "format": "uri",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "name",
-                  "description",
-                  "category",
-                  "area",
-                  "rawUrl",
-                  "githubUrl"
-                ],
-                "type": "object"
+                  "required": [
+                    "message",
+                    "type",
+                    "code"
+                  ],
+                  "type": "object"
+                }
               },
-              "type": "array"
+              "required": [
+                "error"
+              ],
+              "type": "object"
             }
-          },
-          "required": [
-            "skills",
-            "count",
-            "coverage"
-          ],
-          "type": "object"
+          ]
         },
         "statusCodes": [
           "200",
@@ -28113,26 +28171,24 @@
               {
                 "mediaType": "application/json",
                 "schema": {
+                  "additionalProperties": false,
                   "properties": {
                     "count": {
+                      "minimum": 0,
                       "type": "integer"
                     },
                     "coverage": {
-                      "description": "Coverage statistics for the Agent Skills catalog: how many of the 22 REST API skills and 20 CLI skills have generated SKILL.md files on the local filesystem.",
+                      "additionalProperties": false,
                       "properties": {
                         "api": {
+                          "additionalProperties": false,
                           "properties": {
                             "have": {
-                              "description": "Number of API skills with SKILL.md on disk",
-                              "maximum": 22,
                               "minimum": 0,
                               "type": "integer"
                             },
                             "total": {
-                              "description": "Canonical API skill count (always 22)",
-                              "enum": [
-                                22
-                              ],
+                              "minimum": 0,
                               "type": "integer"
                             }
                           },
@@ -28143,18 +28199,32 @@
                           "type": "object"
                         },
                         "cli": {
+                          "additionalProperties": false,
                           "properties": {
                             "have": {
-                              "description": "Number of CLI skills with SKILL.md on disk",
-                              "maximum": 20,
                               "minimum": 0,
                               "type": "integer"
                             },
                             "total": {
-                              "description": "Canonical CLI skill count (always 20)",
-                              "enum": [
-                                20
-                              ],
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "have",
+                            "total"
+                          ],
+                          "type": "object"
+                        },
+                        "config": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "have": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "total": {
+                              "minimum": 0,
                               "type": "integer"
                             }
                           },
@@ -28165,13 +28235,10 @@
                           "type": "object"
                         },
                         "generatedAt": {
-                          "description": "ISO datetime when coverage was last computed",
                           "format": "date-time",
                           "type": "string"
                         },
                         "totalSkills": {
-                          "description": "Sum of api.have + cli.have",
-                          "maximum": 42,
                           "minimum": 0,
                           "type": "integer"
                         }
@@ -28179,6 +28246,7 @@
                       "required": [
                         "api",
                         "cli",
+                        "config",
                         "totalSkills",
                         "generatedAt"
                       ],
@@ -28186,87 +28254,54 @@
                     },
                     "skills": {
                       "items": {
-                        "description": "Single entry in the Agent Skills catalog. Describes one OmniRoute REST API surface (category: api) or CLI subcommand group (category: cli) with a canonical ID and a link to its SKILL.md documentation file.",
+                        "additionalProperties": false,
                         "properties": {
                           "area": {
-                            "description": "Functional area slug (e.g. \"providers\", \"combos-routing\", \"cli-serve\")",
-                            "example": "providers",
-                            "maxLength": 50,
-                            "minLength": 1,
                             "type": "string"
                           },
                           "category": {
-                            "description": "api = REST API skill; cli = CLI subcommand skill",
                             "enum": [
                               "api",
-                              "cli"
+                              "cli",
+                              "config",
+                              "external"
                             ],
                             "type": "string"
                           },
                           "cliCommands": {
-                            "description": "CLI subcommand names (present for cli-category skills only)",
-                            "example": [
-                              "providers list",
-                              "providers test",
-                              "providers rotate"
-                            ],
                             "items": {
                               "type": "string"
                             },
                             "type": "array"
                           },
                           "description": {
-                            "description": "One-paragraph description of what the skill covers",
-                            "maxLength": 2000,
-                            "minLength": 1,
                             "type": "string"
                           },
                           "endpoints": {
-                            "description": "REST API endpoints (present for api-category skills only)",
-                            "example": [
-                              "POST /api/providers",
-                              "GET /api/providers/:id"
-                            ],
                             "items": {
                               "type": "string"
                             },
                             "type": "array"
                           },
                           "githubUrl": {
-                            "description": "GitHub blob URL for viewing the SKILL.md in the browser",
-                            "example": "https://github.com/diegosouzapw/OmniRoute/blob/main/skills/omni-providers/SKILL.md",
-                            "format": "uri",
                             "type": "string"
                           },
                           "icon": {
-                            "description": "Material symbol icon name for dashboard display",
                             "type": "string"
                           },
                           "id": {
-                            "description": "Canonical skill ID (e.g. \"omni-providers\", \"cli-serve\")",
-                            "example": "omni-providers",
-                            "pattern": "^[a-z][a-z0-9-]*$",
                             "type": "string"
                           },
                           "isEntry": {
-                            "description": "Whether this is a recommended starting point",
                             "type": "boolean"
                           },
                           "isNew": {
-                            "description": "Whether this skill was added in a recent release",
                             "type": "boolean"
                           },
                           "name": {
-                            "description": "Human-readable skill name",
-                            "example": "Provider Management",
-                            "maxLength": 100,
-                            "minLength": 1,
                             "type": "string"
                           },
                           "rawUrl": {
-                            "description": "GitHub raw URL of the SKILL.md file",
-                            "example": "https://raw.githubusercontent.com/diegosouzapw/OmniRoute/refs/heads/main/skills/omni-providers/SKILL.md",
-                            "format": "uri",
                             "type": "string"
                           }
                         },
@@ -28304,11 +28339,13 @@
               {
                 "mediaType": "application/json",
                 "schema": {
+                  "additionalProperties": false,
                   "properties": {
                     "error": {
+                      "additionalProperties": false,
                       "properties": {
-                        "details": {
-                          "description": "Optional additional error details"
+                        "code": {
+                          "type": "string"
                         },
                         "message": {
                           "type": "string"
@@ -28317,13 +28354,17 @@
                           "type": "string"
                         }
                       },
+                      "required": [
+                        "message",
+                        "type",
+                        "code"
+                      ],
                       "type": "object"
-                    },
-                    "requestId": {
-                      "format": "uuid",
-                      "type": "string"
                     }
                   },
+                  "required": [
+                    "error"
+                  ],
                   "type": "object"
                 }
               }
@@ -28379,11 +28420,13 @@
               {
                 "mediaType": "application/json",
                 "schema": {
+                  "additionalProperties": false,
                   "properties": {
                     "error": {
+                      "additionalProperties": false,
                       "properties": {
-                        "details": {
-                          "description": "Optional additional error details"
+                        "code": {
+                          "type": "string"
                         },
                         "message": {
                           "type": "string"
@@ -28392,13 +28435,17 @@
                           "type": "string"
                         }
                       },
+                      "required": [
+                        "message",
+                        "type",
+                        "code"
+                      ],
                       "type": "object"
-                    },
-                    "requestId": {
-                      "format": "uuid",
-                      "type": "string"
                     }
                   },
+                  "required": [
+                    "error"
+                  ],
                   "type": "object"
                 }
               }
@@ -28440,7 +28487,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/api/agent-skills/route.ts",
@@ -28480,8 +28527,8 @@
         "path": "/api/agent-skills"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
@@ -53793,10 +53840,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109",
+        "ingressSha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "3df911e5f5638b3d60d9fe74287b73f5571e517b22e67be9ff0c6a6868ddcf2d",
+          "caseSha256": "e065609fc03acfe5bd61bee059353c75053704c09435a4132cab7eb6a13985fa",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -54026,10 +54073,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109",
+        "ingressSha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "42a8ea843565aa4359b8d23eb6687870fdf17be19f19837ac771d4495f506d13",
+          "caseSha256": "320b2e3e3f6a5d0a56e70cafad5f7354f1b2e326ab317816f0914f1adb508f3c",
           "id": "test/admin-degradation.test.ts",
           "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
         }

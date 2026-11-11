@@ -191,13 +191,13 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/8f712624134cbc97a66afc80acbb80c6cca860be51afdcb9fd7855b124d47cce.json",
-        "caseSha256": "3df911e5f5638b3d60d9fe74287b73f5571e517b22e67be9ff0c6a6868ddcf2d",
+        "observedOutcome": "provenance/qualification/57f8e3fc539224ad25d5b94360bcaf003e14c80708d4915462f51e68241addd8.json",
+        "caseSha256": "e065609fc03acfe5bd61bee059353c75053704c09435a4132cab7eb6a13985fa",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109.json",
-        "sha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109"
+        "artifact": "provenance/qualification/ingress-afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8.json",
+        "sha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8"
       },
       "evidence": [
         {
@@ -703,13 +703,13 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/39fbf04eb6a8fc473d11ecba5e11905c7dc016521bb15558b2a9b75a9b97ad75.json",
-        "caseSha256": "42a8ea843565aa4359b8d23eb6687870fdf17be19f19837ac771d4495f506d13",
+        "observedOutcome": "provenance/qualification/2f4f067a0cbc4ae7f1af60605ea9d0bdaa2dff10e60cd84d7be29c8f2528bd56.json",
+        "caseSha256": "320b2e3e3f6a5d0a56e70cafad5f7354f1b2e326ab317816f0914f1adb508f3c",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109.json",
-        "sha256": "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109"
+        "artifact": "provenance/qualification/ingress-afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8.json",
+        "sha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8"
       },
       "evidence": [
         {
@@ -723,6 +723,677 @@
         {
           "kind": "fixture",
           "detail": "The pinned handler over loopback observes registry transitions and an injected JSON response failure. Separate isolated Next ingress observations cover management denials, an authorized session, summary branches, and recovery; hosted 500 remains unobserved."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/agent-skills",
+      "status": "verified",
+      "reason": "Pinned catalog handler and separately retained isolated Next ingress observations qualify this read only; they do not establish production deployment behavior.",
+      "source": {
+        "file": "src/app/api/agent-skills/route.ts",
+        "sha256": "ef1419c32e4e23102c0f4a00b7fa31b4ca71e29bfa7750d0c83809404b0e0bee",
+        "gitBlobSha": "4652f2cf3d322292e7c29e60a0a76cfafca258d7"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {
+              "category": {
+                "type": "string",
+                "enum": [
+                  "api",
+                  "cli",
+                  "config"
+                ]
+              },
+              "area": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [
+            {
+              "name": "category",
+              "in": "query",
+              "required": false,
+              "style": "form",
+              "explode": true,
+              "allowReserved": false,
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "api",
+                  "cli"
+                ]
+              },
+              "inputAllowed": true
+            },
+            {
+              "name": "area",
+              "in": "query",
+              "required": false,
+              "style": "form",
+              "explode": true,
+              "allowReserved": false,
+              "schema": {
+                "type": "string"
+              },
+              "inputAllowed": true
+            }
+          ],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "none",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "400",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "skills": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "category": {
+                          "type": "string",
+                          "enum": [
+                            "api",
+                            "cli",
+                            "config",
+                            "external"
+                          ]
+                        },
+                        "area": {
+                          "type": "string"
+                        },
+                        "endpoints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "cliCommands": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "icon": {
+                          "type": "string"
+                        },
+                        "isEntry": {
+                          "type": "boolean"
+                        },
+                        "isNew": {
+                          "type": "boolean"
+                        },
+                        "rawUrl": {
+                          "type": "string"
+                        },
+                        "githubUrl": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "description",
+                        "category",
+                        "area",
+                        "rawUrl",
+                        "githubUrl"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "coverage": {
+                    "type": "object",
+                    "properties": {
+                      "api": {
+                        "type": "object",
+                        "properties": {
+                          "have": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "total": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "have",
+                          "total"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "cli": {
+                        "type": "object",
+                        "properties": {
+                          "have": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "total": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "have",
+                          "total"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "config": {
+                        "type": "object",
+                        "properties": {
+                          "have": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "total": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "have",
+                          "total"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "totalSkills": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "generatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "api",
+                      "cli",
+                      "config",
+                      "totalSkills",
+                      "generatedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "skills",
+                  "count",
+                  "coverage"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "message",
+                      "type",
+                      "code"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "error"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "skills": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "category": {
+                              "type": "string",
+                              "enum": [
+                                "api",
+                                "cli",
+                                "config",
+                                "external"
+                              ]
+                            },
+                            "area": {
+                              "type": "string"
+                            },
+                            "endpoints": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "cliCommands": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "icon": {
+                              "type": "string"
+                            },
+                            "isEntry": {
+                              "type": "boolean"
+                            },
+                            "isNew": {
+                              "type": "boolean"
+                            },
+                            "rawUrl": {
+                              "type": "string"
+                            },
+                            "githubUrl": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "description",
+                            "category",
+                            "area",
+                            "rawUrl",
+                            "githubUrl"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "count": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "coverage": {
+                        "type": "object",
+                        "properties": {
+                          "api": {
+                            "type": "object",
+                            "properties": {
+                              "have": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "total": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "have",
+                              "total"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "cli": {
+                            "type": "object",
+                            "properties": {
+                              "have": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "total": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "have",
+                              "total"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "config": {
+                            "type": "object",
+                            "properties": {
+                              "have": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "total": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "have",
+                              "total"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "totalSkills": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "generatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "api",
+                          "cli",
+                          "config",
+                          "totalSkills",
+                          "generatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "skills",
+                      "count",
+                      "coverage"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/agent-skills/route.ts"
+              ]
+            },
+            {
+              "statusCode": "400",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "type",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "error"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/agent-skills/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error": {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "code": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "type",
+                          "code"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "error"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/agent-skills/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "The handler reads a static catalog and checks skill files without writing."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "b255b2ee78d58bcccd7e559ada1d69c07f0f8ecf3dcd1a35aa42a80dca30efaa",
+        "authSha256": "e9da96181d8c7f6971e14452c71683d44fb8a81eb16d1ae1bac97a383e0333b3",
+        "sideEffect": "read",
+        "responseProjectionSha256": "74fd2de1cdc712bca3b34dcb78790cbf1ae7168a4a03bb0c46ce734ad76fc7b4",
+        "operationSemanticsSha256": "7c8017c6984a44a11130b842cbd8631f55bb4706c6c335f9a00db02610cc9241",
+        "routeImportsSha256": "a6658bd55f98a43afa1241d3c700be4035969a049b17f5d545b8fae128378d38",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-agent-skills-source.test.ts",
+        "observedOutcome": "provenance/qualification/04386783f46dd24ee239da9cdb22d5c8ee27068b139c717891015cd25442851e.json",
+        "caseSha256": "2db30722cdb8d533e2b0623be347c0f4912c4172e1da7df8333ce9fd8d769851",
+        "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8.json",
+        "sha256": "afdc1f818869082a34cdcbe3832630f925571193571ff06aba12254821b7fcf8"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned catalog handler, resolved imports and framework authorization context bind the operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The handler reads the static catalog and checks disposable skill files without writing."
+        },
+        {
+          "kind": "fixture",
+          "detail": "The pinned handler was exercised over loopback with disposable files; separate isolated Next ingress observations cover access and filters, not production deployment behavior."
         }
       ]
     }
