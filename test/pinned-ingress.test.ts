@@ -655,3 +655,39 @@ with tempfile.TemporaryDirectory() as temp:
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
 });
+
+test("real-core export validates lifecycle and excludes private database values", () => {
+  const code = String.raw`
+import importlib.util,json,pathlib,sys,tempfile
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as d:
+ p=pathlib.Path(d); h='a'*64
+ source={f'src/lib/db/migrations/{i:03}_fixture.sql':h for i in range(222)}
+ source.update({'src/lib/db/healthCheckWorker.ts':h,'scripts/build/colocate-standalone.mjs':h,'src/lib/db/core.ts':h})
+ migrations={k:v for k,v in source.items() if k.endswith('.sql')}
+ identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerOutputSha256':h,'private':'private-canary'}
+ db={'name':'storage.sqlite','kind':'file','size':1}
+ base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
+ cold={**base,'phase':'cold','before':[]}; warm={**base,'phase':'warm','before':[db]}
+ def put(name,value): (p/name).write_text(json.dumps(value))
+ def reject():
+  try: m.export_core_lifecycle(p,{})
+  except (RuntimeError,ValueError,KeyError,TypeError): return
+  raise AssertionError('invalid lifecycle accepted')
+ put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity)
+ warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()
+ warm['migrations']=cold['migrations']; warm['healthWorker']=False; put('warm-lifecycle.json',warm); reject()
+ warm['healthWorker']=True; warm['before']=[]; put('warm-lifecycle.json',warm); reject()
+ warm['before']=[db]; put('warm-lifecycle.json',warm)
+ identity['workerOutputSha256']='private-canary'; put('core-identity.json',identity); reject()
+ identity['workerOutputSha256']=h; put('core-identity.json',identity)
+ m.export_core_lifecycle(p,{})
+ result=json.loads((p/'export/core-lifecycle.json').read_text())
+ assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
+ assert result['cold']['databaseExistedBefore'] is False and result['warm']['databaseExistedBefore'] is True
+ assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});

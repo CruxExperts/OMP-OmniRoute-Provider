@@ -82,6 +82,7 @@ test("pinned JSON health routes report liveness and SQLite responsiveness withou
       }
       expect(projectResponse(descriptor, body)).toEqual(body);
       if (id === JSON_HEALTH_IDS[1]) {
+        if (schemaBefore === null) throw new Error("ping schema snapshot is missing");
         const schemaAfter = fixture.db.query("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
         // The fixture supplies an already-open database; this does not cover cold initialization.
         expect(schemaAfter).toEqual(schemaBefore);

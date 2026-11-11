@@ -99,6 +99,15 @@ method is interchangeable:
    Release remains blocked until every inventory entry meets the gate and the
    separate native platform qualification requirements are satisfied.
 
+For isolated database research, `scripts/pinned-ingress.py` also accepts
+`--real-core` alongside its normal approved `--node`, `--source-archive`,
+`--dependency-dir`, `--bwrap`, and `--output-dir` inputs. It runs the pinned
+core and settings directly in separate cold and warm Node processes, using the
+source migrations and health worker. Its private scratch directory can contain
+database contents and logs; only the bounded `export/core-lifecycle.json` is
+intended for sharing. This is not an HTTP, authorization, packaged-app, or
+operation qualification test, and it does not qualify any route.
+
 The first health-probe family has direct pinned-handler lifecycle observations,
 but not independent framework-ingress authorization evidence. Qualification must
 not infer public access from matcher source alone. Acquisition of the pinned

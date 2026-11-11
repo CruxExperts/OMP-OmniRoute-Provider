@@ -386,7 +386,7 @@ def verified_dependency(directory, item):
     return raw
 
 
-def materialize():
+def materialize(real_core=False):
     source = Path('/inputs/source.tar.gz')
     app = Path('/work/app')
     fixture = Path('/fixture-src')
@@ -407,7 +407,8 @@ def materialize():
             if len(parts) < 2 or parts[0] != 'OmniRoute-v3.8.53' or member.isdir():
                 continue
             name = '/'.join(parts[1:])
-            if name not in selected and name not in additional and name not in wanted and not (name.startswith('scripts/build/') and name.endswith(('.mjs', '.cjs'))) and not name.startswith('src/i18n/') and name != 'config/cli-tools-manifest.json':
+            lifecycle_source = real_core and name.startswith(('src/', 'open-sse/', 'packages/')) and name.endswith(('.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.sql'))
+            if name not in selected and name not in additional and name not in wanted and not (name.startswith('scripts/build/') and name.endswith(('.mjs', '.cjs'))) and not name.startswith('src/i18n/') and name != 'config/cli-tools-manifest.json' and not lifecycle_source:
                 continue
             require(member.isfile() and member.size <= 2 * 1024 * 1024 and name not in seen, 'invalid source member: ' + name)
             seen.add(name)
@@ -457,9 +458,10 @@ def materialize():
     (app / '.build').mkdir(exist_ok=True)
     (app / '.source').mkdir(exist_ok=True)
     (app / 'next-env.d.ts').touch()
-    shutil.copyfile('/work/fixture/next.config.mjs', app / 'next.config.mjs')
-    for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts'):
-        put(app, route, Path('/work/fixture/routes/management.ts').read_bytes())
+    if not real_core:
+        shutil.copyfile('/work/fixture/next.config.mjs', app / 'next.config.mjs')
+        for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts'):
+            put(app, route, Path('/work/fixture/routes/management.ts').read_bytes())
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
     return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA}
@@ -834,7 +836,74 @@ def run_bounded(command, log_path, deadline, env):
             child.wait(timeout=10)
 
 
-def worker():
+def core_lifecycle(material, deadline):
+    """Observe direct source DB initialization twice, without ingress overlays."""
+    app = Path('/work/app')
+    fixture = Path('/work/fixture/database-lifecycle.mjs')
+    entry = app / 'src/lib/db/pinnedLifecycleFixture.mjs'
+    require(not entry.exists(), 'lifecycle fixture collides with source')
+    shutil.copyfile(fixture, entry)
+    source = material['configSupportSha256']
+    migrations = {name: value for name, value in source.items() if name.startswith('src/lib/db/migrations/') and name.endswith('.sql')}
+    worker_source = 'src/lib/db/healthCheckWorker.ts'
+    recipe = 'scripts/build/colocate-standalone.mjs'
+    require(len(migrations) == 222 and worker_source in source and recipe in source, 'pinned migration or worker source closure missing')
+    env = {'PATH': '/runtime', 'HOME': '/work/home', 'TMPDIR': '/work/tmp', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'NODE_ENV': 'production', 'DATA_DIR': '/work/data', 'INGRESS_APPROVED_SANDBOX': '1'}
+    esbuild = '/work/app/node_modules/@esbuild/linux-x64/bin/esbuild'
+    common = ['--bundle', '--platform=node', '--packages=external', '--format=esm']
+    worker_stage('build')
+    run_bounded([esbuild, worker_source, *common, '--outfile=src/lib/db/healthCheckWorker.js'], Path('/work/worker-build.private'), deadline, env)
+    runner = app / 'src/lib/db/pinned-lifecycle.mjs'
+    run_bounded([esbuild, str(entry), *common, '--outfile=' + str(runner)], Path('/work/lifecycle-build.private'), deadline, env)
+    identity = {'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA, 'sourceFilesSha256': source, 'migrationSqlSha256': migrations, 'workerSourceSha256': source[worker_source], 'productionRecipeSha256': source[recipe], 'workerBuildArguments': common, 'workerOutputSha256': file_sha(app / 'src/lib/db/healthCheckWorker.js'), 'runnerSourceSha256': file_sha(fixture), 'runnerOutputSha256': file_sha(runner)}
+    save(Path('/work/core-identity.json'), identity)
+    isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
+    worker_stage('pinnedHTTP')
+    for phase in ('cold', 'warm'):
+        run_bounded(isolate + ['/runtime/node', str(runner), phase], Path('/work/' + phase + '-lifecycle.private'), deadline, env)
+    save(Path('/work/result.json'), {'status': 'research-observed', 'qualification': False, 'scenario': 'actual-core-cold-warm'})
+
+
+def export_core_lifecycle(output, hashes):
+    """Export only bounded, validated lifecycle facts, never database contents."""
+    cold = bounded_json(output / 'cold-lifecycle.json')
+    warm = bounded_json(output / 'warm-lifecycle.json')
+    identity = bounded_json(output / 'core-identity.json')
+    observations = []
+    for phase, value in (('cold', cold), ('warm', warm)):
+        require(isinstance(value, dict) and value.get('phase') == phase and value.get('driver') == 'node:sqlite'
+                and value.get('ping') is True and value.get('healthWorker') is True
+                and type(value.get('healthy')) is bool and value.get('settingsMarker') == 'cold-written', 'lifecycle observations incomplete')
+        tables, migrations = value.get('tables'), value.get('migrations')
+        require(isinstance(tables, list) and 0 < len(tables) <= 4096 and all(isinstance(x, str) and re.fullmatch(r'[A-Za-z0-9_]{1,128}', x) for x in tables)
+                and '_omniroute_migrations' in tables and 'db_meta' in tables, 'invalid table observation')
+        require(isinstance(migrations, list) and 0 < len(migrations) <= 4096 and all(isinstance(x, dict) and set(x) == {'version', 'name'} and isinstance(x['version'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,64}', x['version']) and isinstance(x['name'], str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', x['name']) for x in migrations), 'invalid migration observation')
+        for key in ('before', 'after'):
+            entries = value.get(key)
+            require(isinstance(entries, list) and len(entries) <= 4096 and all(isinstance(x, dict) and isinstance(x.get('name'), str) and x.get('kind') in ('file', 'directory') for x in entries), 'invalid file observation')
+        existed = any(x['name'] == 'storage.sqlite' and x['kind'] == 'file' for x in value['before'])
+        require(existed == (phase == 'warm') and any(x['name'] == 'storage.sqlite' and x['kind'] == 'file' for x in value['after']), 'database lifecycle mismatch')
+        observations.append({'phase': phase, 'driver': 'node:sqlite', 'ping': True, 'healthWorker': True, 'healthy': value['healthy'], 'settingsPersisted': True, 'databaseExistedBefore': existed, 'tableCount': len(tables), 'migrationCount': len(migrations)})
+    require(cold['migrations'] == warm['migrations'] and cold['tables'] == warm['tables'], 'warm lifecycle differs')
+    require(isinstance(identity, dict) and identity.get('sourceArchiveSha256') == ARCHIVE_SHA and identity.get('nodeSha256') == NODE_SHA, 'lifecycle identity mismatch')
+    source, migrations = identity.get('sourceFilesSha256'), identity.get('migrationSqlSha256')
+    require(isinstance(source, dict) and 0 < len(source) <= 50000 and all(isinstance(k, str) and 0 < len(k) <= 512 and not any(ord(c) < 32 for c in k) and isinstance(v, str) and re.fullmatch(r'[0-9a-f]{64}', v) for k, v in source.items()), 'invalid source identities')
+    require(isinstance(migrations, dict) and migrations == {k: v for k, v in source.items() if k.startswith('src/lib/db/migrations/') and k.endswith('.sql')} and len(migrations) == 222, 'invalid migration identities')
+    worker_source, recipe = 'src/lib/db/healthCheckWorker.ts', 'scripts/build/colocate-standalone.mjs'
+    require(identity.get('workerSourceSha256') == source.get(worker_source) and worker_source in source and identity.get('productionRecipeSha256') == source.get(recipe) and recipe in source, 'worker identity mismatch')
+    arguments = ['--bundle', '--platform=node', '--packages=external', '--format=esm']
+    require(identity.get('workerBuildArguments') == arguments and all(isinstance(identity.get(k), str) and re.fullmatch(r'[0-9a-f]{64}', identity[k]) for k in ('workerOutputSha256', 'runnerSourceSha256', 'runnerOutputSha256')), 'invalid build identity')
+    public_identity = {k: identity[k] for k in ('sourceArchiveSha256', 'nodeSha256', 'workerSourceSha256', 'productionRecipeSha256', 'workerBuildArguments', 'workerOutputSha256', 'runnerSourceSha256', 'runnerOutputSha256')}
+    public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
+    public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
+    public_identity['sourceFileCount'] = len(source)
+    public_identity['migrationSqlCount'] = len(migrations)
+    export = output / 'export'
+    export.mkdir(mode=0o700)
+    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': observations[0], 'warm': observations[1]})
+
+
+def worker(real_core=False):
     worker_stage('preflight')
     require(Path.cwd() == Path('/work/app'), 'unexpected workspace')
     require(Path('/limits/memory.max').read_text().strip() == str(MEMORY), 'memory limit unavailable')
@@ -851,7 +920,9 @@ def worker():
     save(Path('/work/preflight.json'), {'namespaces': actual, 'memoryMax': MEMORY, 'cpuAffinity': sorted(os.sched_getaffinity(0)), 'network': 'private-loopback-only', 'mountInfo': Path('/proc/self/mountinfo').read_text(), 'environmentKeys': sorted(os.environ), 'nodeSha256': NODE_SHA})
     deadline = time.monotonic() + 540
     worker_stage('materialize')
-    material = materialize()
+    material = materialize(real_core)
+    if real_core:
+        return core_lifecycle(material, deadline)
     worker_stage('provision')
     provision()
     state = {'bypass': 'disabled', 'settings': {'requireLogin': True, 'password': 'fixture-configured', 'setupComplete': True}, 'tokens': []}
@@ -1106,7 +1177,7 @@ def export_observations(output, hashes):
     save(export / 'observed-outcomes.json', artifact)
 
 
-def bridge(output):
+def bridge(output, real_core=False):
     group = next(line.split(':', 2)[2] for line in Path('/proc/self/cgroup').read_text().splitlines() if line.startswith('0::'))
     memory = Path('/sys/fs/cgroup') / group.lstrip('/') / 'memory.max'
     require(memory.read_text().strip() == str(MEMORY), 'systemd memory boundary unavailable')
@@ -1114,12 +1185,15 @@ def bridge(output):
     command[0] = str(BWRAP)
     runtime = command.index('/runtime/node') + 1
     command[runtime:runtime] = ['--ro-bind', str(BWRAP), '/runtime/bwrap']
+    if real_core:
+        command.append('--real-core')
     os.execv(command[0], command)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--real-core', action='store_true', help='run separate direct real-core cold/warm research observation')
     parser.add_argument('--bridge', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--preflight-only', action='store_true', help='check sandbox prerequisites; optional approved helper staging downloads one package')
     parser.add_argument('--preflight-probe', action='store_true', help=argparse.SUPPRESS)
@@ -1141,7 +1215,7 @@ def main():
     NODE, SOURCE, DEPENDENCIES, BWRAP = args.node, args.source_archive, args.dependency_dir, args.bwrap
     if args.worker:
         try:
-            worker()
+            worker(args.real_core)
         except Exception as exc:
             save(Path('/work/failure-state.json'), {'stage': WORKER_STAGE, 'exceptionClass': failure_class(exc), 'returnCode': failure_code(exc)})
             raise
@@ -1171,7 +1245,7 @@ def main():
         stage(args.stage_dir, args.approve_node_archive_sha256)
         return
     if args.bridge:
-        bridge(args.bridge)
+        bridge(args.bridge, args.real_core)
         return
     require(all((NODE, SOURCE, DEPENDENCIES, args.output_dir)), 'provide --node, --source-archive, --dependency-dir and --output-dir')
     NODE, SOURCE, DEPENDENCIES = (p.resolve(strict=True) for p in (NODE, SOURCE, DEPENDENCIES))
@@ -1190,6 +1264,8 @@ def main():
     unit = 'omp-ingress-' + uuid.uuid4().hex[:12]
     command = ['/usr/bin/systemd-run', '--user', '--quiet', '--wait', '--pipe', '--collect', '--unit', unit, '--property=MemoryMax=' + str(MEMORY), '--property=RuntimeMaxSec=600', '--property=KillMode=control-group', '--property=CPUQuota=200%', '--property=AllowedCPUs=' + ','.join(map(str, cpus)), '--property=CPUAffinity=' + ' '.join(map(str, cpus)), '/usr/bin/python3', str(ROOT / 'scripts/pinned-ingress.py'), '--bridge', str(output), '--node', str(NODE), '--source-archive', str(SOURCE), '--dependency-dir', str(DEPENDENCIES)]
     command.extend(['--bwrap', str(BWRAP)])
+    if args.real_core:
+        command.append('--real-core')
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)
@@ -1218,8 +1294,11 @@ def main():
             raise RuntimeError('isolated ingress run failed at ' + failed_stage + '; inspect private logs')
         exporting = True
         require(input_hashes() == hashes, 'input bytes changed during run')
-        export_observations(output, hashes)
-        print(json.dumps({'output': str(output), 'exitCode': code, 'researchOnly': True}))
+        if args.real_core:
+            export_core_lifecycle(output, hashes)
+        else:
+            export_observations(output, hashes)
+        print(json.dumps({'output': str(output), 'exitCode': code, 'researchOnly': True, 'scenario': 'actual-core-cold-warm' if args.real_core else 'pinned-ingress'}))
     except Exception as exc:
         if not failed:
             failed_stage = 'export' if exporting else worker_failure_state(output)[0]

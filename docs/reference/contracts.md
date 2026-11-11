@@ -110,6 +110,16 @@ it does not reset metrics. Warm fixture observations do not cover cold database
 initialization, recovery, migrations, or scheduler effects. Cache metrics and the
 database ping therefore remain pending until their cold lifecycle is qualified.
 
+The separate `--real-core` research runner invokes the pinned core and settings
+directly in isolated cold and warm processes, without changing the upstream source
+or pre-seeding the migration ledger. In the observed cold run,
+`ensureDbInitialized` opens and creates the database file before
+`getDbInstance` checks freshness. Initialization then seeds migration 001 and
+creates `quota_snapshots` inline; the pending migration 221 guard aborts. The
+warm process was not reached, so warm behavior is unobserved. This is an upstream
+cold-initialization failure, not evidence qualifying database ping or cache
+metrics reset; both operations remain pending.
+
 Successful complete ingress runs export one allowlisted `observed-outcomes.json`
 with exact input hashes, approved-archive source and declaration identities,
 validated executed backend-overlay hashes, isolation checks, and bounded HTTP
