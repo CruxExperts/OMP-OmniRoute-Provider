@@ -191,13 +191,13 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/84dcf1d3b583e08b7bc1dbbb6bafd462f18280ca25b0f8048c781591ba5416b2.json",
-        "caseSha256": "ca474ca5135266ebbf42597ea8528158adbbb563cd20baa9c4cddf754cc48b71",
+        "observedOutcome": "provenance/qualification/5fccecf4d205a6318b5295cc21bdcfbd73e9bf258921505f2c62fabe545f96db.json",
+        "caseSha256": "759e5802cca3de311a64e26387da7c63eb671613bfaf7c0b3ce25ea1d26c80d4",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-21368e95230258945712ead5c997ea542b0e2d67fae21e9ef3471e7050b701f4.json",
-        "sha256": "21368e95230258945712ead5c997ea542b0e2d67fae21e9ef3471e7050b701f4"
+        "artifact": "provenance/qualification/ingress-2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f.json",
+        "sha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f"
       },
       "evidence": [
         {
