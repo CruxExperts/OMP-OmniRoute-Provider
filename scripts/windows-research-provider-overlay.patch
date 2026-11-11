@@ -1,35 +1,50 @@
 --- a/src/index.ts
 +++ b/src/index.ts
-@@ -26,3 +26,10 @@
- 
+@@ -23,6 +23,13 @@
+ const PRICING_ENV = "OMP_OMNIROUTE_PRICING_FILE";
+ const MAX_BODY_BYTES = 8 * 1024 * 1024;
+ const MAX_JSON_DEPTH = 24;
++
 +// Research-only overlay. The host owns the sink and records integer markers only.
 +const researchSinkKey = Symbol.for("cruxomni.windowsResearch.trace.v1");
 +function researchStartup(marker: number): void {
 +	const sink = (globalThis as typeof globalThis & { [key: symbol]: unknown })[researchSinkKey];
 +	if (typeof sink === "function") sink(marker);
 +}
-+
+ 
  type ContextLike = ExtensionContext;
  
-@@ -517,4 +523,6 @@
+@@ -538,7 +545,9 @@
+ 			if (invitationFlight) await settleInvitation();
  			readinessIssue = undefined;
  			const previousActiveGeneration = config.active?.generation;
 +			researchStartup(30);
  			const loaded = await loadConfig();
 +			researchStartup(31);
  			config = loaded;
-@@ -528,3 +536,5 @@
--			await synchronizeAdministration(config);
+ 			if (recoveryBlocked) {
+ 				runtimeEndpoint = undefined;
+@@ -547,7 +556,9 @@
+ 				publishCurrent();
+ 				return { pendingValidated: false };
+ 			}
 +			researchStartup(32);
-+			await synchronizeAdministration(config);
+ 			await synchronizeAdministration(config);
 +			researchStartup(33);
  			const environment = envBinding(config);
  			const pending = environment ? undefined : config.pending;
-@@ -552,2 +562,3 @@
+ 			const active = environment ?? config.active;
+@@ -572,6 +583,7 @@
+ 				return { pendingValidated: false };
+ 			}
  			phase = "credential";
 +			researchStartup(34);
  			const credential = environment?.credential ?? (ctx
-@@ -559,5 +570,8 @@
+ 				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
+ 				: await resolveStartupRuntimeCredential(
+@@ -579,9 +591,12 @@
+ 					startupSignal ?? AbortSignal.timeout(10_000),
+ 					loaded,
  				));
 +			researchStartup(35);
  			credentialPresence = credential ? "present" : "missing";
@@ -38,34 +53,57 @@
  			const confirmed = await loadConfig();
 +			researchStartup(37);
  			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
-@@ -647,3 +661,5 @@
+ 				validConfiguration = false;
+ 				throw Object.assign(new Error("binding changed during credential resolution"), { code: "binding_changed" });
+@@ -666,7 +681,9 @@
+ 			return;
+ 		}
+ 		try {
 +			researchStartup(38);
  			if (!synchronized.pendingValidated) await manager.refresh({ force: manual });
 +			researchStartup(39);
  			if (manual) notify(ctx, `omniroute: ${readiness()}`, manager.status.stale ? "warning" : "info");
  		} catch (error) {
-@@ -775,3 +791,6 @@
+ 			if (manual) notify(ctx, `omniroute: ${readiness()}`, "warning");
+@@ -807,7 +824,10 @@
+ 		await rebindCurrentModel(ctx);
+ 	});
  	pi.on("session_start", async (_event, ctx) => {
 +		researchStartup(19);
 +		researchStartup(20);
  		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
 +		researchStartup(21);
  		stopped = false;
-@@ -791,9 +810,17 @@
+ 		if (!owner) {
+ 			registry = ctx.modelRegistry;
+@@ -822,11 +842,17 @@
+ 		setContext(ctx);
+ 		transitionNotifications = false;
+ 		manager.resume();
 +		researchStartup(22);
  		await refresh(ctx, false);
 +		researchStartup(23);
+ 		if (stopped) return;
 +		researchStartup(24);
  		await rebindCurrentModel(ctx);
 +		researchStartup(25);
+ 		if (stopped) return;
 +		researchStartup(26);
  		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
 +		researchStartup(27);
+ 		if (stopped) return;
  		reconnectSettings = parseReconnectSettings(settings);
  		transitionNotifications = settings.notifyTransitions !== false;
- 		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config)) {
- 			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /omniroute setup. You can open setup at any time.`);
+@@ -836,9 +862,11 @@
+ 			// In particular, Windows ACL checks can involve several child processes.
+ 			const controller = new AbortController();
+ 			invitationAborter = controller;
 +			researchStartup(28);
- 			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
-+			researchStartup(29);
- 		}
+ 			const flight = updateConfig(current => ({ ...current, invitationDismissed: true }), { signal: controller.signal }).then(
+-				() => undefined,
++				() => { researchStartup(29); },
+ 				error => {
++					researchStartup(40);
+ 					let cause: unknown = error;
+ 					while (cause instanceof Error && cause.cause) cause = cause.cause;
+ 					if (controller.signal.aborted && cause === controller.signal.reason) return;

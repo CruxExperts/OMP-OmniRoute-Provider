@@ -78,6 +78,16 @@ test("native login confirms an affirmative switch away from environment credenti
     "yes/no",
   ].join("\n");
   expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt)).toBe(true);
+  const nativePrompt = [
+    "│ Use a native OmniRoute profile connection instead of the environment connection?X│",
+    "│ This OMP profile will use the endpoint and runtime key you enter. Environment variables remain unchanged; a missing native credential will fail closed.      │",
+    "│ e.g., yes/noX│",
+    "│ >  X│",
+    "│ (⎋ to cancel, ⏎ to submit)X│",
+  ].join("\n");
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(nativePrompt)).toBe(true);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(nativePrompt.replace("yes/noX│", "yes/nothingX│"))).toBe(false);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(nativePrompt.replace("missing native credential will fail closed", "missing native credential will be ignored"))).toBe(false);
   expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt.replace("yes/no", ""))).toBe(false);
   expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt.replace("endpoint and runtime key", "connection"))).toBe(false);
   expect(nativeEnvironmentSwitchConfirmationPattern.test("Connect to OmniRoute?\nYes/No")).toBe(false);
@@ -301,6 +311,11 @@ test("research provider overlay changes only a verified disposable installed sou
     const result = await applyWindowsResearchOverlay(directory, patch);
     expect(result).toMatchObject({ researchOnly: true, archiveStillVerifiedAfterOverlay: false, file: "src/index.ts" });
     expect(result.resultingSha256).not.toBe(result.originalSha256);
+    const instrumented = await readFile(join(directory, "src/index.ts"), "utf8");
+    expect(instrumented).toContain('pi.on("session_start", async (_event, ctx) => {\n\t\tresearchStartup(19);');
+    expect(instrumented).toContain('researchStartup(28);\n\t\t\tconst flight = updateConfig');
+    expect(instrumented).toContain('() => { researchStartup(29); }');
+    expect(instrumented).toContain('error => {\n\t\t\t\t\tresearchStartup(40);');
     expect(await readFile(join(directory, "untouched.txt"), "utf8")).toBe("preserve");
     expect(await readFile(join(import.meta.dir, "../src/index.ts"))).toEqual(original);
     await expect(applyWindowsResearchOverlay(directory, patch)).rejects.toThrow("original provider mismatch");
@@ -308,6 +323,8 @@ test("research provider overlay changes only a verified disposable installed sou
     const invalid = join(directory, "invalid.patch");
     await writeFile(invalid, `${await readFile(patch, "utf8")}--- a/untouched.txt\n+++ b/untouched.txt\n`);
     await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("only src/index.ts");
+    await writeFile(invalid, `${await readFile(patch, "utf8")}\n`);
+    await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("patch digest mismatch");
     expect(await readFile(join(directory, "src/index.ts"))).toEqual(original);
   } finally {
     await rm(directory, { recursive: true, force: true });

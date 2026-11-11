@@ -868,7 +868,7 @@ export const nativeLoginCommandRenderedPattern = /\/login[^\n]*\n[^\n]*\blogin\s
 export const nativeLoginCommandCompletedPattern = /\/login[ \t]+\[provider\|redirect URL\]/i;
 
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
-export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no\b/i;
+export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
 export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
 export const nativeAdminUnknownOutcomePattern = /administration outcome is unknown; reconcile before retrying \(([a-z0-9-]+)\)/i;
 export const nativeAdminEmptyFallbackReadPattern = /read result for GET \/api\/fallback\/chains:[ \t]*\{[ \t]*\}/i;
@@ -1829,13 +1829,13 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   }
   const original = await readFile(target);
   const originalSha256 = createHash("sha256").update(original).digest("hex");
-  if (originalSha256 !== "d0a4bf6847e8b4235c94379f6d4f23e381f00003bf672feda695c4ba9f335a93") throw new Error("research overlay original provider mismatch");
+  if (originalSha256 !== "487c6214d4f7048f4399755ac06768ba8770113fa3abd03c041c0cb674fcb837") throw new Error("research overlay original provider mismatch");
   const patchBytes = await readFile(patchPath);
   const patch = patchBytes.toString("utf8");
   if ((patch.match(/^--- /gm) ?? []).length !== 1 || (patch.match(/^\+\+\+ /gm) ?? []).length !== 1
     || !patch.startsWith("--- a/src/index.ts\n+++ b/src/index.ts\n")) throw new Error("research overlay may change only src/index.ts");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "d219e3a155a7ffcb0946f89ec85384c689c584a41d194c0b9d9ce50fe5529c48") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "344dfe4a491886c59966c78584bc2ce26c11e9c269b28f466874c7a014b31dd9") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");

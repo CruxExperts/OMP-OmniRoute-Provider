@@ -114,6 +114,10 @@ startup. Configuration-consuming commands cancel it and wait for transaction
 cleanup before reading configuration; a stuck transaction remains unavailable,
 not bypassed. Official, unmodified Windows x64 and arm64 qualification remains
 required for the corrected source.
+The setup smoke recognizes the explicit `yes/no` hint when a native terminal
+redraw places its erase marker and box border directly after the word `no`.
+It still requires the full environment-to-native confirmation and fail-closed
+credential warning before sending the fixture's affirmative response.
 The native ACL diagnostic subsequently localized a failure to loading `Get-Acl`
 inside Windows PowerShell. Permission reads now use the framework APIs directly;
 the actual creation and verification helpers passed on x64 and arm64. An official
