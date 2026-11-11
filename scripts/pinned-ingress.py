@@ -598,6 +598,69 @@ def provision():
     identity_path.write_text(json.dumps(identity, indent=2) + '\n')
     identity_path.chmod(0o600)
 
+FAILURE_STAGES = ('preflight', 'materialize', 'provision', 'build', 'authHTTP', 'pinnedHTTP', 'export')
+FAILURE_CLASSES = ('RuntimeError', 'CalledProcessError', 'TimeoutExpired', 'OSError', 'ValueError', 'KeyError', 'Other')
+WORKER_STAGE = 'preflight'
+
+
+class CandidateFailed(RuntimeError):
+    def __init__(self, returncode):
+        super().__init__('candidate command failed')
+        self.returncode = returncode
+
+
+def failure_class(exc):
+    if isinstance(exc, (CandidateFailed, subprocess.CalledProcessError)):
+        return 'CalledProcessError'
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return 'TimeoutExpired'
+    for cls in (RuntimeError, OSError, ValueError, KeyError):
+        if isinstance(exc, cls):
+            return cls.__name__
+    return 'Other'
+
+
+def failure_code(exc):
+    code = getattr(exc, 'returncode', None) if isinstance(exc, (CandidateFailed, subprocess.CalledProcessError)) else None
+    return code if type(code) is int and -255 <= code <= 255 and code != 0 else None
+
+
+def worker_stage(stage):
+    global WORKER_STAGE
+    require(stage in FAILURE_STAGES[:-1], 'invalid worker stage')
+    WORKER_STAGE = stage
+    save(Path('/work/failure-state.json'), {'stage': stage, 'exceptionClass': None, 'returnCode': None})
+
+
+def write_failure(output, hashes, stage, exception_class, returncode):
+    require(stage in FAILURE_STAGES and exception_class in FAILURE_CLASSES, 'invalid failure classification')
+    require(returncode is None or (type(returncode) is int and -255 <= returncode <= 255 and returncode != 0), 'invalid failure return code')
+    require(input_hashes() == hashes, 'input bytes changed during run')
+    tracked = sha(json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode())
+    artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification',
+        'stage': stage, 'exceptionClass': exception_class,
+        'exitCode': returncode if returncode is not None and returncode > 0 else None,
+        'signal': -returncode if returncode is not None and returncode < 0 else None,
+        'sourceCommit': COMMIT, 'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA,
+        'trackedInputsSha256': tracked}
+    fd = os.open(output.parent / 'failure.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, 'w', encoding='utf-8') as destination:
+        json.dump(artifact, destination, indent=2)
+        destination.write('\n')
+
+
+def worker_failure_state(output):
+    path = output / 'failure-state.json'
+    try:
+        state = bounded_json(path)
+        require(set(state) == {'stage', 'exceptionClass', 'returnCode'}, 'invalid failure state')
+        stage, cls, code = state['stage'], state['exceptionClass'], state['returnCode']
+        require(stage in FAILURE_STAGES[:-1] and (cls is None or cls in FAILURE_CLASSES), 'invalid failure state')
+        require(code is None or (type(code) is int and -255 <= code <= 255 and code != 0), 'invalid failure state')
+        return stage, cls, code
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        return 'preflight', None, None
+
 def run_bounded(command, log_path, deadline, env):
     child = subprocess.Popen(command, cwd='/work/app', env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
     selector = selectors.DefaultSelector()
@@ -617,7 +680,8 @@ def run_bounded(command, log_path, deadline, env):
                     require(count <= 2 * 1024**2, 'output limit exceeded')
                     output.write(data)
         code = child.wait(timeout=5)
-        require(code == 0, 'candidate command failed: ' + str(code))
+        if code != 0:
+            raise CandidateFailed(code)
     finally:
         if child.poll() is None:
             os.killpg(child.pid, signal.SIGKILL)
@@ -625,6 +689,7 @@ def run_bounded(command, log_path, deadline, env):
 
 
 def worker():
+    worker_stage('preflight')
     require(Path.cwd() == Path('/work/app'), 'unexpected workspace')
     require(Path('/limits/memory.max').read_text().strip() == str(MEMORY), 'memory limit unavailable')
     require(0 < len(os.sched_getaffinity(0)) <= 2, 'CPU limit unavailable')
@@ -639,7 +704,9 @@ def worker():
     require({x['ifname'] for x in interfaces} == {'lo'}, 'external network interface visible')
     save(Path('/work/preflight.json'), {'namespaces': actual, 'memoryMax': MEMORY, 'cpuAffinity': sorted(os.sched_getaffinity(0)), 'network': 'private-loopback-only', 'mountInfo': Path('/proc/self/mountinfo').read_text(), 'environmentKeys': sorted(os.environ), 'nodeSha256': NODE_SHA})
     deadline = time.monotonic() + 540
+    worker_stage('materialize')
     material = materialize()
+    worker_stage('provision')
     provision()
     state = {'bypass': 'disabled', 'settings': {'requireLogin': True, 'password': 'fixture-configured', 'setupComplete': True}, 'tokens': []}
     save(Path('/work/data/state.json'), state)
@@ -648,12 +715,15 @@ def worker():
     # Keep source, overlay and exact installed dependency bytes read-only while
     # allowing only Next's and the source plugins' owned output directories.
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--bind', '/work/app/.build', '/work/app/.build', '--bind', '/work/app/.source', '/work/app/.source', '--bind', '/work/app/next-env.d.ts', '/work/app/next-env.d.ts', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
+    worker_stage('build')
     run_bounded(isolate + ['/runtime/node', '/work/app/node_modules/next/dist/bin/next', 'build'], Path('/work/build.private'), deadline, env)
     material['webpackDeviation'] = False
     material['bundler'] = 'next-default'
     save(Path('/work/materialization.json'), material)
     env['INGRESS_APPROVED_SANDBOX'] = '1'
+    worker_stage('authHTTP')
     run_bounded(isolate + ['/runtime/node', '/work/fixture/driver.mjs'], Path('/work/http.private'), deadline, env)
+    worker_stage('pinnedHTTP')
     run_bounded(isolate + ['/runtime/node', '/work/fixture/pinned-ingress-driver.mjs'], Path('/work/pinned-http.private'), deadline, env)
     save(Path('/work/result.json'), {'status': 'research-observed', 'qualification': False, 'materialization': material})
 
@@ -703,6 +773,8 @@ def auth_state_sha(name, bypass):
     if name == 'access-revoked':
         row['revoked_at'] = '2020-01-01T00:00:00.000Z'
     state = {'bypass': bypass, 'syncToken': 'research-only-internal-sync-token', 'settings': {'requireLogin': True, 'password': 'fixture-configured', 'setupComplete': True}, 'tokens': [row] if name in ('access-allowed', 'access-expired', 'access-revoked', 'access-backend-error') else [], 'failTokenRead': name == 'access-backend-error'}
+    if name == 'disabled-bypass-health':
+        state['ipFilter'] = {'enabled': True, 'mode': 'blacklist', 'blacklist': ['198.51.100.23'], 'whitelist': []}
     return sha(json.dumps(state, separators=(',', ':'), ensure_ascii=False).encode())
 
 
@@ -715,8 +787,15 @@ def validate_public_health(response):
     require(response['cacheControl'] == 'no-store, no-cache, must-revalidate' and response['contentType'] == 'application/json', 'public health headers mismatch')
 
 
+def validate_public_cors(response, origin):
+    require(response['allowOrigin'] == origin and response['allowCredentials'] is None, 'public CORS origin mismatch')
+    vary = {part.strip().lower() for part in (response['vary'] or '').split(',')}
+    require(('origin' in vary) == (origin is not None), 'public CORS vary mismatch')
+    require(response['allowMethods'] == 'GET, POST, PUT, DELETE, PATCH, OPTIONS' and response['allowHeaders'] == 'Content-Type, Authorization, x-api-key, anthropic-version, x-omniroute-connection, X-OmniRoute-Lease-Owner, X-OmniRoute-Lease-Generation, x-internal-test, accept', 'public CORS headers mismatch')
+
 def validate_public_health_evidence(auth):
     observed = next(row for row in auth['results'] if row['name'] == 'disabled-bypass-health')
+    require(any(event.get('event') == 'ip-filter:read' for event in observed['requestEvents']), 'public IP filter config read missing')
     validate_public_health(observed['response'])
     during, after = observed['draining']['during'], observed['draining']['after']
     body = json.loads(during['body'])
@@ -728,10 +807,15 @@ def validate_public_health_evidence(auth):
     for name, origin in (('allowed', 'https://allowed.example'), ('unlisted', None)):
         response = cors[name]
         validate_public_health(response)
-        require(response['allowOrigin'] == origin and response['allowCredentials'] is None, 'public CORS origin mismatch')
-        vary = {part.strip().lower() for part in (response['vary'] or '').split(',')}
-        require(('origin' in vary) == (origin is not None), 'public CORS vary mismatch')
-        require(response['allowMethods'] == 'GET, POST, PUT, DELETE, PATCH, OPTIONS' and response['allowHeaders'] == 'Content-Type, Authorization, x-api-key, anthropic-version, x-omniroute-connection, X-OmniRoute-Lease-Owner, X-OmniRoute-Lease-Generation, x-internal-test, accept', 'public CORS headers mismatch')
+        validate_public_cors(response, origin)
+    forwarded = observed['forwardedIp']
+    require(set(forwarded) == {'denied', 'recovered'}, 'forwarded IP cases incomplete')
+    denied, recovered = forwarded['denied'], forwarded['recovered']
+    require(denied['status'] == 403 and denied['routeClass'] == 'PUBLIC' and denied['requestIdUuid'] is True and denied['contentType'] == 'application/json', 'forwarded IP denial headers mismatch')
+    require(isinstance(denied['body'], str) and len(denied['body']) <= 65536 and json.loads(denied['body']) == {'error': 'IP blacklisted'}, 'forwarded IP denial body mismatch')
+    validate_public_cors(denied, 'https://allowed.example')
+    validate_public_health(recovered)
+    validate_public_cors(recovered, 'https://allowed.example')
     return {'method': 'GET', 'path': '/api/health', 'anonymous': True, 'status': 200, 'bodyKeys': ['status', 'timestamp'], 'timestampFormatAndRequestWindowValid': True, 'cacheControl': 'no-store, no-cache, must-revalidate', 'contentType': 'application/json', 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'drain': {'status': 503, 'code': 'SERVICE_UNAVAILABLE', 'message': 'Server is shutting down', 'requestIdUuid': True, 'correlationMatchesRequestId': True, 'retryAfter': '5', 'contentType': 'application/json', 'routeClass': 'PUBLIC', 'recoveryStatus': 200}, 'cors': {'configuredAllowedOrigin': 'https://allowed.example', 'allowedOriginEchoed': True, 'unlistedOriginOmitted': True, 'credentialsOmitted': True}}
 
 
@@ -830,7 +914,8 @@ def export_observations(output, hashes):
     artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Default Next bundler uses disposable source overlays; runtime observation is not production database qualification.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
     artifact['inputs']['sourceOverlaySha256'] = expected_overlays
     artifact['publicHealthHttp'] = public_health
-    artifact['limitations'].append('The handler is liveness-only, but proxy cache warmup and IP filtering can depend on storage before PUBLIC policy; a blocked-IP path was not observed.')
+    artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
+    artifact['limitations'].append('The IP filter denial and recovery exercise forwarding-header fallback with unknown peer locality under bare Next start. They do not demonstrate authenticated peer-stamp denial, peer locality, or reverse-proxy trust.')
     artifact['inputs']['executedOverlaySha256'] = overlays
     export = output / 'export'
     export.mkdir(mode=0o700)
@@ -871,7 +956,11 @@ def main():
     global NODE, SOURCE, DEPENDENCIES, BWRAP
     NODE, SOURCE, DEPENDENCIES, BWRAP = args.node, args.source_archive, args.dependency_dir, args.bwrap
     if args.worker:
-        worker()
+        try:
+            worker()
+        except Exception as exc:
+            save(Path('/work/failure-state.json'), {'stage': WORKER_STAGE, 'exceptionClass': failure_class(exc), 'returnCode': failure_code(exc)})
+            raise
         return
     require(not (args.ci_apparmor_load and args.ci_apparmor_cleanup), 'choose one AppArmor action')
     if args.ci_apparmor_load or args.ci_apparmor_cleanup:
@@ -922,6 +1011,8 @@ def main():
     selector.register(process.stdout, selectors.EVENT_READ)
     deadline = time.monotonic() + 610
     count = 0
+    failed = False
+    exporting = False
     try:
         with (output / 'supervisor.private').open('xb') as log:
             while selector.get_map():
@@ -936,10 +1027,20 @@ def main():
                     require(count <= 1024**2, 'supervisor output limit exceeded')
                     log.write(block)
         code = process.wait(timeout=5)
-        require(code == 0, 'isolated ingress run failed; inspect private logs')
+        if code != 0:
+            stage, cls, worker_code = worker_failure_state(output)
+            write_failure(output, hashes, stage, cls or 'Other', worker_code if worker_code is not None else (code if -255 <= code <= 255 else None))
+            failed = True
+            raise RuntimeError('isolated ingress run failed at ' + stage + '; inspect private logs')
+        exporting = True
         require(input_hashes() == hashes, 'input bytes changed during run')
         export_observations(output, hashes)
         print(json.dumps({'output': str(output), 'exitCode': code, 'researchOnly': True}))
+    except Exception as exc:
+        if not failed:
+            stage = 'export' if exporting else worker_failure_state(output)[0]
+            write_failure(output, hashes, stage, failure_class(exc), failure_code(exc))
+        raise
     finally:
         subprocess.run(['/usr/bin/systemctl', '--user', 'stop', unit], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
         if process.poll() is None:

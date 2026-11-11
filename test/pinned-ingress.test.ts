@@ -261,6 +261,41 @@ with tempfile.TemporaryDirectory() as temp:
   expect(result.status).toBe(0);
 });
 
+test("ingress failure evidence is bounded, source-bound, and excludes private data", () => {
+  const code = String.raw`
+import importlib.util, json, pathlib, subprocess, sys, tempfile
+s = importlib.util.spec_from_file_location('ingress', sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as temp:
+ root = pathlib.Path(temp); output = root/'ingress-run'; output.mkdir()
+ hashes = {'tracked': 'a'*64}; m.input_hashes = lambda: hashes
+ state = output/'failure-state.json'
+ state.write_text(json.dumps({'stage':'build','exceptionClass':'CalledProcessError','returnCode':-9}))
+ assert m.worker_failure_state(output) == ('build','CalledProcessError',-9)
+ m.write_failure(output, hashes, *m.worker_failure_state(output))
+ artifact = json.loads((root/'failure.json').read_text())
+ assert set(artifact) == {'schemaVersion','classification','stage','exceptionClass','exitCode','signal','sourceCommit','sourceArchiveSha256','nodeSha256','trackedInputsSha256'}
+ assert artifact['stage'] == 'build' and artifact['signal'] == 9 and artifact['exitCode'] is None
+ assert artifact['sourceCommit'] == m.COMMIT and artifact['nodeSha256'] == m.NODE_SHA and artifact['sourceArchiveSha256'] == m.ARCHIVE_SHA
+ assert artifact['trackedInputsSha256'] == m.sha(json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode())
+ assert m.failure_class(m.CandidateFailed(42)) == 'CalledProcessError' and m.failure_code(m.CandidateFailed(42)) == 42
+ assert m.failure_class(RuntimeError('private-canary /path token')) == 'RuntimeError'
+ assert 'private-canary' not in json.dumps(artifact) and '/path' not in json.dumps(artifact)
+ for bad in ({'stage':'private-canary','exceptionClass':'RuntimeError','returnCode':1}, {'stage':'build','exceptionClass':'RuntimeError','returnCode':True}, {'stage':'build','exceptionClass':'private-canary','returnCode':1}):
+  state.write_text(json.dumps(bad)); assert m.worker_failure_state(output) == ('preflight',None,None)
+ try: m.write_failure(output, hashes, 'build', 'RuntimeError', 1)
+ except FileExistsError: pass
+ else: raise AssertionError('existing artifact overwritten')
+ (root/'failure.json').unlink(); hashes['changed'] = 'b'*64
+ try: m.write_failure(output, {'tracked':'a'*64}, 'export', 'RuntimeError', None)
+ except RuntimeError: pass
+ else: raise AssertionError('changed source accepted')
+ assert not (root/'failure.json').exists()
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
 test("ingress export rejects incomplete and contradictory observations and never copies private fields", () => {
   const code = String.raw`
 import importlib.util, io, json, pathlib, sys, tarfile, tempfile
@@ -314,11 +349,13 @@ with tempfile.TemporaryDirectory() as temp:
   route = 'PUBLIC' if path == '/api/health' else 'MANAGEMENT'
   auth['results'].append({'name':name,'stateSha256':m.auth_state_sha(name,bypass),'response':{'status':status,'routeClass':route,'body': ('"status":"ok"' if route == 'PUBLIC' else 'management-handler-reached') if status == 200 else 'private-canary'},'events':[{'event':'access-token:usage-stamp','private':'private-canary'}] if name == 'access-allowed' else []})
  public = next(row for row in auth['results'] if row['name'] == 'disabled-bypass-health')
+ public['requestEvents'] = [{'event':'ip-filter:read','private':'private-canary'}]
  def public_response(origin=None):
   return {'status':200,'routeClass':'PUBLIC','body':'{"status":"ok","timestamp":"2026-01-01T00:00:00.000Z"}','contentType':'application/json','cacheControl':'no-store, no-cache, must-revalidate','requestIdUuid':True,'started':1767225600000,'ended':1767225600001,'allowOrigin':origin,'vary':'Origin' if origin else None,'allowMethods':'GET, POST, PUT, DELETE, PATCH, OPTIONS','allowHeaders':'Content-Type, Authorization, x-api-key, anthropic-version, x-omniroute-connection, X-OmniRoute-Lease-Owner, X-OmniRoute-Lease-Generation, x-internal-test, accept','allowCredentials':None}
  public['response'] = public_response()
  public['draining'] = {'during':{'status':503,'routeClass':'PUBLIC','contentType':'application/json','retryAfter':'5','requestIdUuid':True,'correlationMatchesRequestId':True,'body':json.dumps({'error':{'code':'SERVICE_UNAVAILABLE','message':'Server is shutting down','correlation_id_present':True},'errorKeys':['code','correlation_id','message'],'bodyKeys':['error']})},'after':public_response()}
  public['cors'] = {'allowed':public_response('https://allowed.example'),'unlisted':public_response()}
+ public['forwardedIp'] = {'denied':{**public_response('https://allowed.example'),'status':403,'body':'{"error":"IP blacklisted"}'},'recovered':public_response('https://allowed.example')}
  health = lambda ping: {'status':200,'cacheControl':'no-store','body':{'status':'ok','timestamp':'2026-01-01T00:00:00.000Z',**({'latencyMs':1} if ping else {})}}
  totals = {'totalRequests':3,'requestsWithCacheControl':2,'totalInputTokens':300,'totalCachedTokens':150,'totalCacheCreationTokens':10,'byProvider':{'alpha':{'totalRequests':2}},'byStrategy':{'direct':{'cachedTokens':50}},'extra':'private-canary'}
  metrics = lambda method: {'case':method+' /api/settings/cache-metrics','denied':{'status':401},'invalid':{'status':403},'allowed':{'status':200,'body':totals},'usageRowsAfter':3}
@@ -330,6 +367,8 @@ with tempfile.TemporaryDirectory() as temp:
  assert 'private-canary' not in json.dumps(exported) and len(exported['sharedAuthentication']) == 12
  assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
+ assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
+ assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
  assert exported['inputs']['sourceOverlaySha256'] == identity['sourceOverlaySha256']
@@ -354,6 +393,10 @@ with tempfile.TemporaryDirectory() as temp:
   row['events'].append({'event':'access-token:usage-stamp'}); put('data/observations.json',auth); rejected(); row['events'].clear()
   row['response']['body'] = 'management-handler-reached'; put('data/observations.json',auth); rejected(); row['response']['body'] = 'private-canary'
  put('data/observations.json',auth)
+ for bad in ([], [{'event':'ip-filter:wrong'}]):
+  original = public['requestEvents']; public['requestEvents'] = bad; put('data/observations.json',auth); rejected(); public['requestEvents'] = original
+ original = public.pop('requestEvents'); put('data/observations.json',auth); rejected(); public['requestEvents'] = original
+ original = public['stateSha256']; public['stateSha256'] = 'a'*64; put('data/observations.json',auth); rejected(); public['stateSha256'] = original
  during = public['draining']['during']
  for key, bad in [('body','{"error":{"code":"wrong"}}'),('retryAfter','4'),('contentType','text/plain'),('routeClass','MANAGEMENT'),('correlationMatchesRequestId',False),('requestIdUuid',False)]:
   original = during[key]; during[key] = bad; put('data/observations.json',auth); rejected(); during[key] = original
@@ -361,6 +404,15 @@ with tempfile.TemporaryDirectory() as temp:
   original = public['response'][key]; public['response'][key] = bad; put('data/observations.json',auth); rejected(); public['response'][key] = original
  original = public['cors']['unlisted']['allowOrigin']; public['cors']['unlisted']['allowOrigin'] = 'https://unlisted.example'; put('data/observations.json',auth); rejected(); public['cors']['unlisted']['allowOrigin'] = original
  original = public['cors'].pop('allowed'); put('data/observations.json',auth); rejected(); public['cors']['allowed'] = original
+ forwarded = public['forwardedIp']
+ for name in ('denied','recovered'):
+  original = forwarded.pop(name); put('data/observations.json',auth); rejected(); forwarded[name] = original
+ for name, changes in [('denied',[('status',401),('body','{"error":"IP not in whitelist"}'),('body','{"error":"Access denied"}'),('body','{"error":"IP blacklisted","extra":true}'),('contentType','text/plain'),('routeClass','MANAGEMENT'),('requestIdUuid',False),('allowOrigin',None),('allowCredentials','true'),('vary',None)]),('recovered',[('status',403),('body','{"error":"IP blacklisted"}'),('routeClass','MANAGEMENT'),('requestIdUuid',False),('allowOrigin',None),('allowMethods','GET')])]:
+  response = forwarded[name]
+  for key, bad in changes:
+   original = response[key]; response[key] = bad; put('data/observations.json',auth); rejected(); response[key] = original
+   original = response.pop(key); put('data/observations.json',auth); rejected(); response[key] = original
+ original = public.pop('forwardedIp'); put('data/observations.json',auth); rejected(); public['forwardedIp'] = original
  put('data/observations.json',auth)
  ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
  ingress['results'] = rows; rows[-1]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()

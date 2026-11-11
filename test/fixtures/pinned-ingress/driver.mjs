@@ -95,17 +95,26 @@ const results = [];
 for (const scenario of cases) {
   const statePath = `${stateDir}/state.json`, eventsPath = `${stateDir}/events.jsonl`;
   const state = { bypass: scenario.bypass, syncToken: sync, settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true }, tokens: scenario.row ? [scenario.row] : [], failTokenRead: scenario.failTokenRead === true };
+  // Bare Next has no authenticated socket stamp; exercise only its header fallback.
+  if (scenario.name === 'disabled-bypass-health') state.ipFilter = { enabled: true, mode: 'blacklist', blacklist: ['198.51.100.23'], whitelist: [] };
   await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
   await writeFile(eventsPath, '', { mode: 0o600 });
   const child = spawn(node, ['--import', `${fixture}/initialize.mjs`, '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], { cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: stateDir, INGRESS_STATE_FILE: statePath, INGRESS_EVENT_FILE: eventsPath, JWT_SECRET: jwtSecret, CORS_ALLOWED_ORIGINS: 'https://allowed.example' }, stdio: ['ignore', 'inherit', 'inherit'] });
   try {
     await ready(child);
+    await writeFile(eventsPath, '', { mode: 0o600 });
     const result = await request(scenario.path, scenario.headers);
+    if ((await stat(eventsPath)).size > 1048576) throw new Error('EVENT_LOG_LIMIT');
+    const requestEvents = (await readFile(eventsPath, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
     const expectedClass = scenario.health ? 'PUBLIC' : 'MANAGEMENT';
     if (result.routeClass !== expectedClass) throw new Error(`MATCHER_NOT_OBSERVED:${scenario.name}`);
     if (result.status !== scenario.status || (scenario.marker && !result.body.includes(scenario.marker))) throw new Error(`HTTP_MISMATCH:${scenario.name}:${result.status}`);
-    let draining, cors;
+    let draining, cors, forwardedIp;
     if (scenario.name === 'disabled-bypass-health') {
+      const denied = await request('/api/health', { 'x-forwarded-for': '198.51.100.23', origin: 'https://allowed.example' });
+      const recovered = await request('/api/health', { 'x-forwarded-for': '198.51.100.24', origin: 'https://allowed.example' });
+      if (denied.status !== 403 || recovered.status !== 200) throw new Error('FORWARDED_IP_TRANSITION_MISMATCH');
+      forwardedIp = { denied, recovered };
       child.kill('SIGUSR2');
       const during = await awaitStatus(child, '/api/health', 503);
       child.kill('SIGUSR2');
@@ -120,8 +129,9 @@ for (const scenario of cases) {
     if ((await stat(eventsPath)).size > 1048576) throw new Error(`EVENT_LOG_LIMIT:${scenario.name}`);
     const events = (await readFile(eventsPath, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
     if (events.some(e => String(e.event).startsWith('unsupported:'))) throw new Error(`UNSUPPORTED_BOUNDARY:${scenario.name}`);
+    if (scenario.name === 'disabled-bypass-health' && !requestEvents.some(e => e.event === 'ip-filter:read')) throw new Error('IP_FILTER_CONFIG_READ_MISSING');
     if (scenario.name === 'access-allowed' && !events.some(e => e.event === 'access-token:usage-stamp')) throw new Error('TOKEN_USAGE_STAMP_MISSING');
-    results.push({ name: scenario.name, stateSha256: sha(JSON.stringify(state)), response: result, draining, cors, events });
+    results.push({ name: scenario.name, stateSha256: sha(JSON.stringify(state)), response: result, draining, cors, forwardedIp, events, requestEvents });
   } finally {
     await stop(child);
   }

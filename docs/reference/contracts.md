@@ -113,8 +113,9 @@ The public liveness observation additionally checks the timestamp against its
 request window, drain error envelope and retry header, request/correlation ID
 relationship, recovery, and configured versus unlisted CORS origins. Public
 authentication does not imply that proxy cache warmup or IP filtering avoids
-storage. Blocked-IP behavior remains unproven; a changed default-bundler path
-requires a new isolated build and HTTP observation before its evidence is accepted.
+storage. The forwarded-address rejection case covers an unstamped, unknown peer;
+it does not prove authenticated socket-peer stamping or proxy trust. Changed
+runner inputs require a new isolated build and HTTP observation before acceptance.
 
 Canonical API response metadata includes source-witnessed pipeline draining and
 IP-filter rejection branches before route policy evaluation. This does not
@@ -122,6 +123,10 @@ qualify an operation or prove exclusive response shapes: another applicable
 policy or handler may return the same status with a different body or headers.
 HEAD, OPTIONS, dynamic paths, and rewritten aliases need their own method/path
 proof rather than inferred JSON outcomes.
+
+Failed isolated runs retain only `failure.json`: an allowlisted stage and error
+class, exit code or signal, and source/runtime/tracked-input digests. CI uploads
+that exact file when present, never the private compiler or HTTP logs.
 
 
 After the final manifest edits, rerun every suite named by the active eligibility
