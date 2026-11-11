@@ -126,6 +126,12 @@ use the existing package exporter and target preparation, with
 terminal Enter. Only allowlisted state is uploaded; raw editor values are not.
 Neither diagnostic replaces any native qualification result.
 
+The diagnostic's `acl_only` input runs a bounded PowerShell input/EOF handshake
+and the actual private-directory and file ACL helpers on both Windows
+architectures. It records phase status and duration only, not paths, ACL contents,
+or credentials. This isolates persistence failures without repeating the full
+login smoke and never supplies qualification evidence.
+
 The native-host packet is initialized after host and archive verification and
 before native interaction. It retains bounded run and source identifiers, the
 archive SHA-256, verified host SHA-256 and version, and native architecture.

@@ -7,6 +7,10 @@ on:
         description: Run source-built Windows x64 causal research instead of official diagnostics
         type: boolean
         default: false
+      acl_only:
+        description: Run only the native private ACL diagnostic on both Windows architectures
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +23,7 @@ env:
 
 jobs:
   package:
-    if: ${{ !inputs.research }}
+    if: ${{ !inputs.research && !inputs.acl_only }}
     name: prepare-diagnostic-package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -45,7 +49,7 @@ jobs:
           retention-days: 14
 
   host:
-    if: ${{ !inputs.research }}
+    if: ${{ !inputs.research && !inputs.acl_only }}
     name: native-login-${{ matrix.id }}
     needs: package
     strategy:
@@ -87,7 +91,7 @@ jobs:
           retention-days: 14
 
   probe:
-    if: ${{ !inputs.research }}
+    if: ${{ !inputs.research || inputs.acl_only }}
     name: input-transport-${{ matrix.id }}
     strategy:
       fail-fast: false
@@ -105,19 +109,32 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: { bun-version: "1.4.2" }
       - name: Probe native input transport
+        if: ${{ !inputs.acl_only }}
         shell: pwsh
         run: bun run scripts/windows-input-probe.ts "$env:RUNNER_TEMP/windows-input-diagnostic.json"
-      - name: Upload bounded diagnostic only
+      - name: Probe native private ACL operations
         if: always()
+        shell: pwsh
+        run: bun run scripts/windows-input-probe.ts --acl "$env:RUNNER_TEMP/windows-acl-diagnostic.json"
+      - name: Upload bounded diagnostic only
+        if: ${{ always() && !inputs.acl_only }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-input-diagnostic-${{ matrix.id }}
           path: ${{ runner.temp }}/windows-input-diagnostic.json
           if-no-files-found: error
           retention-days: 14
+      - name: Upload bounded ACL observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-acl-diagnostic-${{ matrix.id }}
+          path: ${{ runner.temp }}/windows-acl-diagnostic.json
+          if-no-files-found: error
+          retention-days: 14
 
   research:
-    if: ${{ inputs.research }}
+    if: ${{ inputs.research && !inputs.acl_only }}
     uses: ./.github/workflows/windows-login-research.yml
     permissions:
       contents: read

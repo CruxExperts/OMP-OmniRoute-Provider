@@ -1,4 +1,9 @@
 import { writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createPrivateWindowsDirectory, verifyPrivateWindowsConfig, verifyPrivateWindowsPath } from "../src/private-path.ts";
 
 // This is a transport diagnostic, not a host smoke test or qualification evidence.
 const marker = "INPUT_PROBE:";
@@ -181,8 +186,79 @@ async function parent(output: string): Promise<void> {
   if (!success) process.exitCode = 1;
 }
 
+type AclPhase = { phase: string; durationMs: number; status: "ok" | "failed"; exitCode: number | null; signal: string | null; killed: boolean | null };
+
+function childStatus(error: unknown): Pick<AclPhase, "exitCode" | "signal" | "killed"> {
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+  const child = cause && typeof cause === "object" ? cause as { code?: unknown; signal?: unknown; killed?: unknown } : {};
+  return {
+    exitCode: typeof child.code === "number" ? child.code : null,
+    signal: child.signal === "SIGTERM" || child.signal === "SIGKILL" ? child.signal : null,
+    killed: typeof child.killed === "boolean" ? child.killed : null,
+  };
+}
+
+async function aclProbe(output: string): Promise<void> {
+  const phases: AclPhase[] = [];
+  let readyMs: number | null = null;
+  let eofMs: number | null = null;
+  let stdinFinishedMs: number | null = null;
+  let root: string | undefined;
+  async function phase(name: string, action: () => Promise<void>, isChild = false): Promise<boolean> {
+    const start = performance.now();
+    try {
+      await action();
+      phases.push({ phase: name, durationMs: Math.round(performance.now() - start), status: "ok", exitCode: isChild ? 0 : null, signal: null, killed: isChild ? false : null });
+      return true;
+    } catch (error) {
+      phases.push({ phase: name, durationMs: Math.round(performance.now() - start), status: "failed", ...childStatus(error) });
+      return false;
+    }
+  }
+
+  await phase("eof-handshake", () => {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const start = performance.now();
+    const script = "$ErrorActionPreference = 'Stop'; [Console]::Out.WriteLine('READY'); $request = [Console]::In.ReadToEnd() | ConvertFrom-Json; if ($request.fixture -ne 'probe') { exit 2 }; [Console]::Out.WriteLine('EOF')";
+    const encoded = Buffer.from(script, "utf16le").toString("base64");
+    const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { windowsHide: true, timeout: 30_000 }, error => error ? reject(error) : resolve());
+    let observed = "";
+    child.stdout?.on("data", (bytes: Buffer) => {
+      observed = (observed + bytes.toString("utf8")).slice(-128);
+      if (readyMs === null && observed.includes("READY")) readyMs = Math.round(performance.now() - start);
+      if (eofMs === null && observed.includes("EOF")) eofMs = Math.round(performance.now() - start);
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.on("finish", () => { stdinFinishedMs = Math.round(performance.now() - start); });
+    child.stdin?.end(JSON.stringify({ fixture: "probe" }));
+    return promise;
+  }, true);
+
+  const prepared = await phase("temp-create", async () => { root = await mkdtemp(join(tmpdir(), "omp-acl-probe-")); });
+  if (prepared && root) {
+    const directory = join(root, "private");
+    const file = join(directory, "fixture");
+    const created = await phase("acl-create-directory", () => createPrivateWindowsDirectory(directory), true);
+    if (created) {
+      await phase("acl-verify-directory", () => verifyPrivateWindowsConfig(directory), true);
+      const fileCreated = await phase("fixture-create", () => writeFile(file, "fixture", { flag: "wx" }));
+      if (fileCreated) {
+        await phase("acl-verify-file", () => verifyPrivateWindowsPath(file, false), true);
+        await phase("acl-verify-config", () => verifyPrivateWindowsConfig(directory, file), true);
+      }
+    }
+    await phase("temp-remove", () => rm(root!, { recursive: true, force: true }));
+  }
+  const success = phases.every(item => item.status === "ok") && readyMs !== null && eofMs !== null && stdinFinishedMs !== null;
+  writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-private-acl", success, handshake: { readyMs, stdinFinishedMs, eofMs }, phases }, null, 2)}\n`);
+  if (!success) process.exitCode = 1;
+}
+
 if (process.argv[2] === "--child") child();
-else if (process.platform !== "win32" || !process.argv[2] || process.argv.length !== 3) {
-  console.error("Usage on Windows: bun run scripts/windows-input-probe.ts <output.json>");
+else if (process.platform === "win32" && process.argv[2] === "--acl" && process.argv[3] && process.argv.length === 4) await aclProbe(process.argv[3]);
+else if (process.platform === "win32" && process.argv[2] && process.argv.length === 3) await parent(process.argv[2]);
+else {
+  console.error("Usage on Windows: bun run scripts/windows-input-probe.ts [--acl] <output.json>");
   process.exitCode = 1;
-} else await parent(process.argv[2]);
+}
