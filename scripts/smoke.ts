@@ -2044,7 +2044,36 @@ export async function runSmoke(): Promise<SmokeResult> {
       OMP_OMNIROUTE_BASE_URL: environmentFixture.url,
       OMP_OMNIROUTE_API_KEY: oldEnvKey,
     };
-    const nativeSetup = await nativePromptSetup(binary, workspace, environmentA, fixture.url, environmentFixture);
+    const diagnosticPathForSetup = diagnosticIdentity ? process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH : undefined;
+    const setupRequestStart = fixture.requests.length;
+    const priorDiagnostic = diagnosticPathForSetup ? JSON.parse(await readFile(diagnosticPathForSetup, "utf8")) as { observations: JsonObject } : undefined;
+    let lastSetupObservation = "";
+    let diagnosticWrite = Promise.resolve();
+    let diagnosticError: unknown;
+    const captureSetupEffects = (): void => {
+      if (!diagnosticPathForSetup || !diagnosticIdentity || !priorDiagnostic) return;
+      const requests = fixture.requests.slice(setupRequestStart)
+        .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
+        .slice(0, 16)
+        .map(request => ({ route: request.path === "/api/cloud/auth" ? "key-verification" : "models", finished: request.completedAt !== undefined, closed: request.closedAt !== undefined, status: request.status ?? null }));
+      const observation = JSON.stringify(requests);
+      if (observation === lastSetupObservation) return;
+      lastSetupObservation = observation;
+      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests })).catch(error => { diagnosticError ??= error; });
+    };
+    captureSetupEffects();
+    await diagnosticWrite;
+    if (diagnosticError) throw diagnosticError;
+    const diagnosticTimer = diagnosticPathForSetup ? setInterval(captureSetupEffects, 500) : undefined;
+    let nativeSetup: { masked: boolean; postSwitchEnvironmentRequestIndex: number };
+    try {
+      nativeSetup = await nativePromptSetup(binary, workspace, environmentA, fixture.url, environmentFixture);
+    } finally {
+      clearInterval(diagnosticTimer);
+      captureSetupEffects();
+      await diagnosticWrite;
+      if (diagnosticError) throw diagnosticError;
+    }
     const persistedChatCompletions = await nativeProviderInference(
       binary,
       workspace,

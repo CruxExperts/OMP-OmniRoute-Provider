@@ -71,7 +71,7 @@ jobs:
         shell: bash
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify native private configuration and reject broad grants
-        shell: bash
+        shell: pwsh
         run: bun test test/config.test.ts --test-name-pattern 'profile writes|Windows rejects broad|cancelled config updates' --timeout=60000
       - name: Download this run's diagnostic package
         shell: bash

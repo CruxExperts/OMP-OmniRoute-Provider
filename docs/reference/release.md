@@ -125,6 +125,13 @@ login run still found the canceled invitation transaction settling. Cancellation
 now reaches each ACL child, and configuration ownership remains held until that
 process closes, including when its abort callback precedes process exit. These
 diagnostics establish the corrected boundaries, not final native acceptance.
+The arm64 runtime comparison passed the same ACL helper from PowerShell, including
+under the Bun test runner, but timed out under Bun tests launched from Git Bash.
+The native configuration test step therefore uses PowerShell without removing
+tests or increasing their timeout. The official x64 login subsequently reached
+API-key validation but did not finish setup. The bounded diagnostic now records
+fixture verification/model-request completion and closure during that setup;
+these observations do not establish a cause or replace native acceptance.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
