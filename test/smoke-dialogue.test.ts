@@ -15,6 +15,9 @@ import {
   hasNativeUnknownOutcomes,
   hasNativeAvailableOperationDescription,
   nativeAdminApplyConfirmationPattern,
+  nativeAdminApplyNotification,
+  nativeAdminApplyOutcomeStep,
+  nativeAdminFailureSnapshot,
   nativeAdminEnableConfirmationPattern,
   nativeAdminEmptyMappingReadPattern,
   nativeAdminMappingReadPattern,
@@ -110,6 +113,50 @@ test("admin failure snapshot retains only bounded confirmation markers", () => {
   expect(nativeAdminSelectorSnapshot("Enable OmniRoute administration\nYes\n" + "x".repeat(2_001) + "\nNo", 2)).toEqual({
     phase: "after-enable-confirmation", title: "Enable OmniRoute administration", yes: true, no: true, titleToYes: 1, yesToNo: 2003, enableRegexMatched: false, outputTruncated: false,
   });
+});
+
+test("admin apply failure evidence retains only fixed categories and bounded fixture counts", () => {
+  const prefix = "private-secret\nType APPLY to confirm plan\n";
+  const cases = [
+    ["administration outcome is unknown; reconcile before retrying (plan-private)", "unknown-current-plan"],
+    ["administration apply failed (plan-expired); no retry was attempted", "failed-plan-expired"],
+    ["administration apply failed (private-secret); no retry was attempted", "failed-other"],
+    ["administration apply cancelled; no request was sent", "cancelled"],
+    ["administration apply denied; no request was sent", "denied"],
+    ["administration plan was not applied (plan-private)", "not-applied"],
+    ["administration plan applied: plan-private", "applied"],
+    ["no notification", "not-observed"],
+  ] as const;
+  for (const [notification, expected] of cases) {
+    expect(nativeAdminApplyNotification(`${prefix}\u001b[31m${notification}\u001b[0m`, "plan-private")).toBe(expected);
+  }
+  expect(nativeAdminApplyNotification(`${prefix}administration outcome is unknown; reconcile before retrying (other-plan)`, "plan-private")).toBe("not-observed");
+  expect(nativeAdminApplyNotification(`${prefix}administration outcome is unknown; reconcile before retrying (plan-private)\nType APPLY to confirm plan`, "next-plan")).toBe("not-observed");
+  const request = { method: "GET", path: "/api/model-combo-mappings", authorization: "private-secret", startedAt: 1 };
+  const snapshot = nativeAdminFailureSnapshot(`${prefix}administration apply failed (plan-expired); no retry was attempted`, 9, "plan-private", [
+    ...Array.from({ length: 300 }, () => request),
+    { ...request, method: "POST", incompleteAcknowledgementBody: true },
+    { ...request, method: "DELETE", path: "/api/model-combo-mappings/private-id" },
+    { ...request, path: "/other" },
+  ]);
+  expect(snapshot).toMatchObject({ applyNotification: "failed-plan-expired", fixtureGetCount: 255, fixturePostCount: 1, fixtureDeleteCount: 1, malformedAcknowledgementSent: true });
+  expect(JSON.stringify(snapshot)).not.toMatch(/private-secret|plan-private|private-id|plan-expired\);/);
+  expect(nativeAdminFailureSnapshot("", 0, undefined, []).malformedAcknowledgementSent).toBe(false);
+});
+
+test("admin apply outcome stops on terminal failure without replay, and reconciles only the current unknown plan", async () => {
+  for (const [notification, expected] of [
+    ["administration apply failed (plan-expired); no retry was attempted", "__SIGTERM__"],
+    ["administration outcome is unknown; reconcile before retrying (plan-1)", "/omniroute-admin GET /api/model-combo-mappings\n"],
+  ] as const) {
+    const dispatched = Promise.withResolvers<string>();
+    const step = nativeAdminApplyOutcomeStep(() => "plan-1", "GET /api/model-combo-mappings");
+    const scheduler = createDialogueScheduler([{ ...step, afterMs: 0 }], async (_step, _index, text) => { dispatched.resolve(text); });
+    expect(scheduler.observe("administration outcome is unknown; reconcile before retrying (other-plan)")).toBe(false);
+    expect(scheduler.observe(notification)).toBe(true);
+    expect(await dispatched.promise).toBe(expected);
+    scheduler.cancel();
+  }
 });
 
 test("admin confirmation labels accept normal and terminal-rendered borders", () => {

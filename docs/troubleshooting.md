@@ -98,6 +98,19 @@ smoke parser now removes complete CSI sequences before its usual terminal
 normalization, including when a sequence spans output chunks. This local
 reproduction does not prove the cause of the hosted failures; official Windows
 qualification remains pending fresh successful native evidence.
+Official run 43038502401 at source 9b41346 reached dialogue 9/19 on both
+Windows architectures, after the first apply confirmation, without retaining an
+unknown-outcome notification. The actual apply notification was not retained,
+so plan expiry is not established. Source inspection shows a 60-second plan
+lifetime and three Windows configuration reads between plan creation and the
+final pre-dispatch expiry check; three reads taking 22 seconds each would exceed
+that lifetime, but those durations do not prove the cause of this run's failure.
+The existing failure diagnostic now records only a fixed apply-notification
+category, capped fixture GET/POST/DELETE counts, and whether the fixture sent an
+intentional malformed acknowledgement. It retains no terminal text, plan IDs,
+credentials, or raw errors. An explicit terminal apply failure stops the
+dialogue without replay; fresh native qualification evidence remains necessary.
+
 
 
 

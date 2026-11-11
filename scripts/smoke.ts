@@ -917,6 +917,42 @@ export const nativeAdminUnknownOutcomePattern = /administration outcome is unkno
 export const nativeAdminEmptyMappingReadPattern = /read result for GET \/api\/model-combo-mappings:[\s\S]{0,200}?"mappings"\s*:\s*\[\s*\]\s*,\s*"total"\s*:\s*0\s*\}/i;
 export const nativeAdminMappingReadPattern = /read result for GET \/api\/model-combo-mappings:[\s\S]{0,1500}?\{[^{}]*?"id"\s*:\s*"([a-z0-9-]+)"[^{}]*?"pattern"\s*:\s*"fixture-native-admin-model"[^{}]*?\}/i;
 
+export function nativeAdminApplyOutcomeStep(currentPlanId: () => string | undefined, readId: string): DialogueStep {
+  return {
+    when: () => new RegExp(`administration outcome is unknown; reconcile before retrying \\(${escapeRegExp(currentPlanId() ?? "__missing__")}\\)|administration apply failed \\([^\\r\\n)]{1,100}\\); no retry was attempted|administration apply (?:cancelled|denied); no request was sent|administration plan (?:was not applied|applied:)`, "i"),
+    text: match => nativeAdminUnknownOutcomePattern.test(match[0]) ? `/omniroute-admin ${readId}\n` : "__SIGTERM__",
+    afterMs: 500,
+  };
+}
+
+// Project only fixed notification categories; neither terminal text nor plan IDs leave memory.
+export function nativeAdminApplyNotification(output: string, currentPlanId: string | undefined): string {
+  const normalized = normalizeTerminalOutput(output);
+  const start = normalized.lastIndexOf("Type APPLY to confirm plan");
+  if (start < 0) return "not-observed";
+  const text = normalized.slice(start);
+  const unknown = [...text.matchAll(new RegExp(nativeAdminUnknownOutcomePattern.source, "gi"))];
+  if (currentPlanId && unknown.some(match => match[1] === currentPlanId)) return "unknown-current-plan";
+  if (/administration apply failed \(plan-expired\); no retry was attempted/i.test(text)) return "failed-plan-expired";
+  if (/administration apply failed \([^\r\n)]{1,100}\); no retry was attempted/i.test(text)) return "failed-other";
+  if (/administration apply cancelled; no request was sent/i.test(text)) return "cancelled";
+  if (/administration apply denied; no request was sent/i.test(text)) return "denied";
+  if (/administration plan was not applied/i.test(text)) return "not-applied";
+  if (/administration plan applied:/i.test(text)) return "applied";
+  return "not-observed";
+}
+
+export function nativeAdminFailureSnapshot(output: string, dialogueCompleted: number, currentPlanId: string | undefined, requests: readonly FixtureRequest[]): JsonObject {
+  const relevant = requests.filter(request => request.path === adminMappingPath || request.path.startsWith(`${adminMappingPath}/`));
+  const count = (method: string): number => Math.min(255, relevant.filter(request => request.method === method).length);
+  return {
+    ...nativeAdminSelectorSnapshot(output, dialogueCompleted),
+    applyNotification: nativeAdminApplyNotification(output, currentPlanId),
+    fixtureGetCount: count("GET"), fixturePostCount: count("POST"), fixtureDeleteCount: count("DELETE"),
+    malformedAcknowledgementSent: relevant.some(request => request.incompleteAcknowledgementBody === true),
+  };
+}
+
 // Terminal bytes stay in memory; only fixed confirmation markers are retained.
 export function nativeAdminSelectorSnapshot(output: string, dialogueCompleted: number): JsonObject {
   const fullOutput = normalizeTerminalOutput(output);
@@ -1623,8 +1659,6 @@ async function nativeAdministrationIo(
     planIds.push(id);
     return `/omniroute-admin apply ${id}\n`;
   };
-  const unknownOutcomeFor = (index: number): RegExp =>
-    new RegExp(`administration outcome is unknown; reconcile before retrying \\(${escapeRegExp(planIds[index] ?? "__missing__")}\\)`, "i");
   const dialogue: DialogueStep[] = [
     nativeAdminInitialStep,
     { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 250 },
@@ -1634,15 +1668,15 @@ async function nativeAdministrationIo(
     { when: /Validated JSON input for POST \/api\/model-combo-mappings/i, text: input({ body: adminMappingBody }), afterMs: 250 },
     { when: /plan ([a-z0-9-]+) created/i, text: planCommand, afterMs: 500 },
     { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
-    { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
-    { when: () => unknownOutcomeFor(0), text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
+    { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250, captureDuringDispatch: true },
+    nativeAdminApplyOutcomeStep(() => planIds[0], readId),
     { when: /Validated JSON input for GET \/api\/model-combo-mappings/i, text: "{}\n", afterMs: 250 },
     { when: nativeAdminMappingReadPattern, text: match => { createdId = match[1]; if (!createdId) throw new Error("native mapping ID was not captured"); return `/omniroute-admin ${deleteId}\n`; }, afterMs: 500 },
     { when: /Validated JSON input for DELETE \/api\/model-combo-mappings\/\{id\}/i, text: () => { if (!createdId) throw new Error("native mapping ID was not captured"); return input({ path: { id: createdId } }); }, afterMs: 250 },
     { when: () => nativeAdminNewPlanPattern(planIds[0] ?? "__missing__"), text: planCommand, afterMs: 500 },
     { when: /Type APPLY to confirm plan/i, text: "APPLY\n", afterMs: 250 },
-    { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250 },
-    { when: () => unknownOutcomeFor(1), text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
+    { when: nativeAdminApplyConfirmationPattern, text: "\n", afterMs: 250, captureDuringDispatch: true },
+    nativeAdminApplyOutcomeStep(() => planIds[1], readId),
     { when: /Validated JSON input for GET \/api\/model-combo-mappings/i, text: "{}\n", afterMs: 250 },
     { when: nativeAdminEmptyMappingReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
@@ -1656,7 +1690,7 @@ async function nativeAdministrationIo(
   const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
-    selectorDiagnostic?.(nativeAdminSelectorSnapshot(result.stdout, result.dialogueCompleted));
+    selectorDiagnostic?.(nativeAdminFailureSnapshot(output, result.dialogueCompleted, planIds.at(-1), fixture.requests.slice(start)));
     throw new Error(`native administration I/O did not complete the baseline, two confirmed mutation attempts, runtime reads, and cleanup (dialogue ${result.dialogueCompleted}/${dialogue.length}, exit ${result.code ?? "unknown"})`);
   }
   if (/operation failed|administration apply failed|administration plan was not applied|unknown or non-invokable|administration plan applied:/i.test(output)) {
