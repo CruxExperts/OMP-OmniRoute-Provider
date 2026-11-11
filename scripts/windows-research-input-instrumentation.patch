@@ -334,7 +334,7 @@
 +
 +if (enabled) {
 +  (globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.trace.v1")] = (marker: unknown) => {
-+    if (typeof marker === "number" && Number.isInteger(marker) && marker >= 19 && marker <= 39) researchEvent("startup", 0, marker);
++    if (typeof marker === "number" && Number.isInteger(marker) && ((marker >= 19 && marker <= 39) || (marker >= 41 && marker <= 44))) researchEvent("startup", 0, marker);
 +  };
 +}
 +

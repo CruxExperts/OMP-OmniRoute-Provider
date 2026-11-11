@@ -139,6 +139,9 @@ activation-refresh entry/completion markers before stopping its owned terminal.
 Missing completion can also mean rejection; completed fixture responses do not
 alone establish that validation, configuration persistence, or activation finished.
 The provider overlay remains restricted to the disposable installed `src/index.ts`.
+The host-side research sink accepts the added setup markers 41–44 explicitly;
+an actual patched-module probe rejected adjacent unsupported markers, strings,
+and fractional values. This fixes trace delivery, not the Windows setup stall.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
