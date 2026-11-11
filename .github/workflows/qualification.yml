@@ -16,6 +16,11 @@ on:
         description: Explicitly approved bubblewrap Debian package SHA256 (required to stage the helper)
         type: string
         required: false
+      approve_ci_apparmor:
+        description: Approve a temporary exact-helper AppArmor profile on the disposable hosted Linux runner
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -44,11 +49,17 @@ jobs:
       - name: Stage the approved helper and check ingress sandbox prerequisites
         env:
           APPROVED_BWRAP_SHA256: ${{ inputs.approved_bwrap_sha256 }}
+          APPROVE_CI_APPARMOR: ${{ inputs.approve_ci_apparmor }}
         run: |
           set -euo pipefail
           if [ -n "$APPROVED_BWRAP_SHA256" ]; then
-            python3 scripts/pinned-ingress.py --preflight-only --bwrap-stage-dir "$RUNNER_TEMP/pinned-bwrap" --approve-bwrap-sha256 "$APPROVED_BWRAP_SHA256"
+            python3 scripts/pinned-ingress.py --bwrap-stage-only --bwrap-stage-dir "$RUNNER_TEMP/pinned-bwrap" --approve-bwrap-sha256 "$APPROVED_BWRAP_SHA256"
+            if [ "$APPROVE_CI_APPARMOR" = true ]; then
+              python3 scripts/pinned-ingress.py --ci-apparmor-load --approve-ci-apparmor
+            fi
+            python3 scripts/pinned-ingress.py --preflight-only --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap"
           else
+            test "$APPROVE_CI_APPARMOR" != true
             python3 scripts/pinned-ingress.py --preflight-only
           fi
       - name: Stage and run the pinned ingress research prerequisite
@@ -92,6 +103,9 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 14
+      - name: Remove temporary hosted CI AppArmor profile
+        if: ${{ always() && inputs.approve_ci_apparmor }}
+        run: python3 scripts/pinned-ingress.py --ci-apparmor-cleanup --approve-ci-apparmor
 
   native:
     name: ${{ matrix.id }}

@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 import uuid
 import urllib.parse
@@ -136,6 +137,99 @@ def validate_bwrap(path):
     members = bwrap_members(path.parent / 'bubblewrap.deb')
     require(path.stat().st_size == len(members['bwrap']) and path.read_bytes() == members['bwrap'], 'bubblewrap executable identity mismatch')
     return path.resolve(strict=True)
+
+
+def ci_profile_context(approved):
+    require(approved and os.environ.get('CI') == 'true' and os.environ.get('GITHUB_ACTIONS') == 'true'
+            and os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+            and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
+            and os.environ.get('RUNNER_OS') == 'Linux' and sys.platform == 'linux'
+            and os.uname().machine == 'x86_64', 'explicit approval and GitHub-hosted Linux x64 required')
+    run = os.environ.get('GITHUB_RUN_ID', '')
+    attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '')
+    require(re.fullmatch(r'[0-9]{1,20}', run) and re.fullmatch(r'[0-9]{1,10}', attempt), 'invalid workflow identity')
+    temp = Path(os.environ.get('RUNNER_TEMP', '')).resolve(strict=True)
+    path = temp / 'pinned-bwrap' / 'bwrap'
+    require(re.fullmatch(r'/[A-Za-z0-9_./-]+', str(path)) and '..' not in path.parts, 'unsafe AppArmor attachment path')
+    name = 'omp-ingress-' + run + '-' + attempt
+    source = f'abi <abi/4.0>,\nprofile {name} {path} flags=(unconfined) {{\n  userns,\n}}\n'
+    return path, name, source, temp / 'pinned-bwrap-apparmor-state.json'
+
+
+def ci_profiles(name):
+    process = subprocess.Popen(['/usr/bin/sudo', '-n', '/usr/bin/cat', '/sys/kernel/security/apparmor/profiles'],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
+    deadline = time.monotonic() + 10
+    try:
+        with selectors.DefaultSelector() as selector:
+            for stream in buffers:
+                selector.register(stream, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                require(remaining > 0, 'AppArmor profile listing timed out')
+                events = selector.select(remaining)
+                require(events, 'AppArmor profile listing timed out')
+                for key, _ in events:
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                    else:
+                        buffers[key.fileobj].extend(chunk)
+                        require(len(buffers[key.fileobj]) <= 1024 * 1024, 'AppArmor profile listing too large')
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, 'AppArmor profile listing timed out')
+            require(process.wait(timeout=remaining) == 0, 'AppArmor profile listing failed')
+        text = buffers[process.stdout].decode('utf-8', errors='strict')
+        lines = text.splitlines()
+        require(all(re.fullmatch(r'[^\x00-\x1f\x7f]+ \((?:enforce|complain|unconfined|kill|prompt)\)', line) for line in lines),
+                'invalid AppArmor profile listing')
+        matches = [line for line in lines if line.startswith(name + ' (')]
+        require(len(matches) <= 1, 'ambiguous AppArmor profile identity')
+        return matches
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait()
+        process.stdout.close()
+        process.stderr.close()
+
+
+def ci_profile(approved, cleanup=False):
+    path, name, source, state = ci_profile_context(approved)
+    require(os.access('/usr/sbin/apparmor_parser', os.X_OK) and os.access('/usr/bin/sudo', os.X_OK), 'AppArmor parser or sudo unavailable')
+    if cleanup:
+        if not state.exists() and not state.is_symlink():
+            require(not ci_profiles(name), 'profile exists without trusted cleanup state')
+            return
+        require(not state.is_symlink() and state.is_file(), 'invalid AppArmor cleanup state')
+        record = json.loads(state.read_text())
+        require(record == {'name': name, 'path': str(path), 'sourceSha256': digest(source.encode()), 'status': 'attempted'}, 'AppArmor cleanup state uncertain')
+        if ci_profiles(name):
+            result = subprocess.run(['/usr/bin/sudo', '-n', '/usr/sbin/apparmor_parser', '-R'], input=source, text=True, capture_output=True, timeout=30)
+            require(result.returncode == 0 and not ci_profiles(name), 'AppArmor profile cleanup uncertain')
+        state.unlink()
+        return
+    require(not state.exists() and not state.is_symlink(), 'AppArmor state already exists')
+    require(validate_bwrap(path) == path, 'staged helper path mismatch')
+    require(not ci_profiles(name), 'AppArmor profile already exists')
+    record = {'name': name, 'path': str(path), 'sourceSha256': digest(source.encode()), 'status': 'attempted'}
+    # Publish a complete intent without replacing an existing state file.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=state.parent, prefix='.pinned-bwrap-intent-', delete=False) as output:
+            temporary = Path(output.name)
+            json.dump(record, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.link(temporary, state)
+    finally:
+        if temporary is not None:
+            temporary.unlink()
+    result = subprocess.run(['/usr/bin/sudo', '-n', '/usr/sbin/apparmor_parser', '-a'], input=source, text=True, capture_output=True, timeout=30)
+    require(result.returncode == 0, 'AppArmor profile load failed; cleanup state uncertain')
+    require(ci_profiles(name), 'AppArmor profile load not confirmed')
+    print(json.dumps({'profile': name, 'attachment': str(path), 'profileSha256': digest(source.encode()), 'packageSha256': BWRAP_SHA, 'binarySha256': file_sha(path)}))
 
 
 def preflight():
@@ -511,6 +605,10 @@ def main():
     parser.add_argument('--stage-dir', type=Path, help='stage exact approved inputs in a new directory')
     parser.add_argument('--bwrap-stage-dir', type=Path, help='stage the approved bubblewrap package in a new directory')
     parser.add_argument('--approve-bwrap-sha256', help='explicit approval of the pinned bubblewrap package')
+    parser.add_argument('--bwrap-stage-only', action='store_true', help='stage helper without running preflight')
+    parser.add_argument('--ci-apparmor-load', action='store_true', help='load explicitly approved hosted CI profile')
+    parser.add_argument('--ci-apparmor-cleanup', action='store_true', help='remove approved hosted CI profile')
+    parser.add_argument('--approve-ci-apparmor', action='store_true', help='authorize temporary hosted CI AppArmor profile')
     parser.add_argument('--bwrap', type=Path, help='path to the staged bubblewrap executable')
     parser.add_argument('--approve-node-archive-sha256', help='explicit approval of the pinned Node archive')
     parser.add_argument('--node', type=Path, help='exact Node 24.17.0 executable')
@@ -523,9 +621,17 @@ def main():
     if args.worker:
         worker()
         return
+    require(not (args.ci_apparmor_load and args.ci_apparmor_cleanup), 'choose one AppArmor action')
+    if args.ci_apparmor_load or args.ci_apparmor_cleanup:
+        ci_profile(args.approve_ci_apparmor, cleanup=args.ci_apparmor_cleanup)
+        return
     if args.bwrap_stage_dir:
-        require(args.preflight_only and BWRAP is None, 'bubblewrap staging requires preflight-only and no --bwrap')
+        require((args.preflight_only != args.bwrap_stage_only) and BWRAP is None, 'bubblewrap staging requires exactly one staging mode and no --bwrap')
         BWRAP = stage_bwrap(args.bwrap_stage_dir, args.approve_bwrap_sha256)
+        if args.bwrap_stage_only:
+            print(json.dumps({'bwrap': str(validate_bwrap(BWRAP))}))
+            return
+    require(not args.bwrap_stage_only, 'stage-only requires --bwrap-stage-dir')
     if args.preflight_probe or args.preflight_only or args.stage_dir or args.bridge:
         BWRAP = validate_bwrap(BWRAP)
     if args.preflight_probe:

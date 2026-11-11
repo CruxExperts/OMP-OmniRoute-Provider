@@ -77,12 +77,18 @@ selected source files, and bubblewrap package. With explicit SHA256 approval,
 bubblewrap 0.12.0-1~deb13u1 amd64 package, verifies its exact digest, and extracts
 only the binary and copyright under `RUNNER_TEMP` in CI. Already-installed
 libc6 >= 2.38, libcap2 >= 1:2.10, and libselinux1 >= 3.1~ are required; no
-packages, scripts, privileges, host settings, or dependencies are installed or
-changed. Without a staged `--bwrap` or explicit helper approval, preflight fails.
-The actual user-systemd, cgroup v2 memory and CPU, namespace, and private
-loopback checks run before any Node, source, or dependency acquisition. Hosted
-kernel or AppArmor restrictions can still make those checks fail; there is no
-weakened fallback. `--stage-dir` repeats the full preflight, then stages the
+packages or dependencies are installed or upgraded. Without a staged `--bwrap`
+or explicit helper approval, preflight fails. On disposable GitHub-hosted Linux
+runners, the separate `approve_ci_apparmor` dispatch approval allows a temporary
+AppArmor profile attached only to that exact staged executable path. The runner
+checks the pinned binary before loading it through the existing `apparmor_parser`
+with sudo, records the profile and binary digests, and removes the profile in an
+always-run cleanup step. It does not disable AppArmor or change global sysctls.
+Missing prerequisites or uncertain load/removal fail the job. The actual
+user-systemd, cgroup v2 memory and CPU, namespace, and private loopback checks
+still run before any Node, source, or dependency acquisition. Other kernel or
+host policy restrictions remain failures; there is no weakened fallback.
+`--stage-dir` repeats the full preflight, then stages the
 explicitly approved pinned Node archive, source and manifest tarballs. The
 runner separately verifies actual isolation and resource readbacks.
 Qualification dispatch offers `preflight-only` and `ingress-only` modes before

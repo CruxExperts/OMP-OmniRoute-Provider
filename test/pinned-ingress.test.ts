@@ -148,3 +148,86 @@ else: raise AssertionError('oversized archive accepted')
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test.skipIf(process.platform !== "linux")("hosted AppArmor profile rejects unauthorized and unsafe attachment contexts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ingress-profile-"));
+  try {
+    const code = `
+import importlib.util,os,pathlib,sys,types
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.sys.platform='linux'; m.os.uname=lambda: types.SimpleNamespace(machine='x86_64')
+root=pathlib.Path(sys.argv[2]); os.environ.update(CI='true',GITHUB_ACTIONS='true',GITHUB_EVENT_NAME='workflow_dispatch',RUNNER_ENVIRONMENT='github-hosted',RUNNER_OS='Linux',GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',RUNNER_TEMP=str(root))
+def rejected(f):
+ try: f()
+ except RuntimeError: return
+ raise AssertionError('unsafe context accepted')
+rejected(lambda: m.ci_profile_context(False))
+for key,value in [('RUNNER_ENVIRONMENT','self-hosted'),('GITHUB_EVENT_NAME','push'),('GITHUB_RUN_ID','123*')]:
+ old=os.environ[key]; os.environ[key]=value; rejected(lambda: m.ci_profile_context(True)); os.environ[key]=old
+bad=root/'bad*path'; bad.mkdir(); os.environ['RUNNER_TEMP']=str(bad); rejected(lambda: m.ci_profile_context(True))
+os.environ['RUNNER_TEMP']=str(root)
+`;
+    const result = spawnSync("python3", ["-c", code, runner, dir], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test.skipIf(process.platform !== "linux")("hosted AppArmor lifecycle refuses collisions and uncertain cleanup", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ingress-profile-"));
+  try {
+    const code = `
+import importlib.util,os,pathlib,sys,types
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.sys.platform='linux'; m.os.uname=lambda: types.SimpleNamespace(machine='x86_64')
+root=pathlib.Path(sys.argv[2]); os.environ.update(CI='true',GITHUB_ACTIONS='true',GITHUB_EVENT_NAME='workflow_dispatch',RUNNER_ENVIRONMENT='github-hosted',RUNNER_OS='Linux',GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',RUNNER_TEMP=str(root))
+path,name,source,state=m.ci_profile_context(True); path.parent.mkdir(); path.write_bytes(b'test helper')
+m.os.access=lambda *args: True
+m.validate_bwrap=lambda p: p
+loaded=[]
+m.ci_profiles=lambda name: list(loaded)
+def rejected(f):
+ try: f()
+ except RuntimeError: return
+ raise AssertionError('unsafe lifecycle accepted')
+access=m.os.access
+m.os.access=lambda *args: False
+rejected(lambda: m.ci_profile(True)); assert not state.exists()
+m.os.access=access
+loaded.append(name+' (unconfined)'); rejected(lambda: m.ci_profile(True)); assert not state.exists(); loaded.clear()
+state.write_text('{}'); rejected(lambda: m.ci_profile(True,cleanup=True)); assert state.exists(); state.unlink()
+def parser(args,**kwargs):
+ if args[-1]=='-a': loaded.append(name+' (unconfined)')
+ else: loaded.clear()
+ return types.SimpleNamespace(returncode=0)
+m.subprocess.run=parser
+m.ci_profile(True); assert state.exists() and loaded
+rejected(lambda: m.ci_profile(True))
+m.ci_profile(True,cleanup=True); assert not state.exists() and not loaded
+m.ci_profile(True); loaded.clear(); m.ci_profile(True,cleanup=True); assert not state.exists()
+calls=[]
+def timed_parser(args,**kwargs):
+ calls.append(args[-1])
+ if args[-1]=='-a':
+  if install_before_timeout: loaded.append(name+' (unconfined)')
+  raise m.subprocess.TimeoutExpired(args,30)
+ loaded.clear()
+ return types.SimpleNamespace(returncode=0)
+m.subprocess.run=timed_parser
+for install_before_timeout in (True,False):
+ calls.clear()
+ try: m.ci_profile(True)
+ except m.subprocess.TimeoutExpired: pass
+ else: raise AssertionError('load did not time out')
+ assert state.exists() and bool(loaded)==install_before_timeout
+ m.ci_profile(True,cleanup=True)
+ assert not state.exists() and not loaded
+ assert calls==(['-a','-R'] if install_before_timeout else ['-a'])
+`;
+    const result = spawnSync("python3", ["-c", code, runner, dir], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

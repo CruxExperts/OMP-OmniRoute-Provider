@@ -114,6 +114,13 @@ startup. Configuration-consuming commands cancel it and wait for transaction
 cleanup before reading configuration; a stuck transaction remains unavailable,
 not bypassed. Official, unmodified Windows x64 and arm64 qualification remains
 required for the corrected source.
+The native ACL diagnostic subsequently localized a failure to loading `Get-Acl`
+inside Windows PowerShell. Permission reads now use the framework APIs directly;
+the actual creation and verification helpers passed on x64 and arm64. An official
+login run still found the canceled invitation transaction settling. Cancellation
+now reaches each ACL child, and configuration ownership remains held until that
+process closes, including when its abort callback precedes process exit. These
+diagnostics establish the corrected boundaries, not final native acceptance.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
