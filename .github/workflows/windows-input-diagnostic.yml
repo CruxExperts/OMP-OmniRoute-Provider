@@ -75,7 +75,7 @@ jobs:
         run: bun test test/config.test.ts --test-name-pattern 'profile writes|Windows rejects broad|cancelled config updates' --timeout=60000
       - name: Verify owned native process timeout lifecycle
         shell: bash
-        run: bun test test/release-automation.test.ts --test-name-pattern 'terminates the owned native process tree' --timeout=30000
+        run: bun test test/release-automation.test.ts --test-name-pattern 'handles an owned native process tree|does not target an exited wrapper|retains the workspace when process tree termination is unconfirmed|rejects cancellation during either evidence write' --timeout=30000
       - name: Download this run's diagnostic package
         shell: bash
         env:
