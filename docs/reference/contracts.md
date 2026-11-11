@@ -98,6 +98,15 @@ TypeScript program. The current webpack observations use bounded in-memory
 auth/settings seams and selected disposable `node:sqlite` queries. They do not
 establish native database, production bundler, complete route, or clean hosted-runner
 qualification.
+Successful complete ingress runs export one allowlisted `observed-outcomes.json`
+with exact input hashes, approved-archive source and declaration identities,
+validated executed backend-overlay hashes, isolation checks, and bounded HTTP
+outcomes. Authentication flags come from the recorded responses and events;
+contradictory denied-case success or usage markers prevent export.
+CI uploads only that file, never scratch directories, credentials,
+mount tables, events, or private logs. Missing, partial, or contradictory inputs
+prevent export. This retained prerequisite is not an operation qualification
+receipt; the existing per-operation producer and reviewed eligibility still gate use.
 
 
 After the final manifest edits, rerun every suite named by the active eligibility

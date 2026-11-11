@@ -467,6 +467,50 @@ def replace_once(text, before, after):
     require(text.count(before) == 1, 'fixture boundary changed: ' + before[:80])
     return text.replace(before, after, 1)
 
+def ping_declaration(source_core):
+    matches = re.findall(r'(?ms)^export function pingDb\(\): boolean \{\n.*?^\}', source_core)
+    require(len(matches) == 1, 'source pingDb declaration unavailable or ambiguous')
+    return matches[0]
+
+
+def overlay_bytes(core, settings, declaration):
+    text = 'import { DatabaseSync } from "node:sqlite";\n' + core.decode('utf-8')
+    text = replace_once(text, 'export function getDbInstance() {',
+        'let sqlite: DatabaseSync | undefined;\nexport function getDbInstance() {')
+    text = replace_once(text, '      const normalized = sql.replace(/\\s+/g, " ").trim();',
+        '      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
+        '      if (normalized === "SELECT 1 AS ok" || (/^SELECT /i.test(normalized) && /\\bFROM usage_history\\b/i.test(normalized))) {\n'
+        '        event("sqlite:read");\n'
+        '        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
+        '        return sqlite.prepare(sql);\n'
+        '      }')
+    return {
+        'backend/core.ts': (text + '\n' + declaration + '\n').encode(),
+        'backend/settings.ts': settings + b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n',
+    }
+
+
+def approved_source():
+    raw = SOURCE.read_bytes()
+    require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
+    names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}
+    found = {}
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
+        for member in archive:
+            parts = safe_parts(member.name)
+            if len(parts) < 2 or parts[0] != 'OmniRoute-v3.8.53':
+                continue
+            name = '/'.join(parts[1:])
+            if name not in names:
+                continue
+            require(name not in found and member.isfile() and member.size <= 2 * 1024 * 1024, 'invalid source member: ' + name)
+            data = archive.extractfile(member).read()
+            require(len(data) == member.size, 'short source member: ' + name)
+            found[name] = data
+    require(set(found) == names, 'missing source identity member')
+    return found
+
+
 
 def provision():
     """Executed only in the baseline runner's isolated worker after materialization."""
@@ -489,24 +533,9 @@ def provision():
             identities[name] = sha(data)
     package = json.loads((app / 'package.json').read_text())
     require(package['version'] == '3.8.53', 'source version mismatch')
-    source_core = (app / 'src/lib/db/core.ts').read_text()
-    matches = re.findall(r'(?ms)^export function pingDb\(\): boolean \{\n.*?^\}', source_core)
-    require(len(matches) == 1, 'source pingDb declaration unavailable or ambiguous')
-    core = fixture / 'backend/core.ts'
-    text = core.read_text()
-    text = 'import { DatabaseSync } from "node:sqlite";\n' + text
-    text = replace_once(text, 'export function getDbInstance() {',
-        'let sqlite: DatabaseSync | undefined;\nexport function getDbInstance() {')
-    text = replace_once(text, '      const normalized = sql.replace(/\\s+/g, " ").trim();',
-        '      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
-        '      if (normalized === "SELECT 1 AS ok" || (/^SELECT /i.test(normalized) && /\\bFROM usage_history\\b/i.test(normalized))) {\n'
-        '        event("sqlite:read");\n'
-        '        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
-        '        return sqlite.prepare(sql);\n'
-        '      }')
-    core.write_text(text + '\n' + matches[0] + '\n')
-    settings = fixture / 'backend/settings.ts'
-    settings.write_text(settings.read_text() + '\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n')
+    declaration = ping_declaration((app / 'src/lib/db/core.ts').read_text())
+    for name, data in overlay_bytes((fixture / 'backend/core.ts').read_bytes(), (fixture / 'backend/settings.ts').read_bytes(), declaration).items():
+        (fixture / name).write_bytes(data)
     identities['src/lib/db/core.ts'] = sha((app / 'src/lib/db/core.ts').read_bytes())
     identities['src/lib/api/requireManagementAuth.ts'] = sha((app / 'src/lib/api/requireManagementAuth.ts').read_bytes())
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
@@ -516,7 +545,7 @@ def provision():
     identity = {
         'status': 'unreviewed-observation-not-qualification', 'sourceVersion': '3.8.53',
         'sourceCommit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': identities,
-        'pingDeclarationSha256': sha(matches[0].encode()),
+        'pingDeclarationSha256': sha(declaration.encode()),
         'fixtureSha256': {str(p.relative_to(fixture)): sha(p.read_bytes()) for p in sorted(fixture.rglob('*')) if p.is_file() and '__pycache__' not in p.parts},
         'nodeSha256': sha(Path('/runtime/node').read_bytes()),
         'runtime': {'node': '24.17.0', **versions},
@@ -583,6 +612,140 @@ def worker():
     run_bounded(isolate + ['/runtime/node', '/work/fixture/driver.mjs'], Path('/work/http.private'), deadline, env)
     run_bounded(isolate + ['/runtime/node', '/work/fixture/pinned-ingress-driver.mjs'], Path('/work/pinned-http.private'), deadline, env)
     save(Path('/work/result.json'), {'status': 'research-observed', 'qualification': False, 'materialization': material})
+
+
+AUTH_CASES = (
+    ('default-bypass-health', 'source-default', '/api/health', 'none', 200),
+    ('disabled-bypass-health', 'disabled', '/api/health', 'none', 200),
+    ('default-bypass-management-denied', 'source-default', '/api/ingress-control', 'none', 401),
+    ('disabled-bypass-management-denied', 'disabled', '/api/ingress-control', 'none', 401),
+    ('session-allowed', 'disabled', '/api/ingress-control', 'valid-session', 200),
+    ('access-allowed', 'disabled', '/api/ingress-control', 'valid-admin-token', 200),
+    ('access-invalid', 'disabled', '/api/ingress-control', 'unknown-token', 401),
+    ('access-expired', 'disabled', '/api/ingress-control', 'expired-admin-token', 401),
+    ('access-revoked', 'disabled', '/api/ingress-control', 'revoked-admin-token', 401),
+    ('access-backend-error', 'disabled', '/api/ingress-control', 'admin-token-backend-error', 503),
+    ('sync-valid', 'disabled', '/api/providers/fixture/models', 'valid-internal-sync', 200),
+    ('sync-invalid', 'disabled', '/api/providers/fixture/models', 'invalid-internal-sync', 401),
+)
+
+
+def bounded_json(path):
+    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= 2 * 1024 * 1024, 'missing or oversized observation input')
+    return json.loads(path.read_text(encoding='utf-8'))
+
+
+def input_hashes():
+    declared = bounded_json(ROOT / 'test/pinned-ingress.test.ts.inputs.json')
+    require(set(declared) == {'schemaVersion', 'files'} and declared['schemaVersion'] == 1 and isinstance(declared['files'], list) and 0 < len(declared['files']) <= 256, 'invalid input declaration')
+    names = ['test/pinned-ingress.test.ts', 'test/pinned-ingress.test.ts.inputs.json'] + declared['files']
+    require(len(names) == len(set(names)), 'duplicate input declaration')
+    hashes = {}
+    for name in names:
+        require(isinstance(name, str) and not name.startswith('/') and '\\' not in name and all(part not in ('', '.', '..', '.git', '.agents', 'node_modules') for part in name.split('/')), 'invalid input path')
+        path = ROOT / name
+        require(path.is_file() and not path.is_symlink() and path.resolve() == path, 'unsafe input file')
+        hashes[name] = file_sha(path)
+    fixture_names = {p.relative_to(ROOT).as_posix() for p in FIXTURE.rglob('*') if p.is_file() and '__pycache__' not in p.parts}
+    require(fixture_names == {name for name in hashes if name.startswith('test/fixtures/pinned-ingress/')}, 'fixture input closure mismatch')
+    return hashes
+
+
+def auth_state_sha(name, bypass):
+    token = '_'.join(('oma', 'live', 'fixture-secret'))
+    row = {'id': 'fixture-token', 'token_hash': sha(token.encode()), 'token_prefix': 'oma_live_resea', 'name': 'fixture', 'scope': 'admin', 'created_at': '2025-01-01T00:00:00.000Z', 'last_used_at': None, 'expires_at': None, 'revoked_at': None}
+    if name == 'access-expired':
+        row['expires_at'] = '2020-01-01T00:00:00.000Z'
+    if name == 'access-revoked':
+        row['revoked_at'] = '2020-01-01T00:00:00.000Z'
+    state = {'bypass': bypass, 'syncToken': 'research-only-internal-sync-token', 'settings': {'requireLogin': True, 'password': 'fixture-configured', 'setupComplete': True}, 'tokens': [row] if name in ('access-allowed', 'access-expired', 'access-revoked', 'access-backend-error') else [], 'failTokenRead': name == 'access-backend-error'}
+    return sha(json.dumps(state, separators=(',', ':'), ensure_ascii=False).encode())
+
+
+def export_observations(output, hashes):
+    """Produce an allowlisted research artifact only after the complete isolated run."""
+    result = bounded_json(output / 'result.json')
+    material = bounded_json(output / 'materialization.json')
+    preflight = bounded_json(output / 'preflight.json')
+    host = bounded_json(output / 'host-namespaces.json')
+    auth = bounded_json(output / 'data/observations.json')
+    ingress = bounded_json(output / 'data/pinned-ingress-observations.json')
+    identity = ingress['identity']
+    require(result['status'] == 'research-observed' and result['qualification'] is False and result['materialization'] == material, 'incomplete run')
+    require(material['archiveSha256'] == ARCHIVE_SHA and material['webpackDeviation'] is True and material['selectedSourceFiles'] == 509, 'materialization mismatch')
+    require(identity['sourceCommit'] == COMMIT and identity['sourceVersion'] == '3.8.53' and identity['archiveSha256'] == ARCHIVE_SHA and identity['nodeSha256'] == NODE_SHA, 'source identity mismatch')
+    require(identity['runtime'] == {'node': '24.17.0', 'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime mismatch')
+    source = approved_source()
+    source_hashes = {name: sha(data) for name, data in source.items() if name != 'src/proxy.ts'}
+    declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
+    require(identity['addedSourceSha256'] == source_hashes and identity['pingDeclarationSha256'] == sha(declaration.encode()), 'source identity mismatch')
+    manifest_bytes = (FIXTURE / 'source-manifest.json').read_bytes()
+    require(sha(manifest_bytes) == hashes['test/fixtures/pinned-ingress/source-manifest.json'], 'manifest bytes changed')
+    manifest = json.loads(manifest_bytes)
+    proxy_sha = sha(source['src/proxy.ts'])
+    require(manifest['selectedFiles']['src/proxy.ts']['sha256'] == proxy_sha and material['configSupportSha256']['src/proxy.ts'] == proxy_sha, 'proxy source mismatch')
+    source_hashes['src/proxy.ts'] = proxy_sha
+    namespaces = preflight['namespaces']
+    require(set(host) == set(namespaces) == {'user', 'mnt', 'net', 'pid'} and all(host[k] != namespaces[k] for k in host), 'namespace evidence mismatch')
+    require(preflight['memoryMax'] == MEMORY and 0 < len(preflight['cpuAffinity']) <= 2 and preflight['network'] == 'private-loopback-only' and preflight['nodeSha256'] == NODE_SHA, 'isolation evidence mismatch')
+    require(set(preflight['environmentKeys']) <= {'PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'PWD'}, 'environment evidence mismatch')
+    require(auth['fixture'] == 'research-only' and len(auth['results']) == len(AUTH_CASES), 'authentication cases incomplete')
+    cases = []
+    for observed, (name, bypass, path, credential, status) in zip(auth['results'], AUTH_CASES):
+        response = observed['response']
+        route = 'PUBLIC' if path == '/api/health' else 'MANAGEMENT'
+        require(observed['name'] == name and observed['stateSha256'] == auth_state_sha(name, bypass) and response['status'] == status and response['routeClass'] == route, 'authentication outcome mismatch')
+        body = response['body']
+        require(isinstance(body, str) and len(body) <= 65536, 'authentication body invalid')
+        success_marker = '"status":"ok"' in body or 'management-handler-reached' in body
+        usage_stamp = any(e.get('event') == 'access-token:usage-stamp' for e in observed['events'])
+        require(success_marker == (status == 200), 'authentication marker mismatch')
+        if status == 200:
+            require(('"status":"ok"' if route == 'PUBLIC' else 'management-handler-reached') in body, 'authentication marker missing')
+        require(usage_stamp == (name == 'access-allowed'), 'authentication usage stamp mismatch')
+        require(not any(str(e.get('event', '')).startswith('unsupported:') for e in observed['events']), 'unsupported authentication boundary')
+        cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
+    rows = ingress['results']
+    require(len(rows) == 6 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health'], 'ingress cases incomplete')
+    health = []
+    for row, path in zip(rows[:2], ('/api/health', '/api/health/ping')):
+        response, body = row['response'], row['response']['body']
+        require(response['status'] == 200 and body['status'] == 'ok' and isinstance(body['timestamp'], str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z', body['timestamp']) and isinstance(response['cacheControl'], str) and 'no-store' in response['cacheControl'], 'health outcome mismatch')
+        require(set(body) == ({'status', 'timestamp', 'latencyMs'} if path.endswith('/ping') else {'status', 'timestamp'}), 'unexpected health response keys')
+        if path.endswith('/ping'):
+            require(type(body.get('latencyMs')) in (int, float) and body['latencyMs'] >= 0, 'invalid latency')
+        cache = response['cacheControl']
+        require(len(cache) <= 128 and all(re.fullmatch(r'(?:no-store|no-cache|private|public|must-revalidate|proxy-revalidate|max-age=\d+|s-maxage=\d+)', part.strip()) for part in cache.split(',')), 'unsupported cache control')
+        health.append({'method': 'GET', 'path': path, 'status': response['status'], 'bodyKeys': sorted(body), 'timestamp': body['timestamp'], 'cacheControl': cache, **({'latencyMs': body['latencyMs']} if 'latencyMs' in body else {})})
+    metrics = []
+    for row, method in zip(rows[2:4], ('GET', 'DELETE')):
+        denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
+        body = allowed['body']
+        expected = {'totalRequests': 3, 'requestsWithCacheControl': 2, 'totalInputTokens': 300, 'totalCachedTokens': 150, 'totalCacheCreationTokens': 10}
+        require(denied['status'] in (401, 403) and invalid['status'] in (401, 403) and allowed['status'] == 200 and all(body.get(k) == v for k, v in expected.items()) and body['byProvider']['alpha']['totalRequests'] == 2 and body['byStrategy']['direct']['cachedTokens'] == 50 and row['usageRowsAfter'] == 3, 'metrics outcome mismatch')
+        metrics.append({'method': method, 'path': '/api/settings/cache-metrics', 'unauthenticatedStatus': denied['status'], 'invalidTokenStatus': invalid['status'], 'sessionStatus': allowed['status'], 'selectedValues': {**expected, 'alphaRequests': 2, 'directCachedTokens': 50}, 'usageRowsAfter': 3})
+    fallback = rows[4]['response']
+    require(fallback['status'] == 200 and fallback['body']['totalRequests'] == 0 and fallback['body']['totalCachedTokens'] == 0 and fallback['body']['byProvider'] == {}, 'fallback mismatch')
+    drain = rows[5]
+    require(drain['draining']['status'] == 503 and drain['recovered']['status'] == 200, 'drain transition mismatch')
+    require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
+    fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
+    require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
+    executed_fixture = identity['fixtureSha256']
+    overlay_inputs = {}
+    for name in ('backend/core.ts', 'backend/settings.ts'):
+        data = (FIXTURE / name).read_bytes()
+        require(sha(data) == fixture_hashes[name], 'fixture bytes changed: ' + name)
+        overlay_inputs[name] = data
+    overlays = {name: sha(data) for name, data in overlay_bytes(overlay_inputs['backend/core.ts'], overlay_inputs['backend/settings.ts'], declaration).items()}
+    require(all(executed_fixture[name] == value for name, value in overlays.items()), 'executed overlay mismatch')
+    require(executed_fixture['pinned-ingress-driver.mjs'] == hashes['scripts/pinned-ingress-driver.mjs'], 'executed driver mismatch')
+    require(all(executed_fixture[name] == value for name, value in fixture_hashes.items() if name not in ('backend/core.ts', 'backend/settings.ts')), 'executed fixture mismatch')
+    artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Next webpack build, not production bundler.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
+    artifact['inputs']['executedOverlaySha256'] = overlays
+    export = output / 'export'
+    export.mkdir(mode=0o700)
+    save(export / 'observed-outcomes.json', artifact)
 
 
 def bridge(output):
@@ -659,6 +822,7 @@ def main():
     for name in ('app', 'data', 'home', 'tmp'):
         (output / name).mkdir(mode=0o700)
     save(output / 'host-namespaces.json', {x: os.readlink('/proc/self/ns/' + x) for x in ('user', 'mnt', 'net', 'pid')})
+    hashes = input_hashes()
     cpus = sorted(os.sched_getaffinity(0))[:2]
     require(cpus, 'CPU affinity unavailable')
     unit = 'omp-ingress-' + uuid.uuid4().hex[:12]
@@ -683,8 +847,10 @@ def main():
                     require(count <= 1024**2, 'supervisor output limit exceeded')
                     log.write(block)
         code = process.wait(timeout=5)
-        print(json.dumps({'output': str(output), 'exitCode': code, 'researchOnly': True}))
         require(code == 0, 'isolated ingress run failed; inspect private logs')
+        require(input_hashes() == hashes, 'input bytes changed during run')
+        export_observations(output, hashes)
+        print(json.dumps({'output': str(output), 'exitCode': code, 'researchOnly': True}))
     finally:
         subprocess.run(['/usr/bin/systemctl', '--user', 'stop', unit], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
         if process.poll() is None:

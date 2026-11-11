@@ -231,3 +231,88 @@ for install_before_timeout in (True,False):
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("ingress export rejects incomplete and contradictory observations and never copies private fields", () => {
+  const code = String.raw`
+import importlib.util, io, json, pathlib, sys, tarfile, tempfile
+s = importlib.util.spec_from_file_location('ingress', sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as temp:
+ p = pathlib.Path(temp); (p / 'data').mkdir()
+ def put(name, value): (p / name).write_text(json.dumps(value))
+ hashes = m.input_hashes()
+ fixture = p/'fixture'; (fixture/'backend').mkdir(parents=True)
+ core = b'export function getDbInstance() {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n}\n'
+ settings = b'export const fixture = true;\n'
+ (fixture/'backend/core.ts').write_bytes(core); (fixture/'backend/settings.ts').write_bytes(settings)
+ for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
+ declaration = b'export function pingDb(): boolean {\n  return true;\n}'
+ names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'}
+ sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
+ archive_path = p/'source.tar.gz'
+ with tarfile.open(archive_path, 'w:gz') as archive:
+  for name, data in sources.items():
+   member = tarfile.TarInfo('OmniRoute-v3.8.53/'+name); member.size = len(data); archive.addfile(member, io.BytesIO(data))
+ m.SOURCE = archive_path; m.ARCHIVE_SHA = m.sha(archive_path.read_bytes()); m.FIXTURE = fixture
+ manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}}}
+ manifest_bytes = json.dumps(manifest).encode(); (fixture/'source-manifest.json').write_bytes(manifest_bytes)
+ hashes['test/fixtures/pinned-ingress/source-manifest.json'] = m.sha(manifest_bytes)
+ expected_core = (b'import { DatabaseSync } from "node:sqlite";\nlet sqlite: DatabaseSync | undefined;\n'
+  b'export function getDbInstance() {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
+  b'      if (normalized === "SELECT 1 AS ok" || (/^SELECT /i.test(normalized) && /\\bFROM usage_history\\b/i.test(normalized))) {\n'
+  b'        event("sqlite:read");\n        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
+  b'        return sqlite.prepare(sql);\n      }\n}\n\n'+declaration+b'\n')
+ expected_settings = settings+b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n'
+ material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': True, 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts'])}}
+ put('result.json', {'status':'research-observed', 'qualification':False, 'materialization':material})
+ put('materialization.json', material)
+ put('host-namespaces.json', {k:'host' for k in ('user','mnt','net','pid')})
+ put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
+ identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(v) for k,v in sources.items() if k != 'src/proxy.ts'},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
+ identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
+ identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
+ identity['fixtureSha256']['backend/settings.ts'] = m.sha(expected_settings)
+ auth = {'fixture':'research-only','results':[]}
+ for name, bypass, path, credential, status in m.AUTH_CASES:
+  route = 'PUBLIC' if path == '/api/health' else 'MANAGEMENT'
+  auth['results'].append({'name':name,'stateSha256':m.auth_state_sha(name,bypass),'response':{'status':status,'routeClass':route,'body': ('"status":"ok"' if route == 'PUBLIC' else 'management-handler-reached') if status == 200 else 'private-canary'},'events':[{'event':'access-token:usage-stamp','private':'private-canary'}] if name == 'access-allowed' else []})
+ health = lambda ping: {'status':200,'cacheControl':'no-store','body':{'status':'ok','timestamp':'2026-01-01T00:00:00.000Z',**({'latencyMs':1} if ping else {})}}
+ totals = {'totalRequests':3,'requestsWithCacheControl':2,'totalInputTokens':300,'totalCachedTokens':150,'totalCacheCreationTokens':10,'byProvider':{'alpha':{'totalRequests':2}},'byStrategy':{'direct':{'cachedTokens':50}},'extra':'private-canary'}
+ metrics = lambda method: {'case':method+' /api/settings/cache-metrics','denied':{'status':401},'invalid':{'status':403},'allowed':{'status':200,'body':totals},'usageRowsAfter':3}
+ rows = [{'case':'public GET /api/health','response':health(False)},{'case':'public GET /api/health/ping','response':health(True)},metrics('GET'),metrics('DELETE'),{'case':'GET cache-metrics missing usage_history','response':{'status':200,'body':{'totalRequests':0,'totalCachedTokens':0,'byProvider':{}}}},{'case':'drain-transition GET /api/health','draining':{'status':503},'recovered':{'status':200}}]
+ ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'}]}
+ put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
+ m.export_observations(p, hashes)
+ exported = json.loads((p/'export/observed-outcomes.json').read_text())
+ assert 'private-canary' not in json.dumps(exported) and len(exported['sharedAuthentication']) == 12
+ assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
+ assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
+ (p/'export/observed-outcomes.json').unlink(); (p/'export').rmdir()
+ def rejected():
+  try: m.export_observations(p, hashes)
+  except (RuntimeError, KeyError, ValueError, TypeError): return
+  raise AssertionError('invalid evidence accepted')
+ source_name = m.ROUTES[0]; original = identity['addedSourceSha256'][source_name]
+ identity['addedSourceSha256'][source_name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected()
+ identity['addedSourceSha256'][source_name] = original
+ original = identity['pingDeclarationSha256']; identity['pingDeclarationSha256'] = 'b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['pingDeclarationSha256'] = original
+ for name in ('backend/core.ts','backend/settings.ts'):
+  original = identity['fixtureSha256'].pop(name); put('data/pinned-ingress-observations.json',ingress); rejected()
+  identity['fixtureSha256'][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['fixtureSha256'][name] = original
+ put('data/pinned-ingress-observations.json',ingress)
+ for name in ('access-invalid','access-expired','access-revoked'):
+  row = next(row for row in auth['results'] if row['name'] == name)
+  row['events'].append({'event':'access-token:usage-stamp'}); put('data/observations.json',auth); rejected(); row['events'].clear()
+  row['response']['body'] = 'management-handler-reached'; put('data/observations.json',auth); rejected(); row['response']['body'] = 'private-canary'
+ put('data/observations.json',auth)
+ ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
+ ingress['results'] = rows; rows[-1]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()
+ rows[-1]['recovered']['status'] = 200; put('data/pinned-ingress-observations.json',ingress)
+ auth['results'][0]['response']['status'] = 500; put('data/observations.json',auth); rejected()
+ (p/'data/observations.json').write_text('{'); rejected()
+ (p/'data/observations.json').unlink(); rejected()
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
