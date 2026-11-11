@@ -1360,7 +1360,9 @@ async function nativePromptSetup(
     result = await runPtyCommand(binary, {
       cwd,
       env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint, OMP_RESEARCH_INPUT_TRACE: "1" } : environment,
-      timeoutMs: 75_000,
+      // Existing UI/network allowance plus the longest successful fresh-profile
+      // Windows path: 15 sequential ACL helpers, each bounded to 30 seconds.
+      timeoutMs: 75_000 + (process.platform === "win32" ? 15 * 30_000 : 0),
       dialogue,
       ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
       ...(traceClient ? { beforeTimeoutTermination: (elapsedMs: number) => { research!.observations.timeoutElapsedMs = elapsedMs; return sampleTrace("timeout-before-termination"); }, beforeResearchStop: () => sampleTrace("success-before-stop") } : {}),

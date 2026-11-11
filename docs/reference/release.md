@@ -164,6 +164,28 @@ from starting; that failure was not evidence of an instrumented-host crash.
 Research command failures retain only their exit/timeout classification, not raw
 output; a bounded scenario record is written before checking host startup.
 
+The Windows native setup smoke retains its existing 75-second UI and network
+allowance and adds `15 * 30 seconds` for the maximum sequential private-ACL
+helpers on this fixture's successful path, for a total of 525 seconds. The
+earlier cancellation session can persist the setup-invitation flag, so the
+subsequent setup session must account for an existing private config: one ACL
+check at registration, two during startup refresh, two during session refresh,
+one at login, seven while staging the pending config, and two during the
+pre-persistence refresh. The 75 seconds retain the existing UI allowance,
+two 10-second candidate-validation network budgets, discovery, and the
+six-second post-login stop. The individual helper timeout remains 30 seconds;
+the selection and cancellation deadlines and security checks are unchanged.
+
+In the instrumented Windows research run `42974498638`, helper 1 ran from
+5,773 to 31,221 ms and helper 2 from 31,223 to 53,722 ms, both within their
+individual limits. Helper 3 started at 53,723 ms and was still pending at
+74,845 ms, shortly before the 75,001 ms outer expiry. No dropped or overflowed
+observations were reported. This supports cumulative outer-budget clipping,
+not a demonstrated deadlock or a reason to increase production helper limits.
+The observation does not establish that the remaining helpers complete: only
+successful official native Windows jobs for the final archive can supply that
+qualification evidence.
+
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
 The transport jobs send only fixture `/login` text and one carriage return to an
