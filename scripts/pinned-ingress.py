@@ -370,7 +370,7 @@ def disk_usage(root):
 
 
 
-ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
+ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts')
 
 def sha(data):
@@ -1123,7 +1123,7 @@ def export_observations(output, hashes):
         cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
     public_health = validate_public_health_evidence(auth)
     rows = ingress['results']
-    require(len(rows) == 13 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id'], 'ingress cases incomplete')
+    require(len(rows) == 15 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id'], 'ingress cases incomplete')
     health = []
     for row, path in zip(rows[:2], ('/api/health', '/api/health/ping')):
         response, body = row['response'], row['response']['body']
@@ -1153,8 +1153,18 @@ def export_observations(output, hashes):
     require(allowed['status'] == 200 and body['count'] == 1 and len(body['skills']) == 1 and body['skills'][0]['id'] == 'config-codex-cli' and body['skills'][0]['category'] == 'config' and body['skills'][0]['area'] == 'config-codex-cli', 'agent-skills authorized query mismatch')
     require(body['skills'][0]['rawUrl'] == 'https://raw.githubusercontent.com/cheaper-inference/OmniRoute/refs/heads/main/skills/config-codex-cli/SKILL.md' and body['skills'][0]['githubUrl'] == 'https://github.com/cheaper-inference/OmniRoute/blob/main/skills/config-codex-cli/SKILL.md', 'agent-skills URL mismatch')
     skills = {'method': 'GET', 'path': '/api/agent-skills', 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'query': 'category=config&area=config-codex-cli', 'authorizedStatus': allowed['status'], 'ids': ['config-codex-cli']}
+    skills_reads = []
+    for row, path in zip(rows[8:10], ('/api/agent-skills/config-codex-cli', '/api/agent-skills/coverage')):
+        denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
+        require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'agent-skills read authorization mismatch')
+        body = allowed['body']
+        if path.endswith('/coverage'):
+            require(all(type(body.get(key)) is dict and type(body[key].get('have')) is int and type(body[key].get('total')) is int and 0 <= body[key]['have'] <= body[key]['total'] for key in ('api', 'cli', 'config')) and type(body.get('totalSkills')) is int and body['totalSkills'] == sum(body[key]['have'] for key in ('api', 'cli', 'config')), 'agent-skills coverage mismatch')
+        else:
+            require(body.get('id') == 'config-codex-cli' and body.get('category') == 'config' and body.get('area') == 'config-codex-cli', 'agent-skills detail mismatch')
+        skills_reads.append({'method': 'GET', 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': 401, 'invalidCredentialStatus': 401, 'authorizedStatus': 200})
     mapping_policy = []
-    for row, method, path in zip(rows[8:], ('GET', 'POST', 'GET', 'PUT', 'DELETE'), ('/api/model-combo-mappings', '/api/model-combo-mappings', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id')):
+    for row, method, path in zip(rows[10:], ('GET', 'POST', 'GET', 'PUT', 'DELETE'), ('/api/model-combo-mappings', '/api/model-combo-mappings', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id')):
         denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
         require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'mapping policy outcome mismatch')
         mapping_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
@@ -1188,6 +1198,7 @@ def export_observations(output, hashes):
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
     artifact['degradation'] = degradation
     artifact['agentSkills'] = skills
+    artifact['agentSkillsReads'] = skills_reads
     artifact['modelComboMappingPolicy'] = mapping_policy
     artifact['limitations'].append('Mapping ingress exercises policy with a reachability control at the exact method and path; it does not execute mapping handlers or cold database initialization.')
     artifact['limitations'].append('Agent-skills ingress coverage observes management denial and a dashboard-session query, not every credential alternative or hosted failures.')

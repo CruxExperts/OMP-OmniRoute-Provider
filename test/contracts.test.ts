@@ -20,7 +20,7 @@ import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
 import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
-import { agentSkillsContract } from "./fixtures/pinned-agent-skills.fixture.ts";
+import { agentSkillsContract, agentSkillsReadContract, SKILLS_DETAIL_ID, SKILLS_COVERAGE_ID } from "./fixtures/pinned-agent-skills.fixture.ts";
 import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
 
 function sourceRequestAdapter(operationId: string) {
@@ -327,6 +327,17 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       record(changed.agentSkills)[key] = value;
       const evidence = await save(changed);
       expect(() => validateHealthIngressEvidence(evidence, skillsBinding, "GET /api/agent-skills")).toThrow(/agent-skills observation mismatch/);
+    }
+    const agentSkillsReads = ["/api/agent-skills/config-codex-cli", "/api/agent-skills/coverage"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 }));
+    for (const [index, operationId] of [SKILLS_DETAIL_ID, SKILLS_COVERAGE_ID].entries()) {
+      const readBinding = operationEvidenceBinding(operationId, agentSkillsReadContract(operationId));
+      const readArtifact = { ...artifact, agentSkillsReads };
+      const readEvidence = await save(readArtifact);
+      expect(() => validateHealthIngressEvidence(readEvidence, readBinding, operationId)).not.toThrow();
+      const changed = structuredClone(readArtifact);
+      changed.agentSkillsReads[index]!.path += "/wrong";
+      const badEvidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(badEvidence, readBinding, operationId)).toThrow(/agent-skills read observation mismatch/);
     }
     const mappingPolicy = MODEL_COMBO_MAPPING_OPERATION_IDS.map(operationId => {
       const [method, template] = operationId.split(" ");

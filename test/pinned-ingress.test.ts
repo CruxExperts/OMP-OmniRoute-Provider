@@ -578,6 +578,8 @@ with tempfile.TemporaryDirectory() as temp:
  skill = {'id':'config-codex-cli','category':'config','area':'config-codex-cli','rawUrl':'https://raw.githubusercontent.com/cheaper-inference/OmniRoute/refs/heads/main/skills/config-codex-cli/SKILL.md','githubUrl':'https://github.com/cheaper-inference/OmniRoute/blob/main/skills/config-codex-cli/SKILL.md'}
  skills = {'case':'GET /api/agent-skills','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'count':1,'skills':[skill]})}
  rows.append(skills)
+ for path,value in [('/api/agent-skills/config-codex-cli',skill),('/api/agent-skills/coverage',{'api':{'have':0,'total':23},'cli':{'have':0,'total':21},'config':{'have':0,'total':1},'totalSkills':0})]:
+  rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response(value)})
  for method,path in [('GET','/api/model-combo-mappings'),('POST','/api/model-combo-mappings'),('GET','/api/model-combo-mappings/fixture-id'),('PUT','/api/model-combo-mappings/fixture-id'),('DELETE','/api/model-combo-mappings/fixture-id')]:
   rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
@@ -590,6 +592,7 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
  assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
+ assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])

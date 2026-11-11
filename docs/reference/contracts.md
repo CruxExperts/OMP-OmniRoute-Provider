@@ -142,18 +142,15 @@ The separate pinned-handler test injects a JSON response failure and observes
 the handler's 500 response; this is not evidence of a hosted 500. Both the
 source-bound handler receipt and the ingress export are required for eligibility.
 
-The agent-skills catalog has a separate source-bound handler fixture and candidate
-contract. It exercises a disposable skills directory, query filters, and handler
-errors. The ingress producer also requires anonymous and invalid-credential denial
-and an authorized filtered query before export. Eligibility remains pending until
-both independently produced observations are accepted. External catalog entries do
-not count toward coverage totals and are not accepted as a category filter.
-Because the shared ingress producer and its declared inputs changed, the earlier
-health and degradation ingress exports are stale too. A fresh complete isolated
-hosted run must produce new observations for all three operations; copying current
-identities onto old observations is not evidence. The controller must separately
-produce and review the handler receipt and update eligibility only after the new
-ingress export and operation-specific evidence pass validation.
+The agent-skills catalog, detail, and coverage candidates use source-bound handlers
+and the pinned catalog against a disposable skills directory. Tests cover query and
+path serialization, known and unknown IDs, coverage counts, and unchanged files.
+The ingress producer requires management denials and authorized reads at each exact
+path. Raw remote fetch and skill-generation writes are not qualified. Changing the
+shared ingress inputs invalidates all eight earlier ingress-bound artifacts; a fresh
+complete hosted run and independently produced handler receipts are required before
+any affected eligibility can be accepted. Copying identities onto old observations is
+not evidence. External entries do not count toward coverage totals.
 
 The five model-combo-mapping candidates use the pinned v3.8.53 collection and
 item handlers with the actual SQLite repository, persistence facade, and read-cache
@@ -167,7 +164,7 @@ pending until their exact outputs are retained and reviewed. Changing the shared
 ingress inputs also invalidates previously retained ingress evidence.
 
 
-For `GET /api/health`, `GET /api/health/degradation`, `GET /api/agent-skills`, and the five model-combo-mapping operations, a verified eligibility record additionally names a retained
+For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads, and the five model-combo-mapping operations, a verified eligibility record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and
 extracted declaration identities, and the runner's recomputed disposable overlay

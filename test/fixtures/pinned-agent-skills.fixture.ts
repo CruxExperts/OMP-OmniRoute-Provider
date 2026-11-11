@@ -7,6 +7,8 @@ import { getOperation, type JsonSchema, type OperationDescriptor } from "../../s
 import { createPinnedFixtureDate, loadExtractedPinnedDeclarations, loadPinnedModule, readPinnedSource, type PinnedExports } from "./pinned-handler.fixture.ts";
 
 export const SKILLS_ID = "GET /api/agent-skills" as const;
+export const SKILLS_DETAIL_ID = "GET /api/agent-skills/{id}" as const;
+export const SKILLS_COVERAGE_ID = "GET /api/agent-skills/coverage" as const;
 export const SKILLS_TEST_ID = "test/admin-agent-skills-source.test.ts";
 export const SKILLS_TIME = "2026-01-01T00:00:00.000Z";
 const ROUTE = "src/app/api/agent-skills/route.ts";
@@ -63,7 +65,7 @@ export class PinnedAgentSkillsFixture {
       throw new Error(`Unexpected catalog import: ${s}`);
     }, { date: createPinnedFixtureDate(SKILLS_TIME) });
     const errors = pinnedErrors();
-    const route = loadPinnedModule(ROUTE, s => {
+    const requireRoute = (s: string): unknown => {
       if (s === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => {
         if (this.failNextJson) { this.failNextJson = false; throw new Error("fixture-private-json-failure"); }
         return Response.json(body, init);
@@ -72,11 +74,24 @@ export class PinnedAgentSkillsFixture {
       if (s === "@/lib/agentSkills/schemas") return schemas;
       if (s === "@/lib/agentSkills/catalog") return catalog;
       throw new Error(`Unexpected route import: ${s}`);
-    });
+    };
+    const route = loadPinnedModule(ROUTE, requireRoute);
+    const detail = loadPinnedModule("src/app/api/agent-skills/[id]/route.ts", requireRoute);
+    const coverageRoute = loadPinnedModule("src/app/api/agent-skills/coverage/route.ts", requireRoute);
     const get = route.GET as (request: Request) => Promise<Response>;
-    this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => request.method === "GET" && new URL(request.url).pathname === "/api/agent-skills" ? get(request) : new Response(null, { status: 404 }) });
+    const getDetail = detail.GET as (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
+    const getCoverage = coverageRoute.GET as () => Promise<Response>;
+    this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => {
+      const pathname = new URL(request.url).pathname;
+      if (request.method !== "GET") return new Response(null, { status: 404 });
+      if (pathname === "/api/agent-skills") return get(request);
+      if (pathname === "/api/agent-skills/coverage") return getCoverage();
+      const match = /^\/api\/agent-skills\/([^/]+)$/.exec(pathname);
+      return match ? getDetail(request, { params: Promise.resolve({ id: decodeURIComponent(match[1]!) }) }) : new Response(null, { status: 404 });
+    } });
   }
   handle(query = ""): Promise<Response> { return fetch(`${this.#server.url.origin}/api/agent-skills${query}`); }
+  handlePath(pathname: string): Promise<Response> { return fetch(`${this.#server.url.origin}${pathname}`); }
   close(): void { this.#server.stop(true); }
 }
 
@@ -103,4 +118,17 @@ export function agentSkillsDescriptor(): OperationDescriptor {
   const original = getOperation(SKILLS_ID);
   if (!original) throw new Error(`Missing pinned operation ${SKILLS_ID}`);
   return { ...original, ...agentSkillsContract() };
+}
+
+export function agentSkillsReadContract(operationId: typeof SKILLS_DETAIL_ID | typeof SKILLS_COVERAGE_ID): OperationSourceContract {
+  const template = operationContractTemplate(operationId) as unknown as OperationSourceContract;
+  const base = agentSkillsContract();
+  const detail = operationId === SKILLS_DETAIL_ID;
+  return { ...template, auth: base.auth, response: { ...template.response, mediaType: "application/json", schema: { oneOf: [detail ? skill : coverage, error] }, variants: template.response.variants.map(variant => ["200", "400", "404", "500"].includes(variant.statusCode) ? { ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? (detail ? skill : coverage) : error })) } : variant) }, secrets: base.secrets, sideEffect: "read", pagination: base.pagination, streaming: base.streaming, confirmation: base.confirmation, retry: base.retry, reconciliation: null, mutationSafety: null };
+}
+
+export function agentSkillsReadDescriptor(operationId: typeof SKILLS_DETAIL_ID | typeof SKILLS_COVERAGE_ID): OperationDescriptor {
+  const original = getOperation(operationId);
+  if (!original) throw new Error(`Missing pinned operation ${operationId}`);
+  return { ...original, ...agentSkillsReadContract(operationId) };
 }

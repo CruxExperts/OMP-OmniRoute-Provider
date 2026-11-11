@@ -135,6 +135,15 @@ try {
   assert(skillsDenied.status === 401 && skillsInvalid.status === 401 && !JSON.stringify(skillsInvalid.body).includes(invalidCredential), 'agent-skills-denials');
   assert([skillsDenied, skillsInvalid, skillsAllowed].every(response => response.routeClass === 'MANAGEMENT') && skillsAllowed.status === 200 && skillsAllowed.body?.count === 1 && skillsAllowed.body?.skills?.[0]?.id === 'config-codex-cli', 'agent-skills-query');
   results.push({ case: 'GET /api/agent-skills', denied: skillsDenied, invalid: skillsInvalid, allowed: skillsAllowed });
+  for (const path of ['/api/agent-skills/config-codex-cli', '/api/agent-skills/coverage']) {
+    const denied = await request(path);
+    const invalid = await request(path, 'GET', { authorization: `Bearer ${invalidCredential}` });
+    const allowed = await request(path, 'GET', { cookie });
+    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), `agent-skills-read:${path}`);
+    if (path.endsWith('/coverage')) assert(Number.isInteger(allowed.body?.totalSkills) && allowed.body?.api && allowed.body?.cli && allowed.body?.config, 'agent-skills-coverage');
+    else assert(allowed.body?.id === 'config-codex-cli', 'agent-skills-detail');
+    results.push({ case: `GET ${path}`, denied, invalid, allowed });
+  }
   for (const [method, path] of [['GET', '/api/model-combo-mappings'], ['POST', '/api/model-combo-mappings'], ['GET', '/api/model-combo-mappings/fixture-id'], ['PUT', '/api/model-combo-mappings/fixture-id'], ['DELETE', '/api/model-combo-mappings/fixture-id']]) {
     const denied = await request(path, method);
     const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
