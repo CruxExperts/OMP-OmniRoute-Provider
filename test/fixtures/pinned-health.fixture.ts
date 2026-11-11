@@ -5,6 +5,10 @@ import type { OperationSourceContract } from "../../src/admin/eligibility.ts";
 import { getOperation, type JsonSchema, type OperationDescriptor } from "../../src/admin/registry.ts";
 import * as perfHooks from "node:perf_hooks";
 import { loadPinnedModule, readPinnedSource, type PinnedExports } from "./pinned-handler.fixture.ts";
+import { fixtureRegistry } from "./admin-qualification.fixture.ts";
+
+export const LIVENESS_TEST_ID = "test/admin-json-health-source.test.ts";
+export const LIVENESS_ID = "GET /api/health" as const;
 
 type Lifecycle = PinnedExports & {
   markServerStarting(): void;
@@ -55,7 +59,7 @@ export function jsonHealthContract(id: JsonHealthId): OperationSourceContract {
   const success = ping ? pingResponse : liveResponse;
   return {
     ...template,
-    auth: { ...template.auth, sourcePolicy: { status: "unknown" } },
+    auth: ping ? { ...template.auth, sourcePolicy: { status: "unknown" } } : { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } },
     response: { ...template.response, mediaType: "application/json", schema: ping ? { oneOf: [success, pingError] } : success,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? success : pingError })) })) },
     secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
@@ -69,6 +73,29 @@ export function jsonHealthDescriptor(id: JsonHealthId): OperationDescriptor {
   const original = getOperation(id);
   if (!original) throw new Error(`Missing pinned operation ${id}`);
   return { ...original, ...jsonHealthContract(id) };
+}
+
+/** Synthetic adapter authority is confined to the fixture; ingress remains unqualified. */
+export function buildLivenessFixtureRegistry() {
+  const descriptor = jsonHealthDescriptor(LIVENESS_ID);
+  return fixtureRegistry([{ ...descriptor,
+    mediaType: { request: descriptor.request.body?.mediaType ?? null, response: descriptor.response.mediaType },
+    coverage: { status: "invokable", adapterId: "typed.fixture.get.api.health", reason: null },
+  }]);
+}
+
+/** HTTP transport for the pinned handler only, not the Next proxy or auth pipeline. */
+export function startPinnedLivenessHttp() {
+  const route = loadPinnedModule("src/app/api/health/route.ts", specifier => {
+    if (specifier === "next/server") return { NextResponse: { json: Response.json.bind(Response) } };
+    throw new Error(`Unexpected health route dependency: ${specifier}`);
+  });
+  const get = route.GET as () => Promise<Response>;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    return request.method === "GET" && new URL(request.url).pathname === "/api/health"
+      ? get() : new Response(null, { status: 404 });
+  } });
+  return { endpoint: server.url.origin, stop: () => server.stop(true) };
 }
 
 /** Extract the exact receipt-verified pingDb declaration, injecting only its database boundary. */

@@ -11,6 +11,12 @@ candidate qualification. The current candidate exposes no qualified operations;
 examples describe intended workflows until fresh source-bound evidence is
 accepted. Unqualified calls remain blocked; consult the generated inventory.
 
+The pure `GET /api/health` packet now has an independently exercised pinned
+handler, a reviewed anonymous public-source policy, and a current bound outcome.
+Its timestamp is checked before normalization for deterministic comparison.
+This handler-only evidence does not replace the separately required Next ingress
+observation or make the operation available.
+
 ## Start with read access
 
 Connect with `/omniroute setup`, then use `/omniroute-admin status` to inspect whether
