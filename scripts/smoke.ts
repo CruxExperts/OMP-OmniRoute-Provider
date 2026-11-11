@@ -1815,6 +1815,7 @@ export async function runWindowsLoginResearch(options: {
     };
     const version = stripVTControlCharacters(requireSuccess(versionResult, "research host version")).trim();
     result.reportedVersion = /^[0-9A-Za-z.+-]{1,64}$/u.test(version) ? version : "non-semantic-version-output";
+    result.versionCodePoints = Array.from(version.slice(0, 64), char => char.codePointAt(0)!);
     if (!/(?:^|\s)18\.12\.5(?:\s|$)/.test(version)) throw new Error("Research host must report 18.12.5");
     result.hostVersion = "18.12.5";
     await writeFile(options.output, JSON.stringify(result, null, 2), { flag: "wx", mode: 0o600 });
