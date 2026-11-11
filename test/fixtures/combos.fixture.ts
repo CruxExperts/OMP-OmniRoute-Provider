@@ -136,12 +136,13 @@ const TARGET_METRIC_VIEW_SCHEMA = jsonObject({ ...((MODEL_METRIC_VIEW_SCHEMA as 
 const modelMetricMap = { type: "object", "x-key-role": "identifier", additionalProperties: MODEL_METRIC_VIEW_SCHEMA } satisfies JsonSchema;
 const targetMetricMap = { type: "object", "x-key-role": "identifier", additionalProperties: TARGET_METRIC_VIEW_SCHEMA } satisfies JsonSchema;
 const COMBO_METRICS_VIEW_SCHEMA = jsonObject({ totalRequests: number(0), totalSuccesses: number(0), totalFailures: number(0), totalFallbacks: number(0),
+  requestsWithFallback: number(0), skipsPerRequest: number(0),
   totalLatencyMs: number(0), strategy: { type: "string" }, lastUsedAt: nullableString(), intentCounts: { type: "object", "x-key-role": "identifier", additionalProperties: number(0) },
   byModel: modelMetricMap, byTarget: targetMetricMap, productionTraffic: { type: "boolean" }, avgLatencyMs: number(0), successRate: number(0), fallbackRate: number(0),
   persistedSkipBypassed: number(0), shadow: jsonObject({ totalRequests: number(0), totalSuccesses: number(0), totalFailures: number(0), totalLatencyMs: number(0),
     lastUsedAt: nullableString(), byModel: modelMetricMap, byTarget: targetMetricMap, avgLatencyMs: number(0), successRate: number(0) },
     ["totalRequests", "totalSuccesses", "totalFailures", "totalLatencyMs", "lastUsedAt", "byModel", "byTarget", "avgLatencyMs", "successRate"]) },
-  ["totalRequests", "totalSuccesses", "totalFailures", "totalFallbacks", "totalLatencyMs", "strategy", "lastUsedAt", "intentCounts", "byModel", "byTarget", "productionTraffic", "avgLatencyMs", "successRate", "fallbackRate", "persistedSkipBypassed", "shadow"]);
+  ["totalRequests", "totalSuccesses", "totalFailures", "totalFallbacks", "requestsWithFallback", "skipsPerRequest", "totalLatencyMs", "strategy", "lastUsedAt", "intentCounts", "byModel", "byTarget", "productionTraffic", "avgLatencyMs", "successRate", "fallbackRate", "persistedSkipBypassed", "shadow"]);
 const comboMetricMap = { type: "object", "x-key-role": "identifier", additionalProperties: { oneOf: [COMBO_METRICS_VIEW_SCHEMA, { type: "null" }] } } satisfies JsonSchema;
 const METRICS_SCHEMA: JsonSchema = jsonObject({ metrics: { oneOf: [{ type: "null" }, COMBO_METRICS_VIEW_SCHEMA, comboMetricMap] },
   message: { type: "string", maxLength: 200 } }, ["metrics"]);
@@ -186,7 +187,9 @@ const BUILDER_PROVIDER_SCHEMA = jsonObject({ providerId: str(200), providerType:
   ["providerId", "providerType", "displayName", "alias", "icon", "color", "source", "acceptsArbitraryModel", "connectionCount", "activeConnectionCount", "modelCount", "connections", "models"]);
 const BUILDER_SCHEMA: JsonSchema = jsonObject({ schemaVersion: integer(1), generatedAt: { type: "string", format: "date-time" },
   providers: { type: "array", items: BUILDER_PROVIDER_SCHEMA }, comboRefs: { type: "array", items: jsonObject({ id: str(), name: str(100), strategy: { type: "string", enum: STRATEGY_ENUM },
-    stepCount: integer(0), version: integer(1), sortOrder: integer(0) }, ["id", "name", "strategy", "stepCount", "version"]) } }, ["schemaVersion", "generatedAt", "providers", "comboRefs"]);
+    stepCount: integer(0), version: integer(1), sortOrder: integer(0) }, ["id", "name", "strategy", "stepCount", "version"]) },
+  staleComboRefs: { type: "array", items: jsonObject({ comboId: str(), comboName: str(100), stepId: nullableString(), model: str(300) }, ["comboId", "comboName", "stepId", "model"]) } },
+  ["schemaVersion", "generatedAt", "providers", "comboRefs", "staleComboRefs"]);
 const TEST_TARGET_SCHEMA = jsonObject({ model: str(300), provider: str(120), stepId: str(), executionKey: str(), connectionId: nullableString(), label: nullableString() }, ["model", "provider", "stepId", "executionKey", "connectionId", "label"]);
 const TEST_RESULT_SCHEMA: JsonSchema = jsonObject({ comboName: str(100), strategy: { type: "string", enum: STRATEGY_ENUM }, testMode: { const: "target-health-check" },
   comboType: { const: "auto" }, totalCandidates: integer(0),
@@ -258,7 +261,7 @@ function operationAuth(base: OperationSourceContract["auth"], operationId: strin
   const handlerGuard = HANDLER_GUARDS[operationId as keyof typeof HANDLER_GUARDS];
   if (!handlerGuard) throw new Error(`combo handler guard is not source-bound: ${operationId}`);
   return { domain: "management", specificationAlternatives: base.specificationAlternatives, sourcePolicy: {
-    status: "qualified", source: "omniroute-v3.8.52", routeClass: "management", localOnly: false, handlerGuard, bootstrap: "none",
+    status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard, bootstrap: "none",
     alternatives: [{ kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "management-api-key", anyOf: ["manage", "admin"] },
       { kind: "dashboard-session" }, { kind: "oma-access-token", minimumScope: requiredOmaScope(method as "GET" | "POST" | "PUT" | "PATCH" | "DELETE", routePath(operationId)) }, { kind: "trusted-local", loopbackOnly: true }],
   } };
@@ -381,9 +384,21 @@ function contractFor(operationId: string): OperationSourceContract {
   const isTest = operationId === "POST /api/combos/test";
   const targetRelation = isRead || isTest ? null : relation(operationId);
   const metricsReset = operationId === "DELETE /api/combos/metrics";
-  const preflight = isTest
-    ? { kind: "unavailable" as const, reason: "The charged test resolves mutable combo and provider targets that no source-qualified read observes before dispatch." }
-    : metricsReset && targetRelation
+  const collectionRead = {
+    operationId: "GET /api/combos", inputs: [],
+    snapshot: { kind: "collection" as const, identity: [{ name: "id", path: ["id"] }], state: [{ name: "name", path: ["name"] }] },
+    sourceView: "omniroute-v3.8.53.combos.collection-preflight" as const,
+  };
+  const collectionObservation = {
+    name: "complete-combo-collection", read: collectionRead,
+    readCompleteness: { kind: "unpaginated-list" as const, sourceReason: "The pinned GET omits LIMIT without pagination inputs; SQLite counts all rows, including malformed rows omitted by parsing.",
+      itemsPath: ["combos"], totalPath: ["total"], identityPaths: [["id"]] },
+  };
+  const catalogObservation = (name: string, operationId: string, sourceView: "omniroute-v3.8.53.combos.auto-preflight" | "omniroute-v3.8.53.combos.selected-auto-preflight" | "omniroute-v3.8.53.combos.providers-preflight") => ({
+    name, read: { operationId, inputs: [], snapshot: { kind: "resource" as const, identity: [{ name: "scope", path: ["scope"] }], state: [] }, sourceView },
+    readCompleteness: { kind: "single-response" as const, sourceReason: "The pinned catalog GET returns its exposed inventory in one response without pagination." },
+  });
+  const preflight = metricsReset && targetRelation
       ? { kind: "required" as const, observations: [{
           name: "metrics-reset-scope",
           read: targetRelation.targetRead,
@@ -397,17 +412,22 @@ function contractFor(operationId: string): OperationSourceContract {
           "Reset-all deletes all three counter maps and stops the metrics cleanup interval until module reload.",
         ] as const,
       }
-    : operationId === "PUT /api/combos/{id}" || operationId === "PATCH /api/combos/{id}"
-      ? { kind: "unavailable" as const, reason: "The update handler reads the mutable full combo collection for normalization, name collision, and DAG checks; the paginated collection GET has no complete-list proof." }
-    : targetRelation?.targetRead.operationId === "GET /api/combos"
-      ? { kind: "unavailable" as const, reason: "The collection read is paginated and has no source-qualified complete-list proof; absence and dependency state cannot be established." }
-      : targetRelation
-        ? { kind: "required" as const, observations: [{
-            name: "combo-target",
-            read: targetRelation.targetRead,
-            readCompleteness: { kind: "single-response" as const, sourceReason: "The pinned GET returns the complete selected combo or metric target in one response without pagination." },
-          }] }
-        : { kind: "unavailable" as const, reason: "No source-qualified preflight read resolves the mutation target." };
+    : { kind: "required" as const, observations: [
+        collectionObservation,
+        ...((operationId === "PUT /api/combos/{id}" || operationId === "PATCH /api/combos/{id}") && targetRelation
+          ? [{ name: "selected-combo", read: targetRelation.targetRead,
+              readCompleteness: { kind: "single-response" as const, sourceReason: "The item GET returns the selected combo in one response." } }] : []),
+        ...((isTest || operationId === "POST /api/combos/duplicate") ? [
+          catalogObservation("auto-catalog", "GET /api/combos/auto", "omniroute-v3.8.53.combos.auto-preflight"),
+          catalogObservation("selected-auto", "GET /api/combos/auto", "omniroute-v3.8.53.combos.selected-auto-preflight"),
+          catalogObservation("provider-catalog", "GET /api/combos/builder/options", "omniroute-v3.8.53.combos.providers-preflight"),
+        ] : []),
+      ], visibilityLimits: [
+        "The collection and catalog reads are not an atomic lock against other writers; hidden settings and external service state can change after confirmation.",
+        "Cloud sync settings and effects are not exposed by these reads; the handler may sync changes to cloud when enabled.",
+        ...(operationId === "DELETE /api/combos/{id}" ? ["Deletion also revokes matching API key grants and clears proxy assignments; those hidden stores are not exposed by the combo collection."] : []),
+        ...((isTest || operationId === "POST /api/combos/duplicate") ? ["Catalogs omit credential values and may not expose all routing, capability, or internal key state; provider state can change after confirmation."] : []),
+      ] };
   const contract: OperationSourceContract = { ...base, request, auth: operationAuth(base.auth, operationId), sideEffect: isRead ? "read" : "mutation",
     secrets: { ...base.secrets, outputFields: [...base.secrets.outputFields, "providers.connections.lastError", "config.apiKey"] },
     pagination: operationId === "GET /api/combos" ? { mode: "offset", parameters: ["limit", "offset"] } : { mode: "none", parameters: [] },
@@ -480,6 +500,7 @@ export class CombosHttpFixture {
   readonly #handlers: ReturnType<typeof createPinnedComboHandlers>;
   readonly #routes: Readonly<Record<string, PinnedExports>>;
   readonly #counts = new Map<string, number>();
+  #breakerState: "CLOSED" | "OPEN" = "CLOSED";
   readonly #rejectedProbeModels = new Set<string>();
   readonly #server: Bun.Server<undefined>;
 
@@ -498,6 +519,7 @@ export class CombosHttpFixture {
       store: this.#storage.store,
       apiPort: () => Number(this.#server.url.port),
       uuid: fixtureUuid,
+      breakerState: () => this.#breakerState,
       date: fixtureDate,
     });
     this.#routes = this.#handlers.routes;
@@ -513,6 +535,7 @@ export class CombosHttpFixture {
   static start(options: ComboFixtureOptions): CombosHttpFixture {
     return new CombosHttpFixture(options.auth, options.seeds ?? []);
   }
+  setBreakerState(state: "CLOSED" | "OPEN"): void { this.#breakerState = state; }
   get counts(): Readonly<Record<string, number>> { return Object.fromEntries(this.#counts); }
   rejectNextProbe(model: string): void {
     if (!model.trim()) throw new Error("A probe model id is required for the controlled fixture failure");

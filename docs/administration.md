@@ -143,6 +143,13 @@ awaiting qualification. That work must bind available routing dependencies and
 describe effects that upstream cannot expose. Combo tests also send charged
 provider requests, so their selected routing targets need a qualified preview.
 
+Duplicate and test previews bind a selected auto group's materialized response,
+including exposed model weights, before confirmation and again before dispatch.
+A changed response invalidates the preview. Stored non-auto test names remain
+bound through the complete stored-group read, not an invalid auto-group lookup.
+This does not expose every capability input used internally by duplication or
+qualify charged provider tests; those operations remain unavailable.
+
 Metrics reset is available. Supply the `combo` query value to reset a named
 combo, or omit it to reset all metrics. The preview binds the selected scope and
 exposed metrics; an observed change before apply requires a new preview. Upstream

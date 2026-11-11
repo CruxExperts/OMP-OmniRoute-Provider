@@ -10,6 +10,7 @@ import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, pr
 import { createAdminCommandHandler, type AdminUiOptions } from "./ui.ts";
 import { registerAdminTools } from "./tools.ts";
 import type { AdminDispatch, AdminOperationAuthBinding, AdminRequest } from "./types.ts";
+import { comboPreflightReadInput } from "./source-combos.ts";
 
 export interface AdminRuntimeOptions {
   readonly pi: ExtensionAPI;
@@ -195,7 +196,7 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
     auth: AdminOperationAuthBinding,
     signal?: AbortSignal,
   ) => {
-    const input = adapter.validate(mapRelationInput(mappings, payload));
+    const input = adapter.validate(comboPreflightReadInput(relation.sourceView, payload, mapRelationInput(mappings, payload)));
     assertSafetyReadRequest(proof, adapter.descriptor, input);
     const response = await dispatch(requestFor(adapter, auth.endpoint, input), { auth, retryAllowed: false, maxAttempts: 1, ...(signal ? { signal } : {}) });
     assertSafetyReadResponse(proof, adapter.descriptor, response);

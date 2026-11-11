@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { posix } from "node:path";
 import { Database } from "bun:sqlite";
 import {
   createPinnedManagementAuthorization,
@@ -79,6 +80,7 @@ export interface ComboStoreEffects {
   readonly lkgpPurges: string[];
   readonly rotationClears: Array<{ scope: string; scopeId: string | null }>;
   readonly proxyRegistryGenerationBumps: number[];
+  readonly apiKeyCacheInvalidations: number[];
 }
 
 export interface PinnedComboStoreRuntime {
@@ -112,7 +114,11 @@ export function createPinnedSqliteComboStore(
   const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(coreSource)?.[1];
   const comboTable = schema && /CREATE TABLE IF NOT EXISTS combos\s*\([\s\S]*?\n\s*\);/i.exec(schema)?.[0];
   if (!comboTable) throw new Error("Receipt-verified upstream core schema omitted the combos table");
+  const apiKeyTable = schema && /CREATE TABLE IF NOT EXISTS api_keys\s*\([\s\S]*?\n\s*\);/i.exec(schema)?.[0];
+  if (!apiKeyTable) throw new Error("Receipt-verified upstream core schema omitted the api_keys table");
   db.exec(comboTable);
+  db.exec(apiKeyTable);
+  db.exec(readPinnedSource("src/lib/db/migrations/052_api_key_combo_throttle.sql"));
   db.exec(readPinnedSource("src/lib/db/migrations/005_combo_agent_fields.sql"));
   db.exec(readPinnedSource("src/lib/db/migrations/004_proxy_registry.sql"));
   db.exec(readPinnedSource("src/lib/db/migrations/117_proxy_pool_rotation.sql"));
@@ -124,12 +130,19 @@ export function createPinnedSqliteComboStore(
     reasoningCacheInvalidations: [],
     lkgpPurges: [],
     rotationClears: [],
+    apiKeyCacheInvalidations: [],
     proxyRegistryGenerationBumps: [],
   };
   const getDbInstance = () => db;
+  const sourceReadCache = loadPinnedModule("src/lib/db/readCache.ts", specifier => {
+    throw new Error(`Unapproved pinned read-cache import: ${specifier}`);
+  });
   const readCache = {
-    invalidateDbCache: (table: string) => { effects.cacheInvalidations.push(table); },
-    invalidateCachedLKGP: (_key: string) => undefined,
+    ...sourceReadCache,
+    invalidateDbCache: (table: string) => {
+      effects.cacheInvalidations.push(table);
+      (sourceReadCache.invalidateDbCache as (scope: string) => void)(table);
+    },
   };
   const steps = loadPinnedModule("src/lib/combos/steps.ts", () => {
     throw new Error("Pinned combo-step normalizer has no runtime imports");
@@ -142,6 +155,13 @@ export function createPinnedSqliteComboStore(
     ["clearRotationState"],
     specifier => { throw new Error(`Unapproved pinned combo rotation import: ${specifier}`); },
   );
+  const comboAccess = loadPinnedModule("src/shared/constants/comboAccess.ts", specifier => {
+    throw new Error(`Unapproved pinned combo-access import: ${specifier}`);
+  });
+  const comboGrantRevocation = loadPinnedModule("src/lib/db/apiKeys/comboGrantRevocation.ts", specifier => {
+    if (specifier === "@/shared/constants/comboAccess") return comboAccess;
+    throw new Error(`Unapproved pinned combo-grant-revocation import: ${specifier}`);
+  });
   const repository = loadPinnedModule("src/lib/db/repositories/sqliteComboRepository.ts", specifier => {
     if (specifier === "uuid") return { v4: fixtureUuid };
     if (specifier === "@/lib/combos/steps") return steps;
@@ -159,6 +179,8 @@ export function createPinnedSqliteComboStore(
     if (specifier === "../proxies/registryGeneration") return {
       bumpProxyRegistryGeneration: () => { effects.proxyRegistryGenerationBumps.push(1); },
     };
+    if (specifier === "../apiKeys/comboGrantRevocation") return comboGrantRevocation;
+    if (specifier === "../apiKeys") return { clearApiKeyCaches: () => { effects.apiKeyCacheInvalidations.push(1); } };
     if (specifier === "../readCache") return readCache;
     throw new Error(`Unapproved pinned combo-repository import: ${specifier}`);
   }, { date: fixtureDate });
@@ -241,6 +263,7 @@ function loadComboSchemas(): PinnedExports {
     throw new Error(`Unexpected import in pinned combo schema constant ${path}: ${specifier}`);
   });
   const simpleConstants: Record<string, PinnedExports> = {
+    "@omniroute/open-sse/config/serviceTier.ts": loadConstant("open-sse/config/serviceTier.ts"),
     "@/shared/constants/routingStrategies": loadConstant("src/shared/constants/routingStrategies.ts"),
     "@/shared/constants/batchEndpoints": loadConstant("src/shared/constants/batchEndpoints.ts"),
     "@/shared/constants/bodySize": loadConstant("src/shared/constants/bodySize.ts"),
@@ -300,7 +323,11 @@ function loadPinnedComboStructure(): PinnedExports {
     ["MAX_COMBO_DEPTH", "MAX_COMBO_DEPTH_HARD_CAP", "clampComboDepth"],
     () => { throw new Error("Pinned combo-depth policy is declared locally"); },
   );
+  const prefillError = loadPinnedModule("open-sse/services/assistantPrefillError.ts", specifier => { throw new Error(`Unapproved prefill error import: ${specifier}`); });
+  const bridgeFailure = loadPinnedModule("open-sse/utils/chatgptWebBridgeFailure.ts", specifier => { throw new Error(`Unapproved bridge-failure import: ${specifier}`); });
+  const drainStatus = loadPinnedModule("open-sse/utils/drainStatus.ts", specifier => { throw new Error(`Unapproved drain-status import: ${specifier}`); });
   const modelAccessDenied = loadPinnedModule("open-sse/services/modelAccessDenied.ts", specifier => {
+    if (specifier === "./assistantPrefillError.ts") return prefillError;
     throw new Error(`Unapproved pinned model-access import: ${specifier}`);
   });
   const visibility = loadPinnedModule("open-sse/services/combo/comboVisibility.ts", specifier => {
@@ -313,8 +340,9 @@ function loadPinnedComboStructure(): PinnedExports {
     throw new Error(`Unapproved pinned combo-visibility import: ${specifier}`);
   });
   const unsupportedPredicate = () => { throw new Error("Unrelated combo predicate is outside this fixture"); };
+  const predicateConstants = loadExtractedPinnedDeclarations(["open-sse/config/constants.ts"], ["EXECUTOR_CONTRACT_VIOLATION_CODE", "DEVIN_BRIDGE_NOT_CONFIGURED_CODE", "UNSAFE_DEVIN_HOME_CODE", "LOCAL_CONFIGURATION_ERROR_CODES"], specifier => { throw new Error(`Unapproved predicate constant import: ${specifier}`); });
   const comboPredicates = loadPinnedModule("open-sse/services/combo/comboPredicates.ts", specifier => {
-    if (specifier === "../../config/constants.ts") return { EXECUTOR_CONTRACT_VIOLATION_CODE: "FIXTURE_UNRELATED" };
+    if (specifier === "../../config/constants.ts") return predicateConstants;
     if (specifier === "../antigravityQuotaFamily.ts") return { finitePercentUsed: unsupportedPredicate, remainingPercentFromQuotaWindows: unsupportedPredicate };
     if (specifier === "../../utils/error.ts") return { errorResponse: unsupportedPredicate };
     if (specifier === "../../utils/contentPolicyError.ts") return { isContentPolicyRefusal: unsupportedPredicate };
@@ -334,15 +362,25 @@ function loadPinnedComboStructure(): PinnedExports {
       cooldownUntilMs: unsupportedPredicate,
     };
     if (specifier === "../accountFallback/requestScoped400.ts") return { isRequestScoped400: unsupportedPredicate };
+    if (specifier === "../accountFallback/perModelFailureScope.ts") return { hasPerModelFailureScope: unsupportedPredicate, isExplicitModelCapacityFailure: unsupportedPredicate, isModelUnsupported401: unsupportedPredicate, isModelNotFound404: unsupportedPredicate };
     if (specifier === "../errorClassifier.ts") return { isResourceNotFoundResponse: unsupportedPredicate };
     if (specifier === "../../executors/opencodeGeoBlock.ts") return { isOpencodeFreeTierRefusal: unsupportedPredicate };
     if (specifier === "../rateLimitManager/errors.ts") return { getTrustedLocalRateLimitResponse: unsupportedPredicate };
     if (specifier === "../../handlers/chatCore/translationFailure.ts") return { TRANSLATION_FAILURE_CODE: "FIXTURE_UNRELATED" };
     if (specifier === "../resolvedModelAccess.ts") return { isLocalModelPolicyResponse: unsupportedPredicate };
     if (specifier === "./comboErrorAggregation.ts") return { classifyComboOutcome: unsupportedPredicate };
+    if (specifier === "../assistantPrefillError.ts") return prefillError;
+    if (specifier === "../../utils/chatgptWebBridgeFailure.ts") return bridgeFailure;
+    if (specifier === "../../utils/drainStatus.ts") return drainStatus;
     if (specifier === "../modelAccessDenied.ts") return modelAccessDenied;
     if (specifier === "./types.ts" || specifier === "./validateQuality.ts") return {};
     throw new Error(`Unapproved pinned combo-predicate import: ${specifier}`);
+  });
+  const mediaCompatibility = loadPinnedModule("open-sse/services/combo/mediaCompatibility.ts", specifier => {
+    if (specifier === "../../utils/mediaParts.ts") return { containsMediaKind: unsupportedPredicate };
+    if (specifier === "../../utils/ciTransportInput.ts") return { ciTransportSupportsInput: unsupportedPredicate };
+    if (specifier === "../modelCapabilities.ts") return { getInputModalities: unsupportedPredicate, getResolvedModelCapabilities: unsupportedPredicate, isTextOnlyChatTransport: unsupportedPredicate };
+    throw new Error(`Unapproved media-compatibility import: ${specifier}`);
   });
   const structure = loadPinnedModule("open-sse/services/combo/comboStructure.ts", specifier => {
     if (specifier === "../../../src/lib/modelCapabilities") return {
@@ -361,6 +399,7 @@ function loadPinnedComboStructure(): PinnedExports {
     if (specifier === "./comboData.ts") return comboData;
     if (specifier === "./comboVisibility.ts") return visibility;
     if (specifier === "./comboPredicates.ts") return comboPredicates;
+    if (specifier === "./mediaCompatibility.ts") return mediaCompatibility;
     if (specifier === "./contextOverrideGate.ts") return {
       evaluateContextLimit: () => { throw new Error("Context override evaluation is outside this fixture"); },
       getModelContextOverrideValue: () => null,
@@ -388,7 +427,7 @@ const fixtureProviderModels = [
   { id: "chat", name: "Fixture Chat", supportedEndpoints: ["chat"], contextWindow: 65_536, outputTokenLimit: 4_096 },
 ];
 
-function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily: PinnedExports): PinnedExports {
+function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily: PinnedExports, breakerState: () => string): PinnedExports {
   const scoring = loadPinnedModule("open-sse/services/autoCombo/scoring.ts", specifier => {
     if (specifier === "../manifestAdapter") return {};
     if (specifier === "../../utils/number") return { clamp01: (value: number) => Math.max(0, Math.min(1, value)) };
@@ -400,7 +439,7 @@ function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily:
   });
   const breaker = loadPinnedModule("open-sse/services/autoCombo/snapshotBreaker.ts", specifier => {
     if (specifier === "../../../src/shared/utils/circuitBreaker.ts") return {
-      getCircuitBreaker: () => ({ getStatus: () => ({ state: "CLOSED" }) }),
+      getCircuitBreaker: () => ({ getStatus: () => ({ state: breakerState() }) }),
     };
     throw new Error(`Unapproved pinned auto-breaker import: ${specifier}`);
   });
@@ -485,11 +524,54 @@ function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily:
       recordAutoSurvivors: () => undefined,
     },
     "./advertisedLimits": advertisedLimits,
+    "../../utils/numeric.ts": loadPinnedModule("open-sse/utils/numeric.ts", specifier => { throw new Error(`Unapproved numeric helper import: ${specifier}`); }),
+    "./cooperativeYield": loadPinnedModule("open-sse/services/autoCombo/cooperativeYield.ts", specifier => { throw new Error(`Unapproved cooperative scheduling import: ${specifier}`); }),
   };
   return loadPinnedModule("open-sse/services/autoCombo/virtualFactory.ts", specifier => {
     if (Object.hasOwn(virtualFactoryDependencies, specifier)) return virtualFactoryDependencies[specifier];
     throw new Error(`Unapproved pinned virtual-auto import: ${specifier}`);
   });
+}
+
+function loadPinnedMediaCatalogs(): Record<string, PinnedExports> {
+  const allowed: Record<string, true> = {
+    "open-sse/config/imageRegistry.ts": true, "open-sse/config/imageRegistryData.ts": true,
+    "open-sse/config/audioRegistry.ts": true, "open-sse/config/videoRegistry.ts": true,
+    "open-sse/config/dynamicImageModelSources.ts": true, "open-sse/config/grokBuildEndpoints.ts": true,
+    "open-sse/config/runway.ts": true, "open-sse/config/museCode.ts": true, "open-sse/utils/urlSanitize.ts": true,
+    "open-sse/config/providers/registry/lmarena/directModels.ts": true, "open-sse/config/providers/registry/segmind/imageModels.ts": true,
+    "open-sse/config/providers/registry/segmind/videoModels.ts": true, "open-sse/config/providers/registry/kie/imageModels.ts": true,
+    "open-sse/config/providers/registry/magnific/index.ts": true, "open-sse/config/providers/registry/stability-ai/imageModels.ts": true,
+    "open-sse/config/providers/registry/cheaperinference/imageModels.ts": true, "open-sse/config/providers/registry/aihorde/imageModels.ts": true,
+    "open-sse/config/providers/registry/zenmux/imageModels.ts": true, "open-sse/config/providers/registry/muse-code/imageModels.ts": true,
+    "open-sse/config/providers/registry/codex/imageModels.ts": true, "open-sse/services/adobeFireflyModels.ts": true,
+    "open-sse/services/adobeFireflyModelSnapshot.ts": true, "open-sse/services/syntxMediaCatalog.ts": true, "open-sse/services/syntxAuth.ts": true,
+  };
+  const cache = new Map<string, PinnedExports>();
+  const outsideFixture = () => { throw new Error("Unrelated media catalog branch is outside this fixture"); };
+  const load = (path: string): PinnedExports => {
+    const cached = cache.get(path);
+    if (cached) return cached;
+    if (!Object.hasOwn(allowed, path)) throw new Error(`Unapproved pinned media catalog module: ${path}`);
+    const result = loadPinnedModule(path, specifier => {
+      if (path.endsWith("/imageRegistry.ts") && specifier === "@/shared/utils/featureFlagResolverBridge.ts") return { resolveRegisteredFeatureFlag: () => false };
+      if (path.endsWith("/imageRegistry.ts") && specifier === "./providerModels.ts") return { getModelsByProviderId: outsideFixture };
+      if (path.endsWith("/videoRegistry.ts") && specifier === "./grokBuild.ts") return load("open-sse/config/grokBuildEndpoints.ts");
+      if (path.endsWith("/videoRegistry.ts") && specifier === "./registryUtils.ts") return { parseModelFromRegistry: outsideFixture };
+      if (path.endsWith("/audioRegistry.ts") && specifier === "@/shared/constants/providers") return { getProviderAlias: outsideFixture };
+      if (path.endsWith("/audioRegistry.ts") && specifier === "@/shared/network/loopbackNodeHost") return { isLoopbackNodeHost: outsideFixture };
+      if (specifier === "../utils/modelIdSafety.ts") return { hasUnsafeModelIdSyntax: outsideFixture };
+      if (!specifier.startsWith(".")) throw new Error(`Unapproved pinned media import ${specifier} from ${path}`);
+      return load(posix.normalize(posix.join(posix.dirname(path), specifier)));
+    });
+    cache.set(path, result);
+    return result;
+  };
+  return {
+    "@omniroute/open-sse/config/imageRegistry.ts": load("open-sse/config/imageRegistry.ts"),
+    "@omniroute/open-sse/config/audioRegistry.ts": load("open-sse/config/audioRegistry.ts"),
+    "@omniroute/open-sse/config/videoRegistry.ts": load("open-sse/config/videoRegistry.ts"),
+  };
 }
 
 function loadComboRoutes(options: {
@@ -498,6 +580,7 @@ function loadComboRoutes(options: {
   apiPort: () => number;
   uuid: () => string;
   date: DateConstructor;
+  breakerState: () => string;
 }): { routes: PinnedComboHandlers["routes"]; metrics: PinnedComboMetrics } {
   const { authorization, store } = options;
   const next = { NextResponse: nextResponse };
@@ -518,6 +601,13 @@ function loadComboRoutes(options: {
   });
   const deadKeys = loadPinnedModule("src/lib/combos/deadConfigKeys.ts", () => {
     throw new Error("Pinned dead-combo-config module has no runtime imports");
+  });
+  const accountLabels = loadPinnedModule("src/lib/combos/controlCenterAccountLabels.ts", specifier => {
+    if (specifier === "./steps") return steps;
+    if (specifier === "@/lib/db/providers") return {
+      getProviderConnectionDisplayMetadata: (ids: string[]) => ids.includes(fixtureProviderConnection.id) ? [fixtureProviderConnection] : [],
+    };
+    throw new Error(`Unapproved pinned combo account-label import: ${specifier}`);
   });
   const structure = loadPinnedComboStructure();
   const comboContext = loadPinnedModule("src/lib/combos/comboContext.ts", specifier => {
@@ -576,6 +666,7 @@ function loadComboRoutes(options: {
     "@/lib/combos/invariants": invariants,
     "@/lib/combos/modelNameCollision": modelNameCollision,
     "@/lib/combos/deadConfigKeys": deadKeys,
+    "@/lib/combos/controlCenterAccountLabels": accountLabels,
   };
   const loadRoute = (path: string, extra: Record<string, unknown> = {}) => loadPinnedModule(path, specifier => {
     if (Object.hasOwn(extra, specifier)) return extra[specifier];
@@ -588,21 +679,27 @@ function loadComboRoutes(options: {
   const modelFamily = loadPinnedModule("open-sse/services/autoCombo/modelFamily.ts", () => {
     throw new Error("Pinned model-family module has no runtime imports");
   });
+  const visionModels = loadPinnedModule("src/shared/constants/visionModels.ts", specifier => {
+    throw new Error(`Unapproved pinned vision-model import: ${specifier}`);
+  });
+  const visionBridge = loadPinnedModule("src/shared/constants/visionBridgeDefaults.ts", specifier => {
+    throw new Error(`Unapproved pinned vision-bridge import: ${specifier}`);
+  });
   const suffixComposition = loadPinnedModule("open-sse/services/autoCombo/suffixComposition.ts", specifier => {
     if (specifier === "../tierResolver") return { classifyTier: () => { throw new Error("Tier catalog is outside this fixture"); } };
     if (specifier === "@/lib/modelCapabilities") return { getResolvedModelCapabilities: () => null };
-    if (specifier === "@/shared/constants/visionModels") return { isVisionModelId: () => false };
-    if (specifier === "@/shared/constants/visionBridgeDefaults") return { isVisionBridgeForcedModel: () => false };
+    if (specifier === "@/shared/constants/visionModels") return visionModels;
+    if (specifier === "@/shared/constants/visionBridgeDefaults") return visionBridge;
     throw new Error(`Unapproved pinned auto-suffix import: ${specifier}`);
   });
+  const virtualFactory = loadPinnedVirtualFactory(suffixComposition, modelFamily, options.breakerState);
   const builtinCatalog = loadPinnedModule("open-sse/services/autoCombo/builtinCatalog.ts", specifier => {
     if (specifier === "./autoPrefix") return autoPrefix;
     if (specifier === "./suffixComposition") return suffixComposition;
     if (specifier === "./modelFamily") return modelFamily;
-    if (specifier === "./virtualFactory") return {};
+    if (specifier === "./virtualFactory.ts") return virtualFactory;
     throw new Error(`Unapproved pinned auto-catalog import: ${specifier}`);
   });
-  const virtualFactory = loadPinnedVirtualFactory(suffixComposition, modelFamily);
   const autoVirtual = loadPinnedModule("src/lib/combos/autoVirtual.ts", specifier => {
     if (specifier === "@omniroute/open-sse/services/autoCombo/virtualFactory") return virtualFactory;
     if (specifier === "@omniroute/open-sse/services/autoCombo/builtinCatalog") return builtinCatalog;
@@ -616,7 +713,9 @@ function loadComboRoutes(options: {
     if (typeof metricsModule[exportName] !== "function") throw new Error(`Pinned combo metrics omitted ${exportName}`);
   }
   const metrics = metricsModule as unknown as PinnedComboMetrics;
+  const mediaCatalogs = loadPinnedMediaCatalogs();
   const builderOptions = loadPinnedModule("src/lib/combos/builderOptions.ts", specifier => {
+    if (Object.hasOwn(mediaCatalogs, specifier)) return mediaCatalogs[specifier];
     if (specifier === "@/lib/db/models") return {
       getAllCustomModels: async () => ({}),
       getAllSyncedAvailableModels: async () => ({ fixture: fixtureProviderModels }),
@@ -638,6 +737,18 @@ function loadComboRoutes(options: {
     if (specifier === "@omniroute/open-sse/config/providerRegistry.ts") return {};
     throw new Error(`Unapproved pinned combo-builder import: ${specifier}`);
   }, { date: options.date });
+  const staleModelRefs = loadPinnedModule("src/lib/combos/staleModelRefs.ts", specifier => {
+    if (specifier === "@/lib/db/combos") return db;
+    if (specifier === "./steps") return steps;
+    if (specifier === "@/lib/db/models/activeSyncedCatalog") return {
+      getActiveSyncedCatalog: async (provider: string) => ({ authoritative: provider === "fixture" }),
+    };
+    if (specifier === "@/sse/services/model") return {
+      parseModel: (value: string) => ({ provider: value.split("/")[0] }),
+      getModelInfo: async (value: string) => fixtureProviderModels.some(model => `fixture/${model.id}` === value) ? {} : { errorType: "model_not_found" },
+    };
+    throw new Error(`Unapproved pinned stale-combo-reference import: ${specifier}`);
+  });
   const sourceModuleMap: Record<string, PinnedExports> = {
     "src/app/api/combos/route.ts": loadRoute("src/app/api/combos/route.ts"),
     "src/app/api/combos/[id]/route.ts": loadRoute("src/app/api/combos/[id]/route.ts", {
@@ -650,7 +761,7 @@ function loadComboRoutes(options: {
       "@omniroute/open-sse/services/autoCombo/suffixComposition": suffixComposition,
       "@omniroute/open-sse/services/autoCombo/virtualFactory": virtualFactory,
     }),
-    "src/app/api/combos/builder/options/route.ts": loadRoute("src/app/api/combos/builder/options/route.ts", { "@/lib/combos/builderOptions": builderOptions }),
+    "src/app/api/combos/builder/options/route.ts": loadRoute("src/app/api/combos/builder/options/route.ts", { "@/lib/combos/builderOptions": builderOptions, "@/lib/combos/staleModelRefs": staleModelRefs }),
     "src/app/api/combos/metrics/route.ts": loadRoute("src/app/api/combos/metrics/route.ts", { "@omniroute/open-sse/services/comboMetrics.ts": metrics }),
     "src/app/api/combos/duplicate/route.ts": loadRoute("src/app/api/combos/duplicate/route.ts", {
       "@/lib/combos/snapshotWeights": loadPinnedModule("src/lib/combos/snapshotWeights.ts", () => { throw new Error("Pinned snapshot weight normalizer has no runtime imports"); }),
@@ -715,11 +826,13 @@ export function createPinnedComboHandlers(options: {
   apiPort: () => number;
   uuid?: () => string;
   date?: DateConstructor;
+  breakerState?: () => string;
 }): PinnedComboHandlers {
   const loaded = loadComboRoutes({
     ...options,
     uuid: options.uuid ?? randomUUID,
     date: options.date ?? globalThis.Date,
+    breakerState: options.breakerState ?? (() => "CLOSED"),
   });
   return { authorization: options.authorization, routes: loaded.routes, metrics: loaded.metrics };
 }
@@ -759,10 +872,14 @@ function loadMappingHandlers(options: {
     ["paginationSchema"],
     specifier => { throw new Error(`Unapproved pinned pagination import: ${specifier}`); },
   );
+  const readCache = loadPinnedModule("src/lib/db/readCache.ts", specifier => {
+    throw new Error(`Unapproved pinned mapping read-cache import: ${specifier}`);
+  });
   const db = loadPinnedModule("src/lib/db/modelComboMappings.ts", specifier => {
     if (specifier === "./repositories/routingConfigRepositories") {
       return { routingConfigRepositories: { modelComboMappings: repository } };
     }
+    if (specifier === "./readCache") return readCache;
     throw new Error(`Unapproved pinned model-mapping persistence import: ${specifier}`);
   });
   const facadeExports = ["getModelComboMappings", "getModelComboMappingById", "createModelComboMapping", "updateModelComboMapping", "deleteModelComboMapping", "resolveComboForModel"];

@@ -39,6 +39,10 @@ import { normalizeModelCapabilityOverrideRequest } from "./source-model-capabili
 import { FALLBACK_CHAIN_GET, FALLBACK_CHAIN_POST, FALLBACK_CHAIN_DELETE, FALLBACK_CHAIN_RELATION_VIEW_BINDING, fallbackChainTargetSnapshot, normalizeFallbackChainPayload, type FallbackChainRelationViewId } from "./source-fallback-chains.ts";
 import type { ValidatedOperationInput } from "./registry.ts";
 import {
+  comboPreflightSnapshot,
+  comboPreflightViewMatches,
+  isComboPreflightViewId,
+  type ComboPreflightViewId,
   comboSourceNormalizationBinding,
   normalizeComboRequest,
   comboSourceRelationViewMatches,
@@ -120,7 +124,7 @@ export function sourceStateViewBinding(id: unknown): SourceStateViewBinding | un
 }
 
 export type ProviderCcAliasRelationViewId = "omniroute-v3.8.52.provider-cc-alias.selected-override";
-export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ModelComboMappingRelationViewId | ProviderCcAliasRelationViewId;
+export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ComboPreflightViewId | ModelComboMappingRelationViewId | ProviderCcAliasRelationViewId;
 
 const PROVIDER_CC_ALIAS_GET = "GET /api/providers/{id}/cc-alias";
 const PROVIDER_CC_ALIAS_PUT = "PUT /api/providers/{id}/cc-alias";
@@ -245,6 +249,7 @@ export function sourceRelationViewMatches(
 
 /** A preflight projection binds the mutation and read, without claiming a postcondition. */
 export function sourcePreflightViewMatches(id: unknown, operationId: string, targetReadId: unknown): boolean {
+  if (isComboPreflightViewId(id)) return comboPreflightViewMatches(id, operationId, targetReadId);
   if (isComboRelationViewId(id)) {
     const binding = COMBO_RELATION_BINDINGS[id];
     return binding.operationIds.includes(operationId) && binding.targetReadId === targetReadId;
@@ -264,16 +269,21 @@ export function sourcePreflightViewMatches(id: unknown, operationId: string, tar
 
 /** The pinned collection handler returns every SQLite row when neither pagination key is supplied. */
 export function sourceUnpaginatedListProofMatches(operationId: string, proof: unknown, mutationOperationId?: string): boolean {
-  if (operationId !== "GET /api/model-combo-mappings" || !isRecord(proof)
-    || (mutationOperationId !== undefined && mutationOperationId !== "POST /api/model-combo-mappings"
-      && mutationOperationId !== "DELETE /api/model-combo-mappings/{id}")) return false;
-  return proof.kind === "unpaginated-list"
-    && isDeepStrictEqual(proof.itemsPath, ["mappings"])
+  if (!isRecord(proof)) return false;
+  const comboMutations = ["POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}",
+    "DELETE /api/combos/{id}", "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test"];
+  const mappingMutations = ["POST /api/model-combo-mappings", "DELETE /api/model-combo-mappings/{id}"];
+  const items = operationId === "GET /api/combos" ? "combos" : operationId === "GET /api/model-combo-mappings" ? "mappings" : undefined;
+  const allowed = operationId === "GET /api/combos" ? comboMutations : mappingMutations;
+  return items !== undefined && (mutationOperationId === undefined || allowed.includes(mutationOperationId))
+    && proof.kind === "unpaginated-list"
+    && isDeepStrictEqual(proof.itemsPath, [items])
     && isDeepStrictEqual(proof.totalPath, ["total"])
     && isDeepStrictEqual(proof.identityPaths, [["id"]]);
 }
 
 export function sourceRelationSnapshot(id: SourceRelationViewId, payload: ValidatedOperationInput, response: unknown): JsonValue {
+  if (isComboPreflightViewId(id)) return comboPreflightSnapshot(id, response, payload);
   if (isComboRelationViewId(id)) return comboRelationSnapshot(id, payload, response);
   if (isModelComboMappingRelationViewId(id)) return modelComboMappingRelationSnapshot(id, payload, response);
   switch (id) {
@@ -292,6 +302,7 @@ export function sourceRelationExpectedPayload(
   payload: ValidatedOperationInput,
   originalSnapshot: JsonValue,
 ): ValidatedOperationInput {
+  if (isComboPreflightViewId(id)) throw new TypeError("preflight views do not define reconciliation outcomes");
   if (isComboRelationViewId(id)) return comboRelationExpectedPayload(id, payload, originalSnapshot);
   if (isModelComboMappingRelationViewId(id)) return modelComboMappingRelationExpectedPayload(id, payload, originalSnapshot);
   switch (id) {

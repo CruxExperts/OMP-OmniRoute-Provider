@@ -45,6 +45,7 @@ import {
 import { requiredOmaScope } from "./authorization-policy.ts";
 import { assertSafetyReadRequest, mapRelationInput } from "./relations.ts";
 import { sourceUnpaginatedListProofMatches } from "./source-normalization.ts";
+import { comboPreflightReadInput } from "./source-combos.ts";
 
 export interface AdminPlanOptions {
   readonly profileId?: string;
@@ -567,7 +568,7 @@ export class AdminExecutorImpl implements AdminExecutor {
     const currentOperationAuth = await this.#resolveOperationAuth(adapter.descriptor, selection, request, options.signal);
     this.#assertAuthUnchanged(auth, currentOperationAuth, adapter.descriptor);
     for (const item of observations) {
-      const readInput = item.readOperation.validate(mapRelationInput(item.relation.inputs, validated));
+      const readInput = item.readOperation.validate(comboPreflightReadInput(item.relation.sourceView, validated, mapRelationInput(item.relation.inputs, validated)));
       const readRequest = requestFor(item.readOperation, selection.endpoint, readInput);
       const currentAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection, readRequest, options.signal);
       this.#assertPlannedAuth(item.auth, item.authority, currentAuth, item.readOperation.descriptor);
@@ -734,7 +735,7 @@ export class AdminExecutorImpl implements AdminExecutor {
         throw this.#error("target-drift", "preflight observation set changed since preview", operationId);
       }
       for (const item of plan.observations) {
-        const readInput = item.readOperation.validate(mapRelationInput(item.relation.inputs, plan.input));
+        const readInput = item.readOperation.validate(comboPreflightReadInput(item.relation.sourceView, plan.input, mapRelationInput(item.relation.inputs, plan.input)));
         const latestAuth = await this.#resolveOperationAuth(item.readOperation.descriptor, selection,
           requestFor(item.readOperation, selection.endpoint, readInput), authorization.signal);
         this.#assertApplyingPlan(plan);
@@ -1204,7 +1205,7 @@ export class AdminExecutorImpl implements AdminExecutor {
   ): Promise<{ target: AdminTarget; auth: AdminOperationAuthBinding; request: AdminRequest }> {
     if (!this.#readTarget) throw this.#error("target-drift", "reconciliation target reader is unavailable", operation.descriptor.operationId);
     this.#assertEligible(readOperation);
-    const readInput = readOperation.validate(mapRelationInput(relation.inputs, payload));
+    const readInput = readOperation.validate(comboPreflightReadInput(relation.sourceView, payload, mapRelationInput(relation.inputs, payload)));
     assertSafetyReadRequest(readCompleteness, readOperation.descriptor, readInput);
     const request = requestFor(readOperation, selection.endpoint, readInput);
     const auth = await this.#resolveOperationAuth(readOperation.descriptor, selection, request, signal);

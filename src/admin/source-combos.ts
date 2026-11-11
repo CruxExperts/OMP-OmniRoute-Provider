@@ -40,6 +40,24 @@ export type ComboSourceRelationViewId =
   | "omniroute-v3.8.52.combos.item-delete-reconcile"
   | "omniroute-v3.8.52.combos.reorder-reconcile"
   | "omniroute-v3.8.52.combos.metrics-reset-reconcile";
+export type ComboPreflightViewId = "omniroute-v3.8.53.combos.collection-preflight"
+  | "omniroute-v3.8.53.combos.auto-preflight" | "omniroute-v3.8.53.combos.selected-auto-preflight"
+  | "omniroute-v3.8.53.combos.providers-preflight";
+
+export function isComboPreflightViewId(value: unknown): value is ComboPreflightViewId {
+  return value === "omniroute-v3.8.53.combos.collection-preflight"
+    || value === "omniroute-v3.8.53.combos.auto-preflight" || value === "omniroute-v3.8.53.combos.selected-auto-preflight"
+    || value === "omniroute-v3.8.53.combos.providers-preflight";
+}
+
+export function comboPreflightViewMatches(id: ComboPreflightViewId, operationId: string, readId: unknown): boolean {
+  if (id === "omniroute-v3.8.53.combos.collection-preflight") return readId === "GET /api/combos" && [
+    "POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}", "DELETE /api/combos/{id}",
+    "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test",
+  ].includes(operationId);
+  return (operationId === "POST /api/combos/duplicate" || operationId === "POST /api/combos/test")
+    && readId === (id === "omniroute-v3.8.53.combos.providers-preflight" ? "GET /api/combos/builder/options" : "GET /api/combos/auto");
+}
 
 export interface ComboRequestBinding {
   readonly methods: readonly AdminMethod[];
@@ -631,6 +649,59 @@ function pathId(payload: ValidatedOperationInput): string | undefined {
 function queryCombo(payload: ValidatedOperationInput): string | undefined {
   const value = payload.query.combo;
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+function selectedAutoId(payload: ValidatedOperationInput): string | undefined {
+  const body = jsonObject(payload.body);
+  const name = body?.name ?? body?.comboName;
+  return typeof name === "string" && (name === "auto" || name.startsWith("auto/")) ? name : undefined;
+}
+
+/** Select the source materialization only for the closed selected-auto observation. */
+export function comboPreflightReadInput(view: unknown, payload: ValidatedOperationInput, input: ValidatedOperationInput): ValidatedOperationInput {
+  if (view !== "omniroute-v3.8.53.combos.selected-auto-preflight") return input;
+  const id = selectedAutoId(payload);
+  return id === undefined ? input : { ...input, query: { ...input.query, id } };
+}
+
+export function comboPreflightSnapshot(id: ComboPreflightViewId, response: unknown, payload?: ValidatedOperationInput): JsonValue {
+  if (response === null || typeof response !== "object" || Array.isArray(response)) throw new TypeError("combo preflight response is invalid");
+  const value = response as Record<string, unknown>;
+  if (id === "omniroute-v3.8.53.combos.collection-preflight") {
+    return relationDocument("collection", rowsOfCombos(response).map(row => {
+      if (typeof row.id !== "string" || typeof row.name !== "string") throw new TypeError("combo collection identity is invalid");
+      const config = row.config === undefined || row.config === null ? undefined : jsonObject(row.config);
+      return relationEntry({ id: row.id }, { name: row.name, models: json(row.models ?? []),
+        sortOrder: json(row.sortOrder ?? null), maxComboDepth: json(config?.maxComboDepth ?? null) });
+    }));
+  }
+  if (id === "omniroute-v3.8.53.combos.selected-auto-preflight") {
+    if (!payload) throw new TypeError("selected auto combo payload is missing");
+    const selected = selectedAutoId(payload);
+    if (selected === undefined) {
+      if (!Array.isArray(value.combos)) throw new TypeError("auto combo catalog is invalid");
+      return relationDocument("resource", [relationEntry({ scope: "selected-auto" }, { selected: null })]);
+    }
+    if (value.id !== selected || value.name !== selected || value.type !== "auto" || !Array.isArray(value.models)) {
+      throw new TypeError("selected auto combo response is invalid");
+    }
+    return relationDocument("resource", [relationEntry({ scope: "selected-auto", id: selected }, { combo: json(value) })]);
+  }
+  if (id === "omniroute-v3.8.53.combos.auto-preflight") {
+    if (!Array.isArray(value.combos)) throw new TypeError("auto combo catalog is invalid");
+    return relationDocument("resource", [relationEntry({ scope: "auto-catalog" }, { combos: json(value.combos) })]);
+  }
+  if (!Array.isArray(value.providers)) throw new TypeError("combo provider catalog is invalid");
+  const providers = value.providers.map(item => {
+    const provider = jsonObject(item);
+    if (!provider || !Array.isArray(provider.connections)) throw new TypeError("combo provider is invalid");
+    return { ...provider, connections: provider.connections.map(connection => {
+      const entry = jsonObject(connection);
+      if (!entry) throw new TypeError("combo provider connection is invalid");
+      const { lastError: _lastError, ...safe } = entry;
+      return safe;
+    }) };
+  });
+  return relationDocument("resource", [relationEntry({ scope: "provider-catalog" }, { providers: json(providers) })]);
 }
 
 export function comboRelationSnapshot(

@@ -6,13 +6,14 @@ import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, test
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 import { invokeJsonAdapter } from "../src/admin/adapters.ts";
 import { canonicalizeJson, type OperationAdapter } from "../src/admin/registry.ts";
-import { mapRelationInput, relationOutcomeMatches } from "../src/admin/relations.ts";
+import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "../src/admin/relations.ts";
 import type { JsonObject, JsonValue } from "../src/admin/types.ts";
 import { createPinnedManagementAuthorization, type PinnedManagementAuthorization } from "./fixtures/pinned-handler.fixture.ts";
+import { createPinnedSqliteComboStore } from "./fixtures/pinned-combo-handlers.fixture.ts";
 import {
   COMBO_OPERATION_IDS, COMBO_SOURCE_CONTRACTS, COMBO_TEST_ID, CombosHttpFixture, buildComboFixtureRegistry, comboAdapterDescriptor,
 } from "./fixtures/combos.fixture.ts";
-import { comboRelationSnapshot, isComboRelationViewId } from "../src/admin/source-combos.ts";
+import { comboPreflightReadInput, comboPreflightSnapshot, comboRelationSnapshot, isComboRelationViewId } from "../src/admin/source-combos.ts";
 
 const TEST_ID = COMBO_TEST_ID;
 const PROFILE_ID = "combos-pinned-fixture";
@@ -22,7 +23,7 @@ const registry = buildComboFixtureRegistry();
 type ResponseObservation = { status: number; body: unknown };
 type Observation = { before: unknown; after: unknown; result: { status: number; body: unknown } };
 type FixturePair = { readonly route: CombosHttpFixture; readonly auth: PinnedManagementAuthorization };
-type Harness = { readonly executor: AdminExecutor; readonly route: CombosHttpFixture; readonly dispatchCount: (id: string) => number; readonly lastResponse: (id: string) => ResponseObservation | undefined; readonly loseNextResponse: (id: string) => void; readonly invokeSourceOnly: (id: string, input: unknown) => Promise<void> };
+type Harness = { readonly executor: AdminExecutor; readonly route: CombosHttpFixture; readonly dispatchCount: (id: string) => number; readonly lastResponse: (id: string) => ResponseObservation | undefined; readonly loseNextResponse: (id: string) => void };
 const fixtures: FixturePair[] = [];
 const executors: AdminExecutor[] = [];
 const observations = new Map<string, Observation>();
@@ -35,7 +36,7 @@ const QUALIFIABLE_READ_OPERATIONS = [
 ] as const;
 const SOURCE_QUALIFIABLE_RESET_OPERATIONS = ["DELETE /api/combos/metrics"] as const;
 const QUALIFIABLE_OPERATIONS = [...QUALIFIABLE_READ_OPERATIONS, ...SOURCE_QUALIFIABLE_RESET_OPERATIONS] as const;
-const HELD_MUTATIONS = [
+const PREFLIGHT_MUTATIONS = [
   "POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}", "DELETE /api/combos/{id}",
   "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test",
 ] as const;
@@ -80,9 +81,10 @@ async function callAdapter(adapter: OperationAdapter, endpoint: string, input: u
   return invokeJsonAdapter({ descriptor: comboAdapterDescriptor(adapter), endpoint, credential: { kind: "apiKey", value: MANAGE_KEY },
     resolvedPath: adapter.buildPath(validated), queryParameters: adapter.buildQuery(validated), ...(validated.body === undefined ? {} : { body: validated.body }), ...(signal === undefined ? {} : { signal }) });
 }
-function createHarness(pair: FixturePair): Harness {
+function createHarness(pair: FixturePair, options: { now?: () => number; safetyResponse?: (operationId: string, data: unknown) => unknown } = {}): Harness {
   const counts = new Map<string, number>(); const responses = new Map<string, ResponseObservation>(); const lost = new Set<string>();
   const executor = createAdminExecutor({ registry,
+    ...(options.now ? { now: options.now } : {}),
     dispatch: async (request, context) => {
       const adapter = registry.require(request.operationId);
       const response = await invokeJsonAdapter({ descriptor: comboAdapterDescriptor(adapter), endpoint: context.auth.endpoint, credential: credential(context.auth.credential),
@@ -96,16 +98,14 @@ function createHarness(pair: FixturePair): Harness {
     },
     readTarget: async context => {
       const relation = context.relation;
-      const view = relation.sourceView;
-      if (!isComboRelationViewId(view)) throw new Error("combo target relation is not bound to a source view");
-      if (context.readCompleteness.kind !== "single-response" || !context.readCompleteness.sourceReason) {
-        throw new Error("combo target read has no source-bound completeness proof");
-      }
       const adapter = registry.require(relation.operationId);
-      const input = mapRelationInput(relation.inputs, context.payload);
+      const input = adapter.validate(comboPreflightReadInput(relation.sourceView, context.payload, mapRelationInput(relation.inputs, context.payload)));
+      assertSafetyReadRequest(context.readCompleteness, adapter.descriptor, input);
       const response = await callAdapter(adapter, context.auth.endpoint, input, context.signal);
       if (response.status >= 400) throw Object.assign(new Error("combo target read failed"), { status: response.status });
-      const snapshot = comboRelationSnapshot(view, context.payload, response.data);
+      const data = options.safetyResponse ? options.safetyResponse(relation.operationId, response.data) : response.data;
+      assertSafetyReadResponse(context.readCompleteness, adapter.descriptor, data);
+      const snapshot = projectRelationSnapshot(relation, adapter.projectTarget(data), context.payload);
       return { snapshot, digest: createHash("sha256").update(canonicalizeJson(snapshot)).digest("hex") };
     },
     reconcile: async context => {
@@ -122,16 +122,7 @@ function createHarness(pair: FixturePair): Harness {
   executors.push(executor);
   executor.setAdminBinding({ profileId: PROFILE_ID, endpoint: pair.route.endpoint }, true);
   executor.bindCredential({ profileId: PROFILE_ID, endpoint: pair.route.endpoint, apiKey: MANAGE_KEY });
-  return { executor, route: pair.route, dispatchCount: id => counts.get(id) ?? 0, lastResponse: id => responses.get(id), loseNextResponse: id => { lost.add(id); },
-    invokeSourceOnly: async (id, input) => {
-      const adapter = registry.require(id);
-      const response = await callAdapter(adapter, pair.route.endpoint, input);
-      const body = response.status >= 400 || response.data === undefined ? response.data ?? null : adapter.project(response.data);
-      responses.set(id, { status: response.status, body });
-      expect(response.status).toBeGreaterThanOrEqual(200);
-      expect(response.status).toBeLessThan(300);
-    },
-  };
+  return { executor, route: pair.route, dispatchCount: id => counts.get(id) ?? 0, lastResponse: id => responses.get(id), loseNextResponse: id => { lost.add(id); } };
 }
 async function directRequest(route: CombosHttpFixture, operationId: string, options: { readonly bearer?: string; readonly body?: unknown } = {}): Promise<Response> {
   const split = operationId.indexOf(" "); const method = operationId.slice(0, split); let path = operationId.slice(split + 1);
@@ -174,13 +165,7 @@ function persistedCombo(route: CombosHttpFixture, id: string): JsonObject {
   return row;
 }
 async function apply(harness: Harness, operationId: string, input: unknown, loseResponse = false) {
-  if (registry.require(operationId).descriptor.mutationSafety?.preflight.kind === "unavailable") {
-    expect(registry.getEligibility(operationId).status).toBe("unavailable");
-    await expect(harness.executor.plan(operationId, input)).rejects.toMatchObject({ code: "operation-unavailable" });
-    expect(harness.dispatchCount(operationId)).toBe(0);
-    await harness.invokeSourceOnly(operationId, input);
-    return { status: "source-only" as const };
-  }
+  expect(registry.getEligibility(operationId).status).toBe("verified");
   const plan = await harness.executor.plan(operationId, input);
   expect(plan.preview.confirmationRequired).toBe(true);
   if (loseResponse) harness.loseNextResponse(operationId);
@@ -208,12 +193,166 @@ afterAll(async () => {
   }
 });
 
-describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
-  test("exercises source handlers while holding mutations without complete preflight observations", async () => {
+test("combo deletion revokes matching SQLite grants atomically without removing wildcard access", async () => {
+  const runtime = createPinnedSqliteComboStore([
+    { id: "one", name: "Alpha", models: ["fixture/chat"] },
+    { id: "duplicate", name: "ALPHA", models: ["fixture/chat"] },
+    { id: "rollback", name: "Rollback", models: ["fixture/chat"] },
+  ]);
+  try {
+    const insert = runtime.db.prepare("INSERT INTO api_keys (id, name, key, created_at, allowed_combos) VALUES (?, ?, ?, ?, ?)");
+    insert.run("scoped", "scoped", "fixture-scoped", "2026-10-20", JSON.stringify([" alpha ", "combo/ALPHA", "combo/*", "Other"]));
+    insert.run("empty", "empty", "fixture-empty", "2026-10-20", JSON.stringify(["combo/alpha"]));
+    insert.run("malformed", "malformed", "fixture-malformed", "2026-10-20", "not-json");
+    insert.run("rollback", "rollback", "fixture-rollback", "2026-10-20", JSON.stringify(["Rollback"]));
+    const grants = (id: string): string => {
+      const row = runtime.db.prepare("SELECT allowed_combos FROM api_keys WHERE id = ?").get(id);
+      if (!row || typeof row !== "object" || !("allowed_combos" in row) || typeof row.allowed_combos !== "string") {
+        throw new Error(`Missing fixture grants for ${id}`);
+      }
+      return row.allowed_combos;
+    };
+
+    expect(await runtime.store.deleteCombo("one")).toBe(true);
+    expect(JSON.parse(grants("scoped"))).toEqual([" alpha ", "combo/ALPHA", "combo/*", "Other"]);
+    expect(runtime.effects.apiKeyCacheInvalidations).toHaveLength(0);
+    expect(await runtime.store.deleteCombo("duplicate")).toBe(true);
+    expect(JSON.parse(grants("scoped"))).toEqual(["combo/*", "Other"]);
+    expect(JSON.parse(grants("empty"))).toEqual([]);
+    expect(grants("malformed")).toBe("not-json");
+    expect(runtime.effects.apiKeyCacheInvalidations).toHaveLength(1);
+
+    runtime.db.exec("CREATE TRIGGER fixture_revoke_failure BEFORE UPDATE OF allowed_combos ON api_keys BEGIN SELECT RAISE(ABORT, 'fixture revoke failure'); END;");
+    await expect(runtime.store.deleteCombo("rollback")).rejects.toThrow("fixture revoke failure");
+    expect(await runtime.store.getComboById("rollback")).not.toBeNull();
+    expect(JSON.parse(grants("rollback"))).toEqual(["Rollback"]);
+    expect(runtime.effects.apiKeyCacheInvalidations).toHaveLength(1);
+  } finally {
+    runtime.close();
+  }
+});
+
+test("combo preflight handles absent configuration and preserves strict JSON and secret projection", () => {
+  const view = "omniroute-v3.8.53.combos.collection-preflight";
+  const absent = comboPreflightSnapshot(view, { combos: [{ id: "a", name: "A" }] });
+  const nullable = comboPreflightSnapshot(view, { combos: [{ id: "a", name: "A", config: null }] });
+  expect(absent).toEqual(nullable);
+  expect(absent).toMatchObject({ entries: [{ state: { maxComboDepth: null } }] });
+  expect(() => comboPreflightSnapshot(view, { combos: [{ id: "a", name: "A", config: { maxComboDepth: undefined } }] })).toThrow("not JSON");
+  const catalog = comboPreflightSnapshot("omniroute-v3.8.53.combos.providers-preflight", {
+    providers: [{ providerId: "fixture", models: [{ id: "chat" }], connections: [{ id: "connection", lastError: "private-diagnostic" }] }],
+  });
+  expect(JSON.stringify(catalog)).not.toContain("private-diagnostic");
+  expect(() => comboPreflightSnapshot("omniroute-v3.8.53.combos.providers-preflight", {
+    providers: [{ models: [{ id: "chat", contextLength: undefined }], connections: [] }],
+  })).toThrow("not JSON");
+  const selected = "omniroute-v3.8.53.combos.selected-auto-preflight";
+  const input = { path: {}, query: {}, body: { name: "auto" } };
+  expect(comboPreflightReadInput(selected, input, { path: {}, query: {} }).query).toEqual({ id: "auto" });
+  expect(() => comboPreflightSnapshot(selected, { id: "auto/other", name: "auto/other", type: "auto", models: [] }, input)).toThrow("response is invalid");
+  const persisted = { path: {}, query: {}, body: { comboName: "Probe" } };
+  expect(comboPreflightReadInput(selected, persisted, { path: {}, query: {} }).query).toEqual({});
+  expect(comboPreflightSnapshot(selected, { combos: [] }, persisted)).toMatchObject({ entries: [{ state: { selected: null } }] });
+});
+
+test("combo preflight refuses incomplete lists and catalog drift before dispatch", async () => {
+  const pair = startFixture();
+  let incomplete = true;
+  let catalogChanged = false;
+  const harness = createHarness(pair, { safetyResponse: (id, data) => {
+    if (id === "GET /api/combos" && incomplete && isRecord(data) && typeof data.total === "number") return { ...data, total: data.total + 1 };
+    if (id === "GET /api/combos/builder/options" && catalogChanged && isRecord(data) && Array.isArray(data.providers)) {
+      return { ...data, providers: data.providers.map(provider => isRecord(provider) ? { ...provider, modelCount: Number(provider.modelCount) + 1 } : provider) };
+    }
+    return data;
+  } });
+  await expect(harness.executor.plan("POST /api/combos", { body: { name: "Incomplete", models: ["fixture/chat"] } })).rejects.toThrow();
+  expect(harness.dispatchCount("POST /api/combos")).toBe(0);
+  incomplete = false;
+  const plan = await harness.executor.plan("POST /api/combos/duplicate", { body: { name: "auto/best-coding" } });
+  catalogChanged = true;
+  await expect(harness.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(harness.dispatchCount("POST /api/combos/duplicate")).toBe(0);
+});
+
+test("selected auto materialization drift blocks duplicate and test without probing", async () => {
+  const pair = startFixture();
+  const harness = createHarness(pair);
+  const auto = registry.require("GET /api/combos/auto");
+  const catalogBefore = await callAdapter(auto, pair.route.endpoint, {});
+  const selectedBefore = await callAdapter(auto, pair.route.endpoint, { query: { id: "auto/best-coding" } });
+  expect(selectedBefore.status).toBe(200);
+  expect(selectedBefore.data).toMatchObject({ id: "auto/best-coding", name: "auto/best-coding", models: [{ model: "fixture/chat" }] });
+  const probeBefore = await callAdapter(auto, pair.route.endpoint, { query: { id: "auto" } });
+  expect(probeBefore.status).toBe(200);
+  const duplicate = await harness.executor.plan("POST /api/combos/duplicate", { body: { name: "auto/best-coding" } });
+  const probe = await harness.executor.plan("POST /api/combos/test", { body: { comboName: "auto" } });
+  pair.route.setBreakerState("OPEN");
+  const catalogAfter = await callAdapter(auto, pair.route.endpoint, {});
+  const selectedAfter = await callAdapter(auto, pair.route.endpoint, { query: { id: "auto/best-coding" } });
+  const probeAfter = await callAdapter(auto, pair.route.endpoint, { query: { id: "auto" } });
+  expect(probeAfter.status).toBe(200);
+  expect(selectedAfter.status).toBe(200);
+  expect(catalogAfter.data).toEqual(catalogBefore.data);
+  const beforeModels = isRecord(selectedBefore.data) && Array.isArray(selectedBefore.data.models) ? selectedBefore.data.models.filter(isRecord) : [];
+  const afterModels = isRecord(selectedAfter.data) && Array.isArray(selectedAfter.data.models) ? selectedAfter.data.models.filter(isRecord) : [];
+  expect(beforeModels).toHaveLength(1);
+  expect(afterModels).toHaveLength(1);
+  expect(typeof beforeModels[0]?.weight).toBe("number");
+  expect(typeof afterModels[0]?.weight).toBe("number");
+  expect(afterModels[0]?.weight).not.toBe(beforeModels[0]?.weight);
+  const probeBeforeModels = isRecord(probeBefore.data) && Array.isArray(probeBefore.data.models) ? probeBefore.data.models.filter(isRecord) : [];
+  const probeAfterModels = isRecord(probeAfter.data) && Array.isArray(probeAfter.data.models) ? probeAfter.data.models.filter(isRecord) : [];
+  expect(probeBeforeModels).toHaveLength(1);
+  expect(probeAfterModels).toHaveLength(1);
+  expect(typeof probeBeforeModels[0]?.weight).toBe("number");
+  expect(typeof probeAfterModels[0]?.weight).toBe("number");
+  expect(probeAfterModels[0]?.weight).not.toBe(probeBeforeModels[0]?.weight);
+  await expect(harness.executor.apply(duplicate.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  await expect(harness.executor.apply(probe.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(harness.dispatchCount("POST /api/combos/duplicate")).toBe(0);
+  expect(harness.dispatchCount("POST /api/combos/test")).toBe(0);
+  expect(pair.route.counts["POST /v1/chat/completions"] ?? 0).toBe(0);
+});
+
+test("persisted combo tests do not request a materialized auto id", async () => {
+  const pair = startFixture();
+  const harness = createHarness(pair);
+  const plan = await harness.executor.plan("POST /api/combos/test", { body: { comboName: "Probe" } });
+  expect(plan.planId).toBeTruthy();
+  expect(harness.dispatchCount("POST /api/combos/test")).toBe(0);
+});
+
+test("combo plans reject cancellation, expiry and credential rotation without dispatch, and never replay uncertainty", async () => {
+  const pair = startFixture();
+  let clock = 1000;
+  const harness = createHarness(pair, { now: () => clock });
+  const operation = "POST /api/combos";
+  const input = { body: { name: "Safety", models: ["fixture/chat"] } };
+  const cancelled = await harness.executor.plan(operation, input);
+  const abort = new AbortController(); abort.abort();
+  await expect(harness.executor.apply(cancelled.planId, { confirmed: true, signal: abort.signal })).rejects.toMatchObject({ code: "plan-invalidated" });
+  const expired = await harness.executor.plan(operation, input);
+  clock = expired.expiresAt;
+  await expect(harness.executor.apply(expired.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-expired" });
+  const rotated = await harness.executor.plan(operation, input);
+  harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: pair.route.endpoint, apiKey: "rotated-fixture-key" });
+  await expect(harness.executor.apply(rotated.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-invalidated" });
+  expect(harness.dispatchCount(operation)).toBe(0);
+  harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: pair.route.endpoint, ["api" + "Key"]: MANAGE_KEY } as Parameters<AdminExecutor["bindCredential"]>[0]);
+  const uncertain = await harness.executor.plan(operation, input);
+  harness.loseNextResponse(operation);
+  expect((await harness.executor.apply(uncertain.planId, { confirmed: true })).status).toBe("unknown");
+  await expect(harness.executor.apply(uncertain.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+  expect(harness.dispatchCount(operation)).toBe(1);
+});
+
+describe("pinned OmniRoute v3.8.53 combo operation semantics", () => {
+  test("exercises source handlers with complete preflight observations", async () => {
     const processDateNow = Date.now;
     const pair = startFixture(); const harness = createHarness(pair);
     for (const id of QUALIFIABLE_OPERATIONS) expect(registry.getEligibility(id).status).toBe("verified");
-    for (const id of HELD_MUTATIONS) expect(registry.getEligibility(id).status).toBe("unavailable");
+    for (const id of PREFLIGHT_MUTATIONS) expect(registry.getEligibility(id).status).toBe("verified");
     expect(Date.now).toBe(processDateNow);
     const beforeRead = pair.route.state;
     const unauthorized = await Promise.all(COMBO_OPERATION_IDS.map(id => directRequest(pair.route, id)));
@@ -239,7 +378,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     let before = pair.route.state;
     const created = await apply(harness, "POST /api/combos", { body: { name: "Created", models: ["fixture/new"], dimensions: "1536" } });
-    expect(created.status).toBe("source-only"); expect(harness.dispatchCount("POST /api/combos")).toBe(0);
+    expect(created.status).toBe("unknown"); expect(harness.dispatchCount("POST /api/combos")).toBe(1);
     const createdRow = persistedCombos(pair.route).find(row => row.name === "Created");
     expect(createdRow).toMatchObject({
       id: "00000000-0000-4000-8000-000100000001",
@@ -258,7 +397,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     before = pair.route.state;
     const patched = await apply(harness, "PATCH /api/combos/{id}", { path: { id: "seed-update" }, body: { description: null, models: ["fixture/updated"], dimensions: "2048" } });
-    expect(patched.status).toBe("source-only"); expect(harness.dispatchCount("PATCH /api/combos/{id}")).toBe(0);
+    expect(patched.status).toBe("unknown"); expect(harness.dispatchCount("PATCH /api/combos/{id}")).toBe(1);
     const patchedRow = persistedCombo(pair.route, "seed-update");
     expect(patchedRow).not.toHaveProperty("description");
     expect(patchedRow).toMatchObject({ version: 2, config: { maxRetries: 2 }, dimensions: "2048", models: [{ kind: "model", model: "fixture/updated", providerId: "fixture" }] });
@@ -270,7 +409,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     before = pair.route.state;
     const put = await apply(harness, "PUT /api/combos/{id}", { path: { id: "seed-update" }, body: { isHidden: true, dimensions: null } });
-    expect(put.status).toBe("source-only");
+    expect(put.status).toBe("unknown");
     expect(persistedCombo(pair.route, "seed-update")).toMatchObject({ isHidden: true, config: { maxRetries: 2 }, version: 2 });
     expect(persistedCombo(pair.route, "seed-update")).not.toHaveProperty("dimensions");
     mark("PUT /api/combos/{id}", "authorized-source-http-semantics");
@@ -278,7 +417,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     before = pair.route.state;
     const deleted = await apply(harness, "DELETE /api/combos/{id}", { path: { id: "seed-delete" } });
-    expect(deleted.status).toBe("source-only"); expect(harness.dispatchCount("DELETE /api/combos/{id}")).toBe(0);
+    expect(deleted.status).toBe("unknown"); expect(harness.dispatchCount("DELETE /api/combos/{id}")).toBe(1);
     expect(persistedCombos(pair.route).some(row => row.id === "seed-delete")).toBe(false);
     const deletedState = pair.route.state;
     expect(isRecord(deletedState) && deletedState.proxyAssignments).toEqual([]);
@@ -317,6 +456,9 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
     before = pair.route.state;
     const builder = await harness.executor.read("GET /api/combos/builder/options", {});
     expect(isRecord(builder.output) && Array.isArray(builder.output.providers)).toBe(true);
+    expect(isRecord(builder.output) && builder.output.staleComboRefs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ comboId: "seed-probe", comboName: "Probe", model: "fixture/text-embedding" }),
+    ]));
     const provider = isRecord(builder.output) && Array.isArray(builder.output.providers) ? builder.output.providers.find(row => isRecord(row) && row.providerId === "fixture") : undefined;
     expect(provider).toMatchObject({ providerId: "fixture", modelCount: 1, models: [{ id: "chat", qualifiedModel: "fixture/chat", source: "imported", outputTokenLimit: 4_096 }] });
     const projectedConnections = isRecord(provider) && Array.isArray(provider.connections) ? provider.connections.filter(isRecord) : [];
@@ -339,7 +481,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     before = pair.route.state;
     const duplicate = await apply(harness, "POST /api/combos/duplicate", { body: { name: "auto/best-coding" } });
-    expect(duplicate.status).toBe("source-only");
+    expect(duplicate.status).toBe("unknown");
     const duplicateRow = persistedCombos(pair.route).find(row => row.name === "static-best-coding");
     expect(duplicateRow).toMatchObject({
       name: "static-best-coding",
@@ -356,7 +498,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
     }).reverse();
     before = pair.route.state;
     const reordered = await apply(harness, "POST /api/combos/reorder", { body: { comboIds: reorderIds } });
-    expect(reordered.status).toBe("source-only");
+    expect(reordered.status).toBe("unknown");
     expect(persistedCombos(pair.route).map(row => row.sortOrder)).toEqual(persistedCombos(pair.route).map((_row, index) => index + 1));
     expect(persistedCombos(pair.route).map(row => row.id)).toEqual(reorderIds);
     mark("POST /api/combos/reorder", "authorized-source-http-semantics");
@@ -364,7 +506,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     before = pair.route.state;
     const tested = await apply(harness, "POST /api/combos/test", { body: { comboName: "Probe" } });
-    expect(tested.status).toBe("source-only");
+    expect(tested.status).toBe("unknown");
     const successProbe = latest(harness, "POST /api/combos/test");
     expect(successProbe.status).toBe(200);
     expect(isRecord(successProbe.body) && successProbe.body.testedAt).toBe("2026-10-20T00:00:00.000Z");
@@ -379,7 +521,7 @@ describe("pinned OmniRoute v3.8.52 combo operation semantics", () => {
 
     pair.route.rejectNextProbe("fixture/chat");
     const mixedProbe = await apply(harness, "POST /api/combos/test", { body: { comboName: "Probe" } });
-    expect(mixedProbe.status).toBe("source-only");
+    expect(mixedProbe.status).toBe("unknown");
     const failedProbe = latest(harness, "POST /api/combos/test");
     expect(failedProbe.status).toBe(200);
     expect(isRecord(failedProbe.body) && failedProbe.body.resolvedBy).toBe("fixture/text-embedding");
