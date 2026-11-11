@@ -65,6 +65,11 @@ preparation record: its `github-release-and-npm` target is not a receipt for npm
 publication. The GitHub Release and public asset hashes establish what was
 actually published.
 
+The exporter compares each tracked file with its committed Git bytes using a
+streamed SHA-256 digest. Large generated contracts do not require buffering a
+second full copy of each Git blob or raising subprocess output limits. A
+failed Git read or mismatched digest still rejects the export.
+
 The stricter fully qualified npm/GitHub workflow below remains unchanged. Do not
 rerun that workflow against the already published `v1.0.0` tag or replace its
 immutable version with different bytes. Later publications use a new version

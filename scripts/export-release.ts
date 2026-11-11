@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -21,8 +21,18 @@ async function command(name: string, args: string[], cwd: string): Promise<void>
 async function commandOutput(name: string, args: string[], cwd: string): Promise<string> {
   return (await execFileAsync(name, args, { cwd, env: process.env, maxBuffer: 16 * 1024 * 1024 })).stdout;
 }
-async function commandBuffer(name: string, args: string[], cwd: string): Promise<Buffer> {
-  return (await execFileAsync(name, args, { cwd, encoding: "buffer", maxBuffer: 16 * 1024 * 1024 })).stdout as Buffer;
+async function commandHash(name: string, args: string[], cwd: string): Promise<string> {
+  const child = spawn(name, args, { cwd, stdio: ["ignore", "pipe", "ignore"] });
+  const settled = new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => code === 0 ? resolve() : reject(new Error(`${name} failed (${signal ?? code})`)));
+  });
+  const hash = createHash("sha256");
+  const consume = async (): Promise<void> => {
+    for await (const chunk of child.stdout) hash.update(chunk);
+  };
+  await Promise.all([consume(), settled]);
+  return hash.digest("hex");
 }
 async function sha(path: string): Promise<string> { return createHash("sha256").update(await readFile(path)).digest("hex"); }
 async function touchTree(path: string): Promise<void> {
@@ -53,8 +63,8 @@ async function copyReviewed(root: string, paths: string[], destination: string, 
     if (!info.isFile() || info.isSymbolicLink()) throw new Error(`release input must be a regular non-symlink file: ${path}`);
     const bytes = await readFile(source);
     const gitPath = reviewed.packagePrefix ? `${reviewed.packagePrefix}/${path}` : path;
-    const headBytes = await commandBuffer("git", ["show", `${reviewed.sourceRevision}:${gitPath}`], reviewed.gitRoot);
-    if (!headBytes.equals(bytes)) throw new Error(`release input changed after clean-source review: ${path}`);
+    const headHash = await commandHash("git", ["show", `${reviewed.sourceRevision}:${gitPath}`], reviewed.gitRoot);
+    if (headHash !== createHash("sha256").update(bytes).digest("hex")) throw new Error(`release input changed after clean-source review: ${path}`);
     if (!bytes.includes(0)) {
       const text = bytes.toString("utf8");
       if (/\/(?:home|Users)\/[^\s"']+/.test(text) || /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text) || /\bsk-[A-Za-z0-9_-]{16,}\b/.test(text)) throw new Error(`public-content scan rejected ${path}`);

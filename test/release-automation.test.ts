@@ -974,6 +974,19 @@ describe("release automation", () => {
     expect(planVersion(touchedRoot)).toMatchObject({ bump: "minor", excluded: { revert: 0 } });
   });
 
+  it("exports a reviewed source file larger than subprocess buffering limits without truncation", async () => {
+    const root = await fixtureRepo();
+    const content = Buffer.alloc(17 * 1024 * 1024, 120);
+    const path = "contracts/large-source.json";
+    await writeFile(join(root, path), content);
+    unsignedCommit(root, "chore: large source fixture");
+    const output = join(root, "release");
+    await exportFixture(root, output);
+    const archive = join(output, "OMP-OmniRoute-Provider-v0.1.1-source.tar.gz");
+    const exported = execFileSync("tar", ["-xOzf", archive, `OMP-OmniRoute-Provider-0.1.1/${path}`], { maxBuffer: content.length + 1 });
+    expect(createHash("sha256").update(exported).digest("hex")).toBe(createHash("sha256").update(content).digest("hex"));
+  });
+
   it("exports into ignored source output, blocks unrelated source drift, and preserves the prior output when a rebuild fails", async () => {
     const root = await fixtureRepo();
     const output = join(root, "release");
