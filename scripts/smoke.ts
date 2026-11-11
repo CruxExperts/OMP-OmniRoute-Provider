@@ -2060,7 +2060,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const files = [
     { file: "src/index.ts", originalSha256: "272882f6f2de289d09bebedc60c5fd618267ba7f77629f8344cc56f33f5affcf" },
     { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
-    { file: "src/private-path.ts", originalSha256: "83689499d7dd5376ab89fa53fe5aff2f7f5a02887e1f268533ff0898d6ec19cf" },
+    { file: "src/private-path.ts", originalSha256: "9de094fc1cf0011909b6b7c2d126bbdd514642419a3a2193ea3f88fa78a0ae0e" },
   ];
   const root = await realpath(installedRoot);
   for (const { file, originalSha256 } of files) {
@@ -2079,7 +2079,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "7a39cd0def77ab4cc420e92c5c5662c26c785f4950c4f79d391ae8fae475844a") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "8c6dea6568699739f1993c6641d397cb8f35c976152acd396d23cc8fe9cfdc68") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");

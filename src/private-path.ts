@@ -23,9 +23,11 @@ Trace-Phase 'first-statement'
 $stage = 1
 try {
 $ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 $inputText = [Console]::In.ReadToEnd()
 Trace-Phase 'read-complete'
-$request = $inputText | ConvertFrom-Json
+[void][System.Reflection.Assembly]::Load('System.Web.Extensions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')
+$request = [System.Web.Script.Serialization.JavaScriptSerializer]::new().DeserializeObject($inputText)
 Trace-Phase 'parse-complete'
 $stage = 2
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -45,7 +47,7 @@ if ($request.create) {
     $security.AddAccessRule($rule)
   }
   $stage = 8
-  [System.IO.Directory]::CreateDirectory($request.path, $security) | Out-Null
+  [void][System.IO.Directory]::CreateDirectory($request.path, $security)
 }
 $trusted = @($user.Value, $system.Value, $admins.Value)
 foreach ($target in $request.targets) {

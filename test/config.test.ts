@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -239,6 +239,31 @@ test.skipIf(process.platform !== "win32")("Windows rejects broad directory and f
   execFileSync(icacls, [directory, "/grant", "*S-1-1-0:(OI)(CI)(F)"], { stdio: "ignore" });
   await expectCode(loadConfig(), "insecure-permissions");
 }, 60_000);
+
+test.skipIf(process.platform !== "win32")("Windows ACL helper preserves escaped and Unicode paths and rejects untrusted grants", async () => {
+  await isolated();
+  const directory = join(tempDir, "private '日本語'");
+  const file = join(directory, "fixture 'é'.json");
+  const icacls = join(process.env.SystemRoot || "C:\\Windows", "System32", "icacls.exe");
+  await privatePath.createPrivateWindowsDirectory(directory);
+  await writeFile(file, "fixture", { flag: "wx" });
+  await privatePath.verifyPrivateWindowsConfig(directory, file);
+  // A double quote cannot occur in a Windows filename; stage 8 proves its
+  // escaped JSON was decoded and reached directory creation.
+  const invalid = join(tempDir, 'invalid "quoted" 日本語');
+  const powershell = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const result = spawnSync(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(privatePath.windowsScript, "utf16le").toString("base64")], {
+    input: JSON.stringify({ path: invalid, targets: [{ path: invalid, directory: true }], create: true }), encoding: "utf8", timeout: 30_000, windowsHide: true,
+  });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toMatch(/ACL_DIAGNOSTIC:8:/);
+  execFileSync(icacls, [file, "/grant", "*S-1-1-0:(F)"], { stdio: "ignore" });
+  await expect(privatePath.verifyPrivateWindowsConfig(directory, file)).rejects.toThrow();
+  execFileSync(icacls, [file, "/remove:g", "*S-1-1-0"], { stdio: "ignore" });
+  await privatePath.verifyPrivateWindowsConfig(directory, file);
+  execFileSync(icacls, [directory, "/grant", "*S-1-1-0:(OI)(CI)(F)"], { stdio: "ignore" });
+  await expect(privatePath.verifyPrivateWindowsConfig(directory, file)).rejects.toThrow();
+}, 120_000);
 
 test("corrupt files and stale revisions fail closed without replacement", async () => {
   await isolated();

@@ -117,10 +117,15 @@ actual hosted run. The existing opt-in diagnostic artifact now separates parent
 stdin completion, exit, callback and close from child first statement, stdin
 read completion, JSON parse completion and ACL checks completion. Child times
 use the child monotonic stopwatch; parent elapsed times on child events measure
-arrival, not execution. Missing events do not establish a phase's duration. The
-slow phase and its cause remain unresolved until a fresh run on the affected
-host records these events; no policy, lifetime, cache or serializer change is
-implied by the current evidence.
+arrival, not execution. Missing events do not establish a phase's duration.
+In run 43050253681, source 2b49685, Windows arm64 recorded stdin read
+completion at 20 ms, JSON parse completion at 22,647 ms and ACL checks
+completion at 22,686 ms on the child stopwatch; parent startup took 289 ms.
+Other calls likewise spent about 23 seconds parsing, and the plan expired.
+Windows x64 passed its full native run. The helper now uses the .NET Framework
+JSON serializer directly rather than discovering the ConvertFrom-Json command.
+Fresh official native x64 and arm64 qualification is needed to establish the
+effect of that change.
 
 
 
@@ -265,6 +270,7 @@ will not silently reset a conflicting or insecure file.
 
 On Windows, private-directory creation and permission verification use Windows
 PowerShell's .NET security APIs directly, without loading the `Get-Acl` cmdlet.
+Request JSON is decoded with the built-in .NET Framework serializer.
 Verification still rejects inherited directory access rules, untrusted owners,
 and access grants outside the current user, SYSTEM, and Administrators.
 Cancellation is passed to an in-flight Windows permission helper. Configuration
