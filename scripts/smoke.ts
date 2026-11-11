@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, writeSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createConnection } from "node:net";
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
@@ -1874,19 +1874,45 @@ export async function runWindowsLoginResearch(options: {
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("Research binary must be an ordinary file");
   const digest = createHash("sha256").update(await readFile(options.binary)).digest("hex");
   if (digest !== options.sha256) throw new Error("Research binary digest mismatch");
-  const root = await mkdtemp(join(await realpath(tmpdir()), "cruxomni-windows-research-"));
-  const profile = join(root, "profile");
-  const workspace = join(root, "workspace");
-  const environment = cleanEnvironment(process.env, profile);
-  let packed: PackageVerificationResult | undefined;
+  const archivePath = process.env.OMP_SMOKE_PACKAGE_ARCHIVE;
+  const expectedArchiveSha256 = process.env.OMP_SMOKE_PACKAGE_SHA256;
+  if (!archivePath || !expectedArchiveSha256 || !/^[a-f0-9]{64}$/.test(expectedArchiveSha256)) throw new Error("Research requires the exact exported package archive and digest");
+  const runnerTemp = process.env.RUNNER_TEMP;
+  if (!runnerTemp || !isAbsolute(runnerTemp)) throw new Error("Research requires the runner temporary directory");
+  const outputDirectory = join(await realpath(runnerTemp), "windows-login-research-observations");
+  const outputInfo = await lstat(outputDirectory);
+  if (!outputInfo.isDirectory() || outputInfo.isSymbolicLink() || win32.normalize(await realpath(outputDirectory)).toLowerCase() !== win32.normalize(outputDirectory).toLowerCase()
+    || win32.normalize(resolve(options.output)).toLowerCase() !== win32.normalize(join(outputDirectory, options.instrumented ? "instrumented.json" : "baseline.json")).toLowerCase()) {
+    throw new Error("Research output must use the designated runner directory");
+  }
   const observations: JsonObject = {};
-  const result: JsonObject = { recordKind: "windows-login-research", researchOnly: true, officialQualification: false, binarySha256: digest, instrumented: options.instrumented, architecture: process.arch, observations };
+  const result: JsonObject = { recordKind: "windows-login-research", researchOnly: true, officialQualification: false, binarySha256: digest, packageArchiveSha256: expectedArchiveSha256, instrumented: options.instrumented, architecture: process.arch, observations };
+  const outputFile = await open(options.output, "wx", 0o600);
+  let root: string | undefined;
+  let packed: PackageVerificationResult | undefined;
   let stage = "workspace-initialization";
+  const checkpoint = async (): Promise<void> => {
+    result.stage = stage;
+    const bytes = Buffer.from(`${JSON.stringify(result, null, 2)}\n`);
+    await outputFile.truncate(0);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesWritten } = await outputFile.write(bytes, offset, bytes.length - offset, offset);
+      if (bytesWritten === 0) throw new Error("Research output write failed");
+      offset += bytesWritten;
+    }
+  };
   try {
+    await checkpoint();
+    root = await mkdtemp(join(await realpath(tmpdir()), "cruxomni-windows-research-"));
+    const profile = join(root, "profile");
+    const workspace = join(root, "workspace");
+    const environment = cleanEnvironment(process.env, profile);
     await mkdir(profile, { recursive: true });
     await mkdir(workspace, { recursive: true });
     await mkdir(environment.TEMP!, { recursive: true });
     stage = "host-version";
+    await checkpoint();
     const versionResult = await runCommand(options.binary, ["--version"], { cwd: workspace, env: environment });
     result.hostStartup = {
       exitCode: versionResult.code, signal: versionResult.signal,
@@ -1898,20 +1924,20 @@ export async function runWindowsLoginResearch(options: {
     result.reportedVersion = /^(?:omp\/)?[0-9A-Za-z.+-]{1,64}$/u.test(version) ? version : "non-semantic-version-output";
     if (!/^(?:omp\/)?18\.12\.5$/u.test(version)) throw new Error("Research host must report 18.12.5");
     result.hostVersion = "18.12.5";
-    await writeFile(options.output, JSON.stringify(result, null, 2), { flag: "wx", mode: 0o600 });
-    const archivePath = process.env.OMP_SMOKE_PACKAGE_ARCHIVE;
-    const expectedArchiveSha256 = process.env.OMP_SMOKE_PACKAGE_SHA256;
-    if (!archivePath || !expectedArchiveSha256 || !/^[a-f0-9]{64}$/.test(expectedArchiveSha256)) throw new Error("Research requires the exact exported package archive and digest");
     stage = "package-verification";
+    await checkpoint();
     packed = await verifyPackage({ keepTemporary: true, archivePath, expectedArchiveSha256 });
     result.packageArchiveSha256 = packed.archiveSha256;
     stage = "package-installation";
+    await checkpoint();
     await installPackedPackage(options.binary, workspace, environment, profile, packed, options.instrumented ? async installedRoot => {
       result.providerOverlay = await applyWindowsResearchOverlay(installedRoot, resolve(packageRoot, "scripts/windows-research-provider-overlay.patch"));
     } : undefined);
     stage = "setup-configuration";
+    await checkpoint();
     requireSuccess(await runCommand(options.binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: environment }), "research setup version");
     stage = "native-dialogue";
+    await checkpoint();
     await nativePromptCancel(options.binary, workspace, environment, undefined, { instrumented: options.instrumented, observations });
     result.reproducedSubmissionFailure = observations.selectorVisible === false && observations.prompted === false && observations.dialogueCompleted === 3;
     if (options.instrumented) {
@@ -1922,6 +1948,7 @@ export async function runWindowsLoginResearch(options: {
         ? "available-for-await-analysis" : "inconclusive";
     }
     stage = "native-setup-research";
+    await checkpoint();
     const setupObservations: JsonObject = {};
     observations.setup = setupObservations;
     const fixture = await startFixtureServer();
@@ -1934,7 +1961,7 @@ export async function runWindowsLoginResearch(options: {
         setupObservations.completed = true;
       } catch (error) {
         setupObservations.completed = false;
-        setupObservations.failureType = error instanceof Error ? error.name : "UnknownError";
+        setupObservations.failureType = error instanceof TypeError ? "TypeError" : error instanceof RangeError ? "RangeError" : error instanceof Error ? "Error" : "UnknownError";
       } finally {
         setupObservations.setupEffects = fixture.requests
           .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
@@ -1945,15 +1972,18 @@ export async function runWindowsLoginResearch(options: {
       if (environmentFixture) await environmentFixture.close();
       await fixture.close();
     }
+    stage = "completed";
+    await checkpoint();
     return result;
   } catch (error) {
     result.failedStage = stage;
-    result.failureType = error instanceof Error ? error.name : "UnknownError";
+    result.failureType = error instanceof TypeError ? "TypeError" : error instanceof RangeError ? "RangeError" : error instanceof Error ? "Error" : "UnknownError";
+    await checkpoint();
     throw error;
   } finally {
-    await writeFile(options.output, JSON.stringify(result, null, 2), { mode: 0o600 });
+    await outputFile.close();
     if (packed) await rm(resolve(packed.extractedRoot, "..", ".."), { recursive: true, force: true });
-    await rm(root, { recursive: true, force: true });
+    if (root) await rm(root, { recursive: true, force: true });
   }
 }
 

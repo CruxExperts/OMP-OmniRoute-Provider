@@ -85,6 +85,12 @@ for path,approval in ((root/'new','wrong'), (root,module.NODE_ARCHIVE_SHA)):
  try: module.stage(path, approval)
  except RuntimeError: continue
  raise AssertionError('unsafe stage accepted')
+module.validate_bwrap=lambda value: value
+module.preflight=lambda: None
+sys.argv=['pinned-ingress.py','--stage-dir',str(root/'cli-new'),'--approve-node-archive-sha256','wrong']
+try: module.main()
+except RuntimeError as error: assert 'approval' in str(error).lower()
+else: raise AssertionError('CLI accepted an unapproved Node archive')
 class Response(io.BytesIO):
  def __enter__(self): return self
  def __exit__(self,*args): self.close()

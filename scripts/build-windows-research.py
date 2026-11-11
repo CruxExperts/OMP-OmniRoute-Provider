@@ -106,12 +106,22 @@ def input_tree_sha256(root: Path) -> str:
 
 
 
+class CommandFailure(Exception):
+    def __init__(self, returncode: int | None, timed_out: bool = False) -> None:
+        super().__init__("research command failed")
+        self.returncode = returncode
+        self.timed_out = timed_out
+
+
 def command(args: list[str], cwd: Path, environment: dict[str, str]) -> None:
     # Build output can contain paths or other untrusted data; do not publish it.
-    result = subprocess.run(args, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1100, check=False)
+    try:
+        result = subprocess.run(args, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1100, check=False)
+    except subprocess.TimeoutExpired as error:
+        raise CommandFailure(None, timed_out=True) from error
     if result.returncode:
-        raise RuntimeError(f"command failed with exit code {result.returncode}")
+        raise CommandFailure(result.returncode)
 
 
 def main() -> None:
@@ -148,6 +158,7 @@ def main() -> None:
         allowed = ("PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA")
         environment = {key: os.environ[key] for key in allowed if key in os.environ}
         environment.update({"CI": "true", "npm_config_ignore_scripts": "true", "GH_PROMPT_DISABLED": "1"})
+        environment["RUNNER_TEMP"] = os.environ["RUNNER_TEMP"]
         environment.update({"OMP_SMOKE_PACKAGE_ARCHIVE": str(package), "OMP_SMOKE_PACKAGE_SHA256": package_sha})
         patch = ROOT / "scripts/windows-research-input-instrumentation.patch"
         if digest(patch) != PATCH_SHA:
@@ -190,14 +201,12 @@ def main() -> None:
                 if digest(native) != NATIVE_SHA or digest(template) != BUN_TEMPLATE_SHA or digest(lock) != lock_sha:
                     raise ValueError("build input changed")
                 inputs = input_tree_sha256(source)
-                before_files = {path.relative_to(source).as_posix(): digest(path) for path in source.rglob("*") if path.is_file() and not path.is_symlink() and "binaries" not in path.relative_to(source).parts}
                 metadata[f"{variant}InputTreeSha256"] = inputs
                 command([bun, "scripts/ci-release-build-binaries.ts", "--targets", "win32-x64"], source, environment)
                 if digest(native) != NATIVE_SHA or digest(template) != BUN_TEMPLATE_SHA or digest(lock) != lock_sha:
                     raise ValueError("build input changed")
                 if input_tree_sha256(source) != inputs:
-                    after_files = {path.relative_to(source).as_posix(): digest(path) for path in source.rglob("*") if path.is_file() and not path.is_symlink() and "binaries" not in path.relative_to(source).parts}
-                    metadata["changedInputFiles"] = sorted(name for name in before_files.keys() | after_files.keys() if before_files.get(name) != after_files.get(name))[:32]
+                    metadata["buildInputChanged"] = True
                     raise ValueError("build modified its source or installed inputs")
                 binary = source / "packages/coding-agent/binaries/omp-windows-x64.exe"
                 binaries[variant] = work / f"{variant}.exe"
@@ -237,6 +246,12 @@ def main() -> None:
         metadata["status"] = "failed"
         metadata["failedStage"] = stage
         metadata["failureType"] = type(error).__name__
+        if isinstance(error, CommandFailure):
+            metadata["commandFailure"] = {
+                "returnCode": error.returncode,
+                "signal": -error.returncode if os.name != "nt" and error.returncode is not None and error.returncode < 0 else None,
+                "timedOut": error.timed_out,
+            }
         raise
     finally:
         (output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")

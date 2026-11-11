@@ -146,6 +146,11 @@ The baseline gate accepts either the original submission failure or the observed
 setup timeout after both fixture validation responses completed. A successful
 setup, another dialogue stage, or missing validation responses does not satisfy
 the setup-failure gate; the selected reproduction is recorded before tracing.
+Both the builder and instrumented-scenario wrapper enforce that same setup
+reproduction boundary. A wrapper mismatch previously prevented instrumentation
+from starting; that failure was not evidence of an instrumented-host crash.
+Research command failures retain only their exit/timeout classification, not raw
+output; a bounded scenario record is written before checking host startup.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.

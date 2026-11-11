@@ -1028,18 +1028,18 @@ def main():
                     log.write(block)
         code = process.wait(timeout=5)
         if code != 0:
-            stage, cls, worker_code = worker_failure_state(output)
-            write_failure(output, hashes, stage, cls or 'Other', worker_code if worker_code is not None else (code if -255 <= code <= 255 else None))
+            failed_stage, cls, worker_code = worker_failure_state(output)
+            write_failure(output, hashes, failed_stage, cls or 'Other', worker_code if worker_code is not None else (code if -255 <= code <= 255 else None))
             failed = True
-            raise RuntimeError('isolated ingress run failed at ' + stage + '; inspect private logs')
+            raise RuntimeError('isolated ingress run failed at ' + failed_stage + '; inspect private logs')
         exporting = True
         require(input_hashes() == hashes, 'input bytes changed during run')
         export_observations(output, hashes)
         print(json.dumps({'output': str(output), 'exitCode': code, 'researchOnly': True}))
     except Exception as exc:
         if not failed:
-            stage = 'export' if exporting else worker_failure_state(output)[0]
-            write_failure(output, hashes, stage, failure_class(exc), failure_code(exc))
+            failed_stage = 'export' if exporting else worker_failure_state(output)[0]
+            write_failure(output, hashes, failed_stage, failure_class(exc), failure_code(exc))
         raise
     finally:
         subprocess.run(['/usr/bin/systemctl', '--user', 'stop', unit], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
