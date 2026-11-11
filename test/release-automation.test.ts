@@ -734,7 +734,7 @@ describe("release automation", () => {
     let wrapper = 0;
     let observedExit = false;
     const originalEmit = ChildProcess.prototype.emit;
-    ChildProcess.prototype.emit = function (this: ChildProcess, ...args: Parameters<typeof originalEmit>): boolean {
+    ChildProcess.prototype.emit = function (this: ChildProcess, ...args: [string | symbol, ...unknown[]]): boolean {
       if (args[0] === "spawn" && wrapper === 0) wrapper = this.pid ?? 0;
       const result = Reflect.apply(originalEmit, this, args) as boolean;
       if (args[0] === "exit" && this.pid === wrapper) {

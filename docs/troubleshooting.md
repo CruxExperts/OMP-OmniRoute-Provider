@@ -79,6 +79,14 @@ Configuration ACL reads have their own bounds and do not consume the credential
 lookup or live-discovery budgets. An already-aborted credential entry does not
 establish that lookup ran. A reported staging failure stops that smoke setup
 promptly; it does not weaken ACL checks or change their timeouts.
+The administration child records separate bounded enable-entry and
+pre-confirmation phases, including ACL callback and child-close observations;
+these are retained on failure. In run 43006110977, Windows x64 reached the
+status barrier but timed out at administration dialogue 1/19: whether enable
+entered its handler or reached confirmation was not established. Windows arm64
+separately reported staging `insecure-permissions` after 30067 ms. Neither
+observation establishes the other's cause or qualifies the platform.
+
 
 Windows qualification limits the complete smoke to 55 minutes; other native
 targets retain 20 minutes. The native qualification and Windows diagnostic jobs

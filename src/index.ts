@@ -417,12 +417,15 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let administrationFlight: Promise<AdminRuntime | undefined> | undefined;
 	let administrationEpoch = 0;
 	let administrationRetirement: Promise<void> = Promise.resolve();
-	const ensureAdministration = (): Promise<AdminRuntime | undefined> => {
+	const ensureAdministration = (diagnoseEnable = false): Promise<AdminRuntime | undefined> => {
 		if (stopped || recoveryBlocked) return Promise.resolve(undefined);
 		if (administration) return Promise.resolve(administration);
 		if (administrationFlight) return administrationFlight;
 		const epoch = administrationEpoch;
+		const started = performance.now();
+		if (diagnoseEnable) windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(started), phase: "import", outcome: "start" });
 		const flight = administrationRetirement.then(() => import("./admin/runtime.ts")).then(async ({ createAdminRuntime }) => {
+			if (diagnoseEnable) windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(started), phase: "import", outcome: "ok" });
 			if (stopped || recoveryBlocked || epoch !== administrationEpoch) return undefined;
 			const created = createAdminRuntime({
 				pi,
@@ -434,7 +437,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				onConfig: current => { config = current; },
 			});
 			try {
+				if (diagnoseEnable) windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(started), phase: "synchronize", outcome: "start" });
 				await created.synchronize();
+				if (diagnoseEnable) windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(started), phase: "synchronize", outcome: "ok" });
 				if (stopped || recoveryBlocked || epoch !== administrationEpoch) {
 					await created.shutdown();
 					return undefined;
@@ -442,6 +447,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				administration = created;
 				return created;
 			} catch (error) {
+				if (diagnoseEnable) windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(started), phase: "synchronize", outcome: "error" });
 				try { await created.shutdown(); } catch { /* Preserve the synchronization failure. */ }
 				throw error;
 			}
@@ -457,14 +463,24 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const administrationCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 		description: "Inspect, enable, and human-confirm optional OmniRoute operations",
 		handler: async (args, ctx) => {
+			const enableDiagnostic = args.trim().split(/\s+/, 1)[0] === "enable";
+			const enableStarted = performance.now();
+			const enablePhase = (phase: string, outcome: string): void => {
+				if (enableDiagnostic) windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(enableStarted), phase, outcome });
+			};
+			enablePhase("entry", "ok");
 			setContext(ctx);
 			if (recoveryBlocked) {
 				notify(ctx, "omniroute operations unavailable: connection activation is unconfirmed; complete verified setup or recovery first.", "warning");
 				return;
 			}
 			try {
+				enablePhase("invitation", "start");
 				await settleInvitation();
+				enablePhase("invitation", "ok");
+				enablePhase("config", "start");
 				const source = await loadConfig();
+				enablePhase("config", "ok");
 				config = source;
 				const command = args.trim().split(/\s+/, 1)[0] ?? "";
 				if (command === "status" || command === "help" || (!source.adminEnabled && command !== "enable")) {
@@ -472,9 +488,13 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					notify(ctx, `omniroute operations: ${source.adminEnabled ? "enabled" : "disabled"}; /omniroute-admin enable, disable, or search; mutations require an interactive human confirmation`);
 					return;
 				}
-				const runtime = await ensureAdministration();
+				enablePhase("runtime", "start");
+				const runtime = await ensureAdministration(enableDiagnostic);
+				enablePhase("runtime", runtime ? "ok" : "unavailable");
+				if (runtime) enablePhase("command", "start");
 				if (runtime) await runtime.command(args, ctx);
 			} catch (error) {
+				enablePhase("handler", "error");
 				notify(ctx, `omniroute operations unavailable (${safeDetail(error)}); no request was sent`, "warning");
 			}
 		},

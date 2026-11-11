@@ -248,12 +248,15 @@
      // Retain only our fixed diagnostic, never arbitrary PowerShell output.
      const sentinel = /(?:^|\r?\n)(ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr)?.[1] ?? "";
      const exitCode = !error ? 0 : typeof error.code === "number" && Number.isInteger(error.code) && error.code >= 0 && error.code <= 255 ? error.code : null;
-@@ -80,12 +92,16 @@
+@@ -80,15 +92,20 @@
        reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
      } else resolve();
    });
--  child.once("close", closed.resolve);
-+  child.once("close", () => { researchMarker(82, invocation); closed.resolve(); });
+   child.once("close", () => {
++    researchMarker(82, invocation);
+     windowsDiagnostic({ kind: "acl-close", elapsedMs: diagnosticElapsed(started), outcome: "ok" });
+     closed.resolve();
+   });
    child.stdin?.on("error", () => {});
    child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
    // Abort can report an error before the child closes. Keep the transaction

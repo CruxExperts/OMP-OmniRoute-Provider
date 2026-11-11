@@ -96,7 +96,10 @@ async function windowsAcl(targets: Array<{ path: string; directory: boolean }>, 
       reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
     } else resolve();
   });
-  child.once("close", closed.resolve);
+  child.once("close", () => {
+    windowsDiagnostic({ kind: "acl-close", elapsedMs: diagnosticElapsed(started), outcome: "ok" });
+    closed.resolve();
+  });
   child.stdin?.on("error", () => {});
   child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
   // Abort can report an error before the child closes. Keep the transaction

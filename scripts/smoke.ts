@@ -886,6 +886,7 @@ export const nativeAdminInitialStep: DialogueStep = {
   when: /omniroute operations: (?:disabled|enabled); \/omniroute-admin enable, disable, or search; mutations require an interactive human confirmation/,
   text: "/omniroute-admin enable\n",
   afterMs: 0,
+  captureDuringDispatch: true,
 };
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
 export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
@@ -1004,6 +1005,10 @@ export function parseWindowsDiagnostic(line: string): JsonObject | undefined {
     && typeof value.abortedAtEntry === "boolean" && ["ok", "error", "aborted"].includes(String(value.outcome))) return value;
   if (value.kind === "staging" && keys === "elapsedMs,error,kind,outcome" && ["ok", "error"].includes(String(value.outcome))
     && ["none", "invalid-config", "corrupt-config", "insecure-permissions", "config-conflict", "pending-mismatch", "invalid-endpoint", "insecure-http", "other"].includes(String(value.error))) return value;
+  if (value.kind === "admin" && keys === "elapsedMs,kind,outcome,phase"
+    && ["entry", "invitation", "config", "runtime", "import", "synchronize", "command", "handler", "ui", "endpoint", "confirmation"].includes(String(value.phase))
+    && ["start", "ok", "error", "unavailable"].includes(String(value.outcome))) return value;
+  if (value.kind === "acl-close" && keys === "elapsedMs,kind,outcome" && value.outcome === "ok") return value;
   if (value.kind === "acl" && keys === "abortedAtEntry,elapsedMs,exitCode,kind,outcome,sentinel,signal"
     && typeof value.abortedAtEntry === "boolean" && ["ok", "error", "aborted"].includes(String(value.outcome))
     && (value.exitCode === null || (Number.isInteger(value.exitCode) && (value.exitCode as number) >= 0 && (value.exitCode as number) <= 255))
@@ -1562,6 +1567,7 @@ async function nativeAdministrationIo(
   cwd: string,
   environment: NodeJS.ProcessEnv,
   fixture: FixtureServer,
+  windowsDiagnostic?: (event: JsonObject) => void,
 ): Promise<NativeAdministrationEvidence> {
   const start = fixture.requests.length;
   const readId = "GET /api/fallback/chains";
@@ -1599,7 +1605,7 @@ async function nativeAdministrationIo(
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
     { when: nativeAdminEmptyFallbackReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey }, argv: ["/omniroute-admin status"], timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue });
+  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey, ...(windowsDiagnostic ? { OMP_SMOKE_LOGIN_DIAGNOSTICS: "1" } : {}) }, argv: ["/omniroute-admin status"], timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue, ...(windowsDiagnostic ? { windowsDiagnostic } : {}) });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).replace(/\r\n?/g, "\n");
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
@@ -1962,9 +1968,9 @@ export interface SmokeResult {
 /** Research-only mutation of an already verified disposable installation. */
 export async function applyWindowsResearchOverlay(installedRoot: string, patchPath: string): Promise<JsonObject> {
   const files = [
-    { file: "src/index.ts", originalSha256: "101d8549c35ef8f75476960b01b970ffd436f40ed5241e6bac9b52fbf1951098" },
+    { file: "src/index.ts", originalSha256: "272882f6f2de289d09bebedc60c5fd618267ba7f77629f8344cc56f33f5affcf" },
     { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
-    { file: "src/private-path.ts", originalSha256: "b5349373e78d76a0ba2bbfae6fe0550000b483568f84156d3b5eec92773b4c47" },
+    { file: "src/private-path.ts", originalSha256: "65f2fa3c6786def02bf7705ae182650166c88bb750fd36e8dd518d2fd572c2ba" },
   ];
   const root = await realpath(installedRoot);
   for (const { file, originalSha256 } of files) {
@@ -1983,7 +1989,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "f505cbf875644cce8ab650c856869b513253d9bafa67918f2faf380ef513b56c") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "cef1cd1c559a137c1b439ec5d92ce6d2960514765e992c7ef5673484b9f60d7b") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
@@ -2257,16 +2263,17 @@ export async function runSmoke(): Promise<SmokeResult> {
     let diagnosticError: unknown;
     const windowsEvents: JsonObject[] = [];
     const inferenceWindowsEvents: JsonObject[] = [];
+    const adminWindowsEvents: JsonObject[] = [];
     const captureSetupEffects = (): void => {
       if (!diagnosticPathForSetup || !diagnosticIdentity || !priorDiagnostic) return;
       const requests = fixture.requests.slice(setupRequestStart, setupRequestEnd)
         .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
         .slice(0, 16)
         .map(request => ({ route: request.path === "/api/cloud/auth" ? "key-verification" : "models", finished: request.completedAt !== undefined, closed: request.closedAt !== undefined, status: request.status ?? null }));
-      const observation = JSON.stringify({ requests, windowsEvents, inferenceWindowsEvents });
+      const observation = JSON.stringify({ requests, windowsEvents, inferenceWindowsEvents, adminWindowsEvents });
       if (observation === lastSetupObservation) return;
       lastSetupObservation = observation;
-      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents], inferenceWindowsEvents: [...inferenceWindowsEvents] })).catch(error => { diagnosticError ??= error; });
+      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents], inferenceWindowsEvents: [...inferenceWindowsEvents], adminWindowsEvents: [...adminWindowsEvents] })).catch(error => { diagnosticError ??= error; });
     };
     captureSetupEffects();
     await diagnosticWrite;
@@ -2309,7 +2316,17 @@ export async function runSmoke(): Promise<SmokeResult> {
       );
       if (adminRequests.length > 0) throw new Error("native admin browser sent an operation request instead of cancelling at the operation prompt");
     }
-    const administration = await nativeAdministrationIo(binary, workspace, nativeEnvironment, fixture);
+    let administration: NativeAdministrationEvidence;
+    try {
+      administration = await nativeAdministrationIo(binary, workspace, nativeEnvironment, fixture, diagnosticPathForSetup ? event => {
+        if (adminWindowsEvents.length < 128) adminWindowsEvents.push(event);
+        captureSetupEffects();
+      } : undefined);
+    } finally {
+      captureSetupEffects();
+      await diagnosticWrite;
+      if (diagnosticError) throw diagnosticError;
+    }
 
     const disabled = await runCommand(binary, ["plugin", "disable", packageName], { cwd: workspace, env: environment });
     requireSuccess(disabled, "plugin disable");

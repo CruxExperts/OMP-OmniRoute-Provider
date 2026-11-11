@@ -4,6 +4,7 @@ import { getOperationRegistry, redactSourceOutput, type OperationAdapter, type O
 import { escapeControls, type AdminCredentialInput, type AdminPlanHandle, type AdminPreview } from "./types.ts";
 import type { AdminExecutor } from "./executor.ts";
 import { isLoopbackHostname } from "./adapters.ts";
+import { diagnosticElapsed, windowsDiagnostic } from "../private-path.ts";
 
 const DEFAULT_PROFILE = "omniroute";
 type AdminContext = ExtensionContext;
@@ -339,14 +340,21 @@ async function runOperationById(options: AdminUiOptions, context: AdminContext, 
   notify(context, `plan ${result.plan.planId} created\n${redactPreview(result.plan.preview, registry)}`, "info");
 }
 async function enableAdmin(options: AdminUiOptions, context: AdminContext): Promise<void> {
+  const started = performance.now();
+  const phase = (name: string, outcome: string): void => windowsDiagnostic({ kind: "admin", elapsedMs: diagnosticElapsed(started), phase: name, outcome });
+  phase("ui", "start");
   if (!hasInteractiveUi(context)) {
+    phase("ui", "unavailable");
     notify(context, "administration enable requires an interactive human UI; no request was sent", "warning");
     return;
   }
   let binding: AdminBinding | undefined;
   try {
+    phase("endpoint", "start");
     binding = await options.resolveEffectiveEndpoint?.();
+    phase("endpoint", binding ? "ok" : "unavailable");
   } catch {
+    phase("endpoint", "error");
     notify(context, "unable to resolve the active/environment administration endpoint; no request was sent", "warning");
     return;
   }
@@ -355,6 +363,7 @@ async function enableAdmin(options: AdminUiOptions, context: AdminContext): Prom
     notify(context, "administration enable cancelled; no request was sent", "warning");
     return;
   }
+  phase("confirmation", "start");
   const confirmed = await context.ui.confirm("Enable OmniRoute administration", `Exact endpoint: ${endpoint}\nPersist non-secret adminEnabled for this profile?`);
   if (!confirmed) {
     notify(context, "administration enable cancelled; no request was sent", "warning");

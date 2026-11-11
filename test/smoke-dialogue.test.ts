@@ -72,6 +72,25 @@ test("native administration accepts a completed enabled status", () => {
   scheduler.cancel();
 });
 
+test("native administration retains confirmation rendered during enable dispatch", async () => {
+  const started = Promise.withResolvers<void>();
+  const finished = Promise.withResolvers<void>();
+  const confirmed = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    nativeAdminInitialStep,
+    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 0 },
+  ], async (_step, index) => {
+    if (index === 0) { started.resolve(); await finished.promise; }
+    else confirmed.resolve();
+  });
+  scheduler.observe("omniroute operations: disabled; /omniroute-admin enable, disable, or search; mutations require an interactive human confirmation");
+  await started.promise;
+  scheduler.observe("Enable OmniRoute administration\nYes\nNo");
+  finished.resolve();
+  await confirmed.promise;
+  scheduler.cancel();
+});
+
 test("native setup stops only after the post-login native catalog is ready", async () => {
   const written: string[] = [];
   const refreshStarted = Promise.withResolvers<void>();
@@ -130,9 +149,15 @@ test("Windows smoke diagnostics accept only bounded fixed fields", () => {
   const credential = { kind: "credential", elapsedMs: 1, outcome: "aborted", abortedAtEntry: true };
   const acl = { kind: "acl", elapsedMs: 30000, outcome: "error", abortedAtEntry: false, exitCode: 1, signal: null, sentinel: "ACL_DIAGNOSTIC:9:System.Exception:None" };
   const staging = { kind: "staging", elapsedMs: 3, outcome: "error", error: "config-conflict" };
+  const admin = { kind: "admin", elapsedMs: 1, phase: "entry", outcome: "ok" };
+  const close = { kind: "acl-close", elapsedMs: 2, outcome: "ok" };
   expect(parse(credential)).toEqual(credential);
   expect(parse(acl)).toEqual(acl);
   expect(parse(staging)).toEqual(staging);
+  expect(parse(admin)).toEqual(admin);
+  expect(parse(close)).toEqual(close);
+  expect(parse({ ...admin, phase: "private command" })).toBeUndefined();
+  expect(parse({ ...admin, path: "private" })).toBeUndefined();
   expect(parse({ ...credential, secret: "private" })).toBeUndefined();
   expect(parse({ ...acl, sentinel: "C:\\private\\secret" })).toBeUndefined();
   expect(parse({ ...staging, error: "private exception" })).toBeUndefined();
