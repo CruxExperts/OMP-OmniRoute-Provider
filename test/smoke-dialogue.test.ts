@@ -15,12 +15,20 @@ import {
   nativeAdminPromptPattern,
   nativeAdminUnknownOutcomePattern,
   nativeEnvironmentSwitchConfirmationPattern,
+  nativeInferenceTimeoutMs,
   nativeLoginSelectorShowsProvider,
   nativeLoginCommandRenderedPattern,
   nativeLoginCommandCompletedPattern,
   nativePtyDialogueText,
   writeNativeLoginDiagnostic,
 } from "../scripts/smoke.ts";
+
+test("persisted inference allows five Windows ACL reads without changing other deadlines", () => {
+  expect(nativeInferenceTimeoutMs("win32", true)).toBe(170_000);
+  expect(nativeInferenceTimeoutMs("win32", false)).toBe(20_000);
+  expect(nativeInferenceTimeoutMs("linux", true)).toBe(20_000);
+  expect(nativeInferenceTimeoutMs("darwin", true)).toBe(20_000);
+});
 
 test("native login diagnostic preserves bounded identity before and after an interrupted dialogue", async () => {
   const directory = await mkdtemp(join(tmpdir(), "native-login-diagnostic-test-"));

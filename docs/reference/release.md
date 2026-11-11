@@ -176,6 +176,22 @@ two 10-second candidate-validation network budgets, discovery, and the
 six-second post-login stop. The individual helper timeout remains 30 seconds;
 the selection and cancellation deadlines and security checks are unchanged.
 
+Official run `42981036057` completed setup on both Windows architectures but
+the subsequent persisted Chat Completions command reached its 20-second outer
+deadline. Its login diagnostic records completed setup requests, not the cause
+of that later timeout. A successful persisted-profile startup can perform five
+sequential configuration reads: one at registration, two around credential
+resolution in the startup refresh, and two in the session refresh. Each read
+checks the directory and file together in one Windows ACL child, bounded at 30
+seconds. The startup credential lookup has its own 10-second cancellation;
+that signal does not bound the configuration reads. The persisted inference
+smoke therefore retains its 20-second command allowance and adds `5 * 30`
+seconds on Windows only, for 170 seconds. This is an outer allowance, not a
+change to ACL limits, credential validation, or security checks. Environment
+inference and other platforms retain their existing deadlines. These source
+bounds do not prove the observed timeout's cause or qualify either platform.
+
+
 In the instrumented Windows research run `42974498638`, helper 1 ran from
 5,773 to 31,221 ms and helper 2 from 31,223 to 53,722 ms, both within their
 individual limits. Helper 3 started at 53,723 ms and was still pending at

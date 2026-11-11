@@ -1595,6 +1595,13 @@ async function nativeToolContinuation(
   }
 }
 
+// A persisted profile is read once during registration and twice in each of
+// startup and session binding synchronization. Each read runs one Windows ACL
+// helper for both directory and file, bounded by its existing 30-second limit.
+export function nativeInferenceTimeoutMs(platform: NodeJS.Platform, persistedProfile: boolean): number {
+  return 20_000 + (platform === "win32" && persistedProfile ? 5 * 30_000 : 0);
+}
+
 async function nativeProviderInference(
   binary: string,
   cwd: string,
@@ -1605,6 +1612,7 @@ async function nativeProviderInference(
   modelId: string,
   expectedText: string,
   stallMetadata = false,
+  persistedProfile = false,
 ): Promise<InferenceEvidence> {
   const requestStart = fixture.requests.length;
   if (stallMetadata) fixture.stallMetadata();
@@ -1617,7 +1625,7 @@ async function nativeProviderInference(
       "--model",
       `${providerId}/${modelId}`,
       "Return a short reply for this isolated protocol check.",
-    ], { cwd, env: environment, timeoutMs: 20_000 });
+    ], { cwd, env: environment, timeoutMs: nativeInferenceTimeoutMs(process.platform, persistedProfile) });
     requireNativeReply(result, label, expectedText);
 
     const requests = fixture.requests.slice(requestStart);
@@ -2171,6 +2179,8 @@ export async function runSmoke(): Promise<SmokeResult> {
       "chat-completions",
       chatModelId,
       chatReplyText,
+      false,
+      true,
     );
     if (captureAdmin) {
       const beforeAdminBrowse = fixture.requests.length;
