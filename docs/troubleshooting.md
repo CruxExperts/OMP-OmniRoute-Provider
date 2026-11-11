@@ -96,8 +96,8 @@ from erase controls: `ESC[38:2::254:188:56mYes ESC[149X ESC[149C│`
 false Yes / true No selector signature with the earlier label boundary. The
 smoke parser now removes complete CSI sequences before its usual terminal
 normalization, including when a sequence spans output chunks. This local
-reproduction does not prove the cause of the hosted failures; official Windows
-qualification remains pending fresh successful native evidence.
+reproduction alone did not prove the cause of the hosted failures; the later
+official acceptance result is recorded below.
 Official run 43038502401 at source 9b41346 reached dialogue 9/19 on both
 Windows architectures, after the first apply confirmation, without retaining an
 unknown-outcome notification. The actual apply notification was not retained,
@@ -124,8 +124,12 @@ completion at 22,686 ms on the child stopwatch; parent startup took 289 ms.
 Other calls likewise spent about 23 seconds parsing, and the plan expired.
 Windows x64 passed its full native run. The helper now uses the .NET Framework
 JSON serializer directly rather than discovering the ConvertFrom-Json command.
-Fresh official native x64 and arm64 qualification is needed to establish the
-effect of that change.
+Official run 43054655900 at source 8d1a0da passed both unmodified native
+Windows x64 and arm64 hosts, including administration I/O. The retained arm64
+invocation completed parsing at 77 ms (stdin complete at 24 ms), ACL checks at
+121 ms, and parent callback/close at 402 ms. The security checks and 60-second
+plan lifetime remain unchanged. This is Windows acceptance for that candidate,
+not eight-platform release qualification or publication.
 
 
 
@@ -253,8 +257,8 @@ Exact sensitive target state stays private to approval and drift checks.
 
 Windows qualification run 42992934819 passed native setup and persisted Chat
 Completions inference on both architectures, including the exact reply, usage,
-single POST, and live model discovery. Administration I/O did not complete and
-Windows administration qualification remains pending. A visible classic PTY
+single POST, and live model discovery. Administration I/O did not complete in
+that run; run 43054655900 subsequently passed it on both architectures. A visible classic PTY
 prompt or fixed delay does not prove submission readiness. The smoke dialogue
 now starts the official host with a positional `/omniroute-admin status`
 command and waits for its enabled or disabled status response before enabling administration;
