@@ -5,10 +5,10 @@ import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { exportRelease } from "../scripts/export-release.ts";
-import { createQualificationSourceSnapshot, DockerCommandError, prepareQualificationDependencyMount, runBoundedQualificationCommand, runOwnedMuslDockerTask, validateNativeSmokeOutput, type OwnedMuslDockerResources } from "../scripts/qualify-release.ts";
+import { cleanupNativeQualification, createQualificationSourceSnapshot, DockerCommandError, nativeSmokeTimeoutMs, prepareQualificationDependencyMount, runBoundedQualificationCommand, runOwnedMuslDockerTask, validateNativeSmokeOutput, writeNativeQualificationEvidence, type OwnedMuslDockerResources } from "../scripts/qualify-release.ts";
 import { validateMuslRuntimeEvidence } from "../scripts/musl-runtime.ts";
 import { createReleaseApprovalReceipt, publishApprovedRelease, recoverPublication, verifyQualificationRunMetadata, verifyReleaseApproval, verifyReleaseEnvironmentMetadata } from "../scripts/release-gate.ts";
-import { cleanEnvironment } from "../scripts/smoke.ts";
+import { cleanEnvironment, nativeAdminIoTimeoutMs, nativeInferenceTimeoutMs } from "../scripts/smoke.ts";
 import { checkVersion, planVersion, setVersion } from "../scripts/version.ts";
 import type { PackageVerificationResult } from "../scripts/verify-package.ts";
 
@@ -703,6 +703,124 @@ describe("release automation", () => {
     }));
     expect(interruption).toBeInstanceOf(DockerCommandError);
     expect(interruption.termination).toBe("interrupted");
+  });
+
+  it("handles an owned native process tree before releasing its workspace", async () => {
+    const work = await temporaryDirectory("cruxomni-owned-tree-");
+    // This integration test exercises the real OS process tree and deadline.
+    let pids: number[] = [];
+    const childScript = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e', 'setInterval(()=>{},1000)'],{stdio:'ignore'}); console.log(process.pid,child.pid); setInterval(()=>{},1000);`;
+    try {
+      const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", childScript], {
+        cwd: work, timeout: 4_000, maxBuffer: 1024, ownedTree: true,
+        onOutput: (_stream, chunk) => { pids = chunk.toString().trim().split(/\s+/).map(Number); },
+      }));
+      expect(failure.termination).toBe("timeout");
+      expect(pids).toHaveLength(2);
+      if (process.platform === "win32") {
+        expect(failure.residualProcesses).toBe(true);
+        expect(failure.message).toContain("descendants may still be running");
+        expect(failure.message).toContain("termination unconfirmed");
+        expect(() => process.kill(pids[0]!, 0)).toThrow();
+        expect(() => process.kill(pids[1]!, 0)).not.toThrow();
+      } else {
+        expect(failure.residualProcesses).toBe(false);
+        expect(() => process.kill(pids[1]!, 0)).toThrow();
+      }
+    } finally {
+      if (process.platform === "win32") for (const pid of pids) { try { process.kill(pid); } catch {} }
+    }
+  });
+
+  it("does not target an exited wrapper whose descendant holds its pipe", async () => {
+    // The real deadline must race an exited OS process with a still-open pipe.
+    let descendant = 0;
+    // Bun keeps the wrapper alive for its child unless it explicitly exits.
+    const script = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:['ignore',1,2]}); child.once('spawn',()=>process.stdout.write(String(child.pid)+'\\n',()=>process.exit(0)));`;
+    try {
+      const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", script], {
+        timeout: 2_000, ownedTree: true,
+        onOutput: (_stream, chunk) => { descendant = Number(chunk.toString().trim()); },
+      }));
+      expect(descendant).toBeGreaterThan(0);
+      expect(failure.termination).toBe("timeout");
+      expect(failure.residualProcesses).toBe(true);
+      expect(() => process.kill(descendant, 0)).not.toThrow();
+    } finally {
+      if (descendant) try { process.kill(descendant); } catch {}
+    }
+  });
+
+  it("retains the workspace when process tree termination is unconfirmed", async () => {
+    const paths: string[] = [];
+    const remove: typeof rm = async path => { paths.push(String(path)); };
+    const failure = new DockerCommandError("timed out; termination unconfirmed", "", "", null, "timeout", true);
+    await expect(cleanupNativeQualification("work", "output", false, failure, remove)).rejects.toThrow("workspace retained at work");
+    expect(paths).toEqual(["output"]);
+  });
+
+  it("rejects cancellation during either evidence write and removes partial output", async () => {
+    for (const cancelAt of [1, 2]) {
+      const root = await temporaryDirectory("cruxomni-cancel-evidence-");
+      const work = join(root, "work");
+      const stage = join(root, "output");
+      await mkdir(work);
+      const controller = new AbortController();
+      let writes = 0;
+      const write = async (path: string, data: Buffer | string, options: { flag: "wx" }): Promise<void> => {
+        await writeFile(path, data, options);
+        if (++writes === cancelAt) controller.abort();
+      };
+      let failure: unknown;
+      try { await writeNativeQualificationEvidence(stage, "target", Buffer.from("{}"), "{}", controller.signal, write); }
+      catch (error) { failure = error; }
+      expect(String(failure)).toContain("interrupted");
+      await expect(cleanupNativeQualification(work, stage, false, failure)).rejects.toThrow("interrupted");
+      await expect(lstat(stage)).rejects.toThrow();
+      await expect(lstat(work)).rejects.toThrow();
+    }
+  });
+
+  it("preserves the primary failure and attempts both native cleanups", async () => {
+    const primary = new DockerCommandError("smoke timed out after 3300000ms (exit none, signal SIGKILL)", "", "", null, "timeout");
+    const paths: string[] = [];
+    const remove: typeof rm = async path => { paths.push(String(path)); throw new Error(`EPERM ${String(path)}`); };
+    try {
+      await cleanupNativeQualification("work", "output", false, primary, remove);
+      throw new Error("expected cleanup failure");
+    } catch (error) {
+      expect(String(error)).toContain(primary.message);
+      expect(String(error)).toContain("EPERM work");
+      expect(String(error)).toContain("EPERM output");
+      expect((error as Error).cause).toBeInstanceOf(AggregateError);
+    }
+    expect(paths).toEqual(["work", "output"]);
+    await expect(cleanupNativeQualification("work", "output", true, undefined, remove)).rejects.toThrow("qualification cleanup failed");
+  });
+
+  it("keeps native and workflow deadlines above the source-counted Windows stages", async () => {
+    const source = await readFile(join(import.meta.dir, "../scripts/smoke.ts"), "utf8");
+    expect(source).toContain("75_000 + (process.platform === \"win32\" ? 28 * 30_000 : 0)");
+    expect(source).toContain("nativeInferenceTimeoutMs(process.platform, persistedProfile)");
+    expect(source).toContain("nativeAdminIoTimeoutMs(process.platform)");
+    const majorStages = 75_000 + 28 * 30_000 + nativeInferenceTimeoutMs("win32", true) + nativeAdminIoTimeoutMs("win32");
+    expect(majorStages).toBe(2_090_000);
+    expect(nativeSmokeTimeoutMs("win32")).toBe(55 * 60_000);
+    expect(nativeSmokeTimeoutMs("linux")).toBe(20 * 60_000);
+    const sequence = source.slice(source.indexOf("    await seedLegacyNativeCache(binary, workspace, environment, fixture);"), source.indexOf("    if (environmentFixture!.requests.length !== nativeSetup.postSwitchEnvironmentRequestIndex)"));
+    expect((sequence.match(/await nativeProviderInference\(/g) ?? []).length).toBe(3);
+    expect((sequence.match(/await runCommand\(/g) ?? []).length).toBe(5);
+    expect((sequence.match(/await checkPluginState\(/g) ?? []).length).toBe(4);
+    // Five direct default commands and four plugin-state commands, plus the
+    // two non-persisted inference calls, tool call, and prompt/wizard dialogues.
+    const countedCommands = (5 + 4) * 45_000 + 3 * 20_000 + 30_000 + 35_000;
+    expect(nativeSmokeTimeoutMs("win32")).toBeGreaterThan(majorStages + countedCommands);
+    for (const file of ["qualification.yml", "windows-input-diagnostic.yml"]) {
+      const workflow = await readFile(join(import.meta.dir, "../.github/workflows", file), "utf8");
+      const job = file === "qualification.yml" ? workflow.split("  native:")[1]?.split("  linux-x64-musl:")[0] : workflow.split("  host:")[1]?.split("  probe:")[0];
+      expect(job).toContain("timeout-minutes: 90");
+      expect(90 * 60_000 - nativeSmokeTimeoutMs("win32")).toBeGreaterThanOrEqual(30 * 60_000);
+    }
   });
 
   it("preserves mount paths when owned-container removal cannot be confirmed", async () => {

@@ -193,7 +193,7 @@ function normalizedArchitecture(value: string): "x64" | "arm64" | undefined {
   return undefined;
 }
 
-type DockerOptions = { cwd?: string; timeout?: number; maxBuffer?: number; signal?: AbortSignal; onOutput?: (stream: "stdout" | "stderr", chunk: Buffer) => void };
+type DockerOptions = { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number; maxBuffer?: number; signal?: AbortSignal; ownedTree?: boolean; onOutput?: (stream: "stdout" | "stderr", chunk: Buffer) => void };
 type DockerRunner = (args: string[], options?: DockerOptions) => Promise<string>;
 
 export class DockerCommandError extends Error {
@@ -203,6 +203,7 @@ export class DockerCommandError extends Error {
     readonly stderr: string,
     readonly exitCode: number | null,
     readonly termination: "exit" | "timeout" | "interrupted" | "output-limit" | "spawn-error",
+    readonly residualProcesses = false,
   ) {
     super(message);
     this.name = "DockerCommandError";
@@ -218,8 +219,9 @@ export async function runBoundedQualificationCommand(executable: string, command
   return await new Promise<string>((resolvePromise, rejectPromise) => {
     const child = spawn(executable, commandArgs, {
       cwd: options.cwd ?? root,
-      env: process.env,
+      env: options.env ?? process.env,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: options.ownedTree === true && process.platform !== "win32",
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -229,10 +231,47 @@ export async function runBoundedQualificationCommand(executable: string, command
     let outputLimited = false;
     let settled = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;
+    let exited = false;
+    let residualProcesses = false;
+    let treeError: unknown;
     const terminate = (): void => {
-      child.kill("SIGTERM");
-      if (escalation === undefined) {
-        escalation = setTimeout(() => child.kill("SIGKILL"), 2_000);
+      if (options.ownedTree) {
+        if (residualProcesses || treeError) return;
+        // A PID alone cannot safely identify a Windows process tree: the wrapper
+        // may exit and its PID be reused before taskkill opens it.
+        if (process.platform === "win32" || exited || child.pid === undefined) {
+          residualProcesses = true;
+          treeError = new Error("owned process tree termination is unconfirmed; descendants may still be running");
+          child.stdout.destroy();
+          child.stderr.destroy();
+        } else {
+          try { process.kill(-child.pid, "SIGKILL"); } catch (error) {
+            residualProcesses = true;
+            treeError = error;
+            child.stdout.destroy();
+            child.stderr.destroy();
+          }
+        }
+        if (residualProcesses && !exited) {
+          try {
+            if (!child.kill("SIGKILL")) treeError = new Error(`${String(treeError)}; wrapper termination could not be requested`);
+          } catch (error) {
+            treeError = new Error(`${String(treeError)}; wrapper termination failed: ${String(error)}`);
+          }
+          escalation = setTimeout(() => {
+            if (exited || settled) return;
+            child.unref();
+            const termination = timedOut ? "timeout" : interrupted ? "interrupted" : "output-limit";
+            const state = timedOut ? `timed out after ${timeoutMs}ms` : interrupted ? "was interrupted" : "exceeded its output limit";
+            fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} ${state}; wrapper exit unconfirmed after termination request; owned process tree termination unconfirmed: ${String(treeError)}; descendants may still be running`, output(stdout), output(stderr), null, termination, true));
+          }, 2_000);
+        }
+      } else if (!exited) {
+        child.kill("SIGTERM");
+        if (escalation === undefined) escalation = setTimeout(() => { if (!exited) child.kill("SIGKILL"); }, 2_000);
+      } else {
+        child.stdout.destroy();
+        child.stderr.destroy();
       }
     };
     const onAbort = (): void => {
@@ -273,18 +312,24 @@ export async function runBoundedQualificationCommand(executable: string, command
     };
     child.stdout.on("data", (chunk: Buffer) => retain("stdout", chunk));
     child.stderr.on("data", (chunk: Buffer) => retain("stderr", chunk));
+    child.on("exit", () => { exited = true; });
     child.on("error", error => {
+      if (residualProcesses) {
+        treeError = new Error(`${String(treeError)}; wrapper termination error: ${error.message}`);
+        return;
+      }
       fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} could not start: ${error.message}`, output(stdout), output(stderr), null, "spawn-error"));
     });
-    child.on("close", (code, childSignal) => {
+    child.on("close", async (code, childSignal) => {
       if (settled) return;
       const stdoutText = output(stdout);
       const stderrText = output(stderr);
-      if (timedOut || interrupted || outputLimited || code !== 0) {
+      if (timedOut || interrupted || outputLimited || code !== 0 || treeError) {
         const termination = timedOut ? "timeout" : interrupted ? "interrupted" : outputLimited ? "output-limit" : "exit";
         const detail = stderrText.trim().slice(-4_000);
-        const state = timedOut ? "timed out" : interrupted ? "was interrupted" : outputLimited ? "exceeded its output limit" : `failed (${code ?? childSignal ?? "unknown"})`;
-        fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} ${state}${detail ? `: ${detail}` : ""}`, stdoutText, stderrText, code, termination));
+        const state = timedOut ? `timed out after ${timeoutMs}ms` : interrupted ? "was interrupted" : outputLimited ? "exceeded its output limit" : "failed";
+        const exit = `exit ${code ?? "none"}, signal ${childSignal ?? "none"}`;
+        fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} ${state} (${exit})${detail ? `: ${detail}` : ""}${treeError ? `; owned process tree termination unconfirmed: ${String(treeError)}; descendants may still be running` : ""}`, stdoutText, stderrText, code, termination, residualProcesses));
         return;
       }
       settled = true;
@@ -892,6 +937,43 @@ export function validateNativeSmokeOutput(value: unknown, target: TargetId, arch
   if (bytes.byteLength > 128 * 1024) throw new Error("native smoke output is too large for qualification evidence");
   return smoke;
 }
+export const nativeSmokeTimeoutMs = (platform: NodeJS.Platform): number => (platform === "win32" ? 55 : 20) * 60 * 1000;
+
+export async function cleanupNativeQualification(work: string, stage: string, complete: boolean, operationError?: unknown, remove = rm): Promise<void> {
+  const failures: unknown[] = [];
+  const residual = operationError instanceof DockerCommandError && operationError.residualProcesses;
+  if (!residual) {
+    try { await remove(work, { recursive: true, force: true }); } catch (error) { failures.push(error); }
+  }
+  if (!complete || failures.length > 0) {
+    try { await remove(stage, { recursive: true, force: true }); } catch (error) { failures.push(error); }
+  }
+  if (residual) {
+    const message = `${String(operationError)}; qualification workspace retained at ${work} because descendants may still be running`;
+    if (failures.length) throw new Error(`${message}; qualification cleanup failed: ${failures.map(String).join("; ")}`, { cause: new AggregateError([operationError, ...failures]) });
+    throw new Error(message, { cause: operationError });
+  }
+  if (operationError !== undefined) {
+    if (failures.length) throw new Error(`${String(operationError)}; qualification cleanup failed: ${failures.map(String).join("; ")}`, { cause: new AggregateError([operationError, ...failures]) });
+    throw operationError;
+  }
+  if (failures.length) throw new AggregateError(failures, "qualification cleanup failed");
+}
+
+function checkQualificationCancellation(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error("native qualification was interrupted", { cause: signal.reason });
+}
+
+export async function writeNativeQualificationEvidence(stage: string, target: string, evidenceBytes: Buffer, result: string, signal: AbortSignal, write: (path: string, data: Buffer | string, options: { flag: "wx" }) => Promise<void> = writeFile): Promise<void> {
+  checkQualificationCancellation(signal);
+  await mkdir(join(stage, "evidence"), { recursive: true });
+  checkQualificationCancellation(signal);
+  await write(join(stage, "evidence", `${target}.json`), evidenceBytes, { flag: "wx" });
+  checkQualificationCancellation(signal);
+  await write(join(stage, "target-result.json"), result, { flag: "wx" });
+  checkQualificationCancellation(signal);
+}
+
 
 async function targetQualification(targetValue: string, releaseDirectory: string, outputDirectory: string): Promise<void> {
   if (!Object.hasOwn(targets, targetValue)) throw new Error(`unsupported qualification target: ${targetValue}`);
@@ -912,6 +994,8 @@ async function targetQualification(targetValue: string, releaseDirectory: string
   await mkdir(stage, { recursive: true });
   const work = await mkdtemp(join(tmpdir(), `cruxomni-qualification-${target}-`));
   let complete = false;
+  const interrupt = createQualificationInterruptSignal();
+  let operationError: unknown;
   try {
     const ompPath = await downloadOmp(target, work);
     const command = process.execPath;
@@ -924,8 +1008,7 @@ async function targetQualification(targetValue: string, releaseDirectory: string
       OMP_QUALIFICATION_TARGET_ID: target,
       npm_config_ignore_scripts: "true",
     };
-    const execution = await execFileAsync(command, args, { cwd: root, env, timeout: 20 * 60 * 1000, maxBuffer: 2 * 1024 * 1024 });
-    const smokeText = execution.stdout.trim();
+    const smokeText = await runBoundedQualificationCommand(command, args, { cwd: root, env, timeout: nativeSmokeTimeoutMs(process.platform), maxBuffer: 2 * 1024 * 1024, signal: interrupt.signal, ownedTree: true });
     if (!smokeText || Buffer.byteLength(smokeText) > 128 * 1024) throw new Error("native smoke returned empty or oversized output");
     let parsed: unknown;
     try { parsed = JSON.parse(smokeText) as unknown; }
@@ -973,22 +1056,29 @@ async function targetQualification(targetValue: string, releaseDirectory: string
         ],
       },
     };
-    await mkdir(join(stage, "evidence"), { recursive: true });
     const evidenceBytes = Buffer.from(`${JSON.stringify(evidence, null, 2)}\n`);
-    await writeFile(join(stage, "evidence", `${target}.json`), evidenceBytes, { flag: "wx" });
-    await writeFile(join(stage, "target-result.json"), `${JSON.stringify({
+    const result = `${JSON.stringify({
       id: target,
       version,
       sourceRevision,
       archiveSha256,
       evidenceSha256: await sha256(evidenceBytes),
-    }, null, 2)}\n`, { flag: "wx" });
-    process.stdout.write(`${JSON.stringify({ status: "target-passed", id: target, version, sourceRevision, archiveSha256 })}\n`);
+    }, null, 2)}\n`;
+    await writeNativeQualificationEvidence(stage, target, evidenceBytes, result, interrupt.signal);
     complete = true;
+  } catch (error) {
+    operationError = error;
   } finally {
-    await rm(work, { recursive: true, force: true });
-    if (!complete) await rm(stage, { recursive: true, force: true });
+    try {
+      await cleanupNativeQualification(work, stage, complete, operationError);
+      if (interrupt.signal.aborted) {
+        await cleanupNativeQualification(work, stage, false, new Error("native qualification was interrupted", { cause: interrupt.signal.reason }));
+      }
+    } finally {
+      interrupt.dispose();
+    }
   }
+  process.stdout.write(`${JSON.stringify({ status: "target-passed", id: target, version, sourceRevision, archiveSha256 })}\n`);
 }
 
 async function verifyTargetArtifact(target: TargetId, directory: string, manifest: JsonRecord, archiveSha256: string, producer: JsonRecord): Promise<JsonRecord> {

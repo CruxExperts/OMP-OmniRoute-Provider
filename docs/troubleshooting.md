@@ -80,6 +80,23 @@ lookup or live-discovery budgets. An already-aborted credential entry does not
 establish that lookup ran. A reported staging failure stops that smoke setup
 promptly; it does not weaken ACL checks or change their timeouts.
 
+Windows qualification limits the complete smoke to 55 minutes; other native
+targets retain 20 minutes. The native qualification and Windows diagnostic jobs
+allow 90 minutes for preparation, the bounded smoke, cleanup, and artifact upload.
+On timeout or cancellation, native qualification fails rather than reporting
+success. Windows cannot safely identify the process tree by a reusable PID. It
+requests termination of the live wrapper and waits for its exit, but descendant
+termination remains unconfirmed and the temporary workspace is retained. If
+the wrapper does not exit within the bounded wait, the error explicitly reports
+that its exit is unconfirmed too. A wrapper that exited while descendants still
+hold its pipes, or an unsuccessful tree
+termination, also leaves the workspace intact. The error identifies the retained
+path and warns that processes may still be running. Inspect the runner and stop
+the remaining processes before manually removing that workspace. Failed evidence
+output is independently removed. Cleanup failures preserve the original error;
+cleanup failure alone also fails qualification. This deadline change does not establish Windows
+administration qualification; new successful native evidence is still required.
+
 If the key check succeeds but setup reports no compatible chat models, the
 credential was verified and the current `/v1/models` response did not yield a
 runnable chat model. Check the route prefix and model availability separately;

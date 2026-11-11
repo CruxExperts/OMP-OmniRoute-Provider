@@ -522,6 +522,21 @@ output. The aggregate step validates the output bytes and identity before it
 writes the receipt and evidence bundle. The release gate also checks the
 successful workflow run and all eight native job names.
 
+The Windows parent smoke deadline is 55 minutes, covering the sequential setup,
+persisted inference, and administration allowances; other native targets retain
+20 minutes. Native qualification jobs and the Windows host diagnostic have a
+90-minute job limit to leave time for preparation and teardown. On interruption,
+timeout, or output overflow the collector fails. It does not use a reusable
+Windows PID to terminate a tree: it requests termination of the live wrapper and
+waits for exit, but unconfirmed descendant termination retains the workspace and
+reports potentially running descendants. A wrapper that fails to exit within the
+bounded wait is also reported. The same fail-closed behavior applies if the wrapper
+already exited with pipes held or tree termination fails. Partial
+evidence is removed; cancellation is checked through evidence writing and cleanup.
+Cleanup errors remain failures and do not replace the original subprocess details.
+These bounds do not qualify Windows administration or replace successful evidence
+from the final archive.
+
 The two musl jobs rebuild the runtime from the immutable architecture-specific
 Bun 1.4.2 Alpine child-image digests and the frozen package list in
 `provenance/musl-runtime.json`. If the recorded Alpine URL returns HTTP 404,

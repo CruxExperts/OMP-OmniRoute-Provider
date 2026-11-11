@@ -61,7 +61,7 @@ jobs:
           - id: windows-arm64
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }
@@ -73,6 +73,9 @@ jobs:
       - name: Verify native private configuration and reject broad grants
         shell: pwsh
         run: bun test test/config.test.ts --test-name-pattern 'profile writes|Windows rejects broad|cancelled config updates' --timeout=60000
+      - name: Verify owned native process timeout lifecycle
+        shell: bash
+        run: bun test test/release-automation.test.ts --test-name-pattern 'terminates the owned native process tree' --timeout=30000
       - name: Download this run's diagnostic package
         shell: bash
         env:

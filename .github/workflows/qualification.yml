@@ -152,7 +152,7 @@ jobs:
           - id: windows-arm64
             runner: windows-11-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         shell: bash
@@ -163,6 +163,9 @@ jobs:
         with: { bun-version: "1.4.2" }
       - name: Install exact locked dependencies
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: Verify owned native process timeout lifecycle
+        if: ${{ runner.os == 'Windows' }}
+        run: bun test test/release-automation.test.ts --test-name-pattern 'terminates the owned native process tree' --timeout=30000
       - name: Download the exact package built by this run
         env:
           GH_TOKEN: ${{ github.token }}
