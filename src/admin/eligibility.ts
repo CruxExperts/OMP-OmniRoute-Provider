@@ -91,7 +91,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
   if (!record(test) || typeof test.id !== "string" || !/^test\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\\]+$/.test(test.id) || !sha(test.caseSha256, 64) || !sha(test.outcomeSha256, 64)) return undefined;
   if (typeof test.observedOutcome !== "string" || !/^provenance\/qualification\/[a-f0-9]{64}\.json$/.test(test.observedOutcome)) return undefined;
   const ingress = value.ingressEvidence;
-  if (value.operationId === "GET /api/health" || value.operationId === "GET /api/health/degradation") {
+  if (value.operationId === "GET /api/health" || value.operationId === "GET /api/health/degradation" || value.operationId === "GET /api/agent-skills") {
     if (!record(ingress) || !sha(ingress.sha256, 64) || ingress.artifact !== `provenance/qualification/ingress-${ingress.sha256}.json`) return undefined;
   } else if (ingress !== undefined) return undefined;
   if (!Array.isArray(evidence) || evidence.length === 0 || evidence.some(item => !record(item) || typeof item.kind !== "string" || !item.kind || typeof item.detail !== "string" || !item.detail)) return undefined;
@@ -134,7 +134,7 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
     || qualification.binding.handlerSha256 !== source.sha256 || qualification.binding.handlerGitBlobSha !== source.gitBlobSha
     || item.test.id !== qualification.test.id || item.test.caseSha256 !== qualification.test.caseSha256 || item.test.outcomeSha256 !== qualification.test.outcomeSha256
     || !sha(item.test.caseSha256, 64) || !sha(item.test.outcomeSha256, 64)) return false;
-  if (item.operationId === "GET /api/health" || item.operationId === "GET /api/health/degradation") {
+  if (item.operationId === "GET /api/health" || item.operationId === "GET /api/health/degradation" || item.operationId === "GET /api/agent-skills") {
     if (!sha(item.ingressSha256, 64) || item.ingressSha256 !== qualification.ingressSha256) return false;
   } else if (item.ingressSha256 !== undefined || qualification.ingressSha256 !== undefined) return false;
   if (binding.sideEffect === "unknown" || item.binding.sideEffect !== binding.sideEffect) return false;

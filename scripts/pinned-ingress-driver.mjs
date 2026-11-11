@@ -128,6 +128,13 @@ try {
   const recovery = await request(degradationPath, 'GET', { cookie });
   assert([empty, populated, summary, falseSummary, capitalSummary, recovery].every(response => response.routeClass === 'MANAGEMENT'), 'degradation-route-class');
   results.push({ case: 'GET /api/health/degradation', denied, invalid, empty, populated, summary, falseSummary, capitalSummary, recovery });
+  const skillsPath = '/api/agent-skills?category=config&area=config-codex-cli';
+  const skillsDenied = await request(skillsPath);
+  const skillsInvalid = await request(skillsPath, 'GET', { authorization: `Bearer ${invalidCredential}` });
+  const skillsAllowed = await request(skillsPath, 'GET', { cookie });
+  assert(skillsDenied.status === 401 && skillsInvalid.status === 401 && !JSON.stringify(skillsInvalid.body).includes(invalidCredential), 'agent-skills-denials');
+  assert([skillsDenied, skillsInvalid, skillsAllowed].every(response => response.routeClass === 'MANAGEMENT') && skillsAllowed.status === 200 && skillsAllowed.body?.count === 1 && skillsAllowed.body?.skills?.[0]?.id === 'config-codex-cli', 'agent-skills-query');
+  results.push({ case: 'GET /api/agent-skills', denied: skillsDenied, invalid: skillsInvalid, allowed: skillsAllowed });
   assert((await stat(`${dir}/events.jsonl`)).size <= 1048576, 'event-limit');
   const events = (await readFile(`${dir}/events.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');

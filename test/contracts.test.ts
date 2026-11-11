@@ -20,6 +20,7 @@ import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
 import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
+import { agentSkillsContract } from "./fixtures/pinned-agent-skills.fixture.ts";
 
 function sourceRequestAdapter(operationId: string) {
   const source = getOperation(operationId);
@@ -302,7 +303,10 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     const valid = await save(artifact);
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
     const degradationBinding = operationEvidenceBinding("GET /api/health/degradation", degradationContract());
-    const hosted = JSON.parse(await readFile(resolve(root, "provenance/qualification/ingress-a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109.json"), "utf8")) as Record<string, unknown>;
+    const staleIngressSha256 = "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109";
+    expect(() => validateHealthIngressEvidence({ artifact: `provenance/qualification/ingress-${staleIngressSha256}.json`, sha256: staleIngressSha256 }, degradationBinding, "GET /api/health/degradation")).toThrow(/input drift|source identity mismatch/);
+    // Synthetic observations exercise validation only; they are not retained evidence.
+    const hosted = { ...artifact, degradation: { method: "GET", path: "/api/health/degradation", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, empty: { status: 200, summary: { full: 0, reduced: 0, minimal: 0, default: 0 } }, populated: { status: 200, summary: { full: 1, reduced: 1, minimal: 0, default: 1 }, levels: ["default", "reduced", "full"] }, summaryTrue: { status: 200, bodyKeys: ["isDegraded", "summary"] }, summaryFalseAndCapitalTrueReturnFullReport: true, recovery: { status: 200, summary: { full: 3, reduced: 0, minimal: 0, default: 0 }, active: false }, handlerFailure: "unobserved" } };
     const hostedEvidence = await save(hosted);
     expect(() => validateHealthIngressEvidence(hostedEvidence, degradationBinding, "GET /api/health/degradation")).not.toThrow();
     expect(() => validateHealthIngressEvidence(hostedEvidence, { ...degradationBinding, handlerSha256: "0".repeat(64) }, "GET /api/health/degradation")).toThrow(/source mismatch/);
@@ -311,6 +315,17 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       record(changed.degradation)[key] = value;
       const changedEvidence = await save(changed);
       expect(() => validateHealthIngressEvidence(changedEvidence, degradationBinding, "GET /api/health/degradation")).toThrow(/degradation observation mismatch/);
+    }
+    const skillsBinding = operationEvidenceBinding("GET /api/agent-skills", agentSkillsContract());
+    const skillsArtifact = { ...artifact, agentSkills: { method: "GET", path: "/api/agent-skills", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, query: "category=config&area=config-codex-cli", authorizedStatus: 200, ids: ["config-codex-cli"] } };
+    const skillsEvidence = await save(skillsArtifact);
+    expect(() => validateHealthIngressEvidence(skillsEvidence, skillsBinding, "GET /api/agent-skills")).not.toThrow();
+    expect(() => validateHealthIngressEvidence(skillsEvidence, { ...skillsBinding, handlerSha256: "0".repeat(64) }, "GET /api/agent-skills")).toThrow(/source mismatch/);
+    for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["ids", []]] as const) {
+      const changed = structuredClone(skillsArtifact);
+      record(changed.agentSkills)[key] = value;
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, skillsBinding, "GET /api/agent-skills")).toThrow(/agent-skills observation mismatch/);
     }
     await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation

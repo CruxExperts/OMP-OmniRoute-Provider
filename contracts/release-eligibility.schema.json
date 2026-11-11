@@ -191,7 +191,7 @@
       ],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills"] } }, "required": ["operationId"] },
           "then": { "required": ["ingressEvidence"] },
           "else": { "not": { "required": ["ingressEvidence"] } }
         }

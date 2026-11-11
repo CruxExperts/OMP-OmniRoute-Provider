@@ -575,6 +575,9 @@ with tempfile.TemporaryDirectory() as temp:
  recovered_features = [{'feature':name,'level':'full','capability':'Full capability','reason':'','since':timestamp} for name in ('fixture-full','fixture-reduced','fixture-default')]
  degradation = {'case':'GET /api/health/degradation','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'empty':response({'active':False,'summary':empty_summary,'features':[]}),'populated':response(body),'summary':response({'summary':populated_summary,'isDegraded':True}),'falseSummary':response(body),'capitalSummary':response(body),'recovery':response({'active':False,'summary':{'full':3,'reduced':0,'minimal':0,'default':0},'features':recovered_features})}
  rows.append(degradation)
+ skill = {'id':'config-codex-cli','category':'config','area':'config-codex-cli','rawUrl':'https://raw.githubusercontent.com/cheaper-inference/OmniRoute/refs/heads/main/skills/config-codex-cli/SKILL.md','githubUrl':'https://github.com/cheaper-inference/OmniRoute/blob/main/skills/config-codex-cli/SKILL.md'}
+ skills = {'case':'GET /api/agent-skills','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'count':1,'skills':[skill]})}
+ rows.append(skills)
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -584,6 +587,7 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
  assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
+ assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
@@ -640,6 +644,9 @@ with tempfile.TemporaryDirectory() as temp:
  original = degradation['invalid']['status']; degradation['invalid']['status'] = 200; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['invalid']['status'] = original
  original = degradation['denied']['routeClass']; degradation['denied']['routeClass'] = 'PUBLIC'; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['denied']['routeClass'] = original
  original = degradation['recovery']['body']['features'][1]['level']; degradation['recovery']['body']['features'][1]['level'] = 'reduced'; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['recovery']['body']['features'][1]['level'] = original
+ for endpoint, key, bad in [('denied','status',200),('invalid','status',200),('allowed','routeClass','PUBLIC')]:
+  original = skills[endpoint][key]; skills[endpoint][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); skills[endpoint][key] = original
+ original = skill['id']; skill['id'] = 'wrong'; put('data/pinned-ingress-observations.json',ingress); rejected(); skill['id'] = original
  route_identity = identity['addedSourceSha256']['src/app/api/health/degradation/route.ts']
  for key in ('originalSha256','executedSha256'):
   original = route_identity[key]; route_identity[key] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); route_identity[key] = original

@@ -10,7 +10,7 @@ export function fixtureRegistry(input: readonly OperationDescriptor[]): Operatio
     const descriptor = structuredClone(original);
     const binding = operationContractBinding(descriptor, { routeImportsSha256: "0".repeat(64), frameworkContextSha256: "0".repeat(64) });
     const test = { id: "test/fixtures/admin-qualification.fixture.ts", caseSha256: "0".repeat(64), outcomeSha256: "0".repeat(64) };
-    const ingress = descriptor.operationId === "GET /api/health" || descriptor.operationId === "GET /api/health/degradation" ? { ingressSha256: "0".repeat(64) } : {};
+    const ingress = descriptor.operationId === "GET /api/health" || descriptor.operationId === "GET /api/health/degradation" || descriptor.operationId === "GET /api/agent-skills" ? { ingressSha256: "0".repeat(64) } : {};
     records.push({ operationId: descriptor.operationId, status: "verified", reason: "Synthetic fixture authority; not release qualification.",
       source: descriptor.source, binding, test, ...ingress, evidence: [{ kind: "synthetic-fixture", detail: "Unit-dispatch authority only; no pinned-source qualification is claimed." }] });
     return { ...descriptor, qualification: { releaseCommit: release.release.commit, binding, test, ...ingress } };
