@@ -7,15 +7,15 @@ not install or configure an OmniRoute server.
 Administration qualification is being rebuilt for the pinned OmniRoute v3.8.53
 source and mutation-safety contract. Earlier reads, provider configuration,
 fallback chains, aliases, and model mappings are historical evidence, not active
-candidate qualification. The current candidate exposes no qualified operations;
-examples describe intended workflows until fresh source-bound evidence is
+candidate qualification. The current candidate qualifies only `GET /api/health`;
+other examples describe intended workflows until fresh source-bound evidence is
 accepted. Unqualified calls remain blocked; consult the generated inventory.
 
-The pure `GET /api/health` packet now has an independently exercised pinned
-handler, a reviewed anonymous public-source policy, and a current bound outcome.
-Its timestamp is checked before normalization for deterministic comparison.
-This handler-only evidence does not replace the separately required Next ingress
-observation or make the operation available.
+The liveness read has an independently exercised pinned handler and a separate
+isolated Next ingress observation of anonymous access, shutdown, CORS, and IP
+filter behavior. The handler timestamp is checked before normalization. The IP
+filter observation uses forwarding-header fallback with unknown peer locality; it
+does not establish reverse-proxy trust or production deployment behavior.
 
 The degradation report candidate exercises the pinned v3.8.53 handler over
 loopback HTTP with its actual process-local registry, not Next.js ingress or
@@ -111,13 +111,12 @@ upstream provenance refresh or isolated historical-runtime research procedure
 establishes actual ingress behavior. This is not a claim that the connector
 runtime depends on Next.js or that the health matcher exercises those flaws.
 
-The `/api/health` and `/api/health/ping` candidate contracts likewise remain
-unqualified until the exact framework ingress is established. Their direct
-pinned-handler fixture exercises the liveness response and the source database
-ping using disposable in-memory SQLite, including database failures and bounded
-response projection. It bypasses Next.js and does not prove ingress access,
-durable persistence, or production database health. The route source describes
-these probes as public; the fixture does not impose a management credential or
+The `/api/health/ping` candidate remains unqualified. Its direct pinned-handler
+fixture exercises the source database ping using disposable in-memory SQLite,
+including database failures and bounded response projection. It bypasses Next.js
+and does not prove ingress access, durable persistence, or production database
+health. The route source describes these probes as public; the fixture does not
+impose a management credential or
 claim a denied-credential result. The pinned ping handler returns a fixed error
 body for an unexpected exception but also logs the exception server-side; the
 response redaction check is not a claim that server logs are secret-free.

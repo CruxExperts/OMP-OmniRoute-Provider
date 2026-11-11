@@ -11,7 +11,210 @@
     "status": "unavailable",
     "reason": "No exact pinned-source, framework-auth, and operation-specific behavior evidence is recorded for this release."
   },
-  "operations": [],
+  "operations": [
+    {
+      "operationId": "GET /api/health",
+      "status": "verified",
+      "reason": "Pinned liveness handler and separately retained isolated Next ingress observations qualify this read only; they do not establish production deployment behavior.",
+      "source": {
+        "file": "src/app/api/health/route.ts",
+        "sha256": "129fdf8eebcb6667b978d0a75dae16b923bb17447fbe61374973ff3528ac44d5",
+        "gitBlobSha": "860e9f03f94482e2a59eaa96cffa802c6891eba1"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "public",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "public",
+            "alternatives": [
+              {
+                "kind": "anonymous"
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "403",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "ok"
+                ]
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "status",
+              "timestamp"
+            ],
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "ok"
+                        ]
+                      },
+                      "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "timestamp"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/health/route.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "The pinned handlers only report liveness and database responsiveness."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "b2eb0d866b868cf698fa865f6f46cac76fbce7fd127c1b43e527bf0e44e33945",
+        "authSha256": "d0ddb8822e329887f262e81f63fb392403deae3c4d512f0ca461ad7521916894",
+        "sideEffect": "read",
+        "responseProjectionSha256": "83f18a7104140e62230031e952f513eef1675bc3ba4e7425ea9c023e760232e8",
+        "operationSemanticsSha256": "dc3c38d07af81509a27a014174c2f7887032ebfeb252f3004dc6579addd5d2b8",
+        "routeImportsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-json-health-source.test.ts",
+        "observedOutcome": "provenance/qualification/84dcf1d3b583e08b7bc1dbbb6bafd462f18280ca25b0f8048c781591ba5416b2.json",
+        "caseSha256": "ca474ca5135266ebbf42597ea8528158adbbb563cd20baa9c4cddf754cc48b71",
+        "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-21368e95230258945712ead5c997ea542b0e2d67fae21e9ef3471e7050b701f4.json",
+        "sha256": "21368e95230258945712ead5c997ea542b0e2d67fae21e9ef3471e7050b701f4"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned v3.8.53 handler, resolved imports and framework authorization context bind the operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The handler returns liveness status and timestamp without a database call; response projection excludes additional fields."
+        },
+        {
+          "kind": "fixture",
+          "detail": "The pinned handler was exercised independently over loopback HTTP; the separate isolated Next ingress research export records anonymous access, drain, CORS and forwarding-header IP-filter behavior."
+        }
+      ]
+    }
+  ],
   "history": [
     {
       "release": {
