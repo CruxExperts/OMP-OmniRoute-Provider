@@ -95,10 +95,15 @@ Qualification dispatch offers `preflight-only` and `ingress-only` modes before
 the full archive and native targets; neither mode creates a qualification receipt.
 These build-only inputs are excluded from the runtime npm package and its
 TypeScript program. The isolated runner uses the upstream production-default
-Next bundler with six explicitly verified disposable source overlays. Original
-and executed overlay hashes are retained; the source archive is unchanged.
+Next bundler with explicitly verified disposable source overlays and pinned
+declaration extractions for the authentication read dependency closure. Original
+and executed hashes are retained; the source archive is unchanged. Extracted
+API-key validation, encryption/backfill, feature-flag reads, and cache resets
+retain their source declarations rather than placeholder exports.
 Auth/settings still use bounded fixture storage and selected disposable
 `node:sqlite` queries, not native production persistence or the full application.
+SSO provisioning SQL and audit writes remain unsupported; a compiled import
+does not establish a successful effect or qualify those operations.
 Successful complete ingress runs export one allowlisted `observed-outcomes.json`
 with exact input hashes, approved-archive source and declaration identities,
 validated executed backend-overlay hashes, isolation checks, and bounded HTTP

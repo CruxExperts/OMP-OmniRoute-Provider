@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -238,6 +238,188 @@ for install_before_timeout in (True,False):
   }
 });
 
+test("fixture database identity and feature flag reads stay bounded", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pinned-ingress-flags-"));
+  try {
+    const source = readFileSync(resolve(import.meta.dir, "fixtures/pinned-ingress/backend/core.ts"), "utf8");
+    const importLine = 'import { API_KEY_COLUMN_FALLBACKS } from "@/lib/db/apiKeyColumnFallbacks";';
+    expect(source.split(importLine)).toHaveLength(2);
+    const code = source.replace(importLine, "const API_KEY_COLUMN_FALLBACKS: { name: string }[] = [];")
+      .replaceAll('"/work/data/"', JSON.stringify(`${dir}/`)) + `
+const first = getDbInstance();
+if (first !== getDbInstance()) throw new Error("database identity changed");
+const query = first.prepare("SELECT value FROM key_value WHERE namespace = ? AND key = ?");
+if (process.env.EXPECT_FAILURE === "1") {
+  try { query.get("feature_flags", "sample"); throw new Error("read unexpectedly succeeded"); }
+  catch (error) { if (!(error instanceof Error) || error.message !== "INGRESS_FEATURE_FLAG_BACKEND_ERROR") throw error; }
+} else {
+  if (query.get("feature_flags", "sample")?.value !== "enabled") throw new Error("override missing");
+  if (query.get("feature_flags", "missing") !== undefined || query.get("feature_flags", "toString") !== undefined) throw new Error("unexpected override");
+}
+`;
+    const script = join(dir, "core.ts"), state = join(dir, "state.json"), events = join(dir, "events.jsonl");
+    writeFileSync(script, code);
+    writeFileSync(events, "");
+    for (const fail of [false, true]) {
+      writeFileSync(state, JSON.stringify({ tokens: [], featureFlags: { sample: "enabled" }, failFeatureFlagRead: fail }));
+      const result = spawnSync(process.execPath, [script], { encoding: "utf8", env: { ...process.env, INGRESS_STATE_FILE: state, INGRESS_EVENT_FILE: events, EXPECT_FAILURE: fail ? "1" : "0" } });
+      expect(result.stderr).toBe("");
+      expect(result.status).toBe(0);
+    }
+    expect(readFileSync(events, "utf8").trim().split("\n").map(line => JSON.parse(line).event)).toEqual(Array(4).fill("feature-flag:read"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("source flag cache respects expiry, misses, explicit invalidation and database identity", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pinned-ingress-cache-"));
+  try {
+    const source = readFileSync(resolve(import.meta.dir, "fixtures/pinned-ingress/extracted/feature-flag-cache.ts"), "utf8");
+    const code = `
+let now = 1000, reads = 0, fail = false;
+Date.now = () => now;
+const values: Record<string, string> = { flag: "one" };
+function makeDb() { return { prepare(sql: string) { if (sql !== "SELECT value FROM key_value WHERE namespace = ? AND key = ?") throw new Error("unexpected query"); return { get(namespace: string, key: string) { if (namespace !== "feature_flags") throw new Error("unexpected namespace"); reads++; if (fail) throw new Error("backend failure"); return Object.hasOwn(values, key) ? { value: values[key] } : undefined; } }; } }; }
+let db = makeDb(); function getDbInstance() { return db; }
+` + source + `
+if (getFeatureFlagOverride("flag") !== "one" || reads !== 1) throw new Error("initial read");
+values.flag = "two";
+if (getFeatureFlagOverride("flag") !== "one" || reads !== 1) throw new Error("cache miss");
+now += 1000;
+if (getFeatureFlagOverride("flag") !== "two" || reads !== 2) throw new Error("expiry");
+if (getFeatureFlagOverride("missing") !== undefined || getFeatureFlagOverride("missing") !== undefined || reads !== 3) throw new Error("negative cache");
+clearFeatureFlagOverrideCache("flag"); values.flag = "three";
+if (getFeatureFlagOverride("flag") !== "three" || reads !== 4) throw new Error("invalidation");
+db = makeDb(); if (getFeatureFlagOverride("flag") !== "three" || reads !== 5) throw new Error("database identity");
+clearFeatureFlagOverrideCache(); fail = true;
+try { getFeatureFlagOverride("flag"); throw new Error("failure swallowed"); } catch (error) { if (!(error instanceof Error) || error.message !== "backend failure") throw error; }
+fail = false; if (getFeatureFlagOverride("flag") !== "three" || reads !== 7) throw new Error("failure cached");
+`;
+    const script = join(dir, "cache.ts"); writeFileSync(script, code);
+    const result = spawnSync(process.execPath, [script], { encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("read closure extraction rejects source and boundary drift before writing", () => {
+  const code = String.raw`
+import importlib.util, pathlib, sys, tempfile
+s = importlib.util.spec_from_file_location('ingress', sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+api = '''let _schemaChecked = false;
+async function deleteRedisAuthCacheEntry(
+function markApiKeyUsed(
+async function getModelPermissionCandidates(
+function ensureApiKeysColumns(
+export async function getApiKeys(
+async function hashKey(
+export async function createApiKey(
+marker_create();
+export async function regenerateApiKey(
+export async function deleteApiKey( marker_delete();
+/**
+ * Revoke an API key by id.
+export async function validateApiKey(
+/**
+ * Check if a model is allowed for a given API key
+function clearPreparedStatementCache() { marker_reset(); }
+'''
+flags = '''const NAMESPACE = "feature_flags";
+const CATALOG_RELEVANT_FEATURE_FLAGS =
+export function getFeatureFlagOverrides()
+/**
+ * Persists (or replaces) an override
+'''
+cache = '''type CacheEntry<T> = { value: T };
+const settingsCache = marker_cache;
+/**
+ * Cached wrapper for getSettings.
+export async function getCachedSettings() { marker_settings(); }
+export async function getCachedBodySizeSettings() { marker_body(); }
+/**
+ * Cached wrapper for getPricing.
+const rawConnectionsCache = marker_raw;
+/**
+ * Cached wrapper for getRawProviderConnections.
+const connectionByIdCache = marker_id;
+/**
+ * Cached wrapper for getProviderConnectionById.
+let combosCacheVersion = 0;
+/**
+ * Current combo-cache version.
+let modelCatalogCacheVersion = 0;
+/**
+ * Connection fields written by the chat path
+export function invalidateDbCache() { marker_invalidate(); }
+'''
+encryption = '''import { createCipheriv, marker_crypto };
+/** Connection object with potentially encrypted credential fields.
+import fs from "fs";
+import { mapProviderSpecificDataSecrets
+function ensureSecretLoaded() { marker_secret(); }
+/**
+ * Loud production warning
+export function looksEncrypted( marker_encrypt();
+/**
+ * #11500
+'''
+compliance = '''function getDb() { marker_db(); }
+type AuditLogWriteEntry
+const AUDIT_LOG_REQUIRED_COLUMNS: marker_schema;
+type AuditLogQuery
+type ApiKeyAuthTouchDbState = marker_audit;
+/**
+ * Query audit log entries.
+'''
+backup = '''let _lastBackupAt = 0;
+function setStoredDbBackupInteger(
+export function getDbBackupMaxFiles() { marker_retention(); }
+/** Persist the operator-chosen age-based
+export function getDbBackupRetentionDays() { marker_days(); }
+function sleep(
+export function backupDbFile( marker_backup();
+// ──────────────── List Backups
+'''
+with tempfile.TemporaryDirectory() as tmp:
+ app = pathlib.Path(tmp); contents = dict(zip(m.READ_CLOSURES, (api, flags, cache, encryption, compliance, backup)))
+ manifest = {'selectedFiles': {}, 'additionalFiles': {}}
+ for name, text in contents.items():
+  path = app/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+  m.READ_CLOSURES[name] = m.sha(text.encode()); manifest['selectedFiles'][name] = {'sha256': m.sha(text.encode())}
+ result = m.read_closures(app, manifest)
+ assert b'marker_reset' in result[next(iter(contents))]
+ assert b'marker_settings' in result['src/lib/db/readCache.ts'] and b'marker_body' in result['src/lib/db/readCache.ts']
+ assert b'marker_create' in result['src/lib/db/apiKeys.ts'] and b'marker_delete' in result['src/lib/db/apiKeys.ts']
+ assert b'marker_secret' in result['src/lib/db/encryption.ts'] and b'marker_encrypt' in result['src/lib/db/encryption.ts']
+ assert b'marker_schema' in result['src/lib/compliance/index.ts'] and b'marker_audit' in result['src/lib/compliance/index.ts']
+ assert b'marker_retention' in result['src/lib/db/backup.ts'] and b'marker_backup' in result['src/lib/db/backup.ts']
+ flag_fixture = (m.FIXTURE/'extracted/feature-flag-cache.ts').read_text()
+ prefix, marker, suffix = flag_fixture.partition('export function getFeatureFlagOverride(key: string)')
+ flag_source = prefix + 'const unrelated = 1;\n' + marker + suffix
+ m.verify_flag_cache_fixture(flag_source, flag_fixture)
+ for altered in (flag_fixture.replace('OVERRIDE_CACHE_TTL_MS = 1000', 'OVERRIDE_CACHE_TTL_MS = 999'), flag_fixture + 'changed'):
+  try: m.verify_flag_cache_fixture(flag_source, altered); raise AssertionError('fixture drift accepted')
+  except RuntimeError: pass
+ try: m.verify_flag_cache_fixture(flag_source + marker + suffix, flag_fixture); raise AssertionError('ambiguous fixture accepted')
+ except RuntimeError: pass
+ path = app/'src/lib/db/readCache.ts'; path.write_text(cache + 'drift')
+ try: m.read_closures(app, manifest); raise AssertionError('source drift accepted')
+ except RuntimeError: pass
+ changed = cache.replace('const rawConnectionsCache =', 'const alteredCache ='); path.write_text(changed)
+ m.READ_CLOSURES['src/lib/db/readCache.ts'] = m.sha(changed.encode()); manifest['selectedFiles']['src/lib/db/readCache.ts']['sha256'] = m.sha(changed.encode())
+ try: m.read_closures(app, manifest); raise AssertionError('boundary drift accepted')
+ except RuntimeError: pass
+ changed = cache + '\nexport function invalidateDbCache() {}'; path.write_text(changed)
+ m.READ_CLOSURES['src/lib/db/readCache.ts'] = m.sha(changed.encode()); manifest['selectedFiles']['src/lib/db/readCache.ts']['sha256'] = m.sha(changed.encode())
+ try: m.read_closures(app, manifest); raise AssertionError('ambiguous suffix accepted')
+ except RuntimeError: pass
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
 test("source overlays reject missing or mismatched originals and replacements before copying", () => {
   const code = String.raw`
 import importlib.util, json, pathlib, sys, tempfile
@@ -284,6 +466,10 @@ with tempfile.TemporaryDirectory() as temp:
  assert artifact['compilerSignals'] == ['module-not-found','read-only-output']
  (output/'build.private').write_text('private-canary unknown compiler failure')
  assert m.compiler_failure_signals(output) == []
+ (output/'build.private').write_text('  42 | // permission denied or EACCES may occur\n> 43 | throw new Error("permission denied");\n')
+ assert m.compiler_failure_signals(output) == []
+ (output/'build.private').write_text('Error: EACCES: permission denied, open private-path\n')
+ assert m.compiler_failure_signals(output) == ['permission-denied']
  (output/'build.private').unlink(); (output/'build.private').symlink_to(state)
  assert m.compiler_failure_signals(output) == []
  (output/'build.private').unlink()
@@ -319,14 +505,16 @@ with tempfile.TemporaryDirectory() as temp:
  def put(name, value): (p / name).write_text(json.dumps(value))
  hashes = m.input_hashes()
  fixture = p/'fixture'; (fixture/'backend').mkdir(parents=True)
- core = b'export function getDbInstance() {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n}\n'
+ core = b'const db = {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n};\n'
  settings = b'export const fixture = true;\n'
  (fixture/'backend/core.ts').write_bytes(core); (fixture/'backend/settings.ts').write_bytes(settings)
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
- names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names = set(m.ROUTES) | set(m.READ_CLOSURES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
+ m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
+ m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
  for alias in aliases:
   alias['sourceSha256'] = m.sha(sources[alias['source']]); alias['replacementSha256'] = hashes['test/fixtures/pinned-ingress/'+alias['replacement']]
  map_bytes = json.dumps({'aliases':aliases}).encode(); (fixture/'alias-map.json').write_bytes(map_bytes)
@@ -339,11 +527,11 @@ with tempfile.TemporaryDirectory() as temp:
  manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}}}
  manifest_bytes = json.dumps(manifest).encode(); (fixture/'source-manifest.json').write_bytes(manifest_bytes)
  hashes['test/fixtures/pinned-ingress/source-manifest.json'] = m.sha(manifest_bytes)
- expected_core = (b'import { DatabaseSync } from "node:sqlite";\nlet sqlite: DatabaseSync | undefined;\n'
-  b'export function getDbInstance() {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
+ expected_core = (b'import { DatabaseSync } from "node:sqlite";\nimport path from "node:path";\nlet sqlite: DatabaseSync | undefined;\n'
+  b'const db = {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
   b'      if (normalized === "SELECT 1 AS ok" || (/^SELECT /i.test(normalized) && /\\bFROM usage_history\\b/i.test(normalized))) {\n'
   b'        event("sqlite:read");\n        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
-  b'        return sqlite.prepare(sql);\n      }\n}\n\n'+declaration+b'\n')
+  b'        return sqlite.prepare(sql);\n      }\n};\n\nexport const DB_BACKUPS_DIR = isCloud ? null : path.join(DATA_DIR, "db_backups");\n'+declaration+b'\n')
  expected_settings = settings+b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n'
  material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': False, 'bundler':'next-default', 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts'])}}
  put('result.json', {'status':'research-observed', 'qualification':False, 'materialization':material})
@@ -352,6 +540,7 @@ with tempfile.TemporaryDirectory() as temp:
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
  identity_names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ identity['addedSourceSha256'].update({name:{'originalSha256':sha,'executedSha256':m.sha(sources[name]+b':executed')} for name,sha in m.READ_CLOSURES.items()})
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)

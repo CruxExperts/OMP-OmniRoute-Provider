@@ -5,7 +5,7 @@ import { API_KEY_COLUMN_FALLBACKS } from "@/lib/db/apiKeyColumnFallbacks";
 
 type Row = { id: string; token_hash: string; token_prefix: string; name: string; scope: string; created_at: string; last_used_at: string | null; expires_at: string | null; revoked_at: string | null };
 type KeyRow = Record<string, unknown> & { id: string; key_hash: string | null; key?: string | null; key_prefix?: string | null; last_used_at?: string | null };
-type State = { tokens: Row[]; apiKeys?: KeyRow[]; ipFilter?: { enabled: boolean; mode: string; blacklist: string[]; whitelist: string[] }; failTokenRead?: boolean; failApiKeyRead?: boolean };
+type State = { tokens: Row[]; apiKeys?: KeyRow[]; ipFilter?: { enabled: boolean; mode: string; blacklist: string[]; whitelist: string[] }; featureFlags?: Record<string, string>; failFeatureFlagRead?: boolean; failTokenRead?: boolean; failApiKeyRead?: boolean };
 const file = process.env.INGRESS_STATE_FILE;
 const events = process.env.INGRESS_EVENT_FILE;
 if (!file?.startsWith("/work/data/") || !events?.startsWith("/work/data/")) throw new Error("INGRESS_SANDBOX_PATH_REQUIRED");
@@ -14,9 +14,11 @@ if (!Array.isArray(state.tokens)) throw new Error("INGRESS_INVALID_STATE");
 const rows = state.tokens.map(row => ({ ...row }));
 const apiKeys = (state.apiKeys ?? []).map(row => ({ ...row }));
 if (!apiKeys.every(row => typeof row.id === "string" && (row.key_hash === null || typeof row.key_hash === "string"))) throw new Error("INGRESS_INVALID_API_KEYS");
+if (state.featureFlags !== undefined && (!state.featureFlags || typeof state.featureFlags !== "object" || Array.isArray(state.featureFlags) || !Object.values(state.featureFlags).every(value => typeof value === "string"))) throw new Error("INGRESS_INVALID_FEATURE_FLAGS");
 const keyValidationQuery = "SELECT id, expires_at, revoked_at, is_active, is_banned FROM api_keys WHERE key_hash = ?";
 const keyMetadataQuery = "SELECT id, name, machine_id, model_access_mode, allowed_models, blocked_models, allowed_combos, allowed_connections, preferred_connections, allowed_quotas, no_log, auto_resolve, is_active, access_schedule, max_requests_per_day, max_requests_per_minute, throttle_delay_ms, max_sessions, revoked_at, expires_at, ip_allowlist, scopes, rate_limits, is_banned, key_hash, allowed_endpoints, stream_default_mode, cache_default_mode, codex_service_mode, disable_non_public_models, allow_usage_command, usage_limit_enabled, daily_usage_limit_usd, weekly_usage_limit_usd, chaos_mode_enabled, compression_enabled, allow_auto_combos, allow_cc_discovery_aliases, catalog_scope, forced_model, proxy_id FROM api_keys WHERE key_hash = ?";
 const legacyKeyQuery = "SELECT id, key, key_hash, key_prefix FROM api_keys WHERE key_hash IS NULL OR key_hash = ''";
+const plaintextKeyQuery = `${legacyKeyQuery} OR substr(key, 1, 7) <> 'enc:v1:'`;
 function event(name: string): void { appendFileSync(events!, JSON.stringify({ event: name }) + "\n", { mode: 0o600 }); }
 function unsupported(operation: string): never { event(`unsupported:${operation}`); throw new Error(`INGRESS_UNSUPPORTED:${operation}`); }
 export const isCloud = false;
@@ -26,8 +28,7 @@ export const SQLITE_FILE = "/work/data/fixture.sqlite";
 export function rowToCamel(): never { return unsupported("rowToCamel"); }
 export function cleanNulls(): never { return unsupported("cleanNulls"); }
 export function applyDatabaseOptimizationSettings(): never { return unsupported("applyDatabaseOptimizationSettings"); }
-export function getDbInstance() {
-  return {
+const db = {
     prepare(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       return {
@@ -41,6 +42,12 @@ export function getDbInstance() {
             event(normalized === keyValidationQuery ? "key-validation-read" : "key-metadata-read");
             if (state.failApiKeyRead) throw new Error("INGRESS_API_KEY_BACKEND_ERROR");
             return apiKeys.find(row => row.key_hash === args[0]);
+          }
+          if (normalized === "SELECT value FROM key_value WHERE namespace = ? AND key = ?" && args[0] === "feature_flags" && typeof args[1] === "string") {
+            event("feature-flag:read");
+            if (state.failFeatureFlagRead) throw new Error("INGRESS_FEATURE_FLAG_BACKEND_ERROR");
+            const value = state.featureFlags && Object.hasOwn(state.featureFlags, args[1]) ? state.featureFlags[args[1]] : undefined;
+            return value === undefined ? undefined : { value };
           }
           if (normalized === "SELECT value FROM key_value WHERE namespace = ? AND key = ?" && args[0] === "ipFilter" && args[1] === "config") {
             event("ip-filter:read");
@@ -73,9 +80,17 @@ export function getDbInstance() {
           }
           return unsupported(`run:${createHash("sha256").update(normalized).digest("hex")}`);
         },
-        all() {
+        all(...args: unknown[]) {
           if (normalized === "PRAGMA table_info(api_keys)") { event("key-schema-read"); return API_KEY_COLUMN_FALLBACKS.map(column => ({ name: column.name })); }
-          if (normalized === legacyKeyQuery) { event("key-legacy-read"); return apiKeys.filter(row => row.key_hash === null || row.key_hash === ""); }
+          if (normalized === "SELECT key, value FROM key_value WHERE namespace = ?" && args[0] === "feature_flags") {
+            event("feature-flag:list");
+            if (state.failFeatureFlagRead) throw new Error("INGRESS_FEATURE_FLAG_BACKEND_ERROR");
+            return Object.entries(state.featureFlags ?? {}).map(([key, value]) => ({ key, value }));
+          }
+          if (normalized === legacyKeyQuery || normalized === plaintextKeyQuery) {
+            event("key-legacy-read");
+            return apiKeys.filter(row => row.key_hash === null || row.key_hash === "" || (normalized === plaintextKeyQuery && typeof row.key === "string" && !row.key.startsWith("enc:v1:")));
+          }
           return unsupported(`all:${createHash("sha256").update(normalized).digest("hex")}`);
         },
       };
@@ -83,5 +98,5 @@ export function getDbInstance() {
     exec() { return unsupported("exec"); },
     pragma() { return unsupported("pragma"); },
     transaction() { return unsupported("transaction"); },
-  };
-}
+};
+export function getDbInstance() { return db; }

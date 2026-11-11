@@ -474,10 +474,119 @@ def ping_declaration(source_core):
     return matches[0]
 
 
+READ_CLOSURES = {
+    'src/lib/db/apiKeys.ts': '4e9bc2be404d6c74e1fbf9fc1d62b03853a84eead453ce70e2fc8cadd33673eb',
+    'src/lib/db/featureFlags.ts': '62adb42a37ad5e437e36e4e0df4bb702739932aa1b63e46fc1d00da7cc273bc1',
+    'src/lib/db/readCache.ts': '97cb59fb5767005900c575e8f6db450c3b94abaa7a7058671dda1717da223448',
+    'src/lib/db/encryption.ts': '630c8e0e3061bc634fcbeb1b1eb6e1443a52b76c7404af5964c1de9c411aa2ed',
+    'src/lib/compliance/index.ts': 'd8a2607d81db1d717286868a8114571af8308a4d6e0700e93f223d320aec0c30',
+    'src/lib/db/backup.ts': '044878af22ecd3c8ef1bb43819c6a9dc7a5fa2025bc0c83309922949ab7ca574',
+}
+
+def read_closures(app, manifest):
+    """Extract only pinned declarations; reject any source or boundary drift."""
+    sources = {}
+    for name, expected in READ_CLOSURES.items():
+        data = (app / name).read_bytes()
+        recorded = manifest['selectedFiles'].get(name) or manifest['additionalFiles'].get(name)
+        require(recorded and sha(data) == expected == recorded['sha256'], 'read closure identity mismatch: ' + name)
+        sources[name] = data.decode('utf-8')
+
+    def span(name, start, end):
+        source = sources[name]
+        require(source.count(start) == 1 and source.count(end) == 1, 'read closure boundary changed: ' + name)
+        first, last = source.index(start), source.index(end)
+        require(first < last, 'read closure boundary order changed: ' + name)
+        return source[first:last]
+
+    def suffix(name, start):
+        source = sources[name]
+        require(source.count(start) == 1, 'read closure boundary changed: ' + name)
+        return source[source.index(start):]
+
+
+    api = 'src/lib/db/apiKeys.ts'
+    flags = 'src/lib/db/featureFlags.ts'
+    cache = 'src/lib/db/readCache.ts'
+    encryption = 'src/lib/db/encryption.ts'
+    compliance = 'src/lib/compliance/index.ts'
+    backup = 'src/lib/db/backup.ts'
+    imports = '''import { parseApiKeyCodexServiceMode, type ApiKeyCodexServiceMode } from "../../shared/constants/codexServiceMode";
+import { opaqueTokenFingerprint } from "@omniroute/open-sse/utils/opaqueTokenFingerprint.ts";
+import { v4 as uuidv4 } from "uuid";
+import { backupDbFile } from "./backup";
+import { invalidateReasoningRoutingRuleCache } from "./reasoningRoutingRules";
+import { normalizeApiKeyPermissionsUpdate } from "./apiKeys/permissionsUpdate";
+import { getDbInstance } from "./core";
+import { registerDbStateResetter } from "./stateReset";
+import { ensureApiKeyFallbackColumns } from "./apiKeyColumnFallbacks";
+import { SYNTHETIC_ENV_API_KEY_ID } from "@/shared/constants/apiKeyIdentities";
+import { timingSafeCompare } from "@/shared/utils/timingSafeCompare";
+import { parseApiKeyUsageLimitFields } from "./apiKeyUsageLimitFields";
+import { setNoLog } from "../compliance/noLog";
+import { isSelfLoopBearer, selfLoopKeyOverrides } from "./apiKeys/selfLoopKey";
+import { backfillApiKeySecretsAtRest, encryptApiKeySecret } from "./apiKeys/secretAtRest";
+import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
+import { parseAllowedModels, parseAllowedCombos, parseNoLog, parseAutoResolve, parseDisableNonPublicModels, parseAllowUsageCommand, parseIsActive, parseAccessSchedule, parseRateLimits, parseAllowedConnections, parseAllowedQuotas, parseStringList, parseNullableTimestamp, parseIsBanned, parseStreamDefaultMode, parseCacheDefaultMode, parseChaosModeEnabled, parseCompressionEnabled, parseAllowAutoCombos, parseAllowCcDiscoveryAliases, parseCatalogScope, parseForcedModel, parseModelAccessMode } from "./apiKeys/rowParsers";
+import { clearModelPermissionCache } from "./apiKeys/modelPermissionCache";
+import type { ModelAccessMode } from "./apiKeys/modelAccessMode";
+import type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
+'''
+    api_text = (imports + span(api, 'let _schemaChecked = false;', 'function markApiKeyUsed(')
+        + span(api, 'function markApiKeyUsed(', 'async function getModelPermissionCandidates(')
+        + span(api, 'function ensureApiKeysColumns(', 'export async function getApiKeys(')
+        + span(api, 'async function hashKey(', 'export async function createApiKey(')
+        + span(api, 'export async function createApiKey(', 'export async function regenerateApiKey(')
+        + span(api, 'export async function deleteApiKey(', '/**\n * Revoke an API key by id.')
+        + span(api, 'export async function validateApiKey(', '/**\n * Check if a model is allowed for a given API key')
+        + suffix(api, 'function clearPreparedStatementCache()'))
+    flag_text = ('import { getDbInstance } from "./core";\n'
+        + span(flags, 'const NAMESPACE =', 'const CATALOG_RELEVANT_FEATURE_FLAGS =')
+        + span(flags, 'export function getFeatureFlagOverrides()', '/**\n * Persists (or replaces) an override'))
+    cache_text = (span(cache, 'type CacheEntry<T> =', '/**\n * Cached wrapper for getSettings.')
+        + span(cache, 'export async function getCachedSettings()', '/**\n * Cached wrapper for getPricing.')
+        + span(cache, 'const rawConnectionsCache =', '/**\n * Cached wrapper for getRawProviderConnections.')
+        + span(cache, 'const connectionByIdCache =', '/**\n * Cached wrapper for getProviderConnectionById.')
+        + span(cache, 'let combosCacheVersion =', '/**\n * Current combo-cache version.')
+        + span(cache, 'let modelCatalogCacheVersion =', '/**\n * Connection fields written by the chat path')
+        + suffix(cache, 'export function invalidateDbCache('))
+    encryption_text = (span(encryption, 'import { createCipheriv,', '/** Connection object with potentially encrypted credential fields.')
+        + span(encryption, 'import fs from "fs";', 'import { mapProviderSpecificDataSecrets')
+        + span(encryption, 'function ensureSecretLoaded()', '/**\n * Loud production warning')
+        + span(encryption, 'export function looksEncrypted(', '/**\n * #11500'))
+    compliance_text = ('import { getDbInstance } from "../db/core";\n'
+        + 'import type { SqliteAdapter } from "@/lib/db/adapters/types";\n'
+        + 'import { isNoLog } from "./noLog";\n'
+        + span(compliance, 'function getDb()', 'type AuditLogWriteEntry')
+        + span(compliance, 'const AUDIT_LOG_REQUIRED_COLUMNS:', 'type AuditLogQuery')
+        + span(compliance, 'type ApiKeyAuthTouchDbState =', '/**\n * Query audit log entries.'))
+    backup_text = ('''import path from "path";
+import fs from "fs";
+import { getDbInstance, isBuildPhase, isCloud, SQLITE_FILE, DB_BACKUPS_DIR, DATA_DIR } from "./core";
+import { listBackupIds, resolveBackupFile } from "./backupPaths";
+import { chmodQuiet, DB_SECRET_DIR_MODE, DB_SECRET_FILE_MODE } from "./filePermissions";
+import { pruneBackupDirectory, resolveDbBackupRetention } from "./backupRetention";
+import { isAutomatedTestProcess } from "@/shared/utils/testProcess";
+'''
+        + span(backup, 'let _lastBackupAt =', 'function setStoredDbBackupInteger(')
+        + span(backup, 'export function getDbBackupMaxFiles()', '/** Persist the operator-chosen age-based')
+        + span(backup, 'export function getDbBackupRetentionDays()', 'function sleep(')
+        + span(backup, 'export function backupDbFile(', '// ──────────────── List Backups'))
+    return {api: api_text.encode(), flags: flag_text.encode(), cache: cache_text.encode(),
+            encryption: encryption_text.encode(), compliance: compliance_text.encode(), backup: backup_text.encode()}
+
+def verify_flag_cache_fixture(flag_source, flag_fixture):
+    prefix, marker, suffix = flag_fixture.partition('export function getFeatureFlagOverride(key: string)')
+    require(marker and prefix and suffix and flag_fixture.count(marker) == 1
+            and flag_source.count(prefix) == 1 and flag_source.count(marker + suffix) == 1,
+            'feature flag fixture drift')
+
+
+
 def overlay_bytes(core, settings, declaration):
-    text = 'import { DatabaseSync } from "node:sqlite";\n' + core.decode('utf-8')
-    text = replace_once(text, 'export function getDbInstance() {',
-        'let sqlite: DatabaseSync | undefined;\nexport function getDbInstance() {')
+    text = 'import { DatabaseSync } from "node:sqlite";\nimport path from "node:path";\n' + core.decode('utf-8')
+    text = replace_once(text, 'const db = {',
+        'let sqlite: DatabaseSync | undefined;\nconst db = {')
     text = replace_once(text, '      const normalized = sql.replace(/\\s+/g, " ").trim();',
         '      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
         '      if (normalized === "SELECT 1 AS ok" || (/^SELECT /i.test(normalized) && /\\bFROM usage_history\\b/i.test(normalized))) {\n'
@@ -486,7 +595,7 @@ def overlay_bytes(core, settings, declaration):
         '        return sqlite.prepare(sql);\n'
         '      }')
     return {
-        'backend/core.ts': (text + '\n' + declaration + '\n').encode(),
+        'backend/core.ts': (text + '\nexport const DB_BACKUPS_DIR = isCloud ? null : path.join(DATA_DIR, "db_backups");\n' + declaration + '\n').encode(),
         'backend/settings.ts': settings + b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n',
     }
 
@@ -532,7 +641,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source():
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(READ_CLOSURES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -579,6 +688,12 @@ def provision():
     identities['src/lib/db/core.ts'] = sha((app / 'src/lib/db/core.ts').read_bytes())
     identities['src/lib/api/requireManagementAuth.ts'] = sha((app / 'src/lib/api/requireManagementAuth.ts').read_bytes())
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
+    closure = read_closures(app, json.loads((fixture / 'source-manifest.json').read_text()))
+    verify_flag_cache_fixture(closure['src/lib/db/featureFlags.ts'].decode(),
+                              (fixture / 'extracted/feature-flag-cache.ts').read_text())
+    for name, data in closure.items():
+        (app / name).write_bytes(data)
+        identities[name] = {'originalSha256': READ_CLOSURES[name], 'executedSha256': sha(data)}
     executed_overlays = apply_overlays(app, fixture, aliases)
     versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('next', 'react', 'react-dom')}
     require(versions == {'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime package mismatch')
@@ -640,14 +755,17 @@ def compiler_failure_signals(output):
     markers = {
         'module-not-found': ('module not found', 'cannot find module', "can't resolve", 'could not resolve'),
         'read-only-output': ('read-only file system', 'erofs'),
-        'permission-denied': ('permission denied', 'eacces'),
         'turbopack-panic': ('turbopack panic', 'turbopack internal error', 'fatal: an unexpected turbopack error'),
         'next-package-root': ('next.js package not found', 'next.js package could not be found', 'failed to find next.js package'),
         'configuration-load': ('failed to load next.config', 'error loading next.config'),
         'typescript-error': ('type error:', 'error ts'),
         'process-spawn': ('spawn eagain', 'spawn eperm', 'failed to spawn'),
     }
-    return sorted(name for name, values in markers.items() if any(value in text for value in values))
+    signals = {name for name, values in markers.items() if any(value in text for value in values)}
+    # Match diagnostic lines, not source excerpts or comments containing these words.
+    if re.search(r'(?m)^[ \t]*(?:error:[ \t]*)?eacces[ \t]*:', text):
+        signals.add('permission-denied')
+    return sorted(signals)
 
 
 def write_failure(output, hashes, stage, exception_class, returncode):
@@ -856,6 +974,13 @@ def export_observations(output, hashes):
     identity_names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
     source_hashes = {name: sha(source[name]) for name in identity_names}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
+    with tempfile.TemporaryDirectory() as temporary:
+        app = Path(temporary)
+        for name in READ_CLOSURES:
+            put(app, name, source[name])
+        manifest_for_closures = json.loads((FIXTURE / 'source-manifest.json').read_bytes())
+        closure = read_closures(app, manifest_for_closures)
+    source_hashes.update({name: {'originalSha256': READ_CLOSURES[name], 'executedSha256': sha(data)} for name, data in closure.items()})
     require(identity['addedSourceSha256'] == source_hashes and identity['pingDeclarationSha256'] == sha(declaration.encode()), 'source identity mismatch')
     manifest_bytes = (FIXTURE / 'source-manifest.json').read_bytes()
     require(sha(manifest_bytes) == hashes['test/fixtures/pinned-ingress/source-manifest.json'], 'manifest bytes changed')
