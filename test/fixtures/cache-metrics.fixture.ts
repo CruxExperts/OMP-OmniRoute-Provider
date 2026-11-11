@@ -43,9 +43,9 @@ export function cacheMetricsContract(id: CacheMetricsId): OperationSourceContrac
     } },
     response: { ...template.response, mediaType: "application/json", schema: combined,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? metrics : variant.statusCode === "500" ? routeError : { oneOf: [authError, centralError] } })) })) },
-    secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "unknown",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
-    confirmation: { required: false, reason: "Both handlers compute metrics from usage_history; resetCacheMetrics delegates to the read and does not reset data." },
+    confirmation: { required: true, reason: "The warm fixture observes reads only; cold database initialization can have additional effects and remains unqualified." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null, mutationSafety: null,
   };
 }
@@ -58,10 +58,11 @@ export function cacheMetricsDescriptor(id: CacheMetricsId): OperationDescriptor 
   if (binding.handlerSha256 !== original.source.sha256 || binding.handlerGitBlobSha !== original.source.gitBlobSha) {
     throw new Error(`cache metrics source contract does not match the pinned handler: ${id}`);
   }
-  return { ...original, ...contract, mediaType: { request: null, response: "application/json" }, coverage: { status: "invokable", adapterId: `typed.fixture.cache-metrics.${id.startsWith("GET") ? "get" : "delete"}`, reason: null } };
+  // Synthetic registry authority applies only to this already-open fixture, never release eligibility.
+  return { ...original, ...contract, sideEffect: "read", confirmation: { required: false, reason: "Already-open disposable fixture only." }, mediaType: { request: null, response: "application/json" }, coverage: { status: "invokable", adapterId: `typed.fixture.cache-metrics.${id.startsWith("GET") ? "get" : "delete"}`, reason: null } };
 }
 
-/** Receipt-verified handler and SQL against disposable in-memory SQLite; not Next ingress or durable storage. */
+/** Receipt-verified handler and SQL against an already-open disposable SQLite database; excludes cold initialization, Next ingress and durable storage. */
 export class CacheMetricsFixture {
   readonly db = new Database(":memory:");
   readonly #authorization = makeAuth({

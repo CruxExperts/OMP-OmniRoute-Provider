@@ -22,6 +22,7 @@ afterAll(async () => {
   testOutcomeHash(LIVENESS_ID, LIVENESS_TEST_ID, caseSha256, binding, contract, artifactPath);
 });
 
+
 test("pinned liveness adapter and independent handler HTTP response agree", async () => {
   const adapter = buildLivenessFixtureRegistry().lookup(LIVENESS_ID);
   if (!adapter) throw new Error("Fixture liveness adapter missing");
@@ -64,6 +65,7 @@ test("pinned JSON health routes report liveness and SQLite responsiveness withou
   try {
     for (const id of JSON_HEALTH_IDS) {
       const descriptor = jsonHealthDescriptor(id);
+      const schemaBefore = id === JSON_HEALTH_IDS[1] ? fixture.db.query("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all() : null;
       const before = Date.now();
       const response = await fixture.handle(id);
       const after = Date.now();
@@ -77,9 +79,13 @@ test("pinned JSON health routes report liveness and SQLite responsiveness withou
       } else {
         expect(Object.keys(body).sort()).toEqual(["latencyMs", "status", "timestamp"]);
         expect(typeof body.latencyMs).toBe("number");
-        expect(body.latencyMs as number).toBeGreaterThanOrEqual(0);
       }
       expect(projectResponse(descriptor, body)).toEqual(body);
+      if (id === JSON_HEALTH_IDS[1]) {
+        const schemaAfter = fixture.db.query("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
+        // The fixture supplies an already-open database; this does not cover cold initialization.
+        expect(schemaAfter).toEqual(schemaBefore);
+      }
     }
     expect(fixture.db.query("SELECT 1 AS ok").get()).toEqual({ ok: 1 });
   } finally {

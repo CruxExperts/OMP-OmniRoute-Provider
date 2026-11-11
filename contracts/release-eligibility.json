@@ -191,8 +191,8 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/2b1fff0e2685eedffac7bfd86004ca09dbadc41bddfb1a03f3c1a8cd700793ff.json",
-        "caseSha256": "d64a71bad8667057047d85469a01a00985129448ddd1fd8211976273ddb237f4",
+        "observedOutcome": "provenance/qualification/b93d3630f0cf2328c3b96bce73085e9eae6da53a025370a396e5f76ebe89a628.json",
+        "caseSha256": "2023e4718f0d963bbd373ca7922f3bc9a731ba41a0de849a7f17d15ab2a65d50",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
@@ -703,8 +703,8 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/427ad1c9881baf9f762089b22df63ccb68dff95b5f01de48b0778bd0a56a1c49.json",
-        "caseSha256": "e63f08b422caa103346b728511e2239cdb3d3ed183f660fcce8342a46caf16c9",
+        "observedOutcome": "provenance/qualification/39fbf04eb6a8fc473d11ecba5e11905c7dc016521bb15558b2a9b75a9b97ad75.json",
+        "caseSha256": "42a8ea843565aa4359b8d23eb6687870fdf17be19f19837ac771d4495f506d13",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {

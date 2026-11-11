@@ -1686,7 +1686,7 @@ function validateReadCompleteness(value: unknown, operationId: string, readId: s
 
 function validateMutationSafety(value: unknown, operationId: string, sideEffect: unknown, responseValue: unknown): void {
   if (value === null) {
-    if (sideEffect !== "read") throw new Error(`${operationId}.mutationSafety is required for mutations`);
+    if (sideEffect !== "read" && sideEffect !== "unknown") throw new Error(`${operationId}.mutationSafety is required for mutations`);
     return;
   }
   if (sideEffect === "read") throw new Error(`${operationId}.read operation cannot carry mutation safety`);
@@ -1875,8 +1875,8 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
   assertKeys(secrets, `${operationId}.contract.secrets`, ["inputFields", "outputFields"]);
   stringList(secrets.inputFields, `${operationId}.secrets.inputFields`);
   stringList(secrets.outputFields, `${operationId}.secrets.outputFields`);
-  if (!["read", "mutation", "secret", "lifecycle", "destructive"].includes(String(contract.sideEffect))) {
-    throw new Error(`${operationId}.contract.sideEffect must be a source-qualified classification`);
+  if (!["read", "mutation", "secret", "lifecycle", "destructive", "unknown"].includes(String(contract.sideEffect))) {
+    throw new Error(`${operationId}.contract.sideEffect is invalid`);
   }
   const pagination = requireRecord(contract.pagination, `${operationId}.contract.pagination`);
   assertKeys(pagination, `${operationId}.contract.pagination`, ["mode", "parameters"]);

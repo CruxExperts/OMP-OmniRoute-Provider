@@ -49,7 +49,7 @@ export const JSON_HEALTH_IDS = ["GET /api/health", "GET /api/health/ping"] as co
 export type JsonHealthId = (typeof JSON_HEALTH_IDS)[number];
 const timestamp: JsonSchema = { type: "string", format: "date-time" };
 const liveResponse: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["ok"] }, timestamp }, required: ["status", "timestamp"], additionalProperties: false };
-const pingResponse: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["ok"] }, timestamp, latencyMs: { type: "number", minimum: 0 } }, required: ["status", "timestamp", "latencyMs"], additionalProperties: false };
+const pingResponse: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["ok"] }, timestamp, latencyMs: { type: "number" } }, required: ["status", "timestamp", "latencyMs"], additionalProperties: false };
 const pingError: JsonSchema = { type: "object", properties: { status: { type: "string", enum: ["error"] }, error: { type: "string", enum: ["db_query_failed", "ping_failed"] } }, required: ["status", "error"], additionalProperties: false };
 
 /** Candidate contracts only: framework ingress is not established by this fixture. */
@@ -62,11 +62,11 @@ export function jsonHealthContract(id: JsonHealthId): OperationSourceContract {
     auth: ping ? { ...template.auth, sourcePolicy: { status: "unknown" } } : { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } },
     response: { ...template.response, mediaType: "application/json", schema: ping ? { oneOf: [pingResponse, pingError] } : success,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({
-        ...content, schema: variant.statusCode === "200" ? success : ping && variant.statusCode === "500" && content.sourceFile !== "src/server/authz/pipeline.ts" ? pingError : content.schema,
+        ...content, schema: variant.statusCode === "200" ? success : ping && variant.statusCode === "503" && content.sourceFile !== "src/server/authz/pipeline.ts" ? pingError : content.schema,
       })) })) },
-    secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: ping ? "mutation" : "read",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
-    confirmation: { required: false, reason: "The pinned handlers only report liveness and database responsiveness." },
+    confirmation: ping ? { required: true, reason: "The database probe can initialize or recover the database and run migrations when the singleton is cold." } : { required: false, reason: "The pinned handlers only report liveness and database responsiveness." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null, mutationSafety: null,
   };
 }

@@ -104,6 +104,12 @@ Auth/settings still use bounded fixture storage and selected disposable
 `node:sqlite` queries, not native production persistence or the full application.
 SSO provisioning SQL and audit writes remain unsupported; a compiled import
 does not establish a successful effect or qualify those operations.
+
+The pinned cache-metrics reset function warns and delegates to the metrics read;
+it does not reset metrics. Warm fixture observations do not cover cold database
+initialization, recovery, migrations, or scheduler effects. Cache metrics and the
+database ping therefore remain pending until their cold lifecycle is qualified.
+
 Successful complete ingress runs export one allowlisted `observed-outcomes.json`
 with exact input hashes, approved-archive source and declaration identities,
 validated executed backend-overlay hashes, isolation checks, and bounded HTTP

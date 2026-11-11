@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "a2ac0ca4f70a8f9b8aebf25a99bd3476977d9c627008413b5928f0840a1e9621",
+    "eligibilitySha256": "0d429df3de56f395ff4ef9a0215fad15fbc5d6f4e06aeb47ddb608518d3227c2",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -53796,7 +53796,7 @@
         "ingressSha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d64a71bad8667057047d85469a01a00985129448ddd1fd8211976273ddb237f4",
+          "caseSha256": "2023e4718f0d963bbd373ca7922f3bc9a731ba41a0de849a7f17d15ab2a65d50",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -54029,7 +54029,7 @@
         "ingressSha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "e63f08b422caa103346b728511e2239cdb3d3ed183f660fcce8342a46caf16c9",
+          "caseSha256": "42a8ea843565aa4359b8d23eb6687870fdf17be19f19837ac771d4495f506d13",
           "id": "test/admin-degradation.test.ts",
           "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
         }
