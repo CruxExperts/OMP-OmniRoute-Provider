@@ -12,6 +12,7 @@ import {
   hasNativeAvailableOperationDescription,
   nativeAdminApplyConfirmationPattern,
   nativeAdminEmptyFallbackReadPattern,
+  nativeAdminIoTimeoutMs,
   nativeAdminNewPlanPattern,
   nativeAdminPromptPattern,
   nativeAdminUnknownOutcomePattern,
@@ -33,6 +34,12 @@ test("persisted inference allows five Windows ACL reads without changing other d
   expect(nativeInferenceTimeoutMs("win32", false)).toBe(20_000);
   expect(nativeInferenceTimeoutMs("linux", true)).toBe(20_000);
   expect(nativeInferenceTimeoutMs("darwin", true)).toBe(20_000);
+});
+
+test("native administration accounts for bounded Windows startup and command ACL checks", () => {
+  expect(nativeAdminIoTimeoutMs("win32")).toBe(945_000);
+  expect(nativeAdminIoTimeoutMs("linux")).toBe(105_000);
+  expect(nativeAdminIoTimeoutMs("darwin")).toBe(105_000);
 });
 
 test("native setup stops only after the post-login native catalog is ready", async () => {

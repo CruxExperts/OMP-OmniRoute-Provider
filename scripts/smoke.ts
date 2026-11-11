@@ -781,6 +781,14 @@ type CommandOptions = {
 
 export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
 
+export function nativeAdminIoTimeoutMs(platform: NodeJS.Platform): number {
+  if (platform !== "win32") return 105_000;
+  // Three registration checks and one session check precede the dialogue.
+  // Budget three bounded ACL checks for each of its eight admin commands,
+  // in addition to the original 105s interaction allowance.
+  return (4 + 8 * 3) * 30_000 + 105_000;
+}
+
 /**
  * Drives prompt-based input without treating a prompt redraw as a new prompt
  * while the previous response is still waiting to be written.
@@ -1586,7 +1594,7 @@ async function nativeAdministrationIo(
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
     { when: nativeAdminEmptyFallbackReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey }, timeoutMs: 105_000, dialogue });
+  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey }, timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).replace(/\r\n?/g, "\n");
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {

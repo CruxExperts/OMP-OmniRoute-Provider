@@ -184,6 +184,13 @@ Sensitive fields remain absent even from typed object maps; a source-qualified
 identifier map preserves model identifiers without exposing nested credentials.
 Exact sensitive target state stays private to approval and drift checks.
 
+Windows qualification run 42992934819 passed native setup and persisted Chat
+Completions inference on both architectures, including the exact reply, usage,
+single POST, and live model discovery. Administration I/O did not complete and
+Windows administration qualification remains pending. The classic PTY prompt
+can appear before the host permits submission; authoritative readiness for that
+surface remains unresolved, and a visible prompt or fixed delay is not proof.
+
 ## Credential or config recovery
 
 Use `/omniroute setup` to forget only the affected optional credential, or use
