@@ -17,15 +17,15 @@ filter behavior. The handler timestamp is checked before normalization. The IP
 filter observation uses forwarding-header fallback with unknown peer locality; it
 does not establish reverse-proxy trust or production deployment behavior.
 
-The degradation report candidate exercises the pinned v3.8.53 handler over
-loopback HTTP with its actual process-local registry, not Next.js ingress or
-authorization. It covers report and exact `summary=true` branches, recovery,
-reset, safe error responses and bounded projection. Projection retains feature
-names and capability descriptions with control characters escaped, while
-removing reasons that may contain exception messages. The registry has no
-source-defined cardinality bound. Actual Next.js ingress and independent
-authorization evidence remain necessary before
-`GET /api/health/degradation` can become available.
+The degradation report has separate observations of the pinned handler and
+isolated Next.js ingress. The handler fixture exercises registry transitions,
+projection, and a 500 response caused by an injected JSON response failure; it
+does not demonstrate a hosted failure. The ingress observation covers management
+denials, an authorized session, report and summary branches, and recovery. The
+source registry has no cardinality bound. Projection removes reasons that may
+contain exception messages; these observations do not establish production
+deployment or persistence behavior. Availability still requires matching
+source-bound eligibility and qualification receipts.
 
 ## Start with read access
 

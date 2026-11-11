@@ -321,8 +321,8 @@ print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sh
 }
 
 /** Validate the retained research export separately from the handler receipt. */
-export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding): void {
-  const label = "GET /api/health ingress evidence";
+export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding, operationId: "GET /api/health" | "GET /api/health/degradation" = "GET /api/health"): void {
+  const label = `${operationId} ingress evidence`;
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
   const path = requireString(evidence.artifact, `${label}.artifact`);
@@ -345,8 +345,9 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const manifest = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as unknown, `${label}.manifest`);
   const release = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
   const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
+  const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || added["src/app/api/health/route.ts"] !== binding.handlerSha256) {
+    || source.archiveSha256 !== manifest.archiveSha256 || (operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : degradationSource.originalSha256) !== binding.handlerSha256) {
     throw new Error(`${label} source mismatch`);
   }
   const inputs = requireRecord(artifact.inputs, `${label}.inputs`);
@@ -397,6 +398,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (authentication.some(row => isRecord(row) && isRecord(row.input) && row.input.path === "/api/health" && row.name !== "default-bypass-health" && row.name !== "disabled-bypass-health")) throw new Error(`${label} unexpected health authentication observation`);
   const ipFilter = { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } };
   if (canonicalJson(toJson(artifact.publicHealthIpFilter, label)) !== canonicalJson(toJson(ipFilter, label))) throw new Error(`${label} IP filter observation mismatch`);
+  if (operationId === "GET /api/health/degradation") {
+    const expectedDegradation = { method: "GET", path: "/api/health/degradation", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, empty: { status: 200, summary: { full: 0, reduced: 0, minimal: 0, default: 0 } }, populated: { status: 200, summary: { full: 1, reduced: 1, minimal: 0, default: 1 }, levels: ["default", "reduced", "full"] }, summaryTrue: { status: 200, bodyKeys: ["isDegraded", "summary"] }, summaryFalseAndCapitalTrueReturnFullReport: true, recovery: { status: 200, summary: { full: 3, reduced: 0, minimal: 0, default: 0 }, active: false }, handlerFailure: "unobserved" };
+    if (canonicalJson(toJson(artifact.degradation, label)) !== canonicalJson(toJson(expectedDegradation, label))) throw new Error(`${label} degradation observation mismatch`);
+  }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of sourceIdentityHashFields) {
@@ -1337,12 +1342,12 @@ function validateEligibility(
   if (requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`) !== expectedOutcomeSha256) {
     throw new Error(`eligibility observed outcome digest mismatch: ${operationId}`);
   }
-  if (operationId === "GET /api/health") {
+  if (operationId === "GET /api/health" || operationId === "GET /api/health/degradation") {
     const ingress = requireRecord(record.ingressEvidence, `${operationId}.eligibility.ingressEvidence`);
     if (typeof ingress.artifact !== "string" || !/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(ingress.artifact)) {
       throw new Error(`eligibility ingress artifact must be retained in provenance: ${operationId}`);
     }
-    validateHealthIngressEvidence(ingress, expectedBinding);
+    validateHealthIngressEvidence(ingress, expectedBinding, operationId);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -2109,7 +2114,7 @@ function makeOperation(
         caseSha256: requireString(test.caseSha256, `${operationId}.eligibility.test.caseSha256`),
         outcomeSha256: requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`),
       },
-      ...(operationId === "GET /api/health" ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
+      ...(operationId === "GET /api/health" || operationId === "GET /api/health/degradation" ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
     };
   }
   return effective;

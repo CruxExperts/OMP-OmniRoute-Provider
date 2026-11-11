@@ -191,8 +191,8 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/5fccecf4d205a6318b5295cc21bdcfbd73e9bf258921505f2c62fabe545f96db.json",
-        "caseSha256": "759e5802cca3de311a64e26387da7c63eb671613bfaf7c0b3ce25ea1d26c80d4",
+        "observedOutcome": "provenance/qualification/2b1fff0e2685eedffac7bfd86004ca09dbadc41bddfb1a03f3c1a8cd700793ff.json",
+        "caseSha256": "d64a71bad8667057047d85469a01a00985129448ddd1fd8211976273ddb237f4",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
@@ -211,6 +211,518 @@
         {
           "kind": "fixture",
           "detail": "The pinned handler was exercised independently over loopback HTTP; the separate isolated Next ingress research export records anonymous access, drain, CORS and forwarding-header IP-filter behavior."
+        }
+      ]
+    },
+    {
+      "operationId": "GET /api/health/degradation",
+      "status": "verified",
+      "reason": "Pinned handler observations and separately retained isolated Next ingress observations qualify this read only; the injected handler 500 is not a hosted failure.",
+      "source": {
+        "file": "src/app/api/health/degradation/route.ts",
+        "gitBlobSha": "1a9bf0d0c79e436a83792efd4a12458a00ae7921",
+        "sha256": "1dee40edb3162a8c2775055bd13c900e2b4dc2dd0ab9f9a26c75b0856b53491a"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [
+            {
+              "name": "summary",
+              "in": "query",
+              "required": false,
+              "style": "form",
+              "explode": true,
+              "allowReserved": false,
+              "schema": {
+                "type": "string"
+              },
+              "inputAllowed": true,
+              "sourceFile": "src/app/api/health/degradation/route.ts"
+            }
+          ],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "none",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "summary": {
+                    "type": "object",
+                    "properties": {
+                      "full": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reduced": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "minimal": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "default": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "full",
+                      "reduced",
+                      "minimal",
+                      "default"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "features": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "enum": [
+                            "full",
+                            "reduced",
+                            "minimal",
+                            "default"
+                          ]
+                        },
+                        "feature": {
+                          "type": "string"
+                        },
+                        "capability": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "since": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "level",
+                        "feature",
+                        "capability",
+                        "reason",
+                        "since"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "active",
+                  "summary",
+                  "features"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "summary": {
+                    "type": "object",
+                    "properties": {
+                      "full": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "reduced": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "minimal": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "default": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "full",
+                      "reduced",
+                      "minimal",
+                      "default"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "isDegraded": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "summary",
+                  "isDegraded"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "error": {
+                    "type": "string",
+                    "const": "Failed to fetch degradation report."
+                  }
+                },
+                "required": [
+                  "error"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "full": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "reduced": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minimal": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "default": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "full",
+                              "reduced",
+                              "minimal",
+                              "default"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "features": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "level": {
+                                  "type": "string",
+                                  "enum": [
+                                    "full",
+                                    "reduced",
+                                    "minimal",
+                                    "default"
+                                  ]
+                                },
+                                "feature": {
+                                  "type": "string"
+                                },
+                                "capability": {
+                                  "type": "string"
+                                },
+                                "reason": {
+                                  "type": "string"
+                                },
+                                "since": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                }
+                              },
+                              "required": [
+                                "level",
+                                "feature",
+                                "capability",
+                                "reason",
+                                "since"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "active",
+                          "summary",
+                          "features"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "summary": {
+                            "type": "object",
+                            "properties": {
+                              "full": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "reduced": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "minimal": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "default": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "required": [
+                              "full",
+                              "reduced",
+                              "minimal",
+                              "default"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "isDegraded": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "summary",
+                          "isDegraded"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "sourceFile": "src/app/api/health/degradation/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/health/degradation/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "error": {
+                        "type": "string",
+                        "const": "Failed to fetch degradation report."
+                      }
+                    },
+                    "required": [
+                      "error"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/health/degradation/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/health/degradation/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": [
+            "reason"
+          ]
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "The route reads the in-memory degradation registry."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "d3dc8f3b4cc65fbdf94dd957f076287fd43844ff72073392dd5839b5c80e4928",
+        "authSha256": "e9da96181d8c7f6971e14452c71683d44fb8a81eb16d1ae1bac97a383e0333b3",
+        "sideEffect": "read",
+        "responseProjectionSha256": "0d61619233e16fd1d59288b585031c1318d0a9db7a76aa3b556eeac2397ba70a",
+        "operationSemanticsSha256": "8c1b2d37980b6ce90835f630f6285e8204dfb2bd2a1b84fd5f72e3e6d9f4e238",
+        "routeImportsSha256": "e61e50fdd83032f0fa5dee8fa284a422243bbb79efc704b993c07cc45c7e3122",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-degradation.test.ts",
+        "observedOutcome": "provenance/qualification/427ad1c9881baf9f762089b22df63ccb68dff95b5f01de48b0778bd0a56a1c49.json",
+        "caseSha256": "e63f08b422caa103346b728511e2239cdb3d3ed183f660fcce8342a46caf16c9",
+        "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f.json",
+        "sha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned handler, registry, and framework authorization context bind the reviewed operation."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The read reports the process-local degradation registry; projection omits reasons."
+        },
+        {
+          "kind": "fixture",
+          "detail": "The pinned handler over loopback observes registry transitions and an injected JSON response failure. Separate isolated Next ingress observations cover management denials, an authorized session, summary branches, and recovery; hosted 500 remains unobserved."
         }
       ]
     }

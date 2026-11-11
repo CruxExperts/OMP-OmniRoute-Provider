@@ -19,6 +19,7 @@ import { getOperation, projectResponse, type OperationDescriptor } from "../src/
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
 import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
+import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
 
 function sourceRequestAdapter(operationId: string) {
   const source = getOperation(operationId);
@@ -297,6 +298,18 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     expect(() => validateHealthIngressEvidence({ artifact: path, sha256: "0".repeat(64) }, binding)).toThrow();
     const valid = await save(artifact);
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
+    const degradationBinding = operationEvidenceBinding("GET /api/health/degradation", degradationContract());
+    const hosted = JSON.parse(await readFile(resolve(root, "provenance/qualification/ingress-2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f.json"), "utf8")) as Record<string, unknown>;
+    const hostedEvidence = await save(hosted);
+    expect(() => validateHealthIngressEvidence(hostedEvidence, degradationBinding, "GET /api/health/degradation")).not.toThrow();
+    expect(() => validateHealthIngressEvidence(hostedEvidence, { ...degradationBinding, handlerSha256: "0".repeat(64) }, "GET /api/health/degradation")).toThrow(/source mismatch/);
+    for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["summaryFalseAndCapitalTrueReturnFullReport", false], ["handlerFailure", "observed"]] as const) {
+      const changed = structuredClone(hosted);
+      record(changed.degradation)[key] = value;
+      const changedEvidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(changedEvidence, degradationBinding, "GET /api/health/degradation")).toThrow(/degradation observation mismatch/);
+    }
+    await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation
     // bytes must force a new verification rather than reuse the prior derivation.
     const exposed = expectedHealthIngressIdentities("3.8.53", source.commit);

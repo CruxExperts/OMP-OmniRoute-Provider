@@ -4,6 +4,7 @@ import { getOperation, type JsonSchema, type OperationDescriptor } from "../../s
 import { createPinnedFixtureDate, loadPinnedModule, type PinnedExports } from "./pinned-handler.fixture.ts";
 
 export const DEGRADATION_ID = "GET /api/health/degradation" as const;
+export const DEGRADATION_TEST_ID = "test/admin-degradation.test.ts";
 export const DEGRADATION_TIME = "2026-01-01T00:00:00.000Z";
 const ROUTE = "src/app/api/health/degradation/route.ts";
 const DOMAIN = "src/domain/degradation.ts";

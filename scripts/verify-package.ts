@@ -353,14 +353,36 @@ async function resolveEntrypoint(root: string, target: string): Promise<string> 
   throw new Error(`entrypoint does not resolve: ${target}`);
 }
 
-async function scanImports(root: string, files: string[], issues: ScanIssue[]): Promise<void> {
-  const importPattern = /(?:from\s*|import\s*\(|import\s+)(["'])([^"']+)\1/g;
+export async function scanImports(root: string, files: string[], issues: ScanIssue[]): Promise<void> {
   for (const relativePath of files) {
     if (!/\.(?:ts|tsx|js|mjs|cjs)$/.test(relativePath)) continue;
     const text = await readFile(join(root, relativePath), "utf8");
-    for (const match of text.matchAll(importPattern)) {
-      const specifier = match[2];
-      if (!specifier?.startsWith(".")) continue;
+    const source = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true);
+    const specifiers: string[] = [];
+    const visit = (node: ts.Node): void => {
+      let moduleSpecifier: ts.Node | undefined;
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+        moduleSpecifier = node.moduleSpecifier;
+      } else if (ts.isExternalModuleReference(node)) {
+        moduleSpecifier = node.expression;
+      } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+        moduleSpecifier = node.argument.literal;
+      } else if (ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === "require"))) {
+        moduleSpecifier = node.arguments[0];
+      }
+      while (moduleSpecifier && (ts.isParenthesizedExpression(moduleSpecifier) ||
+        ts.isAsExpression(moduleSpecifier) || ts.isTypeAssertionExpression(moduleSpecifier) ||
+        ts.isNonNullExpression(moduleSpecifier) || ts.isSatisfiesExpression(moduleSpecifier))) {
+        moduleSpecifier = moduleSpecifier.expression;
+      }
+      if (moduleSpecifier && ts.isStringLiteralLike(moduleSpecifier)) specifiers.push(moduleSpecifier.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    for (const specifier of specifiers) {
+      if (!specifier.startsWith(".")) continue;
       const target = resolve(dirname(join(root, relativePath)), specifier);
       if (!target.startsWith(`${root}${sep}`)) {
         issues.push({ kind: "import", path: relativePath, detail: `relative import escapes package: ${specifier}` });
@@ -616,6 +638,28 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     visit(source);
     return positions;
   };
+  const publicIdentifierPositions = (path: string, text: string): Set<number> => {
+    const positions = new Set<number>();
+    const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true);
+    const visit = (node: ts.Node): void => {
+      if (ts.isStringLiteral(node) && ts.isArrayLiteralExpression(node.parent)) {
+        const initializer = node.parent.parent;
+        if (ts.isNewExpression(initializer) && ts.isIdentifier(initializer.expression)
+          && initializer.expression.text === "Set" && initializer.arguments?.[0] === node.parent
+          && ts.isVariableDeclaration(initializer.parent) && ts.isIdentifier(initializer.parent.name)) {
+          const name = initializer.parent.name.text;
+          if ((name === "qualificationFixtureIdentifiers" && qualificationFixtureIdentifiers.has(node.text))
+            || (name === "publicSchemaPropertyNames" && publicSchemaPropertyNames.has(node.text))) {
+            positions.add(node.getStart(source));
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return positions;
+  };
+
 
   const hashes: Record<string, string> = {};
   const absolutePathPattern = new RegExp(
@@ -721,6 +765,7 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
       if (!isPlaceholder(value)) issues.push({ kind: "secret", path: relativePath, detail: "credential-like bearer literal" });
     }
     let immutableSourceFields: Set<number> | undefined;
+    let publicIdentifiers: Set<number> | undefined;
     let sourceLiteralValues: Map<number, string> | undefined;
     for (const match of text.matchAll(literalPattern)) {
       const value = match[0].slice(1, -1);
@@ -749,6 +794,10 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
       if (python && (pythonDigestAssignment(text, start, value) || pythonFieldReference(text, start, start + match[0].length, value))) continue;
       const jsonLiteral = jsonLiterals?.get(match.index ?? -1);
       if (jsonLiteral ? jsonValueHasContext(relativePath, jsonLiteral.fieldPath, value) : (!jsonLiterals && !python && sourceLiteralHasContext(text, match.index ?? -1))) continue;
+      if (sourceLiteral) {
+        publicIdentifiers ??= publicIdentifierPositions(relativePath, text);
+        if (publicIdentifiers.has(start)) continue;
+      }
       if (!jsonLiterals && !python && isImmutableFieldName(value)) {
         // A documented JSON field name is public schema, while its value is still scanned.
         if (relativePath.endsWith(".md") && /^\s*:\s*"<[^>\r\n]+>"/.test(text.slice((match.index ?? 0) + match[0].length))) continue;

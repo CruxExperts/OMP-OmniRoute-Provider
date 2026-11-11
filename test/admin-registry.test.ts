@@ -9,6 +9,7 @@ import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures
 import { assertSafetyReadRequest, assertSafetyReadResponse } from "../src/admin/relations.ts";
 import { buildModelComboMappingFixtureRegistry } from "./fixtures/model-combo-mappings.fixture.ts";
 import { sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
+import { degradationDescriptor } from "./fixtures/pinned-degradation.fixture.ts";
 
 const EMPTY: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
 function fixtureOperation(body: JsonSchema | null = null): OperationDescriptor {
@@ -256,6 +257,19 @@ test("source-only approvals and changed authentication or reconciliation contrac
   } };
   expect(new OperationRegistry([changedRelation], { records: [proof] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
   expect(new OperationRegistry([descriptor], { records: [{ operationId: descriptor.operationId, status: "verified", reason: "Source-only prose cannot qualify execution.", source: descriptor.source, evidence: [{ kind: "source", detail: "No observed case/outcome receipt." }] }] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
+});
+
+test("degradation eligibility requires its matching ingress digest", () => {
+  const descriptor: OperationDescriptor = { ...degradationDescriptor(), coverage: { status: "invokable", adapterId: "typed.get.api.health.degradation", reason: null } };
+  const qualified = fixtureRegistry([descriptor]);
+  const baked = qualified.getOperation(descriptor.operationId)!;
+  const proof = qualified.getEligibility(descriptor.operationId);
+  expect(proof.status).toBe("verified");
+  const { ingressSha256: _recordIngress, ...withoutIngress } = proof;
+  expect(new OperationRegistry([baked], { records: [withoutIngress] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
+  expect(new OperationRegistry([baked], { records: [{ ...proof, ingressSha256: "1".repeat(64) }] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
+  const { ingressSha256: _qualificationIngress, ...qualificationWithoutIngress } = baked.qualification!;
+  expect(new OperationRegistry([{ ...baked, qualification: qualificationWithoutIngress }], { records: [proof] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
 });
 
 test("private target projection binds exact sensitive state without exposing it in model output", () => {

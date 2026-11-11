@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1049,
-    "invokableOperations": 1,
+    "invokableOperations": 2,
     "methodCounts": {
       "DELETE": 111,
       "GET": 485,
@@ -18,12 +18,12 @@
     "routeFiles": 798,
     "sourceOperations": 1292,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1275
+    "unqualifiedOperations": 1274
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "ee2d71567d00f127e43af394f702bd342a62f627549862114e314757c6b3aaa9",
+    "eligibilitySha256": "a2ac0ca4f70a8f9b8aebf25a99bd3476977d9c627008413b5928f0840a1e9621",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -53796,7 +53796,7 @@
         "ingressSha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "759e5802cca3de311a64e26387da7c63eb671613bfaf7c0b3ce25ea1d26c80d4",
+          "caseSha256": "d64a71bad8667057047d85469a01a00985129448ddd1fd8211976273ddb237f4",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -53960,20 +53960,45 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "read"
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "none",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.53",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "The route reads the in-memory degradation registry.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.api.health.degradation",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -53987,10 +54012,46 @@
         "parameters": []
       },
       "pathTemplate": "/api/health/degradation",
+      "qualification": {
+        "binding": {
+          "authSha256": "e9da96181d8c7f6971e14452c71683d44fb8a81eb16d1ae1bac97a383e0333b3",
+          "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+          "handlerGitBlobSha": "1a9bf0d0c79e436a83792efd4a12458a00ae7921",
+          "handlerSha256": "1dee40edb3162a8c2775055bd13c900e2b4dc2dd0ab9f9a26c75b0856b53491a",
+          "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "operationSemanticsSha256": "8c1b2d37980b6ce90835f630f6285e8204dfb2bd2a1b84fd5f72e3e6d9f4e238",
+          "requestSchemaSha256": "d3dc8f3b4cc65fbdf94dd957f076287fd43844ff72073392dd5839b5c80e4928",
+          "responseProjectionSha256": "0d61619233e16fd1d59288b585031c1318d0a9db7a76aa3b556eeac2397ba70a",
+          "routeImportsSha256": "e61e50fdd83032f0fa5dee8fa284a422243bbb79efc704b993c07cc45c7e3122",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "ingressSha256": "2ce9f71cb514d71662d6ebe8fe745c2ad9301ca29cd7e974bde33d38fd3f1b4f",
+        "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "test": {
+          "caseSha256": "e63f08b422caa103346b728511e2239cdb3d3ed183f660fcce8342a46caf16c9",
+          "id": "test/admin-degradation.test.ts",
+          "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
-        "parameters": [],
+        "parameters": [
+          {
+            "allowReserved": false,
+            "explode": true,
+            "in": "query",
+            "inputAllowed": true,
+            "name": "summary",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "sourceFile": "src/app/api/health/degradation/route.ts",
+            "style": "form"
+          }
+        ],
         "pathParameters": [],
         "pathSchema": {
           "additionalProperties": false,
@@ -53999,14 +54060,155 @@
         },
         "querySchema": {
           "additionalProperties": false,
-          "properties": {},
+          "properties": {
+            "summary": {
+              "type": "string"
+            }
+          },
           "type": "object"
         },
         "specificationDocumented": true
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "active": {
+                  "type": "boolean"
+                },
+                "features": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "capability": {
+                        "type": "string"
+                      },
+                      "feature": {
+                        "type": "string"
+                      },
+                      "level": {
+                        "enum": [
+                          "full",
+                          "reduced",
+                          "minimal",
+                          "default"
+                        ],
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "since": {
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "level",
+                      "feature",
+                      "capability",
+                      "reason",
+                      "since"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "summary": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "default": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "full": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "minimal": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reduced": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "full",
+                    "reduced",
+                    "minimal",
+                    "default"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "active",
+                "summary",
+                "features"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "isDegraded": {
+                  "type": "boolean"
+                },
+                "summary": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "default": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "full": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "minimal": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "reduced": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "full",
+                    "reduced",
+                    "minimal",
+                    "default"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "summary",
+                "isDegraded"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "const": "Failed to fetch degradation report.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "401",
@@ -54019,7 +54221,131 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "features": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "capability": {
+                                "type": "string"
+                              },
+                              "feature": {
+                                "type": "string"
+                              },
+                              "level": {
+                                "enum": [
+                                  "full",
+                                  "reduced",
+                                  "minimal",
+                                  "default"
+                                ],
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "since": {
+                                "format": "date-time",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "level",
+                              "feature",
+                              "capability",
+                              "reason",
+                              "since"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "summary": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "default": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "full": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "minimal": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "reduced": {
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "full",
+                            "reduced",
+                            "minimal",
+                            "default"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "active",
+                        "summary",
+                        "features"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "isDegraded": {
+                          "type": "boolean"
+                        },
+                        "summary": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "default": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "full": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "minimal": {
+                              "minimum": 0,
+                              "type": "integer"
+                            },
+                            "reduced": {
+                              "minimum": 0,
+                              "type": "integer"
+                            }
+                          },
+                          "required": [
+                            "full",
+                            "reduced",
+                            "minimal",
+                            "default"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "summary",
+                        "isDegraded"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                },
                 "sourceFile": "src/app/api/health/degradation/route.ts"
               }
             ],
@@ -54073,7 +54399,19 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "const": "Failed to fetch degradation report.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/health/degradation/route.ts"
               }
             ],
@@ -54112,9 +54450,11 @@
       },
       "secrets": {
         "inputFields": [],
-        "outputFields": []
+        "outputFields": [
+          "reason"
+        ]
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/api/health/degradation/route.ts",
@@ -54164,8 +54504,8 @@
         "path": "/api/health/degradation"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {

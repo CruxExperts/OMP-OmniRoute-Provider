@@ -121,18 +121,22 @@ the actual in-process registry, not an HTTP control endpoint or an authorization
 bypass. The export binds the original and executed route hashes, the unchanged
 domain hash, and the control fixture bytes. It records management denials, the
 authorized empty and populated reports, exact `summary=true` behavior versus
-`false` and `True`, and recovery. The handler's 500 branch is unobserved. These
-observations are research only and do not qualify the degradation operation.
+`false` and `True`, and recovery. The hosted handler's 500 branch is unobserved.
+The separate pinned-handler test injects a JSON response failure and observes
+the handler's 500 response; this is not evidence of a hosted 500. Both the
+source-bound handler receipt and the ingress export are required for eligibility.
 
-For `GET /api/health`, a verified eligibility record additionally names a retained
+For `GET /api/health` and `GET /api/health/degradation`, a verified eligibility record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and
 extracted declaration identities, and the runner's recomputed disposable overlay
 identities, as well as declared runner input bytes, runtime, isolation, and the
 public HTTP observations before putting the ingress digest in the generated
-qualification. The handler observation remains a separate receipt; neither it
-nor the research-only ingress export alone qualifies
-the operation. Missing, mismatched, or stale ingress evidence fails closed.
+qualification. For degradation it also checks the exact management denial,
+authorized report, summary, recovery and unobserved hosted-failure fields.
+The handler observation remains a separate receipt; neither it nor the
+research-only ingress export alone qualifies the operation. Missing, mismatched,
+or stale ingress evidence fails closed.
 The runtime compares the recorded ingress digest with the generated qualification;
 it does not independently re-run the ingress experiment.
 

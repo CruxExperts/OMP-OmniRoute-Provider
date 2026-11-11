@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildSbom, scanText, verifyPackage } from "../scripts/verify-package.ts";
+import { buildSbom, scanImports, scanText, verifyPackage } from "../scripts/verify-package.ts";
 
 function dependencyMap(sbom: { dependencies: Array<{ ref: string; dependsOn: string[] }> }) {
   return new Map(sbom.dependencies.map(edge => [edge.ref, edge.dependsOn]));
@@ -40,6 +40,67 @@ test("SBOM resolver prefers a synthetic parent-specific nested lock key", () => 
   };
   const sbom = buildSbom({ name: "root", version: "1.0.0", packageManager: "bun@1.4.2", dependencies: { parent: "1.0.0" } }, lockfile);
   expect(dependencyMap(sbom).get(purl("parent", "1.0.0"))).toEqual([purl("child", "1.0.0")]);
+});
+
+test("package import scanning follows source syntax, not embedded programs or comments", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-import-scan-"));
+  const file = "generator.ts";
+  const issues: Parameters<typeof scanImports>[2] = [];
+  try {
+    await writeFile(join(root, "present.ts"), "export default 1;");
+    await writeFile(join(root, file), [
+      "const python = `",
+      "source = \"import { control } from './fixture-control'\"",
+      "other = \"require('./embedded')\"",
+      "`;",
+      "// import './comment';",
+      "const text = \"import('./string')\";",
+      "import './present';",
+      "import value from './missing-static';",
+      "export { value } from './missing-export';",
+      "import equal = require('./missing-equals');",
+      "type Missing = import('./missing-type').Missing;",
+      "const dynamic = import('./missing-dynamic');",
+      "const required = require('./missing-require');",
+      "const nested = `${require('./missing-expression')}`;",
+      "const wrapped = import((('./missing-wrapped' as string) satisfies string)!);",
+      "const asserted = require(<string>'./missing-asserted');",
+      "import '../outside';",
+      "const escape = import('../wrapped-outside' as string);",
+      "import 'external-package';",
+    ].join("\n"));
+    await scanImports(root, [file], issues);
+    expect(issues).toEqual([
+      ...["static", "export", "equals", "type", "dynamic", "require", "expression", "wrapped", "asserted"].map(name => ({
+        kind: "import" as const, path: file, detail: `unresolved relative import: ./missing-${name}`,
+      })),
+      { kind: "import", path: file, detail: "relative import escapes package: ../outside" },
+      { kind: "import", path: file, detail: "relative import escapes package: ../wrapped-outside" },
+    ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("package secret scanning recognizes declared public identifiers without exempting other values", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-public-identifiers-"));
+  const file = "identifiers.ts";
+  const issues: Parameters<typeof scanText>[2] = [];
+  const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+  try {
+    const source = [
+      'const qualificationFixtureIdentifiers = new Set(["probe-model-2-fixture-text-embedding"]);',
+      'const publicSchemaPropertyNames = new Set(["slaMaxCostPer1MTokens"]);',
+    ].join("\n");
+    await writeFile(join(root, file), source);
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+    await writeFile(join(root, file), `${source}\nconst publicSchemaPropertyNames = new Set(["${opaque}"]);`);
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("package secret scanning distinguishes provenance names from secret-bearing JSON keys and values", async () => {

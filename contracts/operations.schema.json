@@ -1027,7 +1027,7 @@
       "required": ["operationId", "method", "pathTemplate", "request", "response", "mediaType", "auth", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "source", "specification", "reconciliation", "mutationSafety", "coverage"],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "const": "GET /api/health" } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation"] } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["ingressSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["ingressSha256"] } } } }
         }
