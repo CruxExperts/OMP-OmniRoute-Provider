@@ -94,10 +94,11 @@ runner separately verifies actual isolation and resource readbacks.
 Qualification dispatch offers `preflight-only` and `ingress-only` modes before
 the full archive and native targets; neither mode creates a qualification receipt.
 These build-only inputs are excluded from the runtime npm package and its
-TypeScript program. The current webpack observations use bounded in-memory
-auth/settings seams and selected disposable `node:sqlite` queries. They do not
-establish native database, production bundler, complete route, or clean hosted-runner
-qualification.
+TypeScript program. The isolated runner uses the upstream production-default
+Next bundler with six explicitly verified disposable source overlays. Original
+and executed overlay hashes are retained; the source archive is unchanged.
+Auth/settings still use bounded fixture storage and selected disposable
+`node:sqlite` queries, not native production persistence or the full application.
 Successful complete ingress runs export one allowlisted `observed-outcomes.json`
 with exact input hashes, approved-archive source and declaration identities,
 validated executed backend-overlay hashes, isolation checks, and bounded HTTP
@@ -107,6 +108,13 @@ CI uploads only that file, never scratch directories, credentials,
 mount tables, events, or private logs. Missing, partial, or contradictory inputs
 prevent export. This retained prerequisite is not an operation qualification
 receipt; the existing per-operation producer and reviewed eligibility still gate use.
+
+The public liveness observation additionally checks the timestamp against its
+request window, drain error envelope and retry header, request/correlation ID
+relationship, recovery, and configured versus unlisted CORS origins. Public
+authentication does not imply that proxy cache warmup or IP filtering avoids
+storage. Blocked-IP behavior remains unproven; a changed default-bundler path
+requires a new isolated build and HTTP observation before its evidence is accepted.
 
 
 After the final manifest edits, rerun every suite named by the active eligibility

@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+from datetime import datetime, timezone
 import io
 import json
 import re
@@ -461,7 +462,7 @@ def materialize():
         put(app, route, Path('/work/fixture/routes/management.ts').read_bytes())
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
-    return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA, 'webpackDeviation': True}
+    return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA}
 
 def replace_once(text, before, after):
     require(text.count(before) == 1, 'fixture boundary changed: ' + before[:80])
@@ -490,10 +491,48 @@ def overlay_bytes(core, settings, declaration):
     }
 
 
+def overlay_plan(app, fixture, manifest):
+    """Verify all original and replacement bytes before modifying disposable source."""
+    mapping = json.loads((fixture / 'alias-map.json').read_text())
+    require(file_sha(app / 'next.config.upstream.mjs') == mapping['originalConfigSha256'] == manifest['nextConfig']['sha256'], 'config identity mismatch')
+    aliases = mapping['aliases']
+    expected = {'src/lib/db/core.ts', 'src/lib/db/settings.ts', 'src/sse/services/auth.ts', 'src/lib/config/runtimeSettings.ts', 'src/shared/services/modelSyncScheduler.ts', 'src/lib/gracefulShutdown.ts'}
+    require(isinstance(aliases, list) and len(aliases) == len(expected) and {a['source'] for a in aliases} == expected, 'overlay boundary mismatch')
+    replacements = set()
+    for alias in aliases:
+        name, replacement = alias['source'], alias['replacement']
+        safe_parts(name)
+        safe_parts(replacement)
+        require(replacement not in replacements, 'duplicate overlay replacement')
+        replacements.add(replacement)
+        original = (app / name).read_bytes()
+        data = (fixture / replacement).read_bytes()
+        recorded = manifest['selectedFiles'].get(name) or manifest['additionalFiles'].get(name)
+        require(recorded and sha(original) == alias['sourceSha256'] == recorded['sha256'] and sha(data) == alias['replacementSha256'], 'overlay identity mismatch: ' + name)
+        if alias['kind'] == 'declaration-extraction':
+            text = '\n'.join(line for line in data.decode('utf-8').split('\n') if not line.startswith('import '))
+            declarations = [part.strip() for part in re.split(r'(?=^(?:export |type |interface |const |let |function ))', text, flags=re.M) if part.strip()]
+            require(declarations and all(part in original.decode('utf-8') for part in declarations), 'overlay declaration mismatch: ' + name)
+        else:
+            require(alias['kind'] == 'storage-boundary' and name in {'src/lib/db/core.ts', 'src/lib/db/settings.ts'}, 'overlay kind mismatch')
+    return aliases
+
+
+def apply_overlays(app, fixture, aliases):
+    identities = {}
+    for alias in aliases:
+        target = app / alias['source']
+        require(sha(target.read_bytes()) == alias['sourceSha256'], 'overlay original changed: ' + alias['source'])
+        data = (fixture / alias['replacement']).read_bytes()
+        target.write_bytes(data)
+        identities[alias['source']] = {'originalSha256': alias['sourceSha256'], 'replacement': alias['replacement'], 'executedSha256': sha(data)}
+    return identities
+
+
 def approved_source():
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}
+    names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -533,12 +572,14 @@ def provision():
             identities[name] = sha(data)
     package = json.loads((app / 'package.json').read_text())
     require(package['version'] == '3.8.53', 'source version mismatch')
+    aliases = overlay_plan(app, fixture, json.loads((fixture / 'source-manifest.json').read_text()))
     declaration = ping_declaration((app / 'src/lib/db/core.ts').read_text())
     for name, data in overlay_bytes((fixture / 'backend/core.ts').read_bytes(), (fixture / 'backend/settings.ts').read_bytes(), declaration).items():
         (fixture / name).write_bytes(data)
     identities['src/lib/db/core.ts'] = sha((app / 'src/lib/db/core.ts').read_bytes())
     identities['src/lib/api/requireManagementAuth.ts'] = sha((app / 'src/lib/api/requireManagementAuth.ts').read_bytes())
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
+    executed_overlays = apply_overlays(app, fixture, aliases)
     versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('next', 'react', 'react-dom')}
     require(versions == {'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime package mismatch')
     inputs = ('source-manifest.json', 'dependencies.json', 'runtime.json')
@@ -546,11 +587,12 @@ def provision():
         'status': 'unreviewed-observation-not-qualification', 'sourceVersion': '3.8.53',
         'sourceCommit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': identities,
         'pingDeclarationSha256': sha(declaration.encode()),
+        'sourceOverlaySha256': executed_overlays,
         'fixtureSha256': {str(p.relative_to(fixture)): sha(p.read_bytes()) for p in sorted(fixture.rglob('*')) if p.is_file() and '__pycache__' not in p.parts},
         'nodeSha256': sha(Path('/runtime/node').read_bytes()),
         'runtime': {'node': '24.17.0', **versions},
         'runtimeInputSha256': {name: sha((Path('/fixture-src') / name).read_bytes()) for name in inputs},
-        'boundary': 'Actual Next webpack ingress and pinned handlers; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter, full application or production bundler.',
+        'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
     identity_path.write_text(json.dumps(identity, indent=2) + '\n')
@@ -599,7 +641,6 @@ def worker():
     deadline = time.monotonic() + 540
     material = materialize()
     provision()
-    save(Path('/work/materialization.json'), material)
     state = {'bypass': 'disabled', 'settings': {'requireLogin': True, 'password': 'fixture-configured', 'setupComplete': True}, 'tokens': []}
     save(Path('/work/data/state.json'), state)
     Path('/work/data/events.jsonl').write_text('')
@@ -607,7 +648,10 @@ def worker():
     # Keep source, overlay and exact installed dependency bytes read-only while
     # allowing only Next's and the source plugins' owned output directories.
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--bind', '/work/app/.build', '/work/app/.build', '--bind', '/work/app/.source', '/work/app/.source', '--bind', '/work/app/next-env.d.ts', '/work/app/next-env.d.ts', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
-    run_bounded(isolate + ['/runtime/node', '/work/app/node_modules/next/dist/bin/next', 'build', '--webpack'], Path('/work/build.private'), deadline, env)
+    run_bounded(isolate + ['/runtime/node', '/work/app/node_modules/next/dist/bin/next', 'build'], Path('/work/build.private'), deadline, env)
+    material['webpackDeviation'] = False
+    material['bundler'] = 'next-default'
+    save(Path('/work/materialization.json'), material)
     env['INGRESS_APPROVED_SANDBOX'] = '1'
     run_bounded(isolate + ['/runtime/node', '/work/fixture/driver.mjs'], Path('/work/http.private'), deadline, env)
     run_bounded(isolate + ['/runtime/node', '/work/fixture/pinned-ingress-driver.mjs'], Path('/work/pinned-http.private'), deadline, env)
@@ -662,6 +706,35 @@ def auth_state_sha(name, bypass):
     return sha(json.dumps(state, separators=(',', ':'), ensure_ascii=False).encode())
 
 
+def validate_public_health(response):
+    body = json.loads(response['body'])
+    require(response['status'] == 200 and response['routeClass'] == 'PUBLIC' and response['requestIdUuid'] is True, 'public health status or stamp mismatch')
+    require(set(body) == {'status', 'timestamp'} and body['status'] == 'ok' and isinstance(body['timestamp'], str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z', body['timestamp']), 'public health body mismatch')
+    timestamp = datetime.strptime(body['timestamp'], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=timezone.utc).timestamp() * 1000
+    require(type(response['started']) is int and type(response['ended']) is int and response['started'] <= timestamp <= response['ended'] and 0 <= response['ended'] - response['started'] <= 10000, 'public health timestamp outside request window')
+    require(response['cacheControl'] == 'no-store, no-cache, must-revalidate' and response['contentType'] == 'application/json', 'public health headers mismatch')
+
+
+def validate_public_health_evidence(auth):
+    observed = next(row for row in auth['results'] if row['name'] == 'disabled-bypass-health')
+    validate_public_health(observed['response'])
+    during, after = observed['draining']['during'], observed['draining']['after']
+    body = json.loads(during['body'])
+    require(during['status'] == 503 and during['routeClass'] == 'PUBLIC' and during['contentType'] == 'application/json' and during['retryAfter'] == '5' and during['requestIdUuid'] is True and during['correlationMatchesRequestId'] is True, 'public drain headers mismatch')
+    require(body == {'error': {'code': 'SERVICE_UNAVAILABLE', 'message': 'Server is shutting down', 'correlation_id_present': True}, 'errorKeys': ['code', 'correlation_id', 'message'], 'bodyKeys': ['error']}, 'public drain body mismatch')
+    validate_public_health(after)
+    cors = observed['cors']
+    require(set(cors) == {'allowed', 'unlisted'}, 'public CORS cases incomplete')
+    for name, origin in (('allowed', 'https://allowed.example'), ('unlisted', None)):
+        response = cors[name]
+        validate_public_health(response)
+        require(response['allowOrigin'] == origin and response['allowCredentials'] is None, 'public CORS origin mismatch')
+        vary = {part.strip().lower() for part in (response['vary'] or '').split(',')}
+        require(('origin' in vary) == (origin is not None), 'public CORS vary mismatch')
+        require(response['allowMethods'] == 'GET, POST, PUT, DELETE, PATCH, OPTIONS' and response['allowHeaders'] == 'Content-Type, Authorization, x-api-key, anthropic-version, x-omniroute-connection, X-OmniRoute-Lease-Owner, X-OmniRoute-Lease-Generation, x-internal-test, accept', 'public CORS headers mismatch')
+    return {'method': 'GET', 'path': '/api/health', 'anonymous': True, 'status': 200, 'bodyKeys': ['status', 'timestamp'], 'timestampFormatAndRequestWindowValid': True, 'cacheControl': 'no-store, no-cache, must-revalidate', 'contentType': 'application/json', 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'drain': {'status': 503, 'code': 'SERVICE_UNAVAILABLE', 'message': 'Server is shutting down', 'requestIdUuid': True, 'correlationMatchesRequestId': True, 'retryAfter': '5', 'contentType': 'application/json', 'routeClass': 'PUBLIC', 'recoveryStatus': 200}, 'cors': {'configuredAllowedOrigin': 'https://allowed.example', 'allowedOriginEchoed': True, 'unlistedOriginOmitted': True, 'credentialsOmitted': True}}
+
+
 def export_observations(output, hashes):
     """Produce an allowlisted research artifact only after the complete isolated run."""
     result = bounded_json(output / 'result.json')
@@ -672,11 +745,12 @@ def export_observations(output, hashes):
     ingress = bounded_json(output / 'data/pinned-ingress-observations.json')
     identity = ingress['identity']
     require(result['status'] == 'research-observed' and result['qualification'] is False and result['materialization'] == material, 'incomplete run')
-    require(material['archiveSha256'] == ARCHIVE_SHA and material['webpackDeviation'] is True and material['selectedSourceFiles'] == 509, 'materialization mismatch')
+    require(material['archiveSha256'] == ARCHIVE_SHA and material['webpackDeviation'] is False and material['bundler'] == 'next-default' and material['selectedSourceFiles'] == 509, 'materialization mismatch')
     require(identity['sourceCommit'] == COMMIT and identity['sourceVersion'] == '3.8.53' and identity['archiveSha256'] == ARCHIVE_SHA and identity['nodeSha256'] == NODE_SHA, 'source identity mismatch')
     require(identity['runtime'] == {'node': '24.17.0', 'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime mismatch')
     source = approved_source()
-    source_hashes = {name: sha(data) for name, data in source.items() if name != 'src/proxy.ts'}
+    identity_names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
+    source_hashes = {name: sha(source[name]) for name in identity_names}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
     require(identity['addedSourceSha256'] == source_hashes and identity['pingDeclarationSha256'] == sha(declaration.encode()), 'source identity mismatch')
     manifest_bytes = (FIXTURE / 'source-manifest.json').read_bytes()
@@ -705,6 +779,7 @@ def export_observations(output, hashes):
         require(usage_stamp == (name == 'access-allowed'), 'authentication usage stamp mismatch')
         require(not any(str(e.get('event', '')).startswith('unsupported:') for e in observed['events']), 'unsupported authentication boundary')
         cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
+    public_health = validate_public_health_evidence(auth)
     rows = ingress['results']
     require(len(rows) == 6 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health'], 'ingress cases incomplete')
     health = []
@@ -741,7 +816,21 @@ def export_observations(output, hashes):
     require(all(executed_fixture[name] == value for name, value in overlays.items()), 'executed overlay mismatch')
     require(executed_fixture['pinned-ingress-driver.mjs'] == hashes['scripts/pinned-ingress-driver.mjs'], 'executed driver mismatch')
     require(all(executed_fixture[name] == value for name, value in fixture_hashes.items() if name not in ('backend/core.ts', 'backend/settings.ts')), 'executed fixture mismatch')
-    artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Next webpack build, not production bundler.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
+    map_bytes = (FIXTURE / 'alias-map.json').read_bytes()
+    require(sha(map_bytes) == fixture_hashes['alias-map.json'], 'alias map bytes changed')
+    aliases = json.loads(map_bytes)['aliases']
+    require(len(aliases) == 6 and len({a['source'] for a in aliases}) == 6, 'overlay boundary mismatch')
+    expected_overlays = {}
+    for alias in aliases:
+        name, replacement = alias['source'], alias['replacement']
+        original = sha(source[name])
+        require(original == alias['sourceSha256'] and fixture_hashes[replacement] == alias['replacementSha256'], 'overlay input mismatch: ' + name)
+        expected_overlays[name] = {'originalSha256': original, 'replacement': replacement, 'executedSha256': overlays.get(replacement, fixture_hashes[replacement])}
+    require(identity['sourceOverlaySha256'] == expected_overlays, 'executed source overlay mismatch')
+    artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Default Next bundler uses disposable source overlays; runtime observation is not production database qualification.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
+    artifact['inputs']['sourceOverlaySha256'] = expected_overlays
+    artifact['publicHealthHttp'] = public_health
+    artifact['limitations'].append('The handler is liveness-only, but proxy cache warmup and IP filtering can depend on storage before PUBLIC policy; a blocked-IP path was not observed.')
     artifact['inputs']['executedOverlaySha256'] = overlays
     export = output / 'export'
     export.mkdir(mode=0o700)

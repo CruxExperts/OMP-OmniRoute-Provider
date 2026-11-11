@@ -232,6 +232,35 @@ for install_before_timeout in (True,False):
   }
 });
 
+test("source overlays reject missing or mismatched originals and replacements before copying", () => {
+  const code = String.raw`
+import importlib.util, json, pathlib, sys, tempfile
+s = importlib.util.spec_from_file_location('ingress', sys.argv[1]); m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as temp:
+ root = pathlib.Path(temp); app = root/'app'; fixture = root/'fixture'; app.mkdir(); fixture.mkdir()
+ mapping = json.loads((m.FIXTURE/'alias-map.json').read_text()); manifest = {'selectedFiles':{},'additionalFiles':{},'nextConfig':{}}
+ config = b'config'; (app/'next.config.upstream.mjs').write_bytes(config); mapping['originalConfigSha256'] = m.sha(config); manifest['nextConfig']['sha256'] = m.sha(config)
+ for alias in mapping['aliases']:
+  original = b'export const value = 1;\n'; replacement = original if alias['kind'] == 'declaration-extraction' else b'fixture'
+  source = app/alias['source']; target = fixture/alias['replacement']; source.parent.mkdir(parents=True, exist_ok=True); target.parent.mkdir(parents=True, exist_ok=True); source.write_bytes(original); target.write_bytes(replacement)
+  alias['sourceSha256'] = m.sha(original); alias['replacementSha256'] = m.sha(replacement); manifest['selectedFiles'][alias['source']] = {'sha256':m.sha(original)}
+ (fixture/'alias-map.json').write_text(json.dumps(mapping))
+ def rejected():
+  try: m.overlay_plan(app, fixture, manifest)
+  except (RuntimeError, FileNotFoundError): return
+  raise AssertionError('invalid overlay accepted')
+ for alias in mapping['aliases']:
+  for path in (app/alias['source'], fixture/alias['replacement']):
+   original = path.read_bytes(); path.write_bytes(b'tampered'); rejected(); path.unlink(); rejected(); path.write_bytes(original)
+ aliases = m.overlay_plan(app, fixture, manifest)
+ result = m.apply_overlays(app, fixture, aliases)
+ assert len(result) == 6 and all(m.sha((app/a['source']).read_bytes()) == result[a['source']]['executedSha256'] for a in aliases)
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
 test("ingress export rejects incomplete and contradictory observations and never copies private fields", () => {
   const code = String.raw`
 import importlib.util, io, json, pathlib, sys, tarfile, tempfile
@@ -246,8 +275,13 @@ with tempfile.TemporaryDirectory() as temp:
  (fixture/'backend/core.ts').write_bytes(core); (fixture/'backend/settings.ts').write_bytes(settings)
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
- names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'}
+ aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
+ names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
+ for alias in aliases:
+  alias['sourceSha256'] = m.sha(sources[alias['source']]); alias['replacementSha256'] = hashes['test/fixtures/pinned-ingress/'+alias['replacement']]
+ map_bytes = json.dumps({'aliases':aliases}).encode(); (fixture/'alias-map.json').write_bytes(map_bytes)
+ hashes['test/fixtures/pinned-ingress/alias-map.json'] = m.sha(map_bytes)
  archive_path = p/'source.tar.gz'
  with tarfile.open(archive_path, 'w:gz') as archive:
   for name, data in sources.items():
@@ -262,20 +296,29 @@ with tempfile.TemporaryDirectory() as temp:
   b'        event("sqlite:read");\n        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
   b'        return sqlite.prepare(sql);\n      }\n}\n\n'+declaration+b'\n')
  expected_settings = settings+b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n'
- material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': True, 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts'])}}
+ material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': False, 'bundler':'next-default', 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts'])}}
  put('result.json', {'status':'research-observed', 'qualification':False, 'materialization':material})
  put('materialization.json', material)
  put('host-namespaces.json', {k:'host' for k in ('user','mnt','net','pid')})
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
- identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(v) for k,v in sources.items() if k != 'src/proxy.ts'},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ identity_names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
+ identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
  identity['fixtureSha256']['backend/settings.ts'] = m.sha(expected_settings)
+ effective = {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
+ identity['sourceOverlaySha256'] = {a['source']:{'originalSha256':a['sourceSha256'],'replacement':a['replacement'],'executedSha256':effective.get(a['replacement'],a['replacementSha256'])} for a in aliases}
  auth = {'fixture':'research-only','results':[]}
  for name, bypass, path, credential, status in m.AUTH_CASES:
   route = 'PUBLIC' if path == '/api/health' else 'MANAGEMENT'
   auth['results'].append({'name':name,'stateSha256':m.auth_state_sha(name,bypass),'response':{'status':status,'routeClass':route,'body': ('"status":"ok"' if route == 'PUBLIC' else 'management-handler-reached') if status == 200 else 'private-canary'},'events':[{'event':'access-token:usage-stamp','private':'private-canary'}] if name == 'access-allowed' else []})
+ public = next(row for row in auth['results'] if row['name'] == 'disabled-bypass-health')
+ def public_response(origin=None):
+  return {'status':200,'routeClass':'PUBLIC','body':'{"status":"ok","timestamp":"2026-01-01T00:00:00.000Z"}','contentType':'application/json','cacheControl':'no-store, no-cache, must-revalidate','requestIdUuid':True,'started':1767225600000,'ended':1767225600001,'allowOrigin':origin,'vary':'Origin' if origin else None,'allowMethods':'GET, POST, PUT, DELETE, PATCH, OPTIONS','allowHeaders':'Content-Type, Authorization, x-api-key, anthropic-version, x-omniroute-connection, X-OmniRoute-Lease-Owner, X-OmniRoute-Lease-Generation, x-internal-test, accept','allowCredentials':None}
+ public['response'] = public_response()
+ public['draining'] = {'during':{'status':503,'routeClass':'PUBLIC','contentType':'application/json','retryAfter':'5','requestIdUuid':True,'correlationMatchesRequestId':True,'body':json.dumps({'error':{'code':'SERVICE_UNAVAILABLE','message':'Server is shutting down','correlation_id_present':True},'errorKeys':['code','correlation_id','message'],'bodyKeys':['error']})},'after':public_response()}
+ public['cors'] = {'allowed':public_response('https://allowed.example'),'unlisted':public_response()}
  health = lambda ping: {'status':200,'cacheControl':'no-store','body':{'status':'ok','timestamp':'2026-01-01T00:00:00.000Z',**({'latencyMs':1} if ping else {})}}
  totals = {'totalRequests':3,'requestsWithCacheControl':2,'totalInputTokens':300,'totalCachedTokens':150,'totalCacheCreationTokens':10,'byProvider':{'alpha':{'totalRequests':2}},'byStrategy':{'direct':{'cachedTokens':50}},'extra':'private-canary'}
  metrics = lambda method: {'case':method+' /api/settings/cache-metrics','denied':{'status':401},'invalid':{'status':403},'allowed':{'status':200,'body':totals},'usageRowsAfter':3}
@@ -286,7 +329,10 @@ with tempfile.TemporaryDirectory() as temp:
  exported = json.loads((p/'export/observed-outcomes.json').read_text())
  assert 'private-canary' not in json.dumps(exported) and len(exported['sharedAuthentication']) == 12
  assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
+ assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
+ assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
+ assert exported['inputs']['sourceOverlaySha256'] == identity['sourceOverlaySha256']
  (p/'export/observed-outcomes.json').unlink(); (p/'export').rmdir()
  def rejected():
   try: m.export_observations(p, hashes)
@@ -299,11 +345,22 @@ with tempfile.TemporaryDirectory() as temp:
  for name in ('backend/core.ts','backend/settings.ts'):
   original = identity['fixtureSha256'].pop(name); put('data/pinned-ingress-observations.json',ingress); rejected()
   identity['fixtureSha256'][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['fixtureSha256'][name] = original
+ for name in list(identity['sourceOverlaySha256']):
+  original = identity['sourceOverlaySha256'].pop(name); put('data/pinned-ingress-observations.json',ingress); rejected()
+  identity['sourceOverlaySha256'][name] = {**original, 'executedSha256':'a'*64}; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['sourceOverlaySha256'][name] = original
  put('data/pinned-ingress-observations.json',ingress)
  for name in ('access-invalid','access-expired','access-revoked'):
   row = next(row for row in auth['results'] if row['name'] == name)
   row['events'].append({'event':'access-token:usage-stamp'}); put('data/observations.json',auth); rejected(); row['events'].clear()
   row['response']['body'] = 'management-handler-reached'; put('data/observations.json',auth); rejected(); row['response']['body'] = 'private-canary'
+ put('data/observations.json',auth)
+ during = public['draining']['during']
+ for key, bad in [('body','{"error":{"code":"wrong"}}'),('retryAfter','4'),('contentType','text/plain'),('routeClass','MANAGEMENT'),('correlationMatchesRequestId',False),('requestIdUuid',False)]:
+  original = during[key]; during[key] = bad; put('data/observations.json',auth); rejected(); during[key] = original
+ for key, bad in [('body','{"status":"ok","timestamp":"2025-01-01T00:00:00.000Z"}'),('cacheControl','public'),('contentType','text/plain')]:
+  original = public['response'][key]; public['response'][key] = bad; put('data/observations.json',auth); rejected(); public['response'][key] = original
+ original = public['cors']['unlisted']['allowOrigin']; public['cors']['unlisted']['allowOrigin'] = 'https://unlisted.example'; put('data/observations.json',auth); rejected(); public['cors']['unlisted']['allowOrigin'] = original
+ original = public['cors'].pop('allowed'); put('data/observations.json',auth); rejected(); public['cors']['allowed'] = original
  put('data/observations.json',auth)
  ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
  ingress['results'] = rows; rows[-1]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()

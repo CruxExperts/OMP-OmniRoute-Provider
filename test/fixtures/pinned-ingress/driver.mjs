@@ -33,6 +33,7 @@ async function ready(child) {
   throw new Error('NEXT_START_TIMEOUT');
 }
 async function request(path, headers = {}) {
+  const started = Date.now();
   const response = await fetch(base + path, { headers, redirect: 'manual', signal: AbortSignal.timeout(10000) });
   const reader = response.body?.getReader();
   const chunks = []; let size = 0;
@@ -45,7 +46,18 @@ async function request(path, headers = {}) {
       chunks.push(value);
     }
   }
-  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), body: Buffer.concat(chunks).toString('utf8') };
+  const body = Buffer.concat(chunks).toString('utf8');
+  const ended = Date.now();
+  const requestId = response.headers.get('x-request-id');
+  let parsed; try { parsed = JSON.parse(body); } catch { parsed = null; }
+  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), body,
+    contentType: response.headers.get('content-type'), cacheControl: response.headers.get('cache-control'),
+    allowOrigin: response.headers.get('access-control-allow-origin'), vary: response.headers.get('vary'),
+    allowMethods: response.headers.get('access-control-allow-methods'), allowHeaders: response.headers.get('access-control-allow-headers'),
+    allowCredentials: response.headers.get('access-control-allow-credentials'), retryAfter: response.headers.get('retry-after'),
+    requestIdUuid: typeof requestId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId),
+    correlationMatchesRequestId: typeof requestId === 'string' && parsed?.error?.correlation_id === requestId,
+    started, ended };
 }
 async function awaitStatus(child, path, status) {
   const deadline = Date.now() + 10000;
@@ -85,27 +97,31 @@ for (const scenario of cases) {
   const state = { bypass: scenario.bypass, syncToken: sync, settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true }, tokens: scenario.row ? [scenario.row] : [], failTokenRead: scenario.failTokenRead === true };
   await writeFile(statePath, JSON.stringify(state), { mode: 0o600 });
   await writeFile(eventsPath, '', { mode: 0o600 });
-  const child = spawn(node, ['--import', `${fixture}/initialize.mjs`, '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], { cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: stateDir, INGRESS_STATE_FILE: statePath, INGRESS_EVENT_FILE: eventsPath, JWT_SECRET: jwtSecret }, stdio: ['ignore', 'inherit', 'inherit'] });
+  const child = spawn(node, ['--import', `${fixture}/initialize.mjs`, '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], { cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: stateDir, INGRESS_STATE_FILE: statePath, INGRESS_EVENT_FILE: eventsPath, JWT_SECRET: jwtSecret, CORS_ALLOWED_ORIGINS: 'https://allowed.example' }, stdio: ['ignore', 'inherit', 'inherit'] });
   try {
     await ready(child);
     const result = await request(scenario.path, scenario.headers);
     const expectedClass = scenario.health ? 'PUBLIC' : 'MANAGEMENT';
     if (result.routeClass !== expectedClass) throw new Error(`MATCHER_NOT_OBSERVED:${scenario.name}`);
     if (result.status !== scenario.status || (scenario.marker && !result.body.includes(scenario.marker))) throw new Error(`HTTP_MISMATCH:${scenario.name}:${result.status}`);
-    let draining;
+    let draining, cors;
     if (scenario.name === 'disabled-bypass-health') {
       child.kill('SIGUSR2');
       const during = await awaitStatus(child, '/api/health', 503);
       child.kill('SIGUSR2');
       const after = await awaitStatus(child, '/api/health', 200);
       if (during.status !== 503 || after.status !== 200) throw new Error('DRAIN_TRANSITION_MISMATCH');
+      // Keep the identifier only as a checked relation, never in observation files.
+      const error = JSON.parse(during.body).error;
+      during.body = JSON.stringify({ error: { code: error.code, message: error.message, correlation_id_present: typeof error.correlation_id === 'string' }, errorKeys: Object.keys(error).sort(), bodyKeys: Object.keys(JSON.parse(during.body)).sort() });
       draining = { during, after };
+      cors = { allowed: await request('/api/health', { origin: 'https://allowed.example' }), unlisted: await request('/api/health', { origin: 'https://unlisted.example' }) };
     }
     if ((await stat(eventsPath)).size > 1048576) throw new Error(`EVENT_LOG_LIMIT:${scenario.name}`);
     const events = (await readFile(eventsPath, 'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);
     if (events.some(e => String(e.event).startsWith('unsupported:'))) throw new Error(`UNSUPPORTED_BOUNDARY:${scenario.name}`);
     if (scenario.name === 'access-allowed' && !events.some(e => e.event === 'access-token:usage-stamp')) throw new Error('TOKEN_USAGE_STAMP_MISSING');
-    results.push({ name: scenario.name, stateSha256: sha(JSON.stringify(state)), response: result, draining, events });
+    results.push({ name: scenario.name, stateSha256: sha(JSON.stringify(state)), response: result, draining, cors, events });
   } finally {
     await stop(child);
   }
