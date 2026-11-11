@@ -88,12 +88,16 @@ does not establish a provider hang. The failure artifact also records fixed
 selector markers, bounded character distances, and the enable-pattern match
 result, without retaining terminal text. Neither platform is qualified by this
 diagnostic result.
-The administration smoke recognizes both ordinary Yes/No labels and the known
-Windows redraw form with an `X` immediately before the terminal border, while
-rejecting longer words. The sanitized selector snapshot from run 43017516109
-used the same earlier label boundary, so it cannot establish whether that run
-contained the redraw form. Official Windows qualification remains pending fresh
-successful native evidence.
+A one-off reproduction with pinned Bun 1.4.2 showed that
+`stripVTControlCharacters` mishandles colon-form SGR and leaves the final `X`
+from erase controls: `ESC[38:2::254:188:56mYes ESC[149X ESC[149C│`
+(without the illustrative spaces) becomes `:2::254:188:56mYesX│`, while
+`No` followed by those controls becomes `NoX│`. This produces the observed
+false Yes / true No selector signature with the earlier label boundary. The
+smoke parser now removes complete CSI sequences before its usual terminal
+normalization, including when a sequence spans output chunks. This local
+reproduction does not prove the cause of the hosted failures; official Windows
+qualification remains pending fresh successful native evidence.
 
 
 

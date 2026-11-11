@@ -26,6 +26,7 @@ import {
   nativeLoginCommandCompletedPattern,
   nativePtyDialogueText,
   nativeSetupActivatedPattern,
+  normalizeTerminalOutput,
   parseWindowsDiagnostic,
   researchSetupFailureReproduced,
   terminateAfterStagingObservation,
@@ -105,16 +106,23 @@ test("admin failure snapshot retains only bounded confirmation markers", () => {
   });
 });
 
-test("admin confirmation labels accept native redraw borders without matching longer or embedded words", () => {
+test("admin confirmation labels accept normal and terminal-rendered borders", () => {
   const enable = "Enable OmniRoute administration";
   const apply = "Confirm this exact target, side effect, and irreversible consequence?";
-  for (const suffix of ["", "│", "X│"]) {
+  for (const suffix of ["", "│"]) {
     const labels = `❯ Yes${suffix}\nNo${suffix}`;
     const selector = `${enable}\n${labels}`;
     expect(nativeAdminEnableConfirmationPattern.test(selector)).toBe(true);
     expect(nativeAdminApplyConfirmationPattern.test(`${apply}\n${labels}`)).toBe(true);
     expect(nativeAdminSelectorSnapshot(selector, 1)).toMatchObject({ yes: true, no: true, enableRegexMatched: true });
   }
+  const raw = `${enable}\r\n❯ \x1b[38:2::254:188:56mYes\x1b[149X\x1b[149C│\r\nNo\x1b[149X\x1b[149C│`;
+  const visible = normalizeTerminalOutput(raw);
+  expect(visible).toBe(`${enable}\n❯ Yes│\nNo│`);
+  expect(nativeAdminEnableConfirmationPattern.test(visible)).toBe(true);
+  expect(nativeAdminApplyConfirmationPattern.test(visible.replace(enable, apply))).toBe(true);
+  expect(nativeAdminSelectorSnapshot(raw, 1)).toMatchObject({ yes: true, no: true, enableRegexMatched: true });
+  expect(normalizeTerminalOutput("\x9b38:2::254:188:56mYes\x9b149X│")).toBe("Yes│");
   for (const labels of ["❯ Yesman\nNo", "❯ Yes\nNotebook", "❯ PrefixYes\nNo", "❯ Yes\nPrefixNo", "❯ YesX\nNo", "❯ Yes\nNoX"]) {
     const selector = `${enable}\n${labels}`;
     expect(nativeAdminEnableConfirmationPattern.test(selector)).toBe(false);
@@ -125,6 +133,18 @@ test("admin confirmation labels accept native redraw borders without matching lo
       no: !/Notebook|PrefixNo|NoX/.test(labels),
     });
   }
+});
+
+test("dialogue normalizes CSI sequences split across raw chunks", async () => {
+  const dispatched = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    { when: nativeAdminEnableConfirmationPattern, text: "yes", afterMs: 0 },
+  ], async () => { dispatched.resolve(); });
+  expect(scheduler.observe("Enable OmniRoute administration\n❯ \x1b[38:2::254:")).toBe(false);
+  expect(scheduler.observe("188:56mYes\x1b[149")).toBe(false);
+  expect(scheduler.observe("X\x1b[149C│\nNo\x1b[149X\x1b[149C│")).toBe(true);
+  await dispatched.promise;
+  scheduler.cancel();
 });
 
 test("native setup stops only after the post-login native catalog is ready", async () => {
@@ -205,8 +225,9 @@ test("Windows diagnostic collector accepts split stderr events without retaining
   const collector = createWindowsDiagnosticCollector(event => events.push(event));
   const safe = { kind: "credential", elapsedMs: 42, outcome: "ok", abortedAtEntry: false };
   const line = `CRUX_WINDOWS_DIAGNOSTIC:${JSON.stringify(safe)}`;
-  collector.observe(`secret output\n${line.slice(0, 25)}`);
-  collector.observe(`${line.slice(25)}\r\nCRUX_WINDOWS_DIAGNOSTIC:{"secret":"private"}\n`);
+  collector.observe(`secret output\n\x1b[38:2::254:`);
+  collector.observe(`188:56m${line.slice(0, 25)}`);
+  collector.observe(`${line.slice(25)}\x1b[149X\r\nCRUX_WINDOWS_DIAGNOSTIC:{"secret":"private"}\n`);
   collector.observe(`${"x".repeat(5000)}\n${line}`);
   collector.finish();
   expect(events).toEqual([safe, safe]);
@@ -324,15 +345,15 @@ test("native login confirms an affirmative switch away from environment credenti
   ].join("\n");
   expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt)).toBe(true);
   const nativePrompt = [
-    "│ Use a native OmniRoute profile connection instead of the environment connection?X│",
+    "│ Use a native OmniRoute profile connection instead of the environment connection?\x1b[149X│",
     "│ This OMP profile will use the endpoint and runtime key you enter. Environment variables remain unchanged; a missing native credential will fail closed.      │",
-    "│ e.g., yes/noX│",
-    "│ >  X│",
-    "│ (⎋ to cancel, ⏎ to submit)X│",
+    "│ e.g., \x1b[38:2::254:188:56myes/no\x1b[149X│",
+    "│ >  \x1b[149X│",
+    "│ (⎋ to cancel, ⏎ to submit)\x1b[149X│",
   ].join("\n");
-  expect(nativeEnvironmentSwitchConfirmationPattern.test(nativePrompt)).toBe(true);
-  expect(nativeEnvironmentSwitchConfirmationPattern.test(nativePrompt.replace("yes/noX│", "yes/nothingX│"))).toBe(false);
-  expect(nativeEnvironmentSwitchConfirmationPattern.test(nativePrompt.replace("missing native credential will fail closed", "missing native credential will be ignored"))).toBe(false);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(normalizeTerminalOutput(nativePrompt))).toBe(true);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(normalizeTerminalOutput(nativePrompt.replace("yes/no", "yes/nothing")))).toBe(false);
+  expect(nativeEnvironmentSwitchConfirmationPattern.test(normalizeTerminalOutput(nativePrompt.replace("missing native credential will fail closed", "missing native credential will be ignored")))).toBe(false);
   expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt.replace("yes/no", ""))).toBe(false);
   expect(nativeEnvironmentSwitchConfirmationPattern.test(prompt.replace("endpoint and runtime key", "connection"))).toBe(false);
   expect(nativeEnvironmentSwitchConfirmationPattern.test("Connect to OmniRoute?\nYes/No")).toBe(false);

@@ -782,6 +782,10 @@ type CommandOptions = {
 
 export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
 
+export function normalizeTerminalOutput(text: string): string {
+  return stripVTControlCharacters(text.replace(/(?:\x1b\[|\x9b)[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "")).replace(/\r\n?/g, "\n");
+}
+
 export function nativeAdminIoTimeoutMs(platform: NodeJS.Platform): number {
   if (platform !== "win32") return 105_000;
   // Three registration checks and one session check precede the dialogue.
@@ -819,7 +823,7 @@ export function createDialogueScheduler(
     const step = steps[completed]!;
     const when = typeof step.when === "function" ? step.when() : step.when;
     when.lastIndex = 0;
-    const match = when.exec(stripVTControlCharacters(buffer).replace(/\r\n?/g, "\n"));
+    const match = when.exec(normalizeTerminalOutput(buffer));
     if (!match) return false;
 
     pending = true;
@@ -888,8 +892,8 @@ export const nativeAdminInitialStep: DialogueStep = {
   afterMs: 0,
   captureDuringDispatch: true,
 };
-export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
-const nativeAdminLabelPattern = (label: "Yes" | "No") => `\\b${label}(?=X?│|[ \\t\\r\\n]|$)`;
+export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:│|[ \t\r\n]|$)/i;
+const nativeAdminLabelPattern = (label: "Yes" | "No") => `\\b${label}(?=│|[ \\t\\r\\n]|$)`;
 const nativeAdminYesLabel = nativeAdminLabelPattern("Yes");
 const nativeAdminNoLabel = nativeAdminLabelPattern("No");
 export const nativeAdminEnableConfirmationPattern = new RegExp(`Enable OmniRoute administration[\\s\\S]{0,1000}${nativeAdminYesLabel}[\\s\\S]{0,1000}${nativeAdminNoLabel}`, "i");
@@ -899,7 +903,7 @@ export const nativeAdminEmptyFallbackReadPattern = /read result for GET \/api\/f
 
 // Terminal bytes stay in memory; only fixed confirmation markers are retained.
 export function nativeAdminSelectorSnapshot(output: string, dialogueCompleted: number): JsonObject {
-  const fullOutput = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
+  const fullOutput = normalizeTerminalOutput(output);
   const visible = fullOutput.slice(-32_768);
   const title = "Enable OmniRoute administration";
   const titleIndex = visible.lastIndexOf(title);
@@ -919,7 +923,7 @@ export function nativeAdminSelectorSnapshot(output: string, dialogueCompleted: n
 }
 
 export function nativeLoginSelectorShowsProvider(output: string): boolean {
-  const visible = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
+  const visible = normalizeTerminalOutput(output);
   const switchPrompt = visible.indexOf("Use a native OmniRoute profile connection instead of the environment connection?");
   if (switchPrompt < 0) return false;
   const selector = visible.lastIndexOf("Select provider to login", switchPrompt);
@@ -939,7 +943,7 @@ export function hasNativeUnknownOutcomes(output: string, planIds: readonly strin
 }
 
 export function hasNativeAvailableOperationDescription(output: string, operationId: string): boolean {
-  const visible = stripVTControlCharacters(output).replace(/\r\n?/g, "\n");
+  const visible = normalizeTerminalOutput(output);
   return availableOperationDescriptionPattern(operationId).test(visible);
 }
 
@@ -1046,13 +1050,14 @@ export function parseWindowsDiagnostic(line: string): JsonObject | undefined {
 export function createWindowsDiagnosticCollector(capture: (event: JsonObject) => void): { observe(text: string): void; finish(): void } {
   let buffer = "";
   const consume = (line: string): void => {
-    const start = line.indexOf("CRUX_WINDOWS_DIAGNOSTIC:");
-    const event = start < 0 ? undefined : parseWindowsDiagnostic(line.slice(start));
+    const normalized = normalizeTerminalOutput(line);
+    const start = normalized.indexOf("CRUX_WINDOWS_DIAGNOSTIC:");
+    const event = start < 0 ? undefined : parseWindowsDiagnostic(normalized.slice(start).replace(/\n$/, ""));
     if (event) capture(event);
   };
   return {
     observe(text) {
-      const lines = (buffer + stripVTControlCharacters(text)).split(/\r?\n/);
+      const lines = (buffer + text).split("\n");
       buffer = (lines.pop() ?? "").slice(-4096);
       for (const line of lines) consume(line);
     },
@@ -1394,7 +1399,7 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
     }
     if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
   }
-  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   if (research) {
     Object.assign(research.observations, observations, {
       dialogueCompleted: result.dialogueCompleted,
@@ -1419,7 +1424,7 @@ async function nativeWizardCancel(binary: string, cwd: string, environment: Node
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 35_000, dialogue });
-  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   const rendered = new RegExp(`${DISPLAY_NAME}\\s+—\\s+Setup`, "i").test(output) && /Connection/i.test(output) && /Administration \(optional\)/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;
   if (!rendered || !cancelled || (result.code !== 0 && result.code !== 143 && result.signal !== "SIGTERM")) throw new Error(`guided wizard did not render and cancel cleanly (dialogue ${result.dialogueCompleted}/${dialogue.length})`);
@@ -1509,7 +1514,7 @@ async function nativePromptSetup(
   }
   if (research) Object.assign(research.observations, { dialogueCompleted: result.dialogueCompleted, timedOut: result.stderr === "command timeout", exitCode: result.code, signal: result.signal });
   if (stagingFailed) throw new Error("native provider setup failed while staging configuration");
-  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   if ([runtimeKey, oldEnvKey].some(secret => result.stdout.includes(secret) || result.stderr.includes(secret))) throw new Error("native provider setup leaked fixture credentials");
   const controlledStop = result.signal === "SIGTERM" || (result.code === 143 && result.dialogueCompleted === dialogue.length);
   if (result.code !== 0 && !controlledStop) throw new Error(`native provider setup failed with exit ${result.code ?? "unknown"}`);
@@ -1542,7 +1547,7 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
     { when: prompt, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, argv: ["/omniroute-admin status"], timeoutMs: 45_000, dialogue });
-  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
+  const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   const requiredOperations = [
     "GET /api/fallback/chains",
     "POST /api/fallback/chains",
@@ -1632,7 +1637,7 @@ async function nativeAdministrationIo(
     { when: nativeAdminEmptyFallbackReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey, ...(windowsDiagnostic ? { OMP_SMOKE_LOGIN_DIAGNOSTICS: "1" } : {}) }, argv: ["/omniroute-admin status"], timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue, ...(windowsDiagnostic ? { windowsDiagnostic } : {}) });
-  const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).replace(/\r\n?/g, "\n");
+  const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
     selectorDiagnostic?.(nativeAdminSelectorSnapshot(result.stdout, result.dialogueCompleted));
@@ -2084,7 +2089,7 @@ export async function runWindowsLoginResearch(options: {
       moduleResolutionFailure: /Cannot find (?:package|module)|ModuleNotFound/u.test(`${versionResult.stdout}\n${versionResult.stderr}`),
       nativeLoadFailure: /DLL|dlopen|LoadLibrary|native addon/iu.test(`${versionResult.stdout}\n${versionResult.stderr}`),
     };
-    const version = stripVTControlCharacters(requireSuccess(versionResult, "research host version")).trim();
+    const version = normalizeTerminalOutput(requireSuccess(versionResult, "research host version")).trim();
     result.reportedVersion = /^(?:omp\/)?[0-9A-Za-z.+-]{1,64}$/u.test(version) ? version : "non-semantic-version-output";
     if (!/^(?:omp\/)?18\.12\.5$/u.test(version)) throw new Error("Research host must report 18.12.5");
     result.hostVersion = "18.12.5";
