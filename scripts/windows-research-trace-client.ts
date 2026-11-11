@@ -9,6 +9,7 @@ const kinds: Record<string, true> = {
 	"paste-return": true, "alt-return": true, "submit-entered": true, "submit-disabled": true,
 	"unrelated-newline": true, "editor-return": true, "dictation-return": true,
 	"callback-dispatch": true, "gate": true, "callback-assigned": true, "callback-entry": true, "login": true,
+	"startup": true,
 };
 const integer = (x: unknown, max: number): x is number => typeof x === "number" && Number.isSafeInteger(x) && x >= 0 && x <= max;
 const object = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
