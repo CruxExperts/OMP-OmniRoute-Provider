@@ -2,15 +2,18 @@ import { expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
+  generateOperations,
   operationContractTemplate,
   operationEvidenceBinding,
   outcomeArtifactPath,
   testCaseSourceHash,
   testOutcomeHash,
 } from "../scripts/generate-contracts.ts";
-import { getOperation, type OperationDescriptor } from "../src/admin/registry.ts";
+import { decodeRouteSources } from "../scripts/route-source-store.ts";
+import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
+import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 
 function sourceRequestAdapter(operationId: string) {
   const source = getOperation(operationId);
@@ -43,6 +46,71 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("fixture value must be an object");
   return value as Record<string, unknown>;
 }
+
+test("public health pipeline responses remain conservative without complete exclusivity proof", () => {
+  const template = record(operationContractTemplate("GET /api/health").response);
+  const variants = template.variants as Array<Record<string, unknown>>;
+  for (const status of ["403", "503"]) {
+    const variant = variants.find(item => item.statusCode === status);
+    if (!variant) throw new Error(`missing response ${status}`);
+    expect(record((variant.content as unknown[])[0]).schema).toBeNull();
+    expect(variant.headers).toEqual({});
+    expect(variant.sourceFiles).toContain("src/server/authz/pipeline.ts");
+  }
+});
+
+test("client API SSO rejections are not narrowed to pipeline-only bodies or headers", () => {
+  const response = record(operationContractTemplate("POST /api/v1/messages").response);
+  const variants = response.variants as Array<Record<string, unknown>>;
+  const source = getOperation("POST /api/v1/messages");
+  if (!source) throw new Error("missing client API operation");
+  // Values are the pinned Entra policy outcomes forwarded by rejectionResponse.
+  const outcomes = [
+    { status: "403", body: { error: { code: "AUTH_SSO_DEACTIVATED", message: "This SSO identity has been deactivated on the gateway", correlation_id: "request-id" } } },
+    { status: "503", body: { error: { code: "AUTH_SSO_PROVISION_FAILED", message: "Could not provision gateway access for this identity", correlation_id: "request-id" } } },
+  ];
+  for (const { status, body } of outcomes) {
+    const variant = variants.find(item => item.statusCode === status);
+    if (!variant) throw new Error(`missing response ${status}`);
+    expect(projectResponse({ ...source, response: { ...source.response, schema: record((variant.content as unknown[])[0]).schema as OperationDescriptor["response"]["schema"] }, streaming: { mode: "json", framing: "application/json" } }, body)).toBeUndefined();
+    expect(record((variant.content as unknown[])[0]).schema).toBeNull();
+    expect(variant.headers).toEqual({});
+    expect(variant.sourceFiles).toContain("src/server/authz/pipeline.ts");
+    expect(variant.sourceFiles).toContain("src/server/authz/classify.ts");
+  }
+});
+
+test("supplied pipeline witnesses cannot claim excluded HEAD or OPTIONS responses", async () => {
+  const stored = JSON.parse(await readFile(resolve(import.meta.dir, "../provenance/route-sources.json"), "utf8"));
+  for (const method of ["HEAD", "OPTIONS"]) {
+    const manifest = record(decodeRouteSources(stored));
+    const routes = manifest.routeFiles as Array<Record<string, unknown>>;
+    const route = routes.find(item => item.routeTemplate === "/api/v1/messages");
+    if (!route) throw new Error("missing client API fixture route");
+    const exports = record(route.exports).resolved as string[];
+    if (!exports.includes(method)) exports.push(method);
+    const hints = route.centralResponseHints as Array<Record<string, unknown>>;
+    const originals = hints.filter(hint => hint.authority === "pinned-framework-pipeline" && hint.method === "POST");
+    hints.push(...originals.map(hint => ({ ...hint, method })));
+    const coverage = record(record(manifest.centralIngress).coverage);
+    coverage.publishedResponseVariants = Number(coverage.publishedResponseVariants) + originals.length;
+    expect(() => generateOperations(manifest, new Map())).toThrow("central response hint is not source-bound");
+  }
+});
+
+test("pipeline and management responses sharing a status remain one conservative variant", () => {
+  const response = record(operationContractTemplate("GET /api/providers").response);
+  const variants = response.variants as Array<Record<string, unknown>>;
+  for (const status of ["401", "403", "503"]) expect(variants.filter(item => item.statusCode === status)).toHaveLength(1);
+  const forbidden = variants.find(item => item.statusCode === "403");
+  expect(forbidden).toBeDefined();
+  expect((forbidden?.sourceFiles as string[])).toContain("src/server/authz/pipeline.ts");
+  expect((forbidden?.sourceFiles as string[])).toContain("src/server/authz/policies/management.ts");
+  expect(record((forbidden?.content as unknown[])[0]).schema).toBeNull();
+  const ping = jsonHealthContract("GET /api/health/ping");
+  const ping503 = ping.response.variants.find(item => item.statusCode === "503");
+  expect(ping503?.content[0]?.schema).toBeNull();
+});
 
 test("OpenAPI nullable without type preserves enum constraints without inventing a type", () => {
   const request = record(operationContractTemplate("POST /api/v1/music/detailed").request);

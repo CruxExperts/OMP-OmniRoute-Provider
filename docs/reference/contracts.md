@@ -116,6 +116,13 @@ authentication does not imply that proxy cache warmup or IP filtering avoids
 storage. Blocked-IP behavior remains unproven; a changed default-bundler path
 requires a new isolated build and HTTP observation before its evidence is accepted.
 
+Canonical API response metadata includes source-witnessed pipeline draining and
+IP-filter rejection branches before route policy evaluation. This does not
+qualify an operation or prove exclusive response shapes: another applicable
+policy or handler may return the same status with a different body or headers.
+HEAD, OPTIONS, dynamic paths, and rewritten aliases need their own method/path
+proof rather than inferred JSON outcomes.
+
 
 After the final manifest edits, rerun every suite named by the active eligibility
 records. Compare each fresh observation and source binding with its reviewed

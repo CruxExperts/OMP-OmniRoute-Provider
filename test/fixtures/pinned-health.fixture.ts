@@ -60,8 +60,10 @@ export function jsonHealthContract(id: JsonHealthId): OperationSourceContract {
   return {
     ...template,
     auth: ping ? { ...template.auth, sourcePolicy: { status: "unknown" } } : { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } },
-    response: { ...template.response, mediaType: "application/json", schema: ping ? { oneOf: [success, pingError] } : success,
-      variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? success : pingError })) })) },
+    response: { ...template.response, mediaType: "application/json", schema: ping ? { oneOf: [pingResponse, pingError] } : success,
+      variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({
+        ...content, schema: variant.statusCode === "200" ? success : ping && variant.statusCode === "500" && content.sourceFile !== "src/server/authz/pipeline.ts" ? pingError : content.schema,
+      })) })) },
     secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
     confirmation: { required: false, reason: "The pinned handlers only report liveness and database responsiveness." },

@@ -547,6 +547,7 @@ type SourceResponseHint = {
   sourceFiles: string[];
   mediaType: string;
   contentSourceFile: string;
+  pipelineKind?: "draining" | "ip-deny";
 };
 
 type SourceResponseVariant = {
@@ -565,6 +566,7 @@ type CentralIngressContext = {
   policyResponseStatuses: Set<string>;
   policyResponseLines: Map<string, number>;
   responseSourceLine: number;
+  pipelineResponseLines: Map<string, number>;
   optionsPreflightLine: number;
   managementPolicyOperations: number;
   publishedResponseVariants: number;
@@ -575,6 +577,7 @@ type CentralIngressContext = {
 const CENTRAL_INGRESS_FILES = [
   "src/proxy.ts",
   "src/server/authz/pipeline.ts",
+  "src/server/authz/headers.ts",
   "src/server/authz/classify.ts",
   "src/shared/constants/publicApiRoutes.ts",
   "src/server/authz/policies/management.ts",
@@ -588,7 +591,7 @@ function validateCentralIngressContext(manifest: RecordValue, frameworkContextSh
     "classifierSourceFile", "publicRoutePolicySourceFile", "proxyMatcherSourceFile",
     "pipelineSourceFile", "policySourceFile", "policyOutcomeFactorySourceFile",
     "responseSourceFile", "policyResponseStatuses", "policyResponseWitnesses",
-    "responseWitness", "optionsPreflightWitness", "coverage",
+    "responseWitness", "pipelineResponseWitnesses", "optionsPreflightWitness", "coverage",
   ]);
   if (central.authority !== "pinned-framework-management-policy"
     || central.frameworkContextSha256 !== frameworkContextSha256
@@ -669,6 +672,18 @@ function validateCentralIngressContext(manifest: RecordValue, frameworkContextSh
     throw new Error("central ingress response owner witness is not the pinned JSON response function");
   }
   const responseSourceLine = requireLine(responseWitness.line, "central ingress response witness line");
+  const pipelineResponseLines = new Map<string, number>();
+  for (const [index, value] of requireArray(central.pipelineResponseWitnesses, "manifest.centralIngress.pipelineResponseWitnesses").entries()) {
+    const witness = requireRecord(value, `pipelineResponseWitnesses[${index}]`);
+    assertKeys(witness, `pipelineResponseWitnesses[${index}]`, ["kind", "statusCode", "sourceFile", "line"]);
+    const kind = requireString(witness.kind, "pipeline witness kind");
+    if (!((kind === "draining" && witness.statusCode === "503") || (kind === "ip-deny" && witness.statusCode === "403"))
+      || witness.sourceFile !== central.pipelineSourceFile || pipelineResponseLines.has(kind)) {
+      throw new Error("invalid pipeline response witness");
+    }
+    pipelineResponseLines.set(kind, requireLine(witness.line, "pipeline witness line"));
+  }
+  if (pipelineResponseLines.size !== 2) throw new Error("pipeline response witnesses are incomplete");
   const optionsPreflightWitness = requireRecord(central.optionsPreflightWitness, "manifest.centralIngress.optionsPreflightWitness");
   assertKeys(optionsPreflightWitness, "manifest.centralIngress.optionsPreflightWitness", ["sourceFile", "line"]);
   if (optionsPreflightWitness.sourceFile !== central.pipelineSourceFile) {
@@ -736,6 +751,7 @@ function validateCentralIngressContext(manifest: RecordValue, frameworkContextSh
     policyResponseStatuses: new Set(policyResponseStatuses),
     policyResponseLines,
     responseSourceLine,
+    pipelineResponseLines,
     optionsPreflightLine,
     managementPolicyOperations: coverage.managementPolicyOperations as number,
     publishedResponseVariants: coverage.publishedResponseVariants as number,
@@ -800,9 +816,8 @@ function sourceResponseHints(
     const hint = requireRecord(value, `${routeFile}.centralResponseHints[${index}]`);
     assertKeys(hint, `${routeFile}.centralResponseHints[${index}]`, [
       "method", "statusCode", "mediaType", "sourceFile", "routePath", "routeClass",
-      "authority", "policySourceFile", "policySourceLine", "responseSourceLine",
-      "evidenceSourceFiles", "frameworkContextSha256", "frameworkSourcesSha256",
-    ]);
+      "authority", "responseSourceLine", "evidenceSourceFiles", "frameworkContextSha256", "frameworkSourcesSha256",
+    ], ["policySourceFile", "policySourceLine", "pipelineKind"]);
     const hintMethod = requireString(hint.method, `${routeFile}.centralResponseHints[${index}].method`);
     if (!METHODS.includes(hintMethod as Method) || !routeExports.includes(hintMethod)) {
       throw new Error(`${routeFile} central response hint is not bound to an exported method`);
@@ -810,26 +825,40 @@ function sourceResponseHints(
     const statusCode = requireString(hint.statusCode, `${routeFile}.centralResponseHints[${index}].statusCode`);
     const mediaType = requireString(hint.mediaType, `${routeFile}.centralResponseHints[${index}].mediaType`);
     const sourceFile = requireString(hint.sourceFile, `${routeFile}.centralResponseHints[${index}].sourceFile`);
-    const policySourceFile = requireString(hint.policySourceFile, `${routeFile}.centralResponseHints[${index}].policySourceFile`);
+    const policySourceFile = hint.policySourceFile;
     const evidenceSourceFiles = stringList(hint.evidenceSourceFiles, `${routeFile}.centralResponseHints[${index}].evidenceSourceFiles`, true);
     const routeHintPath = requireString(hint.routePath, `${routeFile}.centralResponseHints[${index}].routePath`);
-    if (hint.authority !== centralIngress.authority || hint.routeClass !== "MANAGEMENT"
-      || sourceFile !== centralIngress.responseSourceFile || policySourceFile !== centralIngress.policySourceFile
+    const pipeline = hint.authority === "pinned-framework-pipeline";
+    const kind = hint.pipelineKind;
+    // These exits precede all route policies; routeClass is descriptive only,
+    // not proof of classification or of exclusive response shapes.
+    const validPipeline = pipeline && (kind === "draining" || kind === "ip-deny")
+      && hintMethod !== "HEAD" && hintMethod !== "OPTIONS"
+      && ["PUBLIC", "MANAGEMENT", "CLIENT_API"].includes(String(hint.routeClass))
+      && statusCode === (kind === "draining" ? "503" : "403")
+      && hint.responseSourceLine === centralIngress.pipelineResponseLines.get(kind)
+      && hint.policySourceFile === undefined && hint.policySourceLine === undefined
+      && /^\/api\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(routePath)
+      && !routePath.split("/").some(segment => segment === "." || segment === "..");
+    const validPolicy = hint.authority === centralIngress.authority && hint.routeClass === "MANAGEMENT"
+      && policySourceFile === centralIngress.policySourceFile && hint.pipelineKind === undefined
+      && centralIngress.policyResponseStatuses.has(statusCode)
+      && hint.policySourceLine === centralIngress.policyResponseLines.get(statusCode)
+      && hint.responseSourceLine === centralIngress.responseSourceLine;
+    if ((!validPipeline && !validPolicy) || sourceFile !== centralIngress.responseSourceFile
       || routeHintPath !== routePath || hint.frameworkContextSha256 !== centralIngress.frameworkContextSha256
       || hint.frameworkSourcesSha256 !== centralIngress.frameworkSourcesSha256 || mediaType !== "application/json"
-      || !/^[45][0-9]{2}$/.test(statusCode) || !centralIngress.policyResponseStatuses.has(statusCode)
-      || hint.policySourceLine !== centralIngress.policyResponseLines.get(statusCode)
-      || hint.responseSourceLine !== centralIngress.responseSourceLine
       || canonicalJson(toJson(evidenceSourceFiles, "central response witness files"))
         !== canonicalJson(toJson(centralIngress.frameworkSources, "pinned central framework source files"))) {
-      throw new Error(`${operationId} central response hint is not source-bound to the pinned management policy and response owner`);
+      throw new Error(`${operationId} central response hint is not source-bound to the pinned framework`);
     }
-    const identity = `${hintMethod}\0${statusCode}`;
+    const identity = `${hintMethod}\0${statusCode}\0${hint.authority}`;
     if (seenCentralHints.has(identity)) throw new Error(`${operationId} has a duplicate central response status hint`);
     seenCentralHints.add(identity);
     if (hintMethod === method) {
-      selectedCentralStatuses.push(statusCode);
+      if (validPolicy) selectedCentralStatuses.push(statusCode);
       addFramework(statusCode, evidenceSourceFiles, sourceFile, mediaType);
+      if (validPipeline) hints[hints.length - 1]!.pipelineKind = kind as "draining" | "ip-deny";
     }
   }
   if (selectedCentralStatuses.length > 0) {
@@ -847,33 +876,46 @@ function validateCentralResponseHintCoverage(
   centralIngress: CentralIngressContext,
 ): void {
   const variants = new Map<string, Set<string>>();
+  const policyOperations = new Set<string>();
   let variantCount = 0;
   for (const [routeIndex, route] of routes.entries()) {
     const routeFile = requireString(route.sourceFile, `routeFiles[${routeIndex}].sourceFile`);
     const routePath = requireString(route.routeTemplate, `${routeFile}.routeTemplate`);
-    for (const [hintIndex, value] of requireArray(route.centralResponseHints, `${routeFile}.centralResponseHints`).entries()) {
-      const hint = requireRecord(value, `${routeFile}.centralResponseHints[${hintIndex}]`);
-      const method = requireString(hint.method, `${routeFile}.centralResponseHints[${hintIndex}].method`);
-      const status = requireString(hint.statusCode, `${routeFile}.centralResponseHints[${hintIndex}].statusCode`);
-      if (hint.routePath !== routePath) throw new Error(`${routeFile} central response hint is bound to a different route`);
-      const key = `${method}\0${routePath}`;
+    for (const value of requireArray(route.centralResponseHints, `${routeFile}.centralResponseHints`)) {
+      const hint = requireRecord(value, `${routeFile}.centralResponseHints`);
+      const method = requireString(hint.method, "central hint method");
+      const status = requireString(hint.statusCode, "central hint status");
+      if (hint.routePath !== routePath) throw new Error(`${routeFile} central hint has a different route`);
+      const operation = `${method}\0${routePath}`;
+      const authority = requireString(hint.authority, "central hint authority");
+      const key = `${operation}\0${authority}`;
       const statuses = variants.get(key) ?? new Set<string>();
-      if (statuses.has(status)) throw new Error(`${routeFile} has a duplicate central response status for ${method} ${routePath}`);
+      if (statuses.has(status)) throw new Error(`${routeFile} has a duplicate central response witness`);
       statuses.add(status);
       variants.set(key, statuses);
+      if (authority === "pinned-framework-management-policy") policyOperations.add(operation);
       variantCount++;
     }
   }
-  const expectedStatuses = [...centralIngress.policyResponseStatuses].sort((left, right) => Number(left) - Number(right));
-  for (const [operation, actualStatuses] of variants) {
-    const actual = [...actualStatuses].sort((left, right) => Number(left) - Number(right));
-    if (canonicalJson(toJson(actual, `${operation}.centralResponseHints.statuses`))
-      !== canonicalJson(toJson(expectedStatuses, "pinned management policy response statuses"))) {
-      throw new Error(`${operation} central response hints omit or add a pinned management policy response variant`);
+  for (const [key, statuses] of variants) {
+    const expected = key.endsWith("\0pinned-framework-pipeline") ? ["403", "503"]
+      : [...centralIngress.policyResponseStatuses].sort((left, right) => Number(left) - Number(right));
+    if (canonicalJson(toJson([...statuses].sort(), "central statuses")) !== canonicalJson(toJson(expected, "expected central statuses"))) {
+      throw new Error(`${key} central response witnesses are incomplete`);
     }
   }
-  if (variantCount !== centralIngress.publishedResponseVariants
-    || variants.size !== centralIngress.managementPolicyOperations) {
+  for (const route of routes) {
+    const path = requireString(route.routeTemplate, "route template");
+    if (!path.startsWith("/api/") || /[{*]/.test(path)) continue;
+    const exports = requireArray(requireRecord(route.exports, "route exports").resolved, "resolved exports");
+    for (const method of exports) {
+      if (typeof method !== "string" || !METHODS.includes(method as Method) || method === "HEAD" || method === "OPTIONS") continue;
+      if (!variants.has(`${method}\0${path}\0pinned-framework-pipeline`)) {
+        throw new Error(`${method} ${path} is missing canonical pipeline response witnesses`);
+      }
+    }
+  }
+  if (variantCount !== centralIngress.publishedResponseVariants || policyOperations.size !== centralIngress.managementPolicyOperations) {
     throw new Error("central response hint coverage counts differ from the pinned manifest report");
   }
 }

@@ -24,11 +24,12 @@ type CentralResponseHint = {
   mediaType: string;
   sourceFile: string;
   routePath: string;
-  routeClass: "MANAGEMENT";
-  authority: "pinned-framework-management-policy";
-  policySourceFile: string;
-  policySourceLine: number;
+  routeClass: string;
+  authority: "pinned-framework-management-policy" | "pinned-framework-pipeline";
+  policySourceFile?: string;
+  policySourceLine?: number;
   responseSourceLine: number;
+  pipelineKind?: "draining" | "ip-deny";
   evidenceSourceFiles: string[];
   frameworkContextSha256: string;
   frameworkSourcesSha256: string;
@@ -353,6 +354,7 @@ function importClosure(entry: string): { files: string[]; external: string[]; un
 const centralIngressFiles = [
   "src/proxy.ts",
   "src/server/authz/pipeline.ts",
+  "src/server/authz/headers.ts",
   "src/server/authz/classify.ts",
   "src/shared/constants/publicApiRoutes.ts",
   "src/server/authz/policies/management.ts",
@@ -495,6 +497,58 @@ function assertOptionsPreflightBeforePolicy(source: ts.SourceFile): number {
     throw new Error("pinned authz pipeline no longer returns OPTIONS preflight before policy evaluation");
   }
   return preflightLine;
+}
+
+/** Fail closed on the exact pinned early-exit bodies and their ordering. */
+function pipelineEarlyExitWitnesses(proxy: ts.SourceFile, pipeline: ts.SourceFile, headers: ts.SourceFile) {
+  const text = pipeline.getFullText();
+  const required = [
+    'if (guardedPathname.startsWith("/api/") && isDraining()) {',
+    'const response = drainingResponse(requestId);',
+    'code: "SERVICE_UNAVAILABLE",', 'message: "Server is shutting down",',
+    'correlation_id: requestId,', '{ status: 503 }',
+    'response.headers.set("Retry-After", "5");',
+    'if (peerLocality !== "loopback") {',
+    'const ipVerdict = checkRequestIP(request, stampedClientIp ?? (viaProxy ? null : trustedPeerIp));',
+    'if (!ipVerdict.allowed) {', '{ error: ipVerdict.reason || "Access denied" },',
+    '{ status: 403 }', 'stampRouteResponse(blocked, requestId, classification.routeClass);',
+    'response.headers.set(AUTHZ_HEADER_REQUEST_ID, requestId);',
+  ];
+  if (!proxy.getFullText().includes('return runAuthzPipeline(request, { enforce: true });')
+    || required.some(part => !text.includes(part))
+    || !headers.getFullText().includes('export const AUTHZ_HEADER_REQUEST_ID = "x-request-id";')) {
+    throw new Error("pinned proxy pipeline early-exit witnesses changed");
+  }
+  const drain = text.indexOf(required[0]!);
+  const preflight = text.indexOf('if (method === "OPTIONS")');
+  const ip = text.indexOf(required[7]!);
+  const policy = text.indexOf('const outcome = await policy.evaluate(');
+  const entry = pipeline.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "runAuthzPipeline");
+  const drainFactory = pipeline.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "drainingResponse");
+  const stamp = pipeline.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "stampRouteResponse");
+  const entryStatements = entry?.body?.statements ?? [];
+  const drainGuard = entryStatements.find(node => ts.isIfStatement(node) && node.expression.getText(pipeline) === 'guardedPathname.startsWith("/api/") && isDraining()');
+  const ipGuard = entryStatements.find(node => ts.isIfStatement(node) && node.expression.getText(pipeline) === 'peerLocality !== "loopback"');
+  const factoryText = drainFactory?.getText(pipeline) ?? "";
+  const drainText = drainGuard?.getText(pipeline) ?? "";
+  const ipText = ipGuard?.getText(pipeline) ?? "";
+  if (required.slice(2, 7).some(part => !factoryText.includes(part))
+    || !factoryText.includes('response.headers.set(AUTHZ_HEADER_REQUEST_ID, requestId);')
+    || !drainText.includes('const response = drainingResponse(requestId);')
+    || !drainText.includes('stampRouteResponse(response, requestId, classification.routeClass);')
+    || !drainText.includes('return response;')
+    || required.slice(8, 13).some(part => !ipText.includes(part))
+    || !ipText.includes('return blocked;')
+    || !(stamp?.getText(pipeline) ?? "").includes('response.headers.set(AUTHZ_HEADER_REQUEST_ID, requestId);')) {
+    throw new Error("pinned pipeline early-exit control-flow witnesses changed");
+  }
+  if (!(drain >= 0 && drain < preflight && preflight < ip && ip < policy)) {
+    throw new Error("pinned pipeline early exits no longer precede policy in the reviewed order");
+  }
+  return [
+    { kind: "draining" as const, statusCode: "503", sourceFile: pipelineFile, line: pipeline.getLineAndCharacterOfPosition(drain).line + 1 },
+    { kind: "ip-deny" as const, statusCode: "403", sourceFile: pipelineFile, line: pipeline.getLineAndCharacterOfPosition(ip).line + 1 },
+  ];
 }
 
 function apiPathLiterals(source: ts.SourceFile): string[] {
@@ -747,6 +801,7 @@ assertProxyApiMatcher(proxySource);
 const optionsPreflightLine = assertOptionsPreflightBeforePolicy(pipelineSource);
 const managementPolicyResponses: ManagementPolicyResponse[] = collectManagementPolicyResponses(managementPolicySource, managementPolicyFile);
 const centralResponseWitness: PipelineResponseWitness = collectPipelineRejectionWitness(pipelineSource, pipelineFile);
+const pipelineResponseWitnesses = pipelineEarlyExitWitnesses(proxySource, pipelineSource, readSource(resolve(sourceRoot, "src/server/authz/headers.ts")).source);
 const centralResponseMediaType = centralResponseWitness.mediaType;
 const publicPathLiterals = apiPathLiterals(readSource(publicRoutesImportPath).source);
 const centralFrameworkSourcesSha256 = sourceDigestFor(centralIngressFiles);
@@ -876,6 +931,19 @@ for (const route of routeFiles) {
     }
     const classification = requireRecord(classifyRoute(classifierPath(route.routeTemplate), method), "pinned route classification");
     const routeClass = requireString(classification.routeClass, "pinned route classification.routeClass");
+    // Canonical literal paths only; aliases and dynamic patterns need separate proof.
+    if (!/[{*]/.test(route.routeTemplate) && classification.normalizedPath === route.routeTemplate) {
+      for (const witness of pipelineResponseWitnesses) {
+        route.centralResponseHints.push({
+          method, statusCode: witness.statusCode, mediaType: "application/json", sourceFile: pipelineFile,
+          routePath: route.routeTemplate, routeClass, authority: "pinned-framework-pipeline",
+          responseSourceLine: witness.line, pipelineKind: witness.kind,
+          evidenceSourceFiles: [...centralIngressFiles], frameworkContextSha256,
+          frameworkSourcesSha256: centralFrameworkSourcesSha256,
+        });
+        centralIngressCoverage.publishedResponseVariants += 1;
+      }
+    }
     if (routeClass !== "MANAGEMENT") {
       skipCentralIngress(`non-management-${routeClass.toLowerCase()}-policy`);
       continue;
@@ -925,6 +993,7 @@ const centralIngress = {
     .sort((left, right) => Number(left) - Number(right)),
   policyResponseWitnesses: managementPolicyResponses,
   responseWitness: centralResponseWitness,
+  pipelineResponseWitnesses,
   optionsPreflightWitness: { sourceFile: pipelineFile, line: optionsPreflightLine },
 };
 
