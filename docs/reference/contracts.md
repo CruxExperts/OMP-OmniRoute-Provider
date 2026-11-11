@@ -163,6 +163,15 @@ and independently produced handler observations are required; all candidates rem
 pending until their exact outputs are retained and reviewed. Changing the shared
 ingress inputs also invalidates previously retained ingress evidence.
 
+The provider read fixtures exercise pinned handlers against a disposable, already
+initialized database. Their raw handler responses can contain provider URLs,
+paths, icons, and arbitrary JSON custom headers. The client response projection
+removes sensitive fields from public output; its private target projection is not
+the raw response and, for the provider-nodes fixture's unconstrained header schema,
+does not retain object header entries. These warm fixture observations do not cover
+cold database initialization or migrations. Provider reads remain unqualified
+until their cold database lifecycle and the other required evidence are established.
+
 
 For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads, and the five model-combo-mapping operations, a verified eligibility record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the

@@ -111,7 +111,7 @@ function nodeSeed(id: string, changes: Partial<ProviderNodeFixture> = {}): Provi
     baseUrl: `https://user-${id}:url-password-${id}@private-${id}.internal:9443/private/${id}?token=url-token-${id}`,
     chatPath: `/private/${id}/chat/completions`,
     modelsPath: `/private/${id}/models`,
-    iconUrl: `https://assets.example/${id}.svg`,
+    iconUrl: `https://assets.example/${id}.svg?token=icon-secret-${id}`,
     customHeaders: { "x-private-key": `header-secret-${id}`, "x-public-label": `fixture-${id}` },
     dailyQuotaResetTimezone: "America/Chicago",
     dailyQuotaResetHour: 4,
@@ -161,7 +161,7 @@ afterAll(async () => {
   testOutcomeHash(PROVIDER_NODES_OPERATION_ID, TEST_ID, caseSha256, operationBinding, PROVIDER_NODES_SOURCE_CONTRACT, artifactPath);
 });
 
-test("provider-nodes GET exposes the complete source response with credential-sensitive fields removed", async () => {
+test("provider-nodes GET projects source responses with credential-sensitive fields removed", async () => {
   const emptyFixture = new ProviderNodesFixture([]);
   fixtures.push(emptyFixture);
   const emptyHarness = createHarness(emptyFixture);
@@ -175,7 +175,8 @@ test("provider-nodes GET exposes the complete source response with credential-se
     nodeSeed("node-c"),
   ]);
   fixtures.push(fixture);
-  const before = safeState(await fixture.state());
+  const beforeRows = await fixture.state();
+  const before = safeState(beforeRows);
   const harness = createHarness(fixture);
   const result = await harness.executor.read(PROVIDER_NODES_OPERATION_ID, {});
   const body = object(result.output);
@@ -185,23 +186,30 @@ test("provider-nodes GET exposes the complete source response with credential-se
   const nodes = body.nodes as unknown[];
   expect(nodes.map(value => object(value).id)).toEqual(["node-a", "node-b", "node-c"]);
   const first = object(nodes[0]);
-  expect(first).toMatchObject({ id: "node-a", type: "openai-compatible", name: "Fixture node-a", prefix: "fixture-node-a", apiType: "openai", iconUrl: "https://assets.example/node-a.svg" });
+  expect(first).toMatchObject({ id: "node-a", type: "openai-compatible", name: "Fixture node-a", prefix: "fixture-node-a", apiType: "openai" });
   expect(first).not.toHaveProperty("customHeaders");
   expect(first).not.toHaveProperty("baseUrl");
   expect(first).not.toHaveProperty("chatPath");
   expect(first).not.toHaveProperty("modelsPath");
+  expect(first).not.toHaveProperty("iconUrl");
   const rawSource = object(harness.response()?.body);
   const rawNode = object((rawSource.nodes as unknown[])[0]);
+  expect(rawNode).toEqual({ ...nodeSeed("node-a") });
   expect(rawNode.customHeaders).toEqual({ "x-private-key": "header-secret-node-a", "x-public-label": "fixture-node-a" });
   expect(rawNode.baseUrl).toContain("user-node-a:url-password-node-a@");
   expect(rawNode.baseUrl).toContain("url-token-node-a");
   expect(rawNode.chatPath).toBe("/private/node-a/chat/completions");
   const privateTarget = registry.require(PROVIDER_NODES_OPERATION_ID).projectTarget(rawSource);
-  expect(privateTarget).toEqual(rawSource);
+  expect(privateTarget).toEqual({
+    ...rawSource,
+    nodes: (rawSource.nodes as unknown[]).map(value => ({ ...object(value), customHeaders: {} })),
+  });
+  expect(privateTarget).not.toEqual(rawSource);
   const outputText = JSON.stringify(result.output);
-  for (const secret of ["header-secret-node-a", "url-password-node-a", "url-token-node-a", "private-node-a.internal", "/private/node-a/"]) {
+  for (const secret of ["header-secret-node-a", "url-password-node-a", "url-token-node-a", "icon-secret-node-a", "private-node-a.internal", "/private/node-a/"]) {
     expect(outputText).not.toContain(secret);
   }
+  expect(await fixture.state()).toEqual(beforeRows);
   record(PROVIDER_NODES_OPERATION_ID, ["empty-and-full-projection"], {
     before,
     after: safeState(await fixture.state()),
@@ -213,16 +221,24 @@ test("provider-nodes GET uses stable offset pages and preserves the source's pag
   const fixture = new ProviderNodesFixture([nodeSeed("node-c"), nodeSeed("node-a"), nodeSeed("node-b")]);
   fixtures.push(fixture);
   const harness = createHarness(fixture);
+  const before = safeState(await fixture.state());
   const page = await harness.executor.read(PROVIDER_NODES_OPERATION_ID, { query: { limit: 1, offset: 1 } });
   expect(page.output).toMatchObject({ total: 3, nodes: [{ id: "node-b" }] });
   const boundary = await harness.executor.read(PROVIDER_NODES_OPERATION_ID, { query: { limit: 1, offset: 3 } });
   expect(boundary.output).toEqual({ nodes: [], total: 3, ccCompatibleProviderEnabled: true });
   const zeroLimit = await harness.executor.read(PROVIDER_NODES_OPERATION_ID, { query: { limit: 0, offset: 0 } });
   expect(object(zeroLimit.output).nodes).toHaveLength(3);
+  // Upstream only applies OFFSET when LIMIT is positive.
+  const offsetOnly = await harness.executor.read(PROVIDER_NODES_OPERATION_ID, { query: { offset: 2 } });
+  expect((object(offsetOnly.output).nodes as unknown[]).map(node => object(node).id)).toEqual(["node-a", "node-b", "node-c"]);
+  const maxLimit = await rawGet(fixture, { query: { limit: "200", offset: "1" }, key: MANAGEMENT_KEY });
+  expect(object(maxLimit.body).nodes).toHaveLength(2);
+  const emptyLimit = await rawGet(fixture, { query: { limit: "", offset: "2" }, key: MANAGEMENT_KEY });
+  expect(object(emptyLimit.body).nodes).toHaveLength(3);
   await expect(harness.executor.read(PROVIDER_NODES_OPERATION_ID, { query: { limit: "1" } }))
     .rejects.toMatchObject({ code: "invalid-input" });
   record(PROVIDER_NODES_OPERATION_ID, ["offset-pagination-and-boundaries"], {
-    before: [],
+    before,
     after: safeState(await fixture.state()),
     result: { status: harness.response()?.status ?? 0, body: page.output },
   });

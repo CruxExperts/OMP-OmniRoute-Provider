@@ -241,9 +241,10 @@ const REQUIRED_CASES: Readonly<Record<typeof PROVIDER_FAMILY_OPERATION_IDS[numbe
   [DELETE_PROVIDERS]: ["human-delete", "validation", "conditional-management-auth"],
 };
 
-// Provider writes remain source-only; the GET is eligible for read qualification.
+// No operation is eligible for an outcome artifact until independent ingress
+// and the cold database lifecycle effects are qualified. Writes remain held.
 const HELD_SOURCE_ONLY_OPERATION_IDS = new Set<string>([
-  POST_PROVIDERS, PATCH_PROVIDERS, DELETE_PROVIDERS,
+  GET_PROVIDERS, POST_PROVIDERS, PATCH_PROVIDERS, DELETE_PROVIDERS,
 ]);
 
 const completedCases = new Map<string, Set<string>>();
@@ -341,6 +342,39 @@ describe("pinned `/api/providers` family semantics", () => {
     fixtures.push(fixture);
     const harness = createProviderAdminHarness(fixture);
     const before = publicProviderState(fixture);
+    // Inspect the actual handler response separately from the client's restrictive
+    // projection. Raw rows can contain provider-specific data and must never be
+    // copied into the qualification observation artifact.
+    const rawResponse = await fetch(`${fixture.endpoint}/api/providers?provider=%20claude%20&limit=1&offset=1`, {
+      headers: { authorization: `Bearer ${MANAGEMENT_KEY}` },
+    });
+    expect(rawResponse.status).toBe(200);
+    const rawBody = responseRecord(await rawResponse.json());
+    expect(rawBody.total).toBe(3);
+    expect(rawBody.connections).toHaveLength(1);
+    const rawConnection = responseRecord((rawBody.connections as unknown[])[0]);
+    expect(rawConnection.id).toBe("c1");
+    expect(rawConnection.syncedModelsAt).toBeNull();
+    expect(rawConnection.discoveryState).toBeNull();
+    expect(rawConnection.rateLimitAutoProtected).toBe(false);
+    expect(rawConnection.apiKey).toEqual(expect.stringContaining("****"));
+    expect(rawConnection).not.toHaveProperty("accessToken");
+    expect(rawConnection).not.toHaveProperty("refreshToken");
+    expect(rawConnection).not.toHaveProperty("idToken");
+    const rawProviderData = responseRecord(rawConnection.providerSpecificData);
+    expect(rawProviderData).not.toHaveProperty("runtimeKey");
+    expect(rawProviderData.operatorDisabledAt).toBe("2026-10-16T00:00:00.000Z");
+
+    // The store only applies OFFSET together with LIMIT; invalid limits fall
+    // back to an unbounded query, even when an offset was supplied.
+    const offsetOnly = await fetch(`${fixture.endpoint}/api/providers?provider=claude&limit=0&offset=1`, {
+      headers: { authorization: `Bearer ${MANAGEMENT_KEY}` },
+    });
+    expect(offsetOnly.status).toBe(200);
+    const offsetBody = responseRecord(await offsetOnly.json());
+    expect(offsetBody.total).toBe(3);
+    expect((offsetBody.connections as unknown[]).map(row => responseRecord(row).id)).toEqual(["c2", "c1", "c3"]);
+
 
     const result = await harness.executor.read(GET_PROVIDERS, {
       query: { provider: " claude ", limit: 1, offset: 1 },

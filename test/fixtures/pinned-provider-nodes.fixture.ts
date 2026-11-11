@@ -49,6 +49,9 @@ function createNodeSqliteBindingAdapter(database: Database): Database {
   });
 }
 
+// The source persistence modules execute against a pre-opened in-memory database.
+// This deliberately replaces core.getDbInstance: it does not exercise core module
+// initialization, migrations, health checks, backups, or cold-start side effects.
 function loadProviderNodeStore(database: Database): NodeStore {
   const db = createNodeSqliteBindingAdapter(database);
   const caseMapping = loadPinnedModule("src/lib/db/caseMapping.ts", specifier => {
