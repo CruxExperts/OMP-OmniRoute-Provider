@@ -196,48 +196,20 @@ jobs:
           test "$(jq -r .producer.workflowSha256 "$qualification_receipt")" = "$(sha256sum .github/workflows/qualification.yml | cut -d ' ' -f 1)"
           bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" > "$RUNNER_TEMP/cruxomni-release-approval.json"
           cp "$qualification_receipt" "$RUNNER_TEMP/release-qualification-receipt.json"
-          tar -czf "$RUNNER_TEMP/release-qualification-evidence.tar.gz" -C "$qualification_directory" evidence
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf - -C "$qualification_directory" evidence | gzip -n > "$RUNNER_TEMP/release-qualification-evidence.tar.gz"
           cp "$RUNNER_TEMP/cruxomni-release-approval.json" "$RUNNER_TEMP/release-approval.json"
-      - name: Create a draft GitHub release with exact manifest assets
+      - name: Reconcile and publish exact approved destinations
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          mapfile -t names < <(jq -r '.artifacts[].name' release/release-manifest.json)
-          notes_name="$(jq -r '.artifacts[] | select(.name | endswith("-release-notes.md")) | .name' release/release-manifest.json)"
-          test -n "$notes_name"
-          test -f "release/$notes_name"
-          assets=(release/release-manifest.json release/SHA256SUMS.txt "$RUNNER_TEMP/release-qualification-receipt.json" "$RUNNER_TEMP/release-approval.json" "$RUNNER_TEMP/release-qualification-evidence.tar.gz")
-          for name in "${names[@]}"; do assets+=("release/$name"); done
-          gh release create "$RELEASE_TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "OMP OmniRoute Provider ${RELEASE_TAG#v}" \
-            --notes-file "release/$notes_name" \
-            --draft \
-            --verify-tag
-      - name: Publish the exact approved npm archive
-        env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_FETCH_RETRIES: "0"
+          RELEASE_TAG: ${{ inputs.tag }}
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
         run: |
           set -euo pipefail
-          test -n "$NODE_AUTH_TOKEN"
+          bun run scripts/release-gate.ts approve release "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" > /dev/null
           npmrc="$RUNNER_TEMP/cruxomni-npmrc"
           trap 'rm -f "$npmrc"' EXIT
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$npmrc"
           chmod 600 "$npmrc"
-          package_archive="$(jq -r '.artifacts[] | select(.name | endswith(".tgz")) | .name' release/release-manifest.json)"
-          NPM_CONFIG_USERCONFIG="$npmrc" npm publish "release/$package_archive" --access public --ignore-scripts
-          rm -f "$npmrc"
-      - name: Publish the verified GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag }}
-          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
-          QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
-        run: |
-          set -euo pipefail
-          bun run scripts/release-gate.ts approve release "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" > /dev/null
-          notes_name="$(jq -r '.artifacts[] | select(.name | endswith("-release-notes.md")) | .name' release/release-manifest.json)"
-          test -n "$notes_name"
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "release/$notes_name" --draft=false
+          NPM_CONFIG_USERCONFIG="$npmrc" bun run scripts/release-gate.ts publish release "$RUNNER_TEMP" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256"

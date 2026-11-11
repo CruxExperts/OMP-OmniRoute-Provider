@@ -129,6 +129,21 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let startupAborter: AbortController | undefined;
 	let bindingSyncFlight: Promise<{ pendingValidated: boolean }> | undefined;
 	let recoveryAborter: AbortController | undefined;
+	let invitationAborter: AbortController | undefined;
+	let invitationFlight: Promise<unknown> | undefined;
+	let invitationAllowed = true;
+	const settleInvitation = async (): Promise<void> => {
+		invitationAllowed = false;
+		const flight = invitationFlight;
+		if (!flight) return;
+		invitationAborter?.abort();
+		const timeout = Promise.withResolvers<false>();
+		const timer = setTimeout(() => timeout.resolve(false), 2_000);
+		try {
+			const result = await Promise.race([flight.then(() => true), timeout.promise]);
+			if (!result) throw Object.assign(new Error("invitation preference transaction is still settling"), { code: "config-unavailable" });
+		} finally { clearTimeout(timer); }
+	};
 	let recoveryBlocked = false;
 	let credentialRevision = 0;
 	let credentialPresence: CredentialPresence = "unknown";
@@ -189,7 +204,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const nativeLogin = registerNativeLogin({ providerName: PROVIDER_LIST_NAME, onSetupComplete });
 	const oauth: NonNullable<ProviderConfig["oauth"]> = {
 		name: nativeLogin.name,
-		login: callbacks => nativeLogin.login({
+		login: async callbacks => {
+			await settleInvitation();
+			return nativeLogin.login({
 			...(callbacks.signal ? { signal: callbacks.signal } : {}),
 			onPrompt: async options => callbacks.onPrompt({
 				message: options.message,
@@ -204,7 +221,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				return typeof answer === "string" && /^(?:y|yes)$/i.test(answer.trim());
 			},
 			onMessage: message => callbacks.onProgress?.(message),
-		}),
+			});
+		},
 	};
 
 	const loadPricing = async (file: string | undefined): Promise<void> => {
@@ -294,6 +312,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				}
 			})();
 			const [loadedPricing, loadedMetadata, catalogs] = await Promise.all([pricingPromise, metadataPromise, catalogsPromise]);
+			if (catalogSources.length) await settleInvitation();
 			const enabledCatalogSources = catalogSources.length === 0
 				? catalogSources
 				: (await loadConfig()).catalogSources ?? [];
@@ -430,6 +449,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				return;
 			}
 			try {
+				await settleInvitation();
 				const source = await loadConfig();
 				config = source;
 				const command = args.trim().split(/\s+/, 1)[0] ?? "";
@@ -475,6 +495,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		let optionalReconciliation = Promise.resolve();
 		const reconcileOptional = async (): Promise<void> => {
 			if (stopped || observedAuthStorage !== storage) return;
+			await settleInvitation();
 			const loaded = await loadConfig();
 			const active = resolveEnvironmentBinding(loaded) ?? loaded.active;
 			if (active) {
@@ -514,6 +535,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		let validConfiguration = false;
 		let phase: "config" | "credential" = "config";
 		try {
+			if (invitationFlight) await settleInvitation();
 			readinessIssue = undefined;
 			const previousActiveGeneration = config.active?.generation;
 			const loaded = await loadConfig();
@@ -671,9 +693,21 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				return;
 			}
 			setContext(ctx);
+			if (command === "setup" || command === "refresh" || command === "recover") {
+				try { await settleInvitation(); }
+				catch (error) {
+					notify(ctx, safeDetail(error) === "config-unavailable"
+						? "omniroute: configuration unavailable while the invitation preference transaction is settling; try again after it finishes."
+						: `omniroute: configuration unavailable (${safeDetail(error)}); inspect configuration and restart before retrying.`, "warning");
+					return;
+				}
+			}
 			observeCredentials(ctx);
 			const typed = ctx;
-			if (command === "setup") await setup(typed);
+			if (command === "setup") {
+				try { await setup(typed); }
+				catch (error) { notify(ctx, `omniroute: setup unavailable (${safeDetail(error)}); inspect configuration before retrying.`, "warning"); }
+			}
 			else if (command === "refresh") await refresh(typed, true);
 			else if (command === "recover") {
 				while (bindingSyncFlight) {
@@ -789,19 +823,42 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		transitionNotifications = false;
 		manager.resume();
 		await refresh(ctx, false);
+		if (stopped) return;
 		await rebindCurrentModel(ctx);
+		if (stopped) return;
 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
+		if (stopped) return;
 		reconnectSettings = parseReconnectSettings(settings);
 		transitionNotifications = settings.notifyTransitions !== false;
-		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config)) {
+		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config) && invitationAllowed && !invitationFlight) {
 			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /omniroute setup. You can open setup at any time.`);
-			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
+			// An informational preference must not hold the host's startup gate open.
+			// In particular, Windows ACL checks can involve several child processes.
+			const controller = new AbortController();
+			invitationAborter = controller;
+			const flight = updateConfig(current => ({ ...current, invitationDismissed: true }), { signal: controller.signal }).then(
+				() => undefined,
+				error => {
+					let cause: unknown = error;
+					while (cause instanceof Error && cause.cause) cause = cause.cause;
+					if (controller.signal.aborted && cause === controller.signal.reason) return;
+					if (!stopped) notify(ctx, `${DISPLAY_NAME}: could not save the setup invitation preference; it may appear again.`, "warning");
+					throw error;
+				},
+			);
+			invitationFlight = flight;
+			void flight.then(() => {
+				if (invitationFlight === flight) { invitationFlight = undefined; invitationAborter = undefined; }
+			}, () => {
+				if (invitationAborter === controller) invitationAborter = undefined;
+			});
 		}
 	});
 	pi.on("session_shutdown", async (_event, ctx) => {
 		if (stopped) return;
 		stopped = true;
 		recoveryAborter?.abort();
+		invitationAborter?.abort();
 		// Retire ownership before asynchronous administration cleanup can block or
 		// fail. A cancelled startup may have published without joining the group.
 		const retiringRegistry = registry ?? ctx?.modelRegistry;

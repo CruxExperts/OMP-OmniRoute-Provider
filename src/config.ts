@@ -318,8 +318,10 @@ function persisted(config: PluginConfig): PersistedConfig {
   return result;
 }
 
-async function writeConfig(next: PluginConfig, expectedRevision: string | null | undefined): Promise<PluginConfig> {
+async function writeConfig(next: PluginConfig, expectedRevision: string | null | undefined, signal?: AbortSignal): Promise<PluginConfig> {
+  signal?.throwIfAborted();
   await readSnapshot(); // Never repair invalid state implicitly.
+  signal?.throwIfAborted();
   const dir = join(agentDirResolver(), CONFIG_DIR_NAME);
   if (process.platform === "win32") {
     try { await createPrivateWindowsDirectory(dir); }
@@ -329,15 +331,21 @@ async function writeConfig(next: PluginConfig, expectedRevision: string | null |
   } else {
     await mkdir(dir, { recursive: true, mode: 0o700 });
   }
+  signal?.throwIfAborted();
   const lockPath = join(dir, ".config.lock");
   let lock;
   try { lock = await open(lockPath, "wx", 0o600); }
   catch (error) { throw new ConfigError("config-conflict", "another configuration writer or interrupted write requires reconciliation", { cause: error }); }
   let result: PluginConfig;
-  try { result = await writeConfigUnlocked(next, expectedRevision); }
+  try { result = await writeConfigUnlocked(next, expectedRevision, signal); }
   catch (error) {
-    try { await lock.close(); } catch { /* preserve the original failure */ }
-    try { await unlink(lockPath); } catch { /* a retained lock fails closed */ }
+    let cleanupError: unknown;
+    try { await lock.close(); } catch (failure) { cleanupError = failure; }
+    try { await unlink(lockPath); } catch (failure) { cleanupError ??= failure; }
+    if (cleanupError !== undefined) {
+      try { const marker = await open(lockPath, "a", 0o600); await marker.close(); } catch { /* preserve the cleanup failure */ }
+      throw new ConfigError("config-conflict", "configuration transaction cleanup requires reconciliation", { cause: cleanupError });
+    }
     throw error;
   }
   let cleanupError: unknown;
@@ -353,9 +361,10 @@ async function writeConfig(next: PluginConfig, expectedRevision: string | null |
   return result;
 }
 
-async function writeConfigUnlocked(next: PluginConfig, expectedRevision: string | null | undefined): Promise<PluginConfig> {
+async function writeConfigUnlocked(next: PluginConfig, expectedRevision: string | null | undefined, signal?: AbortSignal): Promise<PluginConfig> {
   parseConfig(persisted(next));
   const current = await readSnapshot(true);
+  signal?.throwIfAborted();
   const effectiveRevision = expectedRevision === undefined ? current.revision : expectedRevision ?? undefined;
   if (effectiveRevision !== current.revision) throw new ConfigError("config-conflict", "config changed concurrently");
   const dir = join(agentDirResolver(), CONFIG_DIR_NAME);
@@ -379,8 +388,10 @@ async function writeConfigUnlocked(next: PluginConfig, expectedRevision: string 
     await handle.close();
     const latest = await readRaw(true);
     if ((latest?.revision) !== effectiveRevision) throw new ConfigError("config-conflict", "config changed concurrently");
+    signal?.throwIfAborted();
     if (process.platform === "win32") await verifyPrivateWindowsPath(temporary, false);
     else await chmod(temporary, 0o600);
+    signal?.throwIfAborted();
     await rename(temporary, configPath());
   } catch (error) {
     try { await handle?.close(); } catch { /* best effort cleanup */ }
@@ -401,9 +412,11 @@ function expectedRevision(snapshot: string | undefined, requested: string | null
 }
 
 /** The sole owner of persisted non-secret setup state. */
-export async function updateConfig(change: (current: PluginConfig) => PluginConfig, options: ConfigWriteOptions = {}): Promise<PluginConfig> {
+export async function updateConfig(change: (current: PluginConfig) => PluginConfig, options: ConfigWriteOptions & { signal?: AbortSignal } = {}): Promise<PluginConfig> {
+  options.signal?.throwIfAborted();
   const current = await loadConfig();
-  return writeConfig(change(current), options.expectedRevision === undefined ? current.revision ?? null : options.expectedRevision);
+  options.signal?.throwIfAborted();
+  return writeConfig(change(current), options.expectedRevision === undefined ? current.revision ?? null : options.expectedRevision, options.signal);
 }
 
 export function validateEndpoint(input: string, allowInsecureHttp = false): string {

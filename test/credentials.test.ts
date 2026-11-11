@@ -1,29 +1,43 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile, chmod, unlink } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverAuthStorage, z } from "@oh-my-pi/pi-coding-agent";
 import { OptionalCredentials, type CredentialStore } from "../src/credentials.ts";
 import type { AuthStorage, StoredAuthCredential } from "@oh-my-pi/pi-ai";
-import { getConfigPath, loadConfig, resolveEnvironmentBinding, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
+import { getConfigPath, loadConfig, resolveEnvironmentBinding, setAgentDirResolverForTests, updateConfig, type PluginConfig } from "../src/config.ts";
+import * as configModule from "../src/config.ts";
 import { createAdminRuntime } from "../src/admin/runtime.ts";
 import register from "../src/index.ts";
 import type { ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { getCustomApi, registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
 import { streamSimple, type Api, type Model } from "@oh-my-pi/pi-ai";
+import * as adminRegistry from "../src/admin/registry.ts";
+import { buildFallbackChainFixtureRegistry } from "./fixtures/fallback-chains.fixture.ts";
 
 let directory: string | undefined;
-let cleanupIntegration: (() => void) | undefined;
+let cleanupIntegration: (() => void | Promise<void>) | undefined;
+let restoreAdminRegistry: (() => void) | undefined;
 afterEach(async () => {
-  cleanupIntegration?.();
-  setAgentDirResolverForTests(undefined);
-  if (directory) await rm(directory, { recursive: true, force: true });
-  directory = undefined;
+  try {
+    await cleanupIntegration?.();
+  } finally {
+    restoreAdminRegistry?.();
+    restoreAdminRegistry = undefined;
+    setAgentDirResolverForTests(undefined);
+    if (directory) await rm(directory, { recursive: true, force: true });
+    directory = undefined;
+  }
 });
 async function isolated() {
   directory = await mkdtemp(join(tmpdir(), "cruxomni-credentials-"));
   setAgentDirResolverForTests(() => directory!);
+}
+function useFallbackFixtureRegistry() {
+  const registry = buildFallbackChainFixtureRegistry();
+  const spy = spyOn(adminRegistry, "getOperationRegistry").mockReturnValue(registry);
+  restoreAdminRegistry = () => spy.mockRestore();
 }
 function storage() {
   let id = 0;
@@ -95,6 +109,148 @@ function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFi
     setModels(status, empty = false) { modelsStatus = status; emptyModels = empty; },
   };
 }
+
+test("cancelled config updates do not persist an invitation", async () => {
+  await isolated();
+  const controller = new AbortController();
+  const before = await loadConfig();
+  await expect(updateConfig(current => {
+    controller.abort();
+    return { ...current, invitationDismissed: true };
+  }, { signal: controller.signal })).rejects.toBeDefined();
+  expect(await loadConfig()).toEqual(before);
+});
+
+test("a pending invitation write cannot block startup or shutdown", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<PluginConfig>();
+  let signal: AbortSignal | undefined;
+  let restore = () => {};
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const initial = await loadConfig();
+    const write = spyOn(configModule, "updateConfig").mockImplementation((_change, options) => {
+      signal = options?.signal;
+      entered.resolve();
+      return release.promise;
+    });
+    restore = () => write.mockRestore();
+    const messages: string[] = [];
+    const ctx = host.context({ notify(message: string) { messages.push(message); } });
+    const startup = host.events.get("session_start")!(undefined as never, ctx);
+    await entered.promise;
+    await startup;
+    expect(messages.join(" ")).toContain("/omniroute setup");
+    await host.events.get("session_shutdown")!(undefined as never, ctx);
+    expect(signal?.aborted).toBe(true);
+    expect(host.activeProviders()).not.toContain("omniroute");
+    release.resolve({ ...initial, invitationDismissed: true });
+    await release.promise;
+    expect((await loadConfig()).invitationDismissed).toBeUndefined();
+    expect(host.activeProviders()).not.toContain("omniroute");
+  } finally {
+    release.resolve({ version: 2, allowInsecureHttp: false, adminEnabled: false });
+    restore();
+    nativeStorage?.close();
+    process.env = environment;
+  }
+});
+
+test("setup waits for the cancelled invitation transaction to release its real lock", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let signal: AbortSignal | undefined;
+  let restore = () => {};
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const lock = join(directory!, "omniroute", ".config.lock");
+    const write = spyOn(configModule, "updateConfig").mockImplementation(async (_change, options) => {
+      signal = options?.signal;
+      await mkdir(join(directory!, "omniroute"), { recursive: true, mode: 0o700 });
+      await writeFile(lock, "pending", { mode: 0o600 });
+      entered.resolve();
+      await release.promise;
+      await unlink(lock);
+      signal?.throwIfAborted();
+      return loadConfig();
+    });
+    restore = () => write.mockRestore();
+    let menus = 0;
+    const ctx = host.context({ select() { menus++; return Promise.resolve("Finish"); } });
+    await host.events.get("session_start")!(undefined as never, ctx);
+    await entered.promise;
+    await expect(loadConfig()).rejects.toMatchObject({ code: "config-conflict" });
+    const setup = host.commands.get("omniroute")!.handler("setup", ctx);
+    expect(signal?.aborted).toBe(true);
+    expect(menus).toBe(0);
+    release.resolve();
+    await setup;
+    expect(menus).toBe(1);
+    expect((await loadConfig()).invitationDismissed).toBeUndefined();
+    await host.events.get("session_shutdown")!(undefined as never, ctx);
+  } finally {
+    release.resolve();
+    restore();
+    nativeStorage?.close();
+    process.env = environment;
+  }
+});
+
+test("setup reports a stuck invitation transaction without bypassing its lock", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let restore = () => {};
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    const host = extensionHost(nativeStorage);
+    await register(host.api as never);
+    const lock = join(directory!, "omniroute", ".config.lock");
+    const write = spyOn(configModule, "updateConfig").mockImplementation(async (_change, options) => {
+      await mkdir(join(directory!, "omniroute"), { recursive: true, mode: 0o700 });
+      await writeFile(lock, "pending", { mode: 0o600 });
+      entered.resolve();
+      await release.promise;
+      await unlink(lock);
+      options?.signal?.throwIfAborted();
+      return loadConfig();
+    });
+    restore = () => write.mockRestore();
+    const messages: string[] = [];
+    let menus = 0;
+    const ctx = host.context({ notify(message: string) { messages.push(message); }, select() { menus++; return Promise.resolve("Finish"); } });
+    await host.events.get("session_start")!(undefined as never, ctx);
+    await entered.promise;
+    await host.commands.get("omniroute")!.handler("setup", ctx);
+    expect(menus).toBe(0);
+    expect(messages.join(" ")).toContain("configuration unavailable");
+    await expect(loadConfig()).rejects.toMatchObject({ code: "config-conflict" });
+    release.resolve();
+    await host.commands.get("omniroute")!.handler("setup", ctx);
+    expect(menus).toBe(1);
+    await host.events.get("session_shutdown")!(undefined as never, ctx);
+  } finally {
+    release.resolve();
+    restore();
+    nativeStorage?.close();
+    process.env = environment;
+  }
+}, 5_000);
 
 test("startup reports partial environment and credential lookup errors without exposing values", async () => {
   await isolated();
@@ -349,6 +505,7 @@ test("recovery distinguishes activation from failed subsequent discovery", async
 });
 
 test("uncertain recovery blocks administration commands and tools until verified recovery", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const environment = { ...process.env };
   const fixture = integrationFixture();
@@ -590,6 +747,7 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
 }
 
 test("overlapping shutdowns retire owners before delayed or rejected administration cleanup", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const environment = { ...process.env };
   const fixture = integrationFixture();
@@ -646,6 +804,7 @@ test("overlapping shutdowns retire owners before delayed or rejected administrat
 });
 
 test("pre-enabled administration defers host action methods until session start and rebinds on restart", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const originalEnvironment = { ...process.env };
   const fixture = integrationFixture();
@@ -707,6 +866,7 @@ test("pre-enabled administration defers host action methods until session start 
 });
 
 test("failed administration initialization and cleanup cannot poison the next command", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const originalEnvironment = { ...process.env };
   const fixture = integrationFixture();
@@ -768,6 +928,7 @@ test("failed administration initialization and cleanup cannot poison the next co
 });
 
 test("an in-flight administration creator cannot replace the runtime after restart", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const originalEnvironment = { ...process.env };
   const fixture = integrationFixture();
@@ -969,19 +1130,23 @@ test("remembered metadata enrichment uses the persisted source binding through t
 });
 
 test("native endpoint switching blocks optional environment secrets bound to a different gateway", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const originalEnvironment = { ...process.env };
   const fixture = integrationFixture();
   let nativeStorage: AuthStorage | undefined;
   let shutdown: (() => unknown) | undefined;
   let adminRuntime: ReturnType<typeof createAdminRuntime> | undefined;
-  cleanupIntegration = () => {
-    shutdown?.();
-    void adminRuntime?.shutdown();
-    nativeStorage?.close();
-    fixture.server.stop(true);
-    process.env = originalEnvironment;
+  cleanupIntegration = async () => {
     cleanupIntegration = undefined;
+    try {
+      try { await shutdown?.(); }
+      finally { await adminRuntime?.shutdown(); }
+    } finally {
+      nativeStorage?.close();
+      fixture.server.stop(true);
+      process.env = originalEnvironment;
+    }
   };
   try {
     for (const name of Object.keys(process.env)) {
@@ -1020,24 +1185,28 @@ test("native endpoint switching blocks optional environment secrets bound to a d
     expect(fixture.requests.some(request => request.authorization === "Bearer fixture-old-metadata-key" || request.authorization === "Bearer fixture-old-admin-key")).toBe(false);
     expect(process.env.OMP_OMNIROUTE_ADMIN_API_KEY).toBe("fixture-old-admin-key");
   } finally {
-    cleanupIntegration?.();
+    await cleanupIntegration?.();
   }
 });
 
 test("native-only profiles retain optional metadata environment credentials when no runtime override exists", async () => {
+  useFallbackFixtureRegistry();
   await isolated();
   const originalEnvironment = { ...process.env };
   const fixture = integrationFixture();
   let nativeStorage: AuthStorage | undefined;
   let shutdown: (() => unknown) | undefined;
   let adminRuntime: ReturnType<typeof createAdminRuntime> | undefined;
-  cleanupIntegration = () => {
-    shutdown?.();
-    void adminRuntime?.shutdown();
-    nativeStorage?.close();
-    fixture.server.stop(true);
-    process.env = originalEnvironment;
+  cleanupIntegration = async () => {
     cleanupIntegration = undefined;
+    try {
+      try { await shutdown?.(); }
+      finally { await adminRuntime?.shutdown(); }
+    } finally {
+      nativeStorage?.close();
+      fixture.server.stop(true);
+      process.env = originalEnvironment;
+    }
   };
   try {
     for (const name of Object.keys(process.env)) {
@@ -1069,7 +1238,7 @@ test("native-only profiles retain optional metadata environment credentials when
     await adminRuntime.executor.read("GET /api/fallback/chains", {}, { profileId: "omniroute", endpoint: fixture.endpoint });
     expect(fixture.requests).toContainEqual({ path: "/api/fallback/chains", authorization: "Bearer fixture-native-admin-key" });
   } finally {
-    cleanupIntegration?.();
+    await cleanupIntegration?.();
   }
 });
 

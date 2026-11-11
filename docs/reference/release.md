@@ -107,9 +107,13 @@ hint before sending Enter. Native Windows observations showed that Enter on the
 open command completion changed `/login` to `/login ` without opening provider
 selection. Completing the command explicitly avoids treating that transition as
 submission; no extra Enter is sent blindly.
-This sequencing alone has not resolved the Windows submission stall: the real
-host still retained the completed draft after Enter. Windows qualification
-remains unaccepted while the host's input and submission gate are investigated.
+The research trace localized a pending startup wait to saving the optional setup
+invitation preference; it did not identify the particular filesystem or Windows
+access-control subprocess responsible. This informational save now runs outside
+startup. Configuration-consuming commands cancel it and wait for transaction
+cleanup before reading configuration; a stuck transaction remains unavailable,
+not bypassed. Official, unmodified Windows x64 and arm64 qualification remains
+required for the corrected source.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
@@ -166,6 +170,16 @@ focused editor dispatch, autocomplete handling and the bootstrap submit gate.
 Startup checkpoints distinguish stream-publisher, extension-hook and session
 reconciliation waits; the trace never opens the gate or substitutes a passing
 result when initialization remains incomplete.
+The research-only provider overlay is applied only after the disposable installed
+package matches every archive file. Only `src/index.ts` may change; its original,
+patch, and resulting hashes are recorded separately from the archive digest.
+The baseline installation remains unchanged. A host-owned global sink records
+integer await markers without importing a second trace module. Its provider-entry
+sentinel must be observed before a missing later marker can identify a pending
+await. Missing sentinels, invalid or overflowing samples, and nonreproducing
+runs remain inconclusive. One trace client retains its cursor across the early
+sample and a bounded final sample before timeout termination; cleanup still runs
+if that sample fails. Neither the single Enter nor the dialogue deadline changes.
 The source exporter treats archive output names as local paths, so Windows drive
 letters are not interpreted as remote tar destinations.
 Package scanning recognizes validated Python digest/integrity assignments and
@@ -189,19 +203,18 @@ eight native results for the same archive, verified signatures, and the protecte
 `release` environment with its required reviewer and npm credential. Do not use
 the earlier GitHub-only distribution as an exception to those gates.
 
-The refreshed candidate inventory contains 25 invokable operations with reviewed
-fixture outcomes, 16 non-invokable entries, and 1,193 unqualified operations.
-Refreshing the existing outcomes does not qualify the remaining inventory.
-Those coverage gaps prevent protected publication until independently resolved.
+The current source inventory is pinned to OmniRoute v3.8.53. Earlier eligibility
+is retained as history, not carried forward as active acceptance. The
+[generated inventory](generated.md#operation-inventory) owns the current operation
+counts. Every unqualified operation blocks protected publication.
 
 ### Remaining qualification pipeline
 
-The remaining descriptors comprise 450 GET, 7 HEAD, 133 OPTIONS, 414 POST,
-62 PUT, 26 PATCH, and 101 DELETE operations. Generated unknown authorization
-and side-effect attributes are missing client qualification, not a claim that
-the server itself lacks access controls. Of these descriptors, 603 mutation
-entries also lack qualified preflight behavior and 222 have no OpenAPI mapping;
-these groups overlap.
+Generated unknown authorization and side-effect attributes identify missing client
+qualification, not missing server access controls. Packets begin at actual source
+route files and retain explicit operation membership; shared persistence or
+lifecycle ownership determines any merge. Reads and dependent writes can be
+accepted separately without losing residual blocked IDs.
 
 Process one source-owned route family at a time:
 
@@ -469,11 +482,20 @@ workflow validates the tag and source commit signatures in both jobs, retrieves
 the producer’s exact package and manifest, checks the qualification bundle and
 all eight named native jobs, and
 verifies the receipt before it reaches the `release` environment. The publish
-job repeats these checks after environment approval, uploads the manifest-listed
-package artifacts plus the manifest, checksums, approval records, and
-qualification evidence archive, publishes the matching npm archive, verifies
-the receipt again, resets the draft's notes from the approved notes artifact,
-and then publishes the GitHub release.
+job repeats these checks after environment approval. It reads both destinations
+before changing either one, verifies the signed remote tag and exact release notes
+and asset bytes, and checks npm's exact version, downloaded archive SHA-256, and
+registry integrity against the approved archive. It creates a draft only when
+both destinations are absent, publishes npm only when the matching draft exists
+and npm is absent, and publishes GitHub only when both the matching draft and npm
+package exist. If both destinations are already published and exact, it makes no
+publication changes. Each effect is followed by another read of both destinations.
+
+Publication readback streams each asset with the approved file's exact byte
+length as its limit, compares its bytes, and verifies the npm archive SHA-256.
+Individual metadata responses are limited to 8 MiB; larger or incomplete
+readbacks stop reconciliation. The protected npm publish disables npm transport
+retries, so a failed publish must be reconciled rather than automatically replayed.
 
 The repository must configure the `release` environment with at least one
 required reviewer and an `NPM_TOKEN` environment secret before publication can
@@ -484,9 +506,21 @@ the check when it starts and verifies that `NPM_TOKEN` is non-empty before it
 creates a GitHub draft. These protections are repository settings
 and cannot be established by this workflow file alone. The API check follows
 GitHub's [deployment environments endpoint and response schema](https://docs.github.com/en/rest/deployments/environments#get-an-environment).
-A failure after npm publication or draft release creation can leave one
-destination prepared or published; reconcile the exact tag and package version
-before retrying.
+If a publication operation or readback fails, its outcome may be uncertain. Stop
+and reconcile both destinations before authorizing another protected workflow
+run; the workflow does not automatically repeat failed effects. Missing or extra
+assets, changed notes, mismatched tags or npm bytes, unavailable credentials, and
+inconsistent states block further mutation. No asset overwrite, unpublish, version
+bump, or bypass of the protected environment is part of recovery. Evidence
+archives created by this workflow are reproducible; an older draft whose evidence
+archive differs must be investigated rather than overwritten.
+
+A package-wide npm 404 does not prove absence, scope ownership, or token
+entitlement. The current workflow fails closed in that case, even for a genuinely
+new package and an entitled token. First publication of an unpublished package
+requires a supported authenticated scope-entitlement and absence check before
+this workflow can proceed; no such check is currently implemented. Do not
+create a package outside the protected workflow to bypass this prerequisite.
 
 No receipt in this document or in the release automation qualifies version
 `1.0.0` by itself. Qualification requires the matching external target evidence

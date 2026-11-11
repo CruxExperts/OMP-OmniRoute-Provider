@@ -50,6 +50,12 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   disposable provider overlay separately from the verified package archive.
   Missing bridge sentinels or incomplete traces remain inconclusive, not Windows
   qualification.
+- Keep saving the optional setup-invitation preference outside the native startup
+  gate, report persistence failures, and cancel pending writes before commit when
+  the session shuts down. This does not bypass setup or credential validation.
+- Bound publication readback streams by approved asset lengths and metadata size;
+  disable npm publication transport retries so uncertain writes require explicit
+  reconciliation instead of automatic replay.
 
 ## 1.0.4 — 2026-11-05
 

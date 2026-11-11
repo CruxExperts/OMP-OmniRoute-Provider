@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, type Hash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -26,6 +26,7 @@ const qualificationTargetIds = [
 ] as const;
 const maxQualificationBytes = 1024 * 1024;
 const maxEvidenceBytes = 1024 * 1024;
+const maxPublicationMetadataBytes = 8 * 1024 * 1024;
 
 interface Artifact { name: string; sha256: string }
 interface ReleaseManifest {
@@ -460,8 +461,184 @@ export async function verifyReleaseApproval(options: { root?: string; releaseDir
   return receipt;
 }
 
+type PublicationState = "absent" | "draft" | "published";
+type PublicationIO = {
+  inspect: () => Promise<{ github: PublicationState; npm: "absent" | "published" }>;
+  createDraft: () => Promise<void>;
+  publishNpm: () => Promise<void>;
+  publishGithub: () => Promise<void>;
+};
+
+// Every effect is followed by a new read of both destinations. A failed effect is
+// never retried here: it may have reached the server despite the error.
+export async function recoverPublication(io: PublicationIO): Promise<void> {
+  let state = await io.inspect();
+  const requireState = (github: PublicationState, npm: "absent" | "published") => {
+    if (state.github !== github || state.npm !== npm) throw new Error("publication state changed or is inconsistent; reconcile both destinations before further mutation");
+  };
+  if (state.github === "absent" && state.npm === "absent") {
+    await io.createDraft();
+    state = await io.inspect();
+    requireState("draft", "absent");
+  }
+  if (state.github === "draft" && state.npm === "absent") {
+    await io.publishNpm();
+    state = await io.inspect();
+    requireState("draft", "published");
+  }
+  if (state.github === "draft" && state.npm === "published") {
+    await io.publishGithub();
+    state = await io.inspect();
+    requireState("published", "published");
+  }
+  requireState("published", "published");
+}
+
+async function readPublicationBody(response: Response, limit: number, label: string, consume: (chunk: Uint8Array, offset: number) => void): Promise<number> {
+  if (!response.body) throw new Error(`${label} has no response body`);
+  const reader = response.body.getReader();
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return total;
+      if (value.byteLength > limit - total) {
+        await reader.cancel().catch(() => {});
+        throw new Error(`${label} exceeds its byte limit`);
+      }
+      consume(value, total);
+      total += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function readPublicationJson(response: Response, label: string): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  await readPublicationBody(response, maxPublicationMetadataBytes, label, chunk => { chunks.push(Buffer.from(chunk)); });
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+}
+
+async function verifyPublicationBytes(response: Response, expected: Buffer, label: string, hash?: Hash): Promise<void> {
+  let matches = true;
+  const total = await readPublicationBody(response, expected.byteLength, label, (chunk, offset) => {
+    hash?.update(chunk);
+    if (!expected.subarray(offset, offset + chunk.byteLength).equals(chunk)) matches = false;
+  });
+  if (!matches || total !== expected.byteLength) throw new Error(`${label} bytes mismatch`);
+}
+
+export async function publishApprovedRelease(releaseDirectory: string, evidenceDirectory: string, tag: string, repository: string, token: string, npmToken: string, dependencies: { fetch?: typeof fetch; command?: (command: string, args: string[], env?: NodeJS.ProcessEnv) => Promise<{ stdout: string }> } = {}): Promise<void> {
+  if (!/^v\d+\.\d+\.\d+$/.test(tag) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !token || !npmToken) throw new Error("invalid publication identity or missing credentials");
+  const command = dependencies.command ?? (async (name: string, args: string[], env?: NodeJS.ProcessEnv) => execFileAsync(name, args, { env }));
+  const manifest = await readJson(resolve(releaseDirectory, "release-manifest.json"), "release manifest");
+  const version = stringValue(manifest.version, "release version");
+  if (tag !== `v${version}` || manifest.package !== packageName) throw new Error("publication tag or package does not match manifest");
+  const artifacts = recordArray(manifest.artifacts, "release artifacts");
+  const names = artifacts.map(item => stringValue(item.name, "artifact name"));
+  const archive = names.find(name => name.endsWith(".tgz"));
+  const notes = names.find(name => name.endsWith("-release-notes.md"));
+  if (!archive || !notes) throw new Error("missing package archive or release notes");
+  const assetPaths = [...names.map(name => resolve(releaseDirectory, name)), resolve(releaseDirectory, "release-manifest.json"), resolve(releaseDirectory, "SHA256SUMS.txt"), ...["release-qualification-receipt.json", "release-approval.json", "release-qualification-evidence.tar.gz"].map(name => resolve(evidenceDirectory, name))];
+  const expectedAssets = new Map(await Promise.all(assetPaths.map(async path => [path.split(sep).pop()!, await readFile(path)] as const)));
+  if (expectedAssets.size !== assetPaths.length) throw new Error("duplicate expected release asset name");
+  const archiveBytes = expectedAssets.get(archive)!;
+  const archiveHash = createHash("sha256").update(archiveBytes).digest("hex");
+  const archiveIntegrity = `sha512-${createHash("sha512").update(archiveBytes).digest("base64")}`;
+  const api = `https://api.github.com/repos/${repository}`;
+  const githubHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cruxomni-release-gate" };
+  const npmHeaders = { Authorization: `Bearer ${npmToken}`, Accept: "application/json" };
+  const request = async (url: string, headers: Record<string, string>, allowMissing = false, asset = false): Promise<Response | null> => {
+    let response = await (dependencies.fetch ?? fetch)(url, { headers, redirect: "manual", signal: AbortSignal.timeout(30_000) });
+    if (asset && [301, 302, 303, 307, 308].includes(response.status)) {
+      await response.body?.cancel();
+      const location = response.headers.get("location");
+      if (!location) throw new Error("GitHub asset redirect has no location");
+      const target = new URL(location, url);
+      if (target.protocol !== "https:" || !["release-assets.githubusercontent.com", "objects.githubusercontent.com"].includes(target.hostname) || target.username || target.password || target.port) throw new Error("GitHub asset redirect is not a trusted download host");
+      response = await (dependencies.fetch ?? fetch)(target.href, { redirect: "manual", signal: AbortSignal.timeout(30_000) });
+    }
+    if (response.status === 404 && allowMissing) { await response.body?.cancel(); return null; }
+    if (!response.ok) { await response.body?.cancel(); throw new Error(`publication readback failed with HTTP ${response.status}; reconcile before mutation`); }
+    return response;
+  };
+  const inspect = async (): Promise<{ github: PublicationState; npm: "absent" | "published" }> => {
+    // Authenticate and establish repository visibility before interpreting a 404.
+    await (await request(api, githubHeaders))!.body?.cancel();
+    await (await request("https://registry.npmjs.org/-/whoami", npmHeaders))!.body?.cancel();
+    const tagResponse = await request(`${api}/git/ref/tags/${encodeURIComponent(tag)}`, githubHeaders);
+    const tagObject = objectValue(await readPublicationJson(tagResponse!, "GitHub tag reference"), "GitHub tag reference");
+    const tagRef = objectValue(tagObject.object, "GitHub tag object");
+    const { stdout: localTag } = await command("git", ["rev-parse", `refs/tags/${tag}`]);
+    if (tagRef.type !== "tag" || tagRef.sha !== localTag.trim()) throw new Error("GitHub tag differs from the verified signed tag");
+    // The tag lookup endpoint omits drafts; enumerate the authenticated list.
+    const matches: Record<string, unknown>[] = [];
+    let complete = false;
+    for (let page = 1; page <= 100; page++) {
+      const response = await request(`${api}/releases?per_page=100&page=${page}`, githubHeaders);
+      const releases = recordArray(await readPublicationJson(response!, "GitHub releases"), "GitHub releases");
+      matches.push(...releases.filter(release => release.tag_name === tag));
+      if (releases.length < 100) { complete = true; break; }
+    }
+    if (!complete || matches.length > 1) throw new Error("GitHub release list is incomplete or ambiguous");
+    let github: PublicationState = "absent";
+    if (matches.length === 1) {
+      const release = matches[0]!;
+      if (release.tag_name !== tag || release.name !== `OMP OmniRoute Provider ${version}` || typeof release.draft !== "boolean" || release.prerelease !== false || release.body !== expectedAssets.get(notes)!.toString("utf8")) throw new Error("GitHub release metadata or reviewed notes mismatch");
+      const assets = recordArray(release.assets, "GitHub release assets");
+      if (assets.length !== expectedAssets.size || new Set(assets.map(asset => asset.name)).size !== expectedAssets.size) throw new Error("GitHub release asset set mismatch");
+      for (const asset of assets) {
+        const name = stringValue(asset.name, "GitHub asset name");
+        const expected = expectedAssets.get(name);
+        if (!expected || !Number.isSafeInteger(asset.id) || asset.state !== "uploaded") throw new Error("GitHub release asset identity mismatch");
+        const response = await request(`${api}/releases/assets/${asset.id}`, { ...githubHeaders, Accept: "application/octet-stream" }, false, true);
+        await verifyPublicationBytes(response!, expected, `GitHub release asset ${name}`);
+      }
+      github = release.draft ? "draft" : "published";
+    }
+    const packageResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, npmHeaders);
+    const packageMetadata = objectValue(await readPublicationJson(packageResponse!, "npm package metadata"), "npm package metadata");
+    if (packageMetadata.name !== packageName) throw new Error("npm package identity mismatch");
+    const versions = objectValue(packageMetadata.versions, "npm package versions");
+    const npmResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`, npmHeaders, true);
+    if (!npmResponse) {
+      if (Object.hasOwn(versions, version)) throw new Error("npm version readback is inconsistent");
+      return { github, npm: "absent" };
+    }
+    if (!Object.hasOwn(versions, version)) throw new Error("npm version readback is inconsistent");
+    const metadata = objectValue(await readPublicationJson(npmResponse, "npm version metadata"), "npm version metadata");
+    const dist = objectValue(metadata.dist, "npm distribution");
+    if (metadata.name !== packageName || metadata.version !== version || dist.integrity !== archiveIntegrity || typeof dist.tarball !== "string") throw new Error("npm package identity or integrity mismatch");
+    const tarball = new URL(dist.tarball);
+    if (tarball.protocol !== "https:" || tarball.hostname !== "registry.npmjs.org" || tarball.username || tarball.password || tarball.port) throw new Error("npm tarball URL is not the trusted registry");
+    const downloaded = await request(tarball.href, npmHeaders);
+    const downloadedHash = createHash("sha256");
+    await verifyPublicationBytes(downloaded!, archiveBytes, "npm tarball", downloadedHash);
+    if (downloadedHash.digest("hex") !== archiveHash) throw new Error("npm tarball SHA-256 mismatch");
+    return { github, npm: "published" };
+  };
+  const effect = async (name: string, args: string[], env: NodeJS.ProcessEnv = process.env) => {
+    try { await command(name, args, env); }
+    catch { throw new Error(`${name} publication outcome is uncertain; stop and reconcile both destinations before any retry`); }
+  };
+  await recoverPublication({
+    inspect,
+    createDraft: () => effect("gh", ["release", "create", tag, ...assetPaths, "--repo", repository, "--title", `OMP OmniRoute Provider ${version}`, "--notes-file", resolve(releaseDirectory, notes), "--draft", "--verify-tag"]),
+    publishNpm: () => effect("npm", ["publish", resolve(releaseDirectory, archive), "--access", "public", "--ignore-scripts", "--fetch-retries=0"], { ...process.env, NODE_AUTH_TOKEN: npmToken }),
+    publishGithub: () => effect("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"]),
+  });
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "publish") {
+    const [releaseDirectory, evidenceDirectory, tag, repository, qualificationPath, approval] = args;
+    if (!releaseDirectory || !evidenceDirectory || !tag || !repository || !qualificationPath || !approval) throw new Error("usage: bun run scripts/release-gate.ts publish <release-directory> <evidence-directory> <tag> <repository> <qualification-receipt.json> <approval-sha256>");
+    await verifyReleaseApproval({ releaseDirectory, qualificationPath, expectedReceiptSha256: approval });
+    await publishApprovedRelease(releaseDirectory, evidenceDirectory, tag, repository, process.env.GH_TOKEN ?? "", process.env.NODE_AUTH_TOKEN ?? "");
+    return;
+  }
   if (command === "verify-environment") {
     const [environmentPath, environmentName] = args;
     if (!environmentPath || !environmentName) {

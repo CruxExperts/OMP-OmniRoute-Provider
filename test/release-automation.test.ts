@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { exportRelease } from "../scripts/export-release.ts";
 import { createQualificationSourceSnapshot, DockerCommandError, prepareQualificationDependencyMount, runBoundedQualificationCommand, runOwnedMuslDockerTask, validateNativeSmokeOutput, type OwnedMuslDockerResources } from "../scripts/qualify-release.ts";
 import { validateMuslRuntimeEvidence } from "../scripts/musl-runtime.ts";
-import { createReleaseApprovalReceipt, verifyQualificationRunMetadata, verifyReleaseApproval, verifyReleaseEnvironmentMetadata } from "../scripts/release-gate.ts";
+import { createReleaseApprovalReceipt, publishApprovedRelease, recoverPublication, verifyQualificationRunMetadata, verifyReleaseApproval, verifyReleaseEnvironmentMetadata } from "../scripts/release-gate.ts";
 import { cleanEnvironment } from "../scripts/smoke.ts";
 import { checkVersion, planVersion, setVersion } from "../scripts/version.ts";
 import type { PackageVerificationResult } from "../scripts/verify-package.ts";
@@ -336,6 +336,131 @@ afterEach(async () => {
 });
 
 describe("release automation", () => {
+  it("checks remote bytes and authenticated readback before publication effects", async () => {
+    const dir = await temporaryDirectory("cruxomni-publication-readback-");
+    const archive = Buffer.from("approved package");
+    const notes = "reviewed notes\n";
+    const assets = new Map<string, Buffer>([
+      ["package.tgz", archive], ["review-release-notes.md", Buffer.from(notes)],
+      ["SHA256SUMS.txt", Buffer.from("checksums")], ["release-qualification-receipt.json", Buffer.from("receipt")],
+      ["release-approval.json", Buffer.from("approval")], ["release-qualification-evidence.tar.gz", Buffer.from("evidence")],
+    ]);
+    const manifest = JSON.stringify({ package: projectName, version: "0.1.1", artifacts: [{ name: "package.tgz" }, { name: "review-release-notes.md" }] });
+    assets.set("release-manifest.json", Buffer.from(manifest));
+    for (const [name, bytes] of assets) await writeFile(join(dir, name), bytes);
+    const sha = createHash("sha512").update(archive).digest("base64");
+    for (const fault of ["none", "chunked", "npm-absent", "github-auth", "npm-auth", "asset", "asset-oversized", "asset-short", "notes", "integrity", "tarball", "tarball-oversized", "tarball-short", "metadata-tag-oversized", "metadata-releases-oversized", "metadata-package-oversized", "metadata-version-oversized", "npm-version-error", "npm-version-unauthorized", "npm-inconsistent", "redirect-untrusted", "redirect-trusted"] as const) {
+      const effects: string[] = [];
+      let npmPublished = fault !== "npm-absent";
+      const entries = [...assets.entries()];
+      let cancelled = false;
+      const streamed = (chunks: Uint8Array[]) => {
+        let index = 0;
+        return new Response(new ReadableStream<Uint8Array>({
+          pull(controller) { if (index < chunks.length) controller.enqueue(chunks[index++]!); else controller.close(); },
+          cancel() { cancelled = true; },
+        }, { highWaterMark: 0 }));
+      };
+      const oversizedMetadata = () => streamed([new Uint8Array(8 * 1024 * 1024), new Uint8Array(1), new Uint8Array(1)]);
+      const chunked = (bytes: Buffer) => streamed([bytes.subarray(0, 3), bytes.subarray(3)]);
+      const fetcher = async (input: string | URL | Request): Promise<Response> => {
+        const url = String(input);
+        const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
+        if (url.endsWith("/repos/owner/repo")) return json({}, fault === "github-auth" ? 403 : 200);
+        if (url.endsWith("/-/whoami")) return json({}, fault === "npm-auth" ? 401 : 200);
+        if (url.includes("/git/ref/tags/")) return fault === "metadata-tag-oversized" ? oversizedMetadata() : json({ object: { type: "tag", sha: gitHash } });
+        if (url.includes("/releases?")) return fault === "metadata-releases-oversized" ? oversizedMetadata() : json([{ tag_name: "v0.1.1", name: "OMP OmniRoute Provider 0.1.1", draft: true, prerelease: false, body: fault === "notes" ? "different" : notes, assets: entries.map(([name], index) => ({ name, id: index + 1, state: "uploaded" })) }]);
+        if (url.includes("/releases/assets/")) {
+          const index = Number(url.split("/").pop()) - 1;
+          if (index === 0 && (fault === "redirect-untrusted" || fault === "redirect-trusted")) return new Response(null, { status: 302, headers: { location: fault === "redirect-trusted" ? "https://release-assets.githubusercontent.com/asset" : "https://evil.example/asset" } });
+          if (index === 0 && fault === "asset-oversized") return streamed([entries[index]![1], new Uint8Array(1), new Uint8Array(1)]);
+          if (index === 0 && fault === "asset-short") return streamed([entries[index]![1].subarray(0, 3)]);
+          if (fault === "chunked") return chunked(entries[index]![1]);
+          return new Response(fault === "asset" && index === 0 ? "changed" : new Uint8Array(entries[index]![1]));
+        }
+        if (url === "https://release-assets.githubusercontent.com/asset") return new Response(new Uint8Array(entries[0]![1]));
+        if (url.endsWith("/%40cruxexperts%2Fcruxomni-omp-client")) return fault === "metadata-package-oversized" ? oversizedMetadata() : json({ name: projectName, versions: npmPublished || fault === "npm-inconsistent" ? { "0.1.1": {} } : {} });
+        if (url.endsWith("/%40cruxexperts%2Fcruxomni-omp-client/0.1.1")) {
+          if (fault === "metadata-version-oversized") return oversizedMetadata();
+          if (fault === "npm-version-error") return json({}, 500);
+          if (fault === "npm-version-unauthorized") return json({}, 401);
+          if (!npmPublished || fault === "npm-inconsistent") return json({}, 404);
+          return json({ name: projectName, version: "0.1.1", dist: { integrity: fault === "integrity" ? "sha512-wrong" : `sha512-${sha}`, tarball: "https://registry.npmjs.org/pkg.tgz" } });
+        }
+        if (url.endsWith("/pkg.tgz")) {
+          if (fault === "tarball-oversized") return streamed([archive, new Uint8Array(1), new Uint8Array(1)]);
+          if (fault === "tarball-short") return streamed([archive.subarray(0, 3)]);
+          return fault === "chunked" ? chunked(archive) : new Response(fault === "tarball" ? "changed" : new Uint8Array(archive));
+        }
+        throw new Error(`unexpected fixture URL ${url}`);
+      };
+      let published = false;
+      const request = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        if (String(input).startsWith("https://release-assets.githubusercontent.com/")) expect(init?.headers).toBeUndefined();
+        const response = await fetcher(input);
+        if (published && String(input).includes("/releases?")) {
+          const releases = await response.json() as Array<Record<string, unknown>>;
+          releases[0]!.draft = false;
+          return new Response(JSON.stringify(releases));
+        }
+        return response;
+      };
+      const operation = publishApprovedRelease(dir, dir, "v0.1.1", "owner/repo", "github-token", "npm-token", {
+        fetch: request as unknown as typeof fetch,
+        command: async (name, args) => { if (name === "git") return { stdout: gitHash }; effects.push(name); if (name === "npm") { expect(args).toContain("--fetch-retries=0"); npmPublished = true; } else published = true; return { stdout: "" }; },
+      });
+      if (fault === "none" || fault === "chunked" || fault === "redirect-trusted") { await operation; expect(effects).toEqual(["gh"]); }
+      else if (fault === "npm-absent") { await operation; expect(effects).toEqual(["npm", "gh"]); }
+      else { await expect(operation).rejects.toThrow(); expect(effects).toEqual([]); }
+      if (fault.includes("oversized")) expect(cancelled).toBe(true);
+    }
+  });
+
+  it("executes only missing protected publication effects and reconciles after each", async () => {
+    for (const [initialGithub, initialNpm, expected] of [
+      ["absent", "absent", ["draft", "npm", "github"]],
+      ["draft", "absent", ["npm", "github"]],
+      ["draft", "published", ["github"]],
+      ["published", "published", []],
+    ] as const) {
+      let github: "absent" | "draft" | "published" = initialGithub;
+      let npm: "absent" | "published" = initialNpm;
+      const effects: string[] = [];
+      let reads = 0;
+      await recoverPublication({
+        inspect: async () => { reads++; return { github, npm }; },
+        createDraft: async () => { effects.push("draft"); github = "draft"; },
+        publishNpm: async () => { effects.push("npm"); npm = "published"; },
+        publishGithub: async () => { effects.push("github"); github = "published"; },
+      });
+      expect(effects).toEqual([...expected]);
+      expect(reads).toBe(expected.length + 1);
+    }
+  });
+
+  it("stops on uncertain reads, failed effects, and inconsistent destination states", async () => {
+    for (const failure of ["initial-read", "draft", "post-draft-read", "npm", "post-npm-read", "github", "post-github-read"] as const) {
+      let github: "absent" | "draft" | "published" = "absent";
+      let npm: "absent" | "published" = "absent";
+      const effects: string[] = [];
+      let reads = 0;
+      const failRead = failure === "initial-read" ? 1 : failure === "post-draft-read" ? 2 : failure === "post-npm-read" ? 3 : failure === "post-github-read" ? 4 : 0;
+      await expect(recoverPublication({
+        inspect: async () => { if (++reads === failRead) throw new Error("readback unavailable"); return { github, npm }; },
+        createDraft: async () => { effects.push("draft"); if (failure === "draft") throw new Error("uncertain draft"); github = "draft"; },
+        publishNpm: async () => { effects.push("npm"); if (failure === "npm") throw new Error("uncertain npm"); npm = "published"; },
+        publishGithub: async () => { effects.push("github"); if (failure === "github") throw new Error("uncertain github"); github = "published"; },
+      })).rejects.toThrow();
+      const expectedCount = failure === "initial-read" ? 0 : failure === "draft" || failure === "post-draft-read" ? 1 : failure === "npm" || failure === "post-npm-read" ? 2 : 3;
+      expect(effects).toEqual(["draft", "npm", "github"].slice(0, expectedCount));
+    }
+    for (const state of [{ github: "absent", npm: "published" }, { github: "published", npm: "absent" }] as const) {
+      const effects: string[] = [];
+      await expect(recoverPublication({ inspect: async () => state, createDraft: async () => { effects.push("draft"); }, publishNpm: async () => { effects.push("npm"); }, publishGithub: async () => { effects.push("github"); } })).rejects.toThrow("inconsistent");
+      expect(effects).toEqual([]);
+    }
+  });
+
   it("builds a shallow source snapshot from the exact commit without checkout-local state", async () => {
     const source = await temporaryDirectory("cruxomni-musl-snapshot-source-");
     git(source, "init", "-b", "main");
@@ -681,19 +806,6 @@ describe("release automation", () => {
     expect(() => verifyReleaseEnvironmentMetadata(malformedReviewer)).toThrow("type User or Team");
   });
 
-  it("checks the live release environment and npm token before draft creation", async () => {
-    const workflow = await readFile(join(import.meta.dir, "../.github/workflows/release.yml"), "utf8");
-    const apiChecks = workflow.match(/gh api "repos\/\$GITHUB_REPOSITORY\/environments\/release"/g) ?? [];
-    expect(apiChecks).toHaveLength(2);
-    expect(workflow.match(/bun run scripts\/release-gate\.ts verify-environment/g) ?? []).toHaveLength(2);
-
-    const tokenCheck = workflow.indexOf("The release environment must provide a non-empty NPM_TOKEN secret before publication.");
-    const draftCreation = workflow.indexOf("gh release create \"$RELEASE_TAG\"");
-    expect(tokenCheck).toBeGreaterThan(-1);
-    expect(draftCreation).toBeGreaterThan(tokenCheck);
-    expect(workflow.indexOf("verify-environment \"$RUNNER_TEMP/release-environment.json\" release", workflow.indexOf("jobs:\n  publish:")))
-      .toBeLessThan(tokenCheck);
-  });
 
   it("keeps the native Windows smoke profile isolated while preserving required system variables case-insensitively", () => {
     const environment = cleanEnvironment({
