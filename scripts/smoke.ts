@@ -773,7 +773,7 @@ type CommandOptions = {
   inputSteps?: Array<{ afterMs: number; text: string }>;
   dialogue?: DialogueStep[];
   diagnosticDispatch?: (phase: "rendered" | "dispatched") => Promise<void>;
-  beforeTimeoutTermination?: () => Promise<void>;
+  beforeTimeoutTermination?: (elapsedMs: number) => Promise<void>;
   beforeResearchStop?: () => Promise<void>;
 };
 
@@ -1054,8 +1054,10 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
     void writeInput(terminal, options.input).catch(() => child?.kill("SIGTERM"));
   }
   let timeoutObservation: Promise<void> | undefined;
+  const timeoutStarted = performance.now();
   const timeout = setTimeout(() => {
     timedOut = true;
+    const timeoutElapsedMs = Math.min(Math.floor(performance.now() - timeoutStarted), 0xffffff);
     dialogueScheduler?.cancel();
     timeoutObservation = (async () => {
       try {
@@ -1063,7 +1065,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
           let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
           try {
             await Promise.race([
-              options.beforeTimeoutTermination(),
+              options.beforeTimeoutTermination(timeoutElapsedMs),
               new Promise<void>(done => { cleanupTimer = setTimeout(done, 1_500); }),
             ]);
           } finally {
@@ -1361,7 +1363,7 @@ async function nativePromptSetup(
       timeoutMs: 75_000,
       dialogue,
       ...(scriptedInput ? { inputSteps: [{ afterMs: 1_000, text: scriptedInput }] } : {}),
-      ...(traceClient ? { beforeTimeoutTermination: () => sampleTrace("timeout-before-termination"), beforeResearchStop: () => sampleTrace("success-before-stop") } : {}),
+      ...(traceClient ? { beforeTimeoutTermination: (elapsedMs: number) => { research!.observations.timeoutElapsedMs = elapsedMs; return sampleTrace("timeout-before-termination"); }, beforeResearchStop: () => sampleTrace("success-before-stop") } : {}),
     });
   } finally {
     if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
@@ -1863,7 +1865,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "e45eacccfa0d498e25face42b0a4cccdc372f8dbc1eafcf67c2c3fcd61e45ea0") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "f0e4af389e54933ea76e619da16c6a70446f3ad298a17ac782b97e8fd5e8382b") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");

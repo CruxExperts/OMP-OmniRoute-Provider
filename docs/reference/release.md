@@ -249,6 +249,23 @@ Setup-only configuration markers bracket filesystem awaits and Windows ACL
 subprocess callback/close boundaries without recording paths, values, or output.
 These markers locate the remaining wait; they do not establish its cause until
 the exact dependency and its outcome have been inspected.
+For ACL markers 80–85, `id` identifies the invocation (1–256; later
+invocations are not recorded), `a` is the marker, and `b`, `c`, `d` encode
+elapsed whole milliseconds as a big-endian 24-bit integer from the instrumented
+host trace initialization, saturating at 16,777,215 ms. Marker 80 precedes
+`execFile`; 83 precedes awaiting its callback promise; 81 marks the callback;
+82 marks child close; 84 enters the close-wait finally; and 85 leaves it. The
+order of callback, close and finally is observed, not assumed. Marker 86 is
+emitted in the host when each trace read is handled and uses the same clock;
+the timeout sample's marker provides the upper observation boundary, not the
+exact host termination time. The smoke process separately records
+`timeoutElapsedMs` from its own monotonic timer arm to callback; its clock epoch
+must not be compared directly with the host clock. Setup uses the existing
+75-second smoke deadline and the ACL helper retains its 30-second deadline.
+Timing differences can distinguish a helper started shortly before the outer
+cutoff from one already pending much longer; missing, saturated or overflowing
+trace remains inconclusive and neither marker completion nor callback proves
+success. No paths, values or subprocess output are added to the trace.
 The source exporter treats archive output names as local paths, so Windows drive
 letters are not interpreted as remote tar destinations.
 Package scanning recognizes validated Python digest/integrity assignments and

@@ -212,45 +212,47 @@
    }
 --- a/src/private-path.ts
 +++ b/src/private-path.ts
-@@ -1,5 +1,13 @@
+@@ -1,5 +1,14 @@
  import { execFile } from "node:child_process";
  import { join } from "node:path";
 +
 +// Research overlay: emit fixed categories only after setup reaches its refresh.
-+function researchMarker(marker: number): void {
++let researchInvocation = 0;
++function researchMarker(marker: number, invocation: number): void {
 +  const state = globalThis as typeof globalThis & { [key: symbol]: unknown };
 +  if (state[Symbol.for("cruxomni.windowsResearch.setup.v1")] !== true) return;
 +  const sink = state[Symbol.for("cruxomni.windowsResearch.trace.v1")];
-+  if (typeof sink === "function") sink(marker);
++  if (typeof sink === "function") sink(marker, invocation);
 +}
  
  // Paths are passed over stdin, never interpolated into PowerShell source. The
  // directory is created with its DACL in place, before it can contain files.
-@@ -69,7 +77,9 @@
+@@ -69,7 +78,10 @@
    const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
    const { promise, resolve, reject } = Promise.withResolvers<void>();
    const closed = Promise.withResolvers<void>();
-+  researchMarker(80);
++  const invocation = ++researchInvocation;
++  researchMarker(80, invocation);
    const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedWindowsScript], { windowsHide: true, timeout: 30_000, ...(signal ? { signal } : {}) }, (error, _stdout, stderr) => {
-+    researchMarker(81);
++    researchMarker(81, invocation);
      if (error) {
        if (signal?.aborted && error.name === "AbortError" && error.cause === signal.reason) {
          reject(signal.reason);
-@@ -80,12 +90,16 @@
+@@ -80,12 +92,16 @@
        reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
      } else resolve();
    });
 -  child.once("close", closed.resolve);
-+  child.once("close", () => { researchMarker(82); closed.resolve(); });
++  child.once("close", () => { researchMarker(82, invocation); closed.resolve(); });
    child.stdin?.on("error", () => {});
    child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
    // Abort can report an error before the child closes. Keep the transaction
    // owned until no helper process can continue a directory mutation.
 -  try { await promise; } finally { await closed.promise; }
-+  researchMarker(83);
++  researchMarker(83, invocation);
 +  try { await promise; } finally {
-+    researchMarker(84);
-+    try { await closed.promise; } finally { researchMarker(85); }
++    researchMarker(84, invocation);
++    try { await closed.promise; } finally { researchMarker(85, invocation); }
 +  }
  }
  

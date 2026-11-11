@@ -304,7 +304,7 @@
  
 --- /dev/null
 +++ b/packages/tui/src/research-trace.ts
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,63 @@
 +// Private research build only. The existing debug server reads this buffer without consuming it.
 +const enabled = process.env.OMP_RESEARCH_INPUT_TRACE === "1";
 +const ids = new WeakMap<object, number>();
@@ -314,6 +314,11 @@
 +const events: Event[] = [];
 +let bytes = 0;
 +let dropped = 0;
++const traceEpoch = performance.now();
++function timedStartup(marker: number, id = 0): void {
++  const elapsed = Math.min(Math.floor(performance.now() - traceEpoch), 0xffffff);
++  researchEvent("startup", id, marker, (elapsed >>> 16) & 255, (elapsed >>> 8) & 255, elapsed & 255);
++}
 +
 +export function researchIdentity(value: object): number {
 +	if (!enabled) return 0;
@@ -333,13 +338,17 @@
 +}
 +
 +if (enabled) {
-+  (globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.trace.v1")] = (marker: unknown) => {
-+    if (typeof marker === "number" && Number.isInteger(marker) && ((marker >= 19 && marker <= 39) || (marker >= 41 && marker <= 44) || (marker >= 50 && marker <= 69) || (marker >= 80 && marker <= 85))) researchEvent("startup", 0, marker);
++  (globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.trace.v1")] = (marker: unknown, invocation?: unknown) => {
++    if (typeof marker !== "number" || !Number.isInteger(marker)) return;
++    if (marker >= 80 && marker <= 85) {
++      if (typeof invocation === "number" && Number.isInteger(invocation) && invocation >= 1 && invocation <= 256) timedStartup(marker, invocation);
++    } else if ((marker >= 19 && marker <= 39) || (marker >= 41 && marker <= 44) || (marker >= 50 && marker <= 69)) researchEvent("startup", 0, marker);
 +  };
 +}
 +
 +export function researchRead(cursor: number): { available: false } | { available: true; pid: number; events: readonly Event[]; cursor: number; overflow: boolean; dropped: number; bytes: number } {
 +	if (!enabled) return { available: false };
++	timedStartup(86);
 +	return { available: true, pid: process.pid, events: events.filter(event => event.seq > cursor), cursor: events.length, overflow: dropped > 0, dropped, bytes };
 +}
 +

@@ -319,14 +319,17 @@ test("research provider overlay changes only three verified disposable installed
       const modified = await readFile(join(directory, file));
       expect(entries[index]!.originalSha256).toBe(hash(originals[index]!));
       expect(entries[index]!.resultingSha256).toBe(hash(modified));
-      expect(modified).not.toEqual(originals[index]);
-      expect(await readFile(join(import.meta.dir, "..", file))).toEqual(originals[index]);
+      expect(modified).not.toEqual(originals[index]!);
+      expect(await readFile(join(import.meta.dir, "..", file))).toEqual(originals[index]!);
     }
     const instrumented = await readFile(join(directory, "src/index.ts"), "utf8");
     expect(instrumented).toContain('pi.on("session_start", async (_event, ctx) => {\n\t\tresearchStartup(19);');
     expect(instrumented).toContain('researchStartup(28);\n\t\t\tconst flight = updateConfig');
     expect(instrumented).toContain('() => { researchStartup(29); }');
     expect(instrumented).toContain('error => {\n\t\t\t\t\tresearchStartup(40);');
+    const privatePath = await readFile(join(directory, "src/private-path.ts"), "utf8");
+    for (const marker of [80, 81, 82, 83, 84, 85]) expect(privatePath).toContain(`researchMarker(${marker}, invocation)`);
+    expect(privatePath).toContain("const invocation = ++researchInvocation;");
     expect(await readFile(join(directory, "untouched.txt"), "utf8")).toBe("preserve");
     for (const [index, file] of files.entries()) await writeFile(join(directory, file), originals[index]!);
     for (const [index, file] of files.entries()) {
@@ -340,9 +343,55 @@ test("research provider overlay changes only three verified disposable installed
     await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("file allowlist mismatch");
     await writeFile(invalid, `${await readFile(patch, "utf8")}\n`);
     await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("patch digest mismatch");
-    for (const [index, file] of files.entries()) expect(await readFile(join(directory, file))).toEqual(originals[index]);
+    for (const [index, file] of files.entries()) expect(await readFile(join(directory, file))).toEqual(originals[index]!);
     expect(await readFile(join(directory, "untouched.txt"), "utf8")).toBe("preserve");
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("research ACL events correlate invocations and use the sample's monotonic clock", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "research-trace-timing-"));
+  const key = Symbol.for("cruxomni.windowsResearch.trace.v1");
+  const state = globalThis as typeof globalThis & { [key: symbol]: unknown };
+  const previousSink = state[key];
+  const previousEnabled = process.env.OMP_RESEARCH_INPUT_TRACE;
+  try {
+    const patch = await readFile(join(import.meta.dir, "../scripts/windows-research-input-instrumentation.patch"), "utf8");
+    const section = patch.split("+++ b/packages/tui/src/research-trace.ts\n")[1]?.split("--- a/packages/tui/src/terminal.ts\n")[0];
+    if (!section) throw new Error("research trace patch section missing");
+    const lines = section.trimEnd().split("\n");
+    expect(lines.shift()).toBe("@@ -0,0 +1,63 @@");
+    expect(lines.every(line => line.startsWith("+"))).toBe(true);
+    const modulePath = join(directory, "research-trace.ts");
+    await writeFile(modulePath, lines.map(line => line.slice(1)).join("\n"));
+    process.env.OMP_RESEARCH_INPUT_TRACE = "1";
+    // The module is generated from the patch at a temporary runtime path.
+    const trace = await import(modulePath);
+    const sink = state[key] as (marker: unknown, invocation?: unknown) => void;
+    sink(80, 1);
+    sink(81, 1);
+    sink(80, 2);
+    sink(83, 2);
+    sink(80, 257);
+    sink(80, "2");
+    sink(86, 2);
+    const first = trace.researchRead(0);
+    expect(first.available).toBe(true);
+    expect(first.events.map((event: { a: number; id: number }) => [event.a, event.id])).toEqual([[80, 1], [81, 1], [80, 2], [83, 2], [86, 0]]);
+    const elapsed = (event: { b: number; c: number; d: number }) => event.b * 65536 + event.c * 256 + event.d;
+    const times = first.events.map(elapsed);
+    expect(times[1]).toBeGreaterThanOrEqual(times[0]);
+    expect(times).toEqual([...times].sort((a: number, b: number) => a - b));
+    expect(first.overflow).toBe(false);
+    const second = trace.researchRead(first.cursor);
+    expect(second.events.map((event: { a: number }) => event.a)).toEqual([86]);
+    expect(elapsed(second.events[0])).toBeGreaterThanOrEqual(times[4]);
+  } finally {
+    if (previousEnabled === undefined) delete process.env.OMP_RESEARCH_INPUT_TRACE;
+    else process.env.OMP_RESEARCH_INPUT_TRACE = previousEnabled;
+    if (previousSink === undefined) delete state[key];
+    else state[key] = previousSink;
     await rm(directory, { recursive: true, force: true });
   }
 });
