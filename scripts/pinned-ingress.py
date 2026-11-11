@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+import io
 import json
 import re
 import os
@@ -23,6 +24,7 @@ FIXTURE = ROOT / 'test/fixtures/pinned-ingress'
 NODE = None
 SOURCE = None
 DEPENDENCIES = None
+BWRAP = None
 COMMIT = '191dce8d534ceb56c28a08e71381284a9a87838f'
 NODE_SHA = '62d66443847de1f527f74afe715900b12884ace52136dc9cd8e91e61acc2f527'
 ARCHIVE_SHA = '2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b'
@@ -31,11 +33,18 @@ DISK = 12 * 1024**3
 NODE_ARCHIVE_SHA = 'ab343a1b747c7cbf3630dfd7dbf818c5423fab2eb4f5ad1afc896f6bd121a917'
 NODE_ARCHIVE_URL = 'https://nodejs.org/dist/v24.17.0/node-v24.17.0-linux-x64.tar.xz'
 SOURCE_URL = 'https://github.com/diegosouzapw/OmniRoute/releases/download/v3.8.53/OmniRoute-v3.8.53.source.tar.gz'
+BWRAP_SHA = '70aca4fa8daeacb677ec00e8063eb586f08ae3d94b1f11e684370b5524c43431'
+BWRAP_URL = 'https://ftp.debian.org/debian/pool/main/b/bubblewrap/bubblewrap_0.12.0-1~deb13u1_amd64.deb'
+BWRAP_LIMIT = 1024**2
 
 
 class RestrictedRedirect(urllib.request.HTTPRedirectHandler):
+    def __init__(self, hosts):
+        super().__init__()
+        self.hosts = hosts
+
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        validate_url(newurl, {'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'})
+        validate_url(newurl, self.hosts)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -46,9 +55,10 @@ def validate_url(url, hosts):
 
 
 def download(url, destination, maximum, expected_size=None):
-    hosts = {'nodejs.org'} if url == NODE_ARCHIVE_URL else ({'github.com'} if url == SOURCE_URL else {'registry.npmjs.org'})
+    hosts = {'nodejs.org'} if url == NODE_ARCHIVE_URL else ({'github.com'} if url == SOURCE_URL else ({'ftp.debian.org'} if url == BWRAP_URL else {'registry.npmjs.org'}))
     validate_url(url, hosts)
-    opener = urllib.request.build_opener(RestrictedRedirect())
+    redirect_hosts = {'github.com', 'release-assets.githubusercontent.com', 'objects.githubusercontent.com'} if url == SOURCE_URL else hosts
+    opener = urllib.request.build_opener(RestrictedRedirect(redirect_hosts))
     total = 0
     with opener.open(url, timeout=60) as response, destination.open('xb') as output:
         while True:
@@ -61,8 +71,75 @@ def download(url, destination, maximum, expected_size=None):
     require(expected_size is None or total == expected_size, 'download size mismatch')
 
 
+def acquisition_preflight():
+    require(sys.platform == 'linux' and os.uname().machine == 'x86_64', 'requires Linux x86_64')
+    for executable in ('/usr/bin/dpkg-query', '/usr/bin/dpkg', '/usr/bin/dpkg-deb'):
+        require(os.access(executable, os.X_OK), 'missing prerequisite executable: ' + executable)
+    for package, minimum in (('libc6', '2.38'), ('libcap2', '1:2.10'), ('libselinux1', '3.1~')):
+        result = subprocess.run(['/usr/bin/dpkg-query', '-W', '-f=${Status}\t${Version}', package], capture_output=True, text=True, timeout=15)
+        fields = result.stdout.strip().split('\t')
+        require(result.returncode == 0 and len(fields) == 2 and fields[0] == 'install ok installed', 'required installed library unavailable: ' + package)
+        result = subprocess.run(['/usr/bin/dpkg', '--compare-versions', fields[1], 'ge', minimum], timeout=15)
+        require(result.returncode == 0, 'required installed library too old: ' + package + ' >= ' + minimum)
+
+
+def bwrap_members(package):
+    require(package.is_file() and not package.is_symlink() and package.stat().st_size == 56876 and file_sha(package) == BWRAP_SHA, 'bubblewrap package identity mismatch')
+    process = subprocess.Popen(['/usr/bin/dpkg-deb', '--fsys-tarfile', str(package)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        data = process.stdout.read(BWRAP_LIMIT + 1)
+        require(len(data) <= BWRAP_LIMIT, 'bubblewrap archive output exceeds byte limit')
+        require(process.wait(timeout=30) == 0, 'bubblewrap archive extraction failed')
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+    wanted = {'./usr/bin/bwrap': 'bwrap', './usr/share/doc/bubblewrap/copyright': 'copyright'}
+    found = {}
+    total = 0
+    with tarfile.open(fileobj=io.BytesIO(data), mode='r:') as archive:
+        for member in archive:
+            if member.name not in wanted:
+                continue
+            require(member.name not in found and member.isfile() and 0 < member.size <= BWRAP_LIMIT, 'invalid bubblewrap archive member')
+            total += member.size
+            require(total <= BWRAP_LIMIT, 'bubblewrap extracted bytes exceed limit')
+            stream = archive.extractfile(member)
+            require(stream is not None, 'bubblewrap member unavailable')
+            found[member.name] = stream.read(member.size + 1)
+            require(len(found[member.name]) == member.size, 'bubblewrap member size mismatch')
+    require(set(found) == set(wanted), 'bubblewrap archive members missing')
+    return {wanted[name]: value for name, value in found.items()}
+
+
+def stage_bwrap(root, approval):
+    require(approval == BWRAP_SHA, 'explicit approval of exact bubblewrap package SHA256 required')
+    acquisition_preflight()
+    require(not root.exists() and not root.is_symlink(), 'bubblewrap stage directory already exists')
+    parent = root.parent.resolve(strict=True)
+    if os.environ.get('CI') == 'true':
+        temp = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+        require(parent == temp or temp in parent.parents, 'CI bubblewrap stage directory must be under RUNNER_TEMP')
+    root = parent / root.name
+    root.mkdir(mode=0o700)
+    package = root / 'bubblewrap.deb'
+    download(BWRAP_URL, package, 56876, 56876)
+    for name, data in bwrap_members(package).items():
+        put(root, name, data, executable=name == 'bwrap')
+    return root / 'bwrap'
+
+
+def validate_bwrap(path):
+    require(path is not None and path.is_absolute() and not path.is_symlink() and path.is_file() and os.access(path, os.X_OK), 'explicit staged bubblewrap executable required')
+    require(path.name == 'bwrap' and not path.parent.is_symlink(), 'invalid bubblewrap path')
+    members = bwrap_members(path.parent / 'bubblewrap.deb')
+    require(path.stat().st_size == len(members['bwrap']) and path.read_bytes() == members['bwrap'], 'bubblewrap executable identity mismatch')
+    return path.resolve(strict=True)
+
+
 def preflight():
-    missing = [path for path in ('/usr/bin/python3', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/bwrap', '/usr/bin/ip') if not os.access(path, os.X_OK)]
+    missing = [path for path in ('/usr/bin/python3', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/ip') if not os.access(path, os.X_OK)]
     require(not missing, 'missing prerequisite executables: ' + ', '.join(missing))
     require(sys.platform == 'linux' and os.uname().machine == 'x86_64', 'requires Linux x86_64')
     require(Path('/sys/fs/cgroup/cgroup.controllers').is_file(), 'cgroup v2 unavailable')
@@ -74,7 +151,7 @@ def preflight():
     command = ['/usr/bin/systemd-run', '--user', '--quiet', '--wait', '--pipe', '--collect', '--unit', unit,
                '--property=MemoryMax=' + str(MEMORY), '--property=RuntimeMaxSec=45', '--property=KillMode=control-group',
                '--property=CPUQuota=200%', '--property=AllowedCPUs=' + ','.join(map(str, cpus)),
-               '--property=CPUAffinity=' + ' '.join(map(str, cpus)), '/usr/bin/python3', str(Path(__file__).resolve()), '--preflight-probe']
+               '--property=CPUAffinity=' + ' '.join(map(str, cpus)), '/usr/bin/python3', str(Path(__file__).resolve()), '--preflight-probe', '--bwrap', str(BWRAP)]
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
         require(result.returncode == 0, 'user-systemd/cgroup/namespace preflight failed: ' + (result.stderr + result.stdout)[-2000:])
@@ -91,7 +168,7 @@ def preflight_probe():
     require((group_path / 'cpu.max').read_text().split()[0] != 'max', 'cgroup CPU quota delegation unavailable')
     namespaces = [os.readlink('/proc/self/ns/' + name) for name in ('user', 'mnt', 'net', 'pid')]
     code = "import os,subprocess,json,sys; names=('user','mnt','net','pid'); assert all(os.readlink('/proc/self/ns/'+n)!=v for n,v in zip(names,sys.argv[1:])), 'namespace isolation unavailable'; subprocess.run(['/usr/bin/ip','link','set','lo','up'],check=True); assert {x['ifname'] for x in json.loads(subprocess.check_output(['/usr/bin/ip','-j','link','show']))}=={'lo'}, 'network isolation unavailable'"
-    command = ['/usr/bin/bwrap', '--unshare-all', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_SYS_ADMIN', '--die-with-parent', '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--', '/usr/bin/python3', '-c', code, *namespaces]
+    command = [str(BWRAP), '--unshare-all', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_SYS_ADMIN', '--die-with-parent', '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--', '/usr/bin/python3', '-c', code, *namespaces]
     result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=25)
     require(result.returncode == 0, 'bubblewrap/namespace/ip prerequisite unavailable: ' + (result.stderr + result.stdout)[-1500:])
 
@@ -406,7 +483,7 @@ def worker():
     env = {'PATH': '/runtime', 'HOME': '/work/home', 'TMPDIR': '/work/tmp', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'NODE_ENV': 'production', 'NEXT_TELEMETRY_DISABLED': '1', 'OMNIROUTE_BUILDING': '1', 'DATA_DIR': '/work/data', 'INGRESS_STATE_FILE': '/work/data/state.json', 'INGRESS_EVENT_FILE': '/work/data/events.jsonl', 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum'}
     # Keep source, overlay and exact installed dependency bytes read-only while
     # allowing only Next's and the source plugins' owned output directories.
-    isolate = ['/usr/bin/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--bind', '/work/app/.build', '/work/app/.build', '--bind', '/work/app/.source', '/work/app/.source', '--bind', '/work/app/next-env.d.ts', '/work/app/next-env.d.ts', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
+    isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--bind', '/work/app/.build', '/work/app/.build', '--bind', '/work/app/.source', '/work/app/.source', '--bind', '/work/app/next-env.d.ts', '/work/app/next-env.d.ts', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
     run_bounded(isolate + ['/runtime/node', '/work/app/node_modules/next/dist/bin/next', 'build', '--webpack'], Path('/work/build.private'), deadline, env)
     env['INGRESS_APPROVED_SANDBOX'] = '1'
     run_bounded(isolate + ['/runtime/node', '/work/fixture/driver.mjs'], Path('/work/http.private'), deadline, env)
@@ -419,6 +496,9 @@ def bridge(output):
     memory = Path('/sys/fs/cgroup') / group.lstrip('/') / 'memory.max'
     require(memory.read_text().strip() == str(MEMORY), 'systemd memory boundary unavailable')
     command = ['/usr/bin/bwrap', '--unshare-all', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_SYS_ADMIN', '--die-with-parent', '--new-session', '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/home', '--tmpfs', '/etc', '--clearenv', '--dir', '/runtime', '--ro-bind', str(NODE), '/runtime/node', '--ro-bind', str(FIXTURE), '/fixture-src', '--dir', '/inputs', '--ro-bind', str(SOURCE), '/inputs/source.tar.gz', '--ro-bind', str(DEPENDENCIES), '/inputs/dependencies', '--ro-bind', str(ROOT / 'scripts/pinned-ingress-driver.mjs'), '/driver.mjs', '--ro-bind', str(ROOT / 'scripts/pinned-ingress.py'), '/runner.py', '--bind', str(output), '/work', '--dir', '/limits', '--ro-bind', str(memory), '/limits/memory.max', '--setenv', 'PATH', '/runtime:/usr/bin', '--setenv', 'HOME', '/work/home', '--setenv', 'TMPDIR', '/work/tmp', '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'LC_ALL', 'C.UTF-8', '--chdir', '/work/app', '/usr/bin/python3', '/runner.py', '--worker']
+    command[0] = str(BWRAP)
+    runtime = command.index('/runtime/node') + 1
+    command[runtime:runtime] = ['--ro-bind', str(BWRAP), '/runtime/bwrap']
     os.execv(command[0], command)
 
 
@@ -426,17 +506,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--bridge', type=Path, help=argparse.SUPPRESS)
-    parser.add_argument('--preflight-only', action='store_true', help='check sandbox prerequisites without downloads')
+    parser.add_argument('--preflight-only', action='store_true', help='check sandbox prerequisites; optional approved helper staging downloads one package')
     parser.add_argument('--preflight-probe', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--stage-dir', type=Path, help='stage exact approved inputs in a new directory')
+    parser.add_argument('--bwrap-stage-dir', type=Path, help='stage the approved bubblewrap package in a new directory')
+    parser.add_argument('--approve-bwrap-sha256', help='explicit approval of the pinned bubblewrap package')
+    parser.add_argument('--bwrap', type=Path, help='path to the staged bubblewrap executable')
     parser.add_argument('--approve-node-archive-sha256', help='explicit approval of the pinned Node archive')
     parser.add_argument('--node', type=Path, help='exact Node 24.17.0 executable')
     parser.add_argument('--source-archive', type=Path, help='pinned OmniRoute source release archive')
     parser.add_argument('--dependency-dir', type=Path, help='directory of exact digest-named dependency tarballs')
     parser.add_argument('--output-dir', type=Path, help='private scratch parent')
     args = parser.parse_args()
-    global NODE, SOURCE, DEPENDENCIES
-    NODE, SOURCE, DEPENDENCIES = args.node, args.source_archive, args.dependency_dir
+    global NODE, SOURCE, DEPENDENCIES, BWRAP
+    NODE, SOURCE, DEPENDENCIES, BWRAP = args.node, args.source_archive, args.dependency_dir, args.bwrap
+    if args.worker:
+        worker()
+        return
+    if args.bwrap_stage_dir:
+        require(args.preflight_only and BWRAP is None, 'bubblewrap staging requires preflight-only and no --bwrap')
+        BWRAP = stage_bwrap(args.bwrap_stage_dir, args.approve_bwrap_sha256)
+    if args.preflight_probe or args.preflight_only or args.stage_dir or args.bridge:
+        BWRAP = validate_bwrap(BWRAP)
     if args.preflight_probe:
         preflight_probe()
         return
@@ -448,9 +539,6 @@ def main():
         preflight()
         stage(args.stage_dir, args.approve_node_archive_sha256)
         return
-    if args.worker:
-        worker()
-        return
     if args.bridge:
         bridge(args.bridge)
         return
@@ -459,6 +547,7 @@ def main():
     require(DEPENDENCIES.is_dir(), 'dependency directory unavailable')
     require(file_sha(NODE) == NODE_SHA, 'Node runtime mismatch')
     require(file_sha(SOURCE) == ARCHIVE_SHA, 'source archive mismatch')
+    BWRAP = validate_bwrap(BWRAP)
     output = args.output_dir.resolve(strict=True) / ('ingress-run-' + uuid.uuid4().hex[:12])
     output.mkdir(mode=0o700)
     for name in ('app', 'data', 'home', 'tmp'):
@@ -468,6 +557,7 @@ def main():
     require(cpus, 'CPU affinity unavailable')
     unit = 'omp-ingress-' + uuid.uuid4().hex[:12]
     command = ['/usr/bin/systemd-run', '--user', '--quiet', '--wait', '--pipe', '--collect', '--unit', unit, '--property=MemoryMax=' + str(MEMORY), '--property=RuntimeMaxSec=600', '--property=KillMode=control-group', '--property=CPUQuota=200%', '--property=AllowedCPUs=' + ','.join(map(str, cpus)), '--property=CPUAffinity=' + ' '.join(map(str, cpus)), '/usr/bin/python3', str(ROOT / 'scripts/pinned-ingress.py'), '--bridge', str(output), '--node', str(NODE), '--source-archive', str(SOURCE), '--dependency-dir', str(DEPENDENCIES)]
+    command.extend(['--bwrap', str(BWRAP)])
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ)

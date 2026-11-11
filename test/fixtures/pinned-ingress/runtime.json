@@ -3,5 +3,8 @@
   "nodeVersion": "24.17.0",
   "nodeSha256": "62d66443847de1f527f74afe715900b12884ace52136dc9cd8e91e61acc2f527",
   "sourceCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
-  "sourceArchiveSha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b"
+  "sourceArchiveSha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
+  "bubblewrapPackage": "bubblewrap_0.12.0-1~deb13u1_amd64.deb",
+  "bubblewrapPackageBytes": 56876,
+  "bubblewrapPackageSha256": "70aca4fa8daeacb677ec00e8063eb586f08ae3d94b1f11e684370b5524c43431"
 }

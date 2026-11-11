@@ -69,17 +69,22 @@ The declaration and declared opaque bytes enter the same canonical closure hash 
 imports. A changed Python driver or runtime manifest therefore invalidates its
 consuming receipt even when the HTTP observation is unchanged. Unrelated cases
 without that dependency retain their existing fingerprint.
-The source-owned ingress runner uses explicit `--node`, `--source-archive`,
-`--dependency-dir`, and `--output-dir` paths. Its fixture manifests bind the exact
-Node executable, staged dependency tarballs, source archive, and selected source
-files. `--preflight-only` checks user-systemd, cgroup v2 memory and CPU limits,
-bubblewrap namespaces, private loopback and required host tools without downloads.
-`--stage-dir` repeats that preflight, then stages only the pinned Node archive,
-source and manifest tarballs, verifies their identities and extracts only the Node
-executable. The Node archive requires its exact SHA256 as an explicit approval
-input. CI stages beneath `RUNNER_TEMP`, never installing packages or running
-lifecycle scripts during staging. The runner separately verifies actual isolation
-and resource readbacks. Missing prerequisites fail without host changes.
+The source-owned ingress runner uses explicit `--bwrap`, `--node`,
+`--source-archive`, `--dependency-dir`, and `--output-dir` paths. Its fixture
+manifests bind the exact Node executable, dependency tarballs, source archive,
+selected source files, and bubblewrap package. With explicit SHA256 approval,
+`--preflight-only --bwrap-stage-dir` downloads only the 56,876-byte Debian
+bubblewrap 0.12.0-1~deb13u1 amd64 package, verifies its exact digest, and extracts
+only the binary and copyright under `RUNNER_TEMP` in CI. Already-installed
+libc6 >= 2.38, libcap2 >= 1:2.10, and libselinux1 >= 3.1~ are required; no
+packages, scripts, privileges, host settings, or dependencies are installed or
+changed. Without a staged `--bwrap` or explicit helper approval, preflight fails.
+The actual user-systemd, cgroup v2 memory and CPU, namespace, and private
+loopback checks run before any Node, source, or dependency acquisition. Hosted
+kernel or AppArmor restrictions can still make those checks fail; there is no
+weakened fallback. `--stage-dir` repeats the full preflight, then stages the
+explicitly approved pinned Node archive, source and manifest tarballs. The
+runner separately verifies actual isolation and resource readbacks.
 Qualification dispatch offers `preflight-only` and `ingress-only` modes before
 the full archive and native targets; neither mode creates a qualification receipt.
 These build-only inputs are excluded from the runtime npm package and its
@@ -114,6 +119,15 @@ retain the pinned source's separate fallback-request count and skips-per-request
 fields. Held mutations still require their available dependency reads and
 independent effect evidence. The
 [generated inventory](generated.md#operation-inventory) owns the current counts.
+
+Combo mutation preflight reads the complete collection with both pagination keys
+omitted, checks its row count and unique identities, and rejects oversized or
+incomplete responses before selecting targets. Duplicate and probe plans also
+bind the exposed auto-combo and provider catalogs. These reads detect observable
+drift; they do not lock external writers or expose cloud settings, key grants,
+proxy assignments, or all provider state. Mutations retain unknown settlement
+where hidden effects cannot be independently observed. The loopback probe fixture
+does not qualify a real charged provider request or restore active eligibility.
 
 Approval-state checks and outcome reconciliation have separate responsibilities.
 Read and bind the relevant target state that upstream exposes, even when a

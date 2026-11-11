@@ -4,12 +4,12 @@ OMP OmniRoute Provider runs inside Oh My Pi. OmniRoute runs the gateway and owns
 providers, keys, routing rules, and access controls. Installing this client does
 not install or configure an OmniRoute server.
 
-Administration qualification is being rebuilt after a mutation-safety contract
-migration. Reviewed reads, provider configuration, fallback chains, provider
-aliases, and model mappings have regained qualification with the limits below. Other examples describe intended workflows; use the
-generated inventory to check availability before trying them. Unqualified calls
-remain blocked. Version 1.0.4 does not expand the qualified operation set; the
-current release limits remain documented in the changelog and generated inventory.
+Administration qualification is being rebuilt for the pinned OmniRoute v3.8.53
+source and mutation-safety contract. Earlier reads, provider configuration,
+fallback chains, aliases, and model mappings are historical evidence, not active
+candidate qualification. The current candidate exposes no qualified operations;
+examples describe intended workflows until fresh source-bound evidence is
+accepted. Unqualified calls remain blocked; consult the generated inventory.
 
 ## Start with read access
 

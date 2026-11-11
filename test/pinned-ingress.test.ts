@@ -101,3 +101,50 @@ else: raise AssertionError('oversized download accepted')
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("bubblewrap staging rejects missing approval, unsafe paths, tampering, and oversized output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pinned-bwrap-"));
+  try {
+    const code = `
+import importlib.util,io,pathlib,sys
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+root=pathlib.Path(sys.argv[2])
+for path in (None, pathlib.Path('relative/bwrap'), root/'missing'):
+ try: module.validate_bwrap(path)
+ except RuntimeError: continue
+ raise AssertionError('unsafe path accepted')
+try: module.stage_bwrap(root/'new', 'wrong')
+except RuntimeError as error: assert 'approval' in str(error)
+else: raise AssertionError('missing approval accepted')
+package=root/'bubblewrap.deb'; package.write_bytes(b'tampered')
+try: module.bwrap_members(package)
+except RuntimeError as error: assert 'identity mismatch' in str(error)
+else: raise AssertionError('tampered package accepted')
+module.acquisition_preflight=lambda: None
+try: module.stage_bwrap(root, module.BWRAP_SHA)
+except RuntimeError as error: assert 'already exists' in str(error)
+else: raise AssertionError('existing stage accepted')
+executable=root/'bwrap'; executable.write_bytes(b'tampered'); executable.chmod(0o755)
+module.bwrap_members_original=module.bwrap_members
+module.bwrap_members=lambda path: {'bwrap':b'approved','copyright':b'license'}
+try: module.validate_bwrap(executable)
+except RuntimeError as error: assert 'identity mismatch' in str(error)
+else: raise AssertionError('tampered executable accepted')
+class Proc:
+ def __init__(self,*args,**kwargs): self.stdout=io.BytesIO(b'x'*(module.BWRAP_LIMIT+1)); self.done=False
+ def poll(self): return 0 if self.done else None
+ def kill(self): self.done=True
+ def wait(self,timeout=None): self.done=True; return 0
+module.subprocess.Popen=Proc
+module.file_sha=lambda path: module.BWRAP_SHA
+package.write_bytes(b'x'*56876)
+try: module.bwrap_members_original(package)
+except RuntimeError as error: assert 'byte limit' in str(error)
+else: raise AssertionError('oversized archive accepted')
+`;
+    const result = spawnSync("python3", ["-c", code, runner, dir], { encoding: "utf8" });
+    expect(result.status).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

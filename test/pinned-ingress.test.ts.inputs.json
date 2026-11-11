@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "files": [
+    ".github/workflows/qualification.yml",
     "scripts/pinned-ingress.py",
     "scripts/pinned-ingress-driver.mjs",
     "test/fixtures/pinned-ingress/alias-map.json",

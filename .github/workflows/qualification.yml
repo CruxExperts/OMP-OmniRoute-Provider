@@ -4,12 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Qualification scope (preflight performs no downloads)
+        description: Qualification scope (preflight may stage the approved bubblewrap package)
         type: choice
         options: [full, ingress-only, preflight-only]
         default: full
       approved_node_archive_sha256:
         description: Explicitly approved Node 24.17.0 Linux x64 archive SHA256 (required except preflight-only)
+        type: string
+        required: false
+      approved_bwrap_sha256:
+        description: Explicitly approved bubblewrap Debian package SHA256 (required to stage the helper)
         type: string
         required: false
 
@@ -37,16 +41,24 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }
-      - name: Check ingress host prerequisites without acquisition
-        run: python3 scripts/pinned-ingress.py --preflight-only
+      - name: Stage the approved helper and check ingress sandbox prerequisites
+        env:
+          APPROVED_BWRAP_SHA256: ${{ inputs.approved_bwrap_sha256 }}
+        run: |
+          set -euo pipefail
+          if [ -n "$APPROVED_BWRAP_SHA256" ]; then
+            python3 scripts/pinned-ingress.py --preflight-only --bwrap-stage-dir "$RUNNER_TEMP/pinned-bwrap" --approve-bwrap-sha256 "$APPROVED_BWRAP_SHA256"
+          else
+            python3 scripts/pinned-ingress.py --preflight-only
+          fi
       - name: Stage and run the pinned ingress research prerequisite
         if: ${{ inputs.mode != 'preflight-only' }}
         env:
           APPROVED_NODE_ARCHIVE_SHA256: ${{ inputs.approved_node_archive_sha256 }}
         run: |
           set -euo pipefail
-          python3 scripts/pinned-ingress.py --stage-dir "$RUNNER_TEMP/pinned-ingress" --approve-node-archive-sha256 "$APPROVED_NODE_ARCHIVE_SHA256" > "$RUNNER_TEMP/pinned-ingress-paths.json"
-          python3 scripts/pinned-ingress.py --node "$RUNNER_TEMP/pinned-ingress/node" --source-archive "$RUNNER_TEMP/pinned-ingress/source.tar.gz" --dependency-dir "$RUNNER_TEMP/pinned-ingress/dependencies" --output-dir "$RUNNER_TEMP/pinned-ingress"
+          python3 scripts/pinned-ingress.py --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --stage-dir "$RUNNER_TEMP/pinned-ingress" --approve-node-archive-sha256 "$APPROVED_NODE_ARCHIVE_SHA256" > "$RUNNER_TEMP/pinned-ingress-paths.json"
+          python3 scripts/pinned-ingress.py --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --node "$RUNNER_TEMP/pinned-ingress/node" --source-archive "$RUNNER_TEMP/pinned-ingress/source.tar.gz" --dependency-dir "$RUNNER_TEMP/pinned-ingress/dependencies" --output-dir "$RUNNER_TEMP/pinned-ingress"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: ${{ inputs.mode == 'full' }}
         with: { bun-version: "1.4.2" }

@@ -1,9 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPrivateWindowsDirectory, verifyPrivateWindowsConfig, verifyPrivateWindowsPath } from "../src/private-path.ts";
+import { createPrivateWindowsDirectory, verifyPrivateWindowsConfig, verifyPrivateWindowsPath, windowsScript } from "../src/private-path.ts";
 
 // This is a transport diagnostic, not a host smoke test or qualification evidence.
 const marker = "INPUT_PROBE:";
@@ -203,6 +204,9 @@ async function aclProbe(output: string): Promise<void> {
   let readyMs: number | null = null;
   let eofMs: number | null = null;
   let stdinFinishedMs: number | null = null;
+  const scriptBytes = Buffer.from(windowsScript, "utf16le");
+  const scriptSha256 = createHash("sha256").update(scriptBytes).digest("hex");
+  let failure: { stage: number; exceptionType: string; innerExceptionType: string } | null = null;
   let root: string | undefined;
   async function phase(name: string, action: () => Promise<void>, isChild = false): Promise<boolean> {
     const start = performance.now();
@@ -240,6 +244,24 @@ async function aclProbe(output: string): Promise<void> {
     const directory = join(root, "private");
     const file = join(directory, "fixture");
     const created = await phase("acl-create-directory", () => createPrivateWindowsDirectory(directory), true);
+    // Execute exactly the production script bytes on a separate path, retaining only
+    // the fixed-stage sentinel and type names, never PowerShell's raw output.
+    const diagnosticDirectory = join(root, "diagnostic-private");
+    await phase("acl-script-diagnostic", () => {
+      const { promise, resolve, reject } = Promise.withResolvers<void>();
+      const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+      const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", scriptBytes.toString("base64")], { windowsHide: true, timeout: 30_000 }, (error, _stdout, stderr) => {
+        const match = /(?:^|\r?\n)ACL_DIAGNOSTIC:(\d{1,2}):([A-Za-z][A-Za-z0-9.]{0,159}):([A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr);
+        if (match) {
+          const stage = Number(match[1]);
+          if (stage >= 1 && stage <= 15) failure = { stage, exceptionType: match[2]!, innerExceptionType: match[3]! };
+        }
+        if (error) reject(error); else resolve();
+      });
+      child.stdin?.on("error", () => {});
+      child.stdin?.end(JSON.stringify({ path: diagnosticDirectory, targets: [{ path: diagnosticDirectory, directory: true }], create: true }));
+      return promise;
+    }, true);
     if (created) {
       await phase("acl-verify-directory", () => verifyPrivateWindowsConfig(directory), true);
       const fileCreated = await phase("fixture-create", () => writeFile(file, "fixture", { flag: "wx" }));
@@ -251,7 +273,7 @@ async function aclProbe(output: string): Promise<void> {
     await phase("temp-remove", () => rm(root!, { recursive: true, force: true }));
   }
   const success = phases.every(item => item.status === "ok") && readyMs !== null && eofMs !== null && stdinFinishedMs !== null;
-  writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-private-acl", success, handshake: { readyMs, stdinFinishedMs, eofMs }, phases }, null, 2)}\n`);
+  writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-private-acl", success, scriptSha256, failure, handshake: { readyMs, stdinFinishedMs, eofMs }, phases }, null, 2)}\n`);
   if (!success) process.exitCode = 1;
 }
 
