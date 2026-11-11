@@ -5,6 +5,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileS
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import * as ts from "typescript";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches, sourcePreflightViewMatches, sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { requiredOmaScope } from "../src/admin/authorization-policy.ts";
 import { sourceRequestValidatorBinding } from "../src/admin/source-validation.ts";
@@ -249,6 +250,157 @@ export function testOutcomeHash(
   }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
+}
+
+// Cache only the expensive expected derivation, never the observation being validated.
+let healthIngressIdentityCache: { key: string; value: RecordValue } | undefined;
+
+function healthIngressDerivationKey(archive: string, version: string, commit: string, program: string): string {
+  const declarationPath = "test/pinned-ingress.test.ts.inputs.json";
+  const declaration = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, declarationPath), "utf8")) as unknown, "ingress input declaration");
+  if (declaration.schemaVersion !== 1) throw new Error("ingress input declaration mismatch");
+  const files = stringList(declaration.files, "ingress input declaration files", true);
+  const required = ["scripts/pinned-ingress.py", "test/fixtures/pinned-ingress/alias-map.json", "test/fixtures/pinned-ingress/source-manifest.json", "test/fixtures/pinned-ingress/backend/core.ts", "test/fixtures/pinned-ingress/backend/settings.ts"];
+  if (new Set(files).size !== files.length || required.some(path => !files.includes(path))) throw new Error("ingress derivation inputs are incomplete or duplicated");
+  const aliases = requireArray(requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/alias-map.json"), "utf8")) as unknown, "ingress aliases").aliases, "ingress aliases");
+  for (const alias of aliases) {
+    const replacement = requireString(requireRecord(alias, "ingress alias").replacement, "ingress alias replacement");
+    if (!files.includes(`test/fixtures/pinned-ingress/${replacement}`)) throw new Error("ingress alias replacement is not a declared input");
+  }
+  const digest = createHash("sha256");
+  digest.update(JSON.stringify([version, commit, program]));
+  for (const path of [archive, declarationPath, "test/pinned-ingress.test.ts", ...files]) {
+    const absolute = resolve(packageRoot, path);
+    if (path !== archive && (path.includes("\\") || path.split("/").some(part => !part || part === "." || part === ".." || [".git", ".agents", "node_modules"].includes(part))
+      || relative(packageRoot, absolute).split(sep).join("/") !== path || !lstatSync(absolute).isFile() || realpathSync(absolute) !== absolute)) {
+      throw new Error(`invalid ingress derivation input: ${path}`);
+    }
+    const bytes = readFileSync(absolute);
+    digest.update(JSON.stringify([path, bytes.length, createHash("sha256").update(bytes).digest("hex")]));
+  }
+  return digest.digest("hex");
+}
+
+/** Recompute the runner's verified source and disposable transformation identities. */
+export function expectedHealthIngressIdentities(version: string, commit: string): RecordValue {
+  if (!/^\d+\.\d+\.\d+$/.test(version) || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("Invalid pinned ingress source identity");
+  const archive = resolve(packageRoot, `.agents/state/omp-provider-release/upstream/omniroute-v${version}-${commit}.tar.gz`);
+  const program = `import importlib.util, json, pathlib, sys, tempfile
+spec = importlib.util.spec_from_file_location('ingress', sys.argv[1])
+m = importlib.util.module_from_spec(spec); exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), m.__dict__)
+m.SOURCE = pathlib.Path(sys.argv[2]); source = m.approved_source()
+manifest = json.loads((m.FIXTURE / 'source-manifest.json').read_bytes())
+with tempfile.TemporaryDirectory() as directory:
+ app = pathlib.Path(directory)
+ for name in m.READ_CLOSURES: m.put(app, name, source[name])
+ closures = m.read_closures(app, manifest)
+declaration = m.ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
+overlays = {name: m.sha(data) for name, data in m.overlay_bytes((m.FIXTURE / 'backend/core.ts').read_bytes(), (m.FIXTURE / 'backend/settings.ts').read_bytes(), declaration).items()}
+aliases = json.loads((m.FIXTURE / 'alias-map.json').read_bytes())['aliases']
+assert len(aliases) == 6 and len({a['source'] for a in aliases}) == 6
+mapping = {}
+for a in aliases:
+ original = m.sha(source[a['source']]); replacement = m.sha((m.FIXTURE / a['replacement']).read_bytes())
+ assert original == a['sourceSha256'] and replacement == a['replacementSha256']
+ mapping[a['source']] = {'originalSha256': original, 'replacement': a['replacement'], 'executedSha256': overlays.get(a['replacement'], replacement)}
+identities = {name: m.sha(source[name]) for name in set(m.ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}}
+identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
+print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays}))`;
+  const key = healthIngressDerivationKey(archive, version, commit, program);
+  if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
+  // This generator requires python3 and the prepared pinned archive; fail closed if
+  // either is unavailable, or if the derivation cannot complete within its bound.
+  const output = execFileSync("python3", ["-c", program, resolve(packageRoot, "scripts/pinned-ingress.py"), archive], { cwd: packageRoot, encoding: "utf8", maxBuffer: 1024 * 1024, timeout: 60_000 });
+  if (healthIngressDerivationKey(archive, version, commit, program) !== key) throw new Error("ingress derivation inputs changed during verification");
+  const value = requireRecord(JSON.parse(output) as unknown, "expected ingress identities");
+  healthIngressIdentityCache = { key, value };
+  return structuredClone(value);
+}
+
+/** Validate the retained research export separately from the handler receipt. */
+export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding): void {
+  const label = "GET /api/health ingress evidence";
+  const evidence = requireRecord(value, label);
+  assertKeys(evidence, label, ["artifact", "sha256"]);
+  const path = requireString(evidence.artifact, `${label}.artifact`);
+  if (!/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(path)
+    && path !== ".agents/state/omp-provider-release/qualification-observations/health-ingress.json") {
+    throw new Error(`${label} artifact path is invalid`);
+  }
+  const file = resolve(packageRoot, path);
+  const info = lstatSync(file);
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 2 * 1024 * 1024
+    || !realpathSync(file).startsWith(`${realpathSync(packageRoot)}${sep}`)) throw new Error(`${label} artifact is invalid`);
+  const bytes = readFileSync(file);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (evidence.sha256 !== digest || (path.startsWith("provenance/") && path !== `provenance/qualification/ingress-${digest}.json`)) {
+    throw new Error(`${label} artifact digest mismatch`);
+  }
+  const artifact = requireRecord(JSON.parse(bytes.toString("utf8")) as unknown, label);
+  if (artifact.schemaVersion !== 1 || artifact.classification !== "research-only-not-qualification") throw new Error(`${label} classification mismatch`);
+  const source = requireRecord(artifact.source, `${label}.source`);
+  const manifest = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as unknown, `${label}.manifest`);
+  const release = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
+  const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
+  if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
+    || source.archiveSha256 !== manifest.archiveSha256 || added["src/app/api/health/route.ts"] !== binding.handlerSha256) {
+    throw new Error(`${label} source mismatch`);
+  }
+  const inputs = requireRecord(artifact.inputs, `${label}.inputs`);
+  const hashes = requireRecord(inputs.sha256, `${label}.inputs.sha256`);
+  const declarationPath = "test/pinned-ingress.test.ts.inputs.json";
+  const declaration = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, declarationPath), "utf8")) as unknown, `${label}.declaration`);
+  if (declaration.schemaVersion !== 1) throw new Error(`${label} declaration mismatch`);
+  const declared = stringList(declaration.files, `${label}.declaration.files`, true);
+  const paths = ["test/pinned-ingress.test.ts", declarationPath, ...declared];
+  if (new Set(paths).size !== paths.length || Object.keys(hashes).sort(compareText).join("\n") !== [...paths].sort(compareText).join("\n")) {
+    throw new Error(`${label} declared inputs mismatch`);
+  }
+  for (const input of paths) {
+    const absolute = resolve(packageRoot, input);
+    if (input.includes("\\") || input.split("/").some(part => !part || part === "." || part === ".." || [".git", ".agents", "node_modules"].includes(part))
+      || relative(packageRoot, absolute).split(sep).join("/") !== input || !lstatSync(absolute).isFile() || realpathSync(absolute) !== absolute
+      || hashes[input] !== createHash("sha256").update(readFileSync(absolute)).digest("hex")) {
+      throw new Error(`${label} input drift: ${input}`);
+    }
+  }
+  const runtime = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/runtime.json"), "utf8")) as unknown, `${label}.runtime`);
+  const actualRuntime = requireRecord(inputs.runtime, `${label}.inputs.runtime`);
+  if (inputs.nodeSha256 !== runtime.nodeSha256 || actualRuntime.node !== runtime.nodeVersion
+    || actualRuntime.next !== "16.4.2" || actualRuntime.react !== "19.2.8" || actualRuntime["react-dom"] !== "19.2.8") {
+    throw new Error(`${label} runtime mismatch`);
+  }
+  const isolation = requireRecord(artifact.isolation, `${label}.isolation`);
+  if (["namespacesDistinct", "memoryLimitEnforced", "cpuLimitEnforced", "privateLoopbackOnly", "environmentAllowlisted"].some(key => isolation[key] !== true)) {
+    throw new Error(`${label} isolation mismatch`);
+  }
+  const healthRows = requireArray(artifact.health, `${label}.health`).filter(row => isRecord(row) && row.method === "GET" && row.path === "/api/health");
+  if (healthRows.length !== 1) throw new Error(`${label} health observation missing or duplicated`);
+  const health = requireRecord(healthRows[0], `${label}.health`);
+  if (health.status !== 200 || canonicalJson(toJson(health.bodyKeys, label)) !== '["status","timestamp"]'
+    || typeof health.timestamp !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(health.timestamp)
+    || typeof health.cacheControl !== "string" || !health.cacheControl.split(",").some(part => part.trim() === "no-store")) {
+    throw new Error(`${label} health observation mismatch`);
+  }
+  const publicHealth = requireRecord(artifact.publicHealthHttp, `${label}.publicHealthHttp`);
+  const expected = { method: "GET", path: "/api/health", anonymous: true, status: 200, bodyKeys: ["status", "timestamp"], timestampFormatAndRequestWindowValid: true, cacheControl: "no-store, no-cache, must-revalidate", contentType: "application/json", routeClass: "PUBLIC", requestIdUuid: true, drain: { status: 503, code: "SERVICE_UNAVAILABLE", message: "Server is shutting down", requestIdUuid: true, correlationMatchesRequestId: true, retryAfter: "5", contentType: "application/json", routeClass: "PUBLIC", recoveryStatus: 200 }, cors: { configuredAllowedOrigin: "https://allowed.example", allowedOriginEchoed: true, unlistedOriginOmitted: true, credentialsOmitted: true } };
+  if (canonicalJson(toJson(publicHealth, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} public HTTP observation mismatch`);
+  const authentication = requireArray(artifact.sharedAuthentication, `${label}.sharedAuthentication`);
+  for (const [name, bypass] of [["default-bypass-health", "source-default"], ["disabled-bypass-health", "disabled"]] as const) {
+    const rows = authentication.filter(row => isRecord(row) && (row.name === name || (isRecord(row.input) && row.input.path === "/api/health" && row.input.bypass === bypass)));
+    const expectedCase = { name, input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } };
+    if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedCase, label))) throw new Error(`${label} authentication observation mismatch: ${name}`);
+  }
+  if (authentication.some(row => isRecord(row) && isRecord(row.input) && row.input.path === "/api/health" && row.name !== "default-bypass-health" && row.name !== "disabled-bypass-health")) throw new Error(`${label} unexpected health authentication observation`);
+  const ipFilter = { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } };
+  if (canonicalJson(toJson(artifact.publicHealthIpFilter, label)) !== canonicalJson(toJson(ipFilter, label))) throw new Error(`${label} IP filter observation mismatch`);
+  const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
+  for (const key of ["addedSourceSha256", "pingDeclarationSha256"] as const) {
+    if (canonicalJson(toJson(source[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} source identity mismatch: ${key}`);
+  }
+  for (const key of ["sourceOverlaySha256", "executedOverlaySha256"] as const) {
+    if (canonicalJson(toJson(inputs[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} overlay identity mismatch: ${key}`);
+  }
 }
 
 function assertNoSecretFields(value: Json, label: string, parentPath: readonly string[] = [], explicitSecretPaths: readonly string[] = []): void {
@@ -1087,7 +1239,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
   const result = new Map<string, RecordValue>();
   for (const value of records) {
     const record = requireRecord(value, "eligibility record");
-    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"]);
+    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence"]);
     const operationId = requireString(record.operationId, "eligibility operationId");
     if (result.has(operationId)) throw new Error(`duplicate eligibility record ${operationId}`);
     if (record.status !== "verified") throw new Error(`eligibility entries must be verified or omitted: ${operationId}`);
@@ -1180,6 +1332,14 @@ function validateEligibility(
   if (requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`) !== expectedOutcomeSha256) {
     throw new Error(`eligibility observed outcome digest mismatch: ${operationId}`);
   }
+  if (operationId === "GET /api/health") {
+    const ingress = requireRecord(record.ingressEvidence, `${operationId}.eligibility.ingressEvidence`);
+    if (typeof ingress.artifact !== "string" || !/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(ingress.artifact)) {
+      throw new Error(`eligibility ingress artifact must be retained in provenance: ${operationId}`);
+    }
+    validateHealthIngressEvidence(ingress, expectedBinding);
+  }
+  else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
   return true;
@@ -1944,6 +2104,7 @@ function makeOperation(
         caseSha256: requireString(test.caseSha256, `${operationId}.eligibility.test.caseSha256`),
         outcomeSha256: requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`),
       },
+      ...(operationId === "GET /api/health" ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
     };
   }
   return effective;

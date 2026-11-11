@@ -114,13 +114,28 @@ mount tables, events, or private logs. Missing, partial, or contradictory inputs
 prevent export. This retained prerequisite is not an operation qualification
 receipt; the existing per-operation producer and reviewed eligibility still gate use.
 
+For `GET /api/health`, a verified eligibility record additionally names a retained
+`provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
+exact file bytes. The generator checks the pinned source archive, proxy and
+extracted declaration identities, and the runner's recomputed disposable overlay
+identities, as well as declared runner input bytes, runtime, isolation, and the
+public HTTP observations before putting the ingress digest in the generated
+qualification. The handler observation remains a separate receipt; neither it
+nor the research-only ingress export alone qualifies
+the operation. Missing, mismatched, or stale ingress evidence fails closed.
+The runtime compares the recorded ingress digest with the generated qualification;
+it does not independently re-run the ingress experiment.
+
 The public liveness observation additionally checks the timestamp against its
 request window, drain error envelope and retry header, request/correlation ID
 relationship, recovery, and configured versus unlisted CORS origins. Public
-authentication does not imply that proxy cache warmup or IP filtering avoids
-storage. The forwarded-address rejection case covers an unstamped, unknown peer;
-it does not prove authenticated socket-peer stamping or proxy trust. Changed
-runner inputs require a new isolated build and HTTP observation before acceptance.
+authentication includes separate anonymous observations with the bypass at its
+source default and disabled. It does not imply that proxy cache warmup or IP
+filtering avoids storage. The IP-filter observation requires the configuration
+read and forwarded-address rejection and recovery, with request ID and CORS
+evidence. It covers an unstamped, unknown peer; it does not prove authenticated
+socket-peer stamping or proxy trust. Changed runner inputs require a new isolated
+build and HTTP observation before acceptance.
 
 Canonical API response metadata includes source-witnessed pipeline draining and
 IP-filter rejection branches before route policy evaluation. This does not

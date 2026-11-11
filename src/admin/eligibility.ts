@@ -34,6 +34,7 @@ export interface OperationQualificationReceipt {
   readonly releaseCommit: string;
   readonly binding: OperationEvidenceBinding;
   readonly test: OperationQualificationTest;
+  readonly ingressSha256?: string;
 }
 export type OperationSourceContract = Pick<OperationDescriptor,
   "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation"> &
@@ -48,6 +49,7 @@ export interface OperationEligibilityRecord {
   readonly evidence?: readonly OperationEligibilityEvidence[];
   readonly binding?: OperationContractBinding;
   readonly test?: OperationQualificationTest;
+  readonly ingressSha256?: string;
 }
 interface EligibilityDocument {
   readonly releaseCommit?: string;
@@ -88,11 +90,16 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     || !["read", "mutation", "secret", "lifecycle", "destructive"].includes(String(binding.sideEffect))) return undefined;
   if (!record(test) || typeof test.id !== "string" || !/^test\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\\]+$/.test(test.id) || !sha(test.caseSha256, 64) || !sha(test.outcomeSha256, 64)) return undefined;
   if (typeof test.observedOutcome !== "string" || !/^provenance\/qualification\/[a-f0-9]{64}\.json$/.test(test.observedOutcome)) return undefined;
+  const ingress = value.ingressEvidence;
+  if (value.operationId === "GET /api/health") {
+    if (!record(ingress) || !sha(ingress.sha256, 64) || ingress.artifact !== `provenance/qualification/ingress-${ingress.sha256}.json`) return undefined;
+  } else if (ingress !== undefined) return undefined;
   if (!Array.isArray(evidence) || evidence.length === 0 || evidence.some(item => !record(item) || typeof item.kind !== "string" || !item.kind || typeof item.detail !== "string" || !item.detail)) return undefined;
   return freeze({ operationId: value.operationId, status: "verified", reason: value.reason,
     source: { file: source.file, sha256: source.sha256, gitBlobSha: source.gitBlobSha },
     binding: { ...Object.fromEntries(HASH_FIELDS.map(key => [key, binding[key]])), sideEffect: binding.sideEffect } as unknown as OperationContractBinding,
     test: { id: test.id, caseSha256: test.caseSha256, outcomeSha256: test.outcomeSha256 },
+    ...(record(ingress) ? { ingressSha256: ingress.sha256 as string } : {}),
     evidence: evidence.map(item => ({ kind: String(item.kind), detail: String(item.detail) })) });
 }
 function loadDocument(): EligibilityDocument {
@@ -127,6 +134,9 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
     || qualification.binding.handlerSha256 !== source.sha256 || qualification.binding.handlerGitBlobSha !== source.gitBlobSha
     || item.test.id !== qualification.test.id || item.test.caseSha256 !== qualification.test.caseSha256 || item.test.outcomeSha256 !== qualification.test.outcomeSha256
     || !sha(item.test.caseSha256, 64) || !sha(item.test.outcomeSha256, 64)) return false;
+  if (item.operationId === "GET /api/health") {
+    if (!sha(item.ingressSha256, 64) || item.ingressSha256 !== qualification.ingressSha256) return false;
+  } else if (item.ingressSha256 !== undefined || qualification.ingressSha256 !== undefined) return false;
   if (binding.sideEffect === "unknown" || item.binding.sideEffect !== binding.sideEffect) return false;
   for (const key of HASH_FIELDS) if (!sha(binding[key], 64) || item.binding[key] !== binding[key] || qualification.binding[key] !== binding[key]) return false;
   return qualification.binding.sideEffect === binding.sideEffect && qualification.binding.sideEffectSha256 === binding.sideEffectSha256;

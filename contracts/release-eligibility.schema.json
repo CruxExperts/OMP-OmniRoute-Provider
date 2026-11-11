@@ -189,6 +189,13 @@
         "test",
         "evidence"
       ],
+      "allOf": [
+        {
+          "if": { "properties": { "operationId": { "const": "GET /api/health" } }, "required": ["operationId"] },
+          "then": { "required": ["ingressEvidence"] },
+          "else": { "not": { "required": ["ingressEvidence"] } }
+        }
+      ],
       "properties": {
         "operationId": {
           "type": "string",
@@ -277,6 +284,15 @@
             "outcomeSha256": {
               "$ref": "#/$defs/sha256"
             }
+          }
+        },
+        "ingressEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact", "sha256"],
+          "properties": {
+            "artifact": { "type": "string", "pattern": "^provenance/qualification/ingress-[a-f0-9]{64}\\.json$" },
+            "sha256": { "$ref": "#/$defs/sha256" }
           }
         },
         "evidence": {

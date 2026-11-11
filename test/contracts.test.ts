@@ -1,13 +1,18 @@
 import { expect, test } from "bun:test";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
+  expectedHealthIngressIdentities,
   generateOperations,
   operationContractTemplate,
   operationEvidenceBinding,
   outcomeArtifactPath,
   testCaseSourceHash,
   testOutcomeHash,
+  validateHealthIngressEvidence,
 } from "../scripts/generate-contracts.ts";
 import { decodeRouteSources } from "../scripts/route-source-store.ts";
 import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
@@ -246,5 +251,140 @@ test("auxiliary input changes invalidate only consuming receipt cases", async ()
     }
   } finally {
     await rm(resolve(root, directory), { recursive: true, force: true });
+  }
+});
+
+test("health ingress evidence separately rejects missing, stale and contradictory exports", async () => {
+  const root = resolve(import.meta.dir, "..");
+  const path = ".agents/state/omp-provider-release/qualification-observations/health-ingress.json";
+  const absolute = resolve(root, path);
+  const prior = await readFile(absolute).catch((error: unknown) => {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  const declarationPath = "test/pinned-ingress.test.ts.inputs.json";
+  const declaration = JSON.parse(await readFile(resolve(root, declarationPath), "utf8")) as { files: string[] };
+  const paths = ["test/pinned-ingress.test.ts", declarationPath, ...declaration.files];
+  const hashes = Object.fromEntries(await Promise.all(paths.map(async input => [input, createHash("sha256").update(await readFile(resolve(root, input))).digest("hex")] as const)));
+  const source = JSON.parse(await readFile(resolve(root, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as { commit: string; archiveSha256: string };
+  const runtime = JSON.parse(await readFile(resolve(root, "test/fixtures/pinned-ingress/runtime.json"), "utf8")) as { nodeSha256: string; nodeVersion: string };
+  const binding = operationEvidenceBinding("GET /api/health", jsonHealthContract("GET /api/health"));
+  const identities = expectedHealthIngressIdentities("3.8.53", source.commit);
+  const artifact = {
+    schemaVersion: 1, classification: "research-only-not-qualification",
+    source: { version: "3.8.53", commit: source.commit, archiveSha256: source.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256 },
+    inputs: { sha256: hashes, nodeSha256: runtime.nodeSha256, runtime: { node: runtime.nodeVersion, next: "16.4.2", react: "19.2.8", "react-dom": "19.2.8" }, sourceOverlaySha256: identities.sourceOverlaySha256, executedOverlaySha256: identities.executedOverlaySha256 },
+    isolation: { namespacesDistinct: true, memoryLimitEnforced: true, cpuLimitEnforced: true, privateLoopbackOnly: true, environmentAllowlisted: true },
+    health: [{ method: "GET", path: "/api/health", status: 200, bodyKeys: ["status", "timestamp"], timestamp: "2026-01-01T00:00:00.000Z", cacheControl: "no-store" }],
+    publicHealthHttp: { method: "GET", path: "/api/health", anonymous: true, status: 200, bodyKeys: ["status", "timestamp"], timestampFormatAndRequestWindowValid: true, cacheControl: "no-store, no-cache, must-revalidate", contentType: "application/json", routeClass: "PUBLIC", requestIdUuid: true, drain: { status: 503, code: "SERVICE_UNAVAILABLE", message: "Server is shutting down", requestIdUuid: true, correlationMatchesRequestId: true, retryAfter: "5", contentType: "application/json", routeClass: "PUBLIC", recoveryStatus: 200 }, cors: { configuredAllowedOrigin: "https://allowed.example", allowedOriginEchoed: true, unlistedOriginOmitted: true, credentialsOmitted: true } },
+    sharedAuthentication: ["source-default", "disabled"].map((bypass, index) => ({ name: index === 0 ? "default-bypass-health" : "disabled-bypass-health", input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } })),
+    publicHealthIpFilter: { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } },
+  };
+  const save = async (value: unknown) => {
+    const bytes = Buffer.from(JSON.stringify(value));
+    await mkdir(resolve(root, ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+    await writeFile(absolute, bytes, { mode: 0o600 });
+    return { artifact: path, sha256: createHash("sha256").update(bytes).digest("hex") };
+  };
+  try {
+    expect(() => validateHealthIngressEvidence(undefined, binding)).toThrow(/ingress evidence/);
+    await rm(absolute, { force: true });
+    expect(() => validateHealthIngressEvidence({ artifact: path, sha256: "0".repeat(64) }, binding)).toThrow();
+    const valid = await save(artifact);
+    expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
+    // Cached expectations must not be mutable by callers, and changed transformation
+    // bytes must force a new verification rather than reuse the prior derivation.
+    const exposed = expectedHealthIngressIdentities("3.8.53", source.commit);
+    record(exposed.addedSourceSha256)["src/proxy.ts"] = "0".repeat(64);
+    expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
+    const overlayPath = resolve(root, "test/fixtures/pinned-ingress/backend/core.ts");
+    const originalOverlay = await readFile(overlayPath);
+    try {
+      await writeFile(overlayPath, Buffer.concat([originalOverlay, Buffer.from("\n")]));
+      expect(() => expectedHealthIngressIdentities("3.8.53", source.commit)).toThrow();
+    } finally {
+      await writeFile(overlayPath, originalOverlay);
+    }
+    const runnerPath = resolve(root, "scripts/pinned-ingress.py");
+    const runnerBytes = await readFile(runnerPath);
+    const runnerStat = await stat(runnerPath);
+    const cacheDirectory = await mkdtemp(join(tmpdir(), "ingress-pyc-"));
+    const previousCachePrefix = process.env.PYTHONPYCACHEPREFIX;
+    try {
+      process.env.PYTHONPYCACHEPREFIX = cacheDirectory;
+      execFileSync("python3", ["-m", "py_compile", runnerPath], { env: process.env });
+      const original = 'metrics.sqlite';
+      const replacement = 'metrics.sqlitf';
+      const runnerText = runnerBytes.toString("utf8");
+      expect(runnerText.split(original)).toHaveLength(2);
+      const changed = Buffer.from(runnerText.replace(original, replacement));
+      expect(changed.length).toBe(runnerBytes.length);
+      await writeFile(runnerPath, changed);
+      await utimes(runnerPath, runnerStat.atime, runnerStat.mtime);
+      const changedIdentities = expectedHealthIngressIdentities("3.8.53", source.commit);
+      expect(record(changedIdentities.executedOverlaySha256)["backend/core.ts"])
+        .not.toBe(record(identities.executedOverlaySha256)["backend/core.ts"]);
+    } finally {
+      await writeFile(runnerPath, runnerBytes);
+      await utimes(runnerPath, runnerStat.atime, runnerStat.mtime);
+      if (previousCachePrefix === undefined) delete process.env.PYTHONPYCACHEPREFIX;
+      else process.env.PYTHONPYCACHEPREFIX = previousCachePrefix;
+      await rm(cacheDirectory, { recursive: true, force: true });
+    }
+    expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
+    expect(() => validateHealthIngressEvidence({ ...valid, sha256: "0".repeat(64) }, binding)).toThrow(/digest mismatch/);
+    expect(() => validateHealthIngressEvidence(valid, { ...binding, handlerSha256: "0".repeat(64) })).toThrow(/source mismatch/);
+    const stale = structuredClone(artifact);
+    stale.inputs.sha256[paths[0]!] = "0".repeat(64);
+    const staleEvidence = await save(stale);
+    expect(() => validateHealthIngressEvidence(staleEvidence, binding)).toThrow(/input drift/);
+    const missing = structuredClone(artifact);
+    delete missing.inputs.sha256[paths[0]!];
+    const missingEvidence = await save(missing);
+    expect(() => validateHealthIngressEvidence(missingEvidence, binding)).toThrow(/declared inputs mismatch/);
+    const denied = structuredClone(artifact);
+    denied.publicHealthHttp.anonymous = false;
+    const deniedEvidence = await save(denied);
+    expect(() => validateHealthIngressEvidence(deniedEvidence, binding)).toThrow(/public HTTP observation mismatch/);
+    for (const key of ["addedSourceSha256", "pingDeclarationSha256"] as const) {
+      const changed = structuredClone(artifact);
+      if (key === "addedSourceSha256") record(changed.source.addedSourceSha256)["src/proxy.ts"] = "0".repeat(64);
+      else changed.source.pingDeclarationSha256 = "0".repeat(64);
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, binding)).toThrow(/source identity mismatch/);
+    }
+    for (const key of ["sourceOverlaySha256", "executedOverlaySha256"] as const) {
+      const changed = structuredClone(artifact);
+      changed.inputs[key] = {};
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, binding)).toThrow(/overlay identity mismatch/);
+    }
+    for (const change of ["missing", "duplicate", "contradictory"] as const) {
+      const changed = structuredClone(artifact);
+      if (change === "missing") changed.sharedAuthentication.pop();
+      if (change === "duplicate") changed.sharedAuthentication.push(structuredClone(changed.sharedAuthentication[0]!));
+      if (change === "contradictory") changed.sharedAuthentication[1]!.observed.status = 403;
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, binding)).toThrow(/authentication observation mismatch/);
+    }
+    for (const change of ["missing", "configuration", "recovery", "requestId", "cors"] as const) {
+      const changed: Record<string, unknown> = structuredClone(artifact);
+      if (change === "missing") delete changed.publicHealthIpFilter;
+      else {
+        const filter = record(changed.publicHealthIpFilter);
+        if (change === "configuration") filter.configReadObserved = false;
+        else {
+          const fallback = record(filter.forwardedAddressFallback);
+          if (change === "recovery") fallback.recoveryStatus = 403;
+          if (change === "requestId") fallback.requestIdUuid = false;
+          if (change === "cors") fallback.allowedOriginEchoed = false;
+        }
+      }
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, binding)).toThrow();
+    }
+  } finally {
+    if (prior === undefined) await rm(absolute, { force: true });
+    else await writeFile(absolute, prior, { mode: 0o600 });
   }
 });
