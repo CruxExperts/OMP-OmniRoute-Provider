@@ -31,7 +31,9 @@ if ($request.create) {
 $trusted = @($user.Value, $system.Value, $admins.Value)
 foreach ($target in $request.targets) {
   $stage = 9
-  $acl = Get-Acl -LiteralPath $target.path
+  # Use the framework API directly; inherited PowerShell module paths can prevent
+  # the Get-Acl cmdlet from loading in the Windows PowerShell child.
+  $acl = if ($target.directory) { [System.IO.Directory]::GetAccessControl($target.path) } else { [System.IO.File]::GetAccessControl($target.path) }
   $stage = 10
   $descriptor = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(), 0)
   $stage = 11

@@ -188,6 +188,7 @@ async function parent(output: string): Promise<void> {
 }
 
 type AclPhase = { phase: string; durationMs: number; status: "ok" | "failed"; exitCode: number | null; signal: string | null; killed: boolean | null };
+type AclFailure = { stage: number; exceptionType: string; innerExceptionType: string };
 
 function childStatus(error: unknown): Pick<AclPhase, "exitCode" | "signal" | "killed"> {
   const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
@@ -199,6 +200,13 @@ function childStatus(error: unknown): Pick<AclPhase, "exitCode" | "signal" | "ki
   };
 }
 
+function aclFailure(stderr: string): AclFailure | null {
+  const match = /(?:^|\r?\n)ACL_DIAGNOSTIC:(\d{1,2}):([A-Za-z][A-Za-z0-9.]{0,159}):([A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr);
+  if (!match) return null;
+  const stage = Number(match[1]);
+  return stage >= 1 && stage <= 15 ? { stage, exceptionType: match[2]!, innerExceptionType: match[3]! } : null;
+}
+
 async function aclProbe(output: string): Promise<void> {
   const phases: AclPhase[] = [];
   let readyMs: number | null = null;
@@ -206,7 +214,8 @@ async function aclProbe(output: string): Promise<void> {
   let stdinFinishedMs: number | null = null;
   const scriptBytes = Buffer.from(windowsScript, "utf16le");
   const scriptSha256 = createHash("sha256").update(scriptBytes).digest("hex");
-  let failure: { stage: number; exceptionType: string; innerExceptionType: string } | null = null;
+  let helperFailure: AclFailure | null = null;
+  let scriptFailure: AclFailure | null = null;
   let root: string | undefined;
   async function phase(name: string, action: () => Promise<void>, isChild = false): Promise<boolean> {
     const start = performance.now();
@@ -215,6 +224,10 @@ async function aclProbe(output: string): Promise<void> {
       phases.push({ phase: name, durationMs: Math.round(performance.now() - start), status: "ok", exitCode: isChild ? 0 : null, signal: null, killed: isChild ? false : null });
       return true;
     } catch (error) {
+      if (name === "acl-create-directory" && error instanceof Error && error.cause instanceof Error) {
+        const cause = error.cause as Error & { stderr?: unknown };
+        if (typeof cause.stderr === "string") helperFailure = aclFailure(cause.stderr);
+      }
       phases.push({ phase: name, durationMs: Math.round(performance.now() - start), status: "failed", ...childStatus(error) });
       return false;
     }
@@ -251,11 +264,7 @@ async function aclProbe(output: string): Promise<void> {
       const { promise, resolve, reject } = Promise.withResolvers<void>();
       const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
       const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", scriptBytes.toString("base64")], { windowsHide: true, timeout: 30_000 }, (error, _stdout, stderr) => {
-        const match = /(?:^|\r?\n)ACL_DIAGNOSTIC:(\d{1,2}):([A-Za-z][A-Za-z0-9.]{0,159}):([A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr);
-        if (match) {
-          const stage = Number(match[1]);
-          if (stage >= 1 && stage <= 15) failure = { stage, exceptionType: match[2]!, innerExceptionType: match[3]! };
-        }
+        scriptFailure = aclFailure(stderr);
         if (error) reject(error); else resolve();
       });
       child.stdin?.on("error", () => {});
@@ -273,7 +282,7 @@ async function aclProbe(output: string): Promise<void> {
     await phase("temp-remove", () => rm(root!, { recursive: true, force: true }));
   }
   const success = phases.every(item => item.status === "ok") && readyMs !== null && eofMs !== null && stdinFinishedMs !== null;
-  writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-private-acl", success, scriptSha256, failure, handshake: { readyMs, stdinFinishedMs, eofMs }, phases }, null, 2)}\n`);
+  writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-private-acl", success, scriptSha256, helperFailure, scriptFailure, handshake: { readyMs, stdinFinishedMs, eofMs }, phases }, null, 2)}\n`);
   if (!success) process.exitCode = 1;
 }
 

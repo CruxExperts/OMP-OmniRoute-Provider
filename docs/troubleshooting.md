@@ -183,6 +183,11 @@ into `omniroute/config.json`. If the private config file is corrupt or has
 loose permissions, repair it while OMP is stopped and restart; the extension
 will not silently reset a conflicting or insecure file.
 
+On Windows, private-directory creation and permission verification use Windows
+PowerShell's .NET security APIs directly, without loading the `Get-Acl` cmdlet.
+Verification still rejects inherited directory access rules, untrusted owners,
+and access grants outside the current user, SYSTEM, and Administrators.
+
 When reporting a problem, include package/OMP versions, command and sanitized
 error code. Remove keys, cookies, authorization headers, account identifiers,
 local paths, endpoint hostnames, request bodies, and transcripts first. See
