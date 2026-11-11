@@ -325,6 +325,7 @@ async function installPackedPackage(
   environment: NodeJS.ProcessEnv,
   profile: string,
   evidence: PackageVerificationResult,
+  afterVerifiedInstall?: (installedRoot: string) => Promise<void>,
 ): Promise<NpmInstallationEvidence> {
   const archive = await readFile(evidence.archive);
   const digest = createHash("sha256").update(archive).digest("hex");
@@ -394,6 +395,7 @@ async function installPackedPackage(
     const installedFiles = await verifyNativeInstalledPackage(
       stringValue(installed.path, "native install path"), profile, evidence, manifest,
     );
+    if (afterVerifiedInstall) await afterVerifiedInstall(stringValue(installed.path, "native install path"));
     return {
       method: "npm",
       version,
@@ -771,6 +773,7 @@ type CommandOptions = {
   inputSteps?: Array<{ afterMs: number; text: string }>;
   dialogue?: DialogueStep[];
   diagnosticDispatch?: (phase: "rendered" | "dispatched") => Promise<void>;
+  beforeTimeoutTermination?: () => Promise<void>;
 };
 
 export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
@@ -1048,13 +1051,33 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
   } else if (!options.dialogue && options.input) {
     void writeInput(terminal, options.input).catch(() => child?.kill("SIGTERM"));
   }
+  let timeoutObservation: Promise<void> | undefined;
   const timeout = setTimeout(() => {
     timedOut = true;
-    child?.kill("SIGTERM");
-    setTimeout(() => child?.kill("SIGKILL"), 2_000).unref();
+    dialogueScheduler?.cancel();
+    timeoutObservation = (async () => {
+      try {
+        if (options.beforeTimeoutTermination) {
+          let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              options.beforeTimeoutTermination(),
+              new Promise<void>(done => { cleanupTimer = setTimeout(done, 1_500); }),
+            ]);
+          } finally {
+            if (cleanupTimer) clearTimeout(cleanupTimer);
+          }
+        }
+      } catch { /* Trace failure must not prevent process cleanup. */ }
+      finally {
+        child?.kill("SIGTERM");
+        setTimeout(() => child?.kill("SIGKILL"), 2_000).unref();
+      }
+    })();
   }, options.timeoutMs ?? commandTimeoutMs);
   const code = await child.exited;
   clearTimeout(timeout);
+  await timeoutObservation;
   dialogueScheduler?.cancel();
   if (!terminal.closed) terminal.close();
   return {
@@ -1207,10 +1230,24 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
   const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
   const endpoint = diagnosticPath || research ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
   const observations: JsonObject = { rendered: "not-observed", dispatched: "not-observed", delayed: "not-observed" };
+  const traceClient = endpoint && research?.instrumented ? new ResearchTraceClient(endpoint) : undefined;
+  const traceSamples: JsonObject[] = [];
+  const sampleTrace = async (phase: string): Promise<void> => {
+    if (!traceClient || !research) return;
+    const trace = await traceClient.read();
+    traceSamples.push({ phase, ...trace });
+    research.observations.traceSamples = traceSamples;
+    if (trace.status === "available") {
+      research.observations.providerSentinelObserved = traceSamples.some(sample =>
+        Array.isArray(sample.events) && sample.events.some(event =>
+          typeof event === "object" && event !== null && "kind" in event && event.kind === "startup" && "a" in event && event.a === 19));
+    }
+  };
   let result: CommandResult;
   try {
     result = await runPtyCommand(binary, {
       cwd, env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint, ...(research?.instrumented ? { OMP_RESEARCH_INPUT_TRACE: "1" } : {}) } : environment, timeoutMs: 30_000, dialogue,
+      ...(traceClient ? { beforeTimeoutTermination: () => sampleTrace("timeout-before-termination") } : {}),
       ...(endpoint ? { diagnosticDispatch: async phase => {
         const started = Date.now();
         observations[phase] = await observeTuiDebug(endpoint);
@@ -1224,7 +1261,7 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
           }
           const elapsedMs = Date.now() - started;
           observations.delayed = { elapsedAfterDispatchMs: elapsedMs, ...await observeTuiDebug(endpoint) };
-          if (research?.instrumented) research.observations.trace = await new ResearchTraceClient(endpoint).read();
+          await sampleTrace("dispatched");
         }
       } } : {}),
     });
@@ -1783,6 +1820,31 @@ export interface SmokeResult {
   pluginLifecycle: { installed: true; disabled: true; enabled: true; uninstalled: true };
 }
 
+/** Research-only mutation of an already verified disposable installation. */
+export async function applyWindowsResearchOverlay(installedRoot: string, patchPath: string): Promise<JsonObject> {
+  const target = join(installedRoot, "src", "index.ts");
+  const info = await lstat(target);
+  if (!info.isFile() || info.isSymbolicLink() || !isWithin(await realpath(installedRoot), await realpath(target))) {
+    throw new Error("research overlay target is not an ordinary installed source file");
+  }
+  const original = await readFile(target);
+  const originalSha256 = createHash("sha256").update(original).digest("hex");
+  if (originalSha256 !== "d0a4bf6847e8b4235c94379f6d4f23e381f00003bf672feda695c4ba9f335a93") throw new Error("research overlay original provider mismatch");
+  const patchBytes = await readFile(patchPath);
+  const patch = patchBytes.toString("utf8");
+  if ((patch.match(/^--- /gm) ?? []).length !== 1 || (patch.match(/^\+\+\+ /gm) ?? []).length !== 1
+    || !patch.startsWith("--- a/src/index.ts\n+++ b/src/index.ts\n")) throw new Error("research overlay may change only src/index.ts");
+  const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
+  if (patchSha256 !== "d219e3a155a7ffcb0946f89ec85384c689c584a41d194c0b9d9ce50fe5529c48") throw new Error("research overlay patch digest mismatch");
+  const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
+  requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
+  requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
+  const resultingSha256 = createHash("sha256").update(await readFile(target)).digest("hex");
+  if (resultingSha256 === originalSha256) throw new Error("research overlay did not change the installed provider");
+  return { researchOnly: true, archiveStillVerifiedAfterOverlay: false, file: "src/index.ts", originalSha256,
+    patchSha256, resultingSha256 };
+}
+
 /** Research-only entrypoint. Never feeds the official package qualification result. */
 export async function runWindowsLoginResearch(options: {
   binary: string; sha256: string; instrumented: boolean; output: string;
@@ -1825,12 +1887,21 @@ export async function runWindowsLoginResearch(options: {
     packed = await verifyPackage({ keepTemporary: true, archivePath, expectedArchiveSha256 });
     result.packageArchiveSha256 = packed.archiveSha256;
     stage = "package-installation";
-    await installPackedPackage(options.binary, workspace, environment, profile, packed);
+    await installPackedPackage(options.binary, workspace, environment, profile, packed, options.instrumented ? async installedRoot => {
+      result.providerOverlay = await applyWindowsResearchOverlay(installedRoot, resolve(packageRoot, "scripts/windows-research-provider-overlay.patch"));
+    } : undefined);
     stage = "setup-configuration";
     requireSuccess(await runCommand(options.binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: environment }), "research setup version");
     stage = "native-dialogue";
     await nativePromptCancel(options.binary, workspace, environment, undefined, { instrumented: options.instrumented, observations });
     result.reproducedSubmissionFailure = observations.selectorVisible === false && observations.prompted === false && observations.dialogueCompleted === 3;
+    if (options.instrumented) {
+      const samples = Array.isArray(observations.traceSamples) ? observations.traceSamples : [];
+      const usable = samples.length > 0 && samples.every(sample => typeof sample === "object" && sample !== null
+        && "status" in sample && sample.status === "available" && "overflow" in sample && sample.overflow === false);
+      result.causalTraceStatus = result.reproducedSubmissionFailure === true && observations.providerSentinelObserved === true && usable
+        ? "available-for-await-analysis" : "inconclusive";
+    }
     return result;
   } catch (error) {
     result.failedStage = stage;

@@ -304,12 +304,12 @@
  
 --- /dev/null
 +++ b/packages/tui/src/research-trace.ts
-@@ -0,0 +1,48 @@
+@@ -0,0 +1,54 @@
 +// Private research build only. The existing debug server reads this buffer without consuming it.
 +const enabled = process.env.OMP_RESEARCH_INPUT_TRACE === "1";
 +const ids = new WeakMap<object, number>();
 +let nextId = 1;
-+export type ResearchEventKind = "received" | "sequence" | "win32" | "normalized" | "focus" | "custom" | "editor" | "state" | "assist-return" | "completion-applied" | "completion-return" | "completion-stale-return" | "navigation-return" | "paste-return" | "alt-return" | "submit-entered" | "submit-disabled" | "unrelated-newline" | "editor-return" | "dictation-return" | "callback-dispatch" | "gate" | "callback-assigned" | "callback-entry" | "login";
++export type ResearchEventKind = "received" | "sequence" | "win32" | "normalized" | "focus" | "custom" | "editor" | "state" | "assist-return" | "completion-applied" | "completion-return" | "completion-stale-return" | "navigation-return" | "paste-return" | "alt-return" | "submit-entered" | "submit-disabled" | "unrelated-newline" | "editor-return" | "dictation-return" | "callback-dispatch" | "gate" | "callback-assigned" | "callback-entry" | "login" | "startup";
 +type Event = { seq: number; kind: ResearchEventKind; id: number; a: number; b: number; c: number; d: number };
 +const events: Event[] = [];
 +let bytes = 0;
@@ -330,6 +330,12 @@
 +	if (events.length === 256 || bytes + size > 32768 - 512) { dropped = Math.min(dropped + 1, Number.MAX_SAFE_INTEGER); return; }
 +	events.push(event);
 +	bytes += size;
++}
++
++if (enabled) {
++  (globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.trace.v1")] = (marker: unknown) => {
++    if (typeof marker === "number" && Number.isInteger(marker) && marker >= 19 && marker <= 39) researchEvent("startup", 0, marker);
++  };
 +}
 +
 +export function researchRead(cursor: number): { available: false } | { available: true; pid: number; events: readonly Event[]; cursor: number; overflow: boolean; dropped: number; bytes: number } {

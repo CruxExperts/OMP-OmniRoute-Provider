@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import subprocess
 import sys
@@ -16,13 +17,15 @@ import urllib.request
 
 COMMIT = "d5cd750e41fede277f9eb933455da92a0738915e"
 SOURCE_SHA = "db286adf6c8cce6fdf7037c40ffef97429e75753b9644bd1aeefda4772f51bf1"
-PATCH_SHA = "2dbd15c713233baafb3f57a5e7b08c88b53fe4f9dbb3f8be37f53279f589602d"
+PATCH_SHA = "69c3c7dc5968eec54c32f8cb276ab7f03052bd202636d443206a6c1c85628185"
 NATIVE_ARCHIVE_SHA = "ad0813556575d77b80cb765b8a9d5bd55aa4068274c4496fc59bdc3e9cc4f9ce"
 NATIVE_SRI = "vnaPvnIxojxUmewfX5X57OUnWgd5bjR76j38nw+KogUayrapI/edbGr7XFx/6AQsrCfZLZJ0f/19G3JZ6Hh2GQ=="
 NATIVE_SHA = "c511ffab8a070be6263d28f0bc5985fc160c7ad70f0ceb1b56ef97ff4d396da7"
 BUN_ARCHIVE_SHA = "3a4f6d0453afcc1ed1f736e3a4356306ff359efe75fa11c9a0d82c59f76d4801"
 BUN_SRI = "lq82LqVjSXAx9gNUcibCdfQdtrelh86FxQqlhpOdiV4SZQAP8HHUxWhnfbjx2fqz+jzglwBvjmlEs7xFyONBZw=="
 BUN_TEMPLATE_SHA = "15277c59ccd6c6c20f8dc9716c2b59c1776320d606b6a8658f70be8799519ca4"
+PROVIDER_SHA = "d0a4bf6847e8b4235c94379f6d4f23e381f00003bf672feda695c4ba9f335a93"
+PROVIDER_PATCH_SHA = "d219e3a155a7ffcb0946f89ec85384c689c584a41d194c0b9d9ce50fe5529c48"
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -121,6 +124,7 @@ def main() -> None:
                 "nativeArchiveSha256": NATIVE_ARCHIVE_SHA, "nativeSha256": NATIVE_SHA,
                 "compilerVersion": "1.4.2", "compilerOriginalProvenanceKnown": False,
                 "compilerTemplateSha256": BUN_TEMPLATE_SHA, "status": "started"}
+    metadata.update({"providerOriginalSha256": PROVIDER_SHA, "providerOverlaySha256": PROVIDER_PATCH_SHA})
     stage = "initialization"
     try:
         bun = shutil.which("bun")
@@ -148,6 +152,8 @@ def main() -> None:
         patch = ROOT / "scripts/windows-research-input-instrumentation.patch"
         if digest(patch) != PATCH_SHA:
             raise ValueError("instrumentation patch digest mismatch")
+        if digest(ROOT / "scripts/windows-research-provider-overlay.patch") != PROVIDER_PATCH_SHA or digest(ROOT / "src/index.ts") != PROVIDER_SHA:
+            raise ValueError("provider overlay input mismatch")
         with tempfile.TemporaryDirectory(prefix="omp-windows-research-", dir=os.environ["RUNNER_TEMP"]) as tmp:
             work = Path(tmp)
             home = work / "home"
@@ -210,6 +216,10 @@ def main() -> None:
             if (instrumented.get("researchOnly") is not True or instrumented.get("packageArchiveSha256") != package_sha
                     or instrumented.get("binarySha256") != metadata["instrumentedBinarySha256"]):
                 raise RuntimeError("instrumented observation input mismatch")
+            overlay = instrumented.get("providerOverlay", {})
+            if overlay.get("originalSha256") != PROVIDER_SHA or overlay.get("patchSha256") != PROVIDER_PATCH_SHA or not re.fullmatch(r"[a-f0-9]{64}", overlay.get("resultingSha256", "")):
+                raise RuntimeError("installed provider overlay binding mismatch")
+            metadata["providerResultingSha256"] = overlay["resultingSha256"]
             metadata["status"] = "observed"
     except Exception as error:
         metadata["status"] = "failed"

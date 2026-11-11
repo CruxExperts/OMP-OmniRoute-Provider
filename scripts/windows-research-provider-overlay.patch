@@ -1,0 +1,71 @@
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -26,3 +26,10 @@
+ 
++// Research-only overlay. The host owns the sink and records integer markers only.
++const researchSinkKey = Symbol.for("cruxomni.windowsResearch.trace.v1");
++function researchStartup(marker: number): void {
++	const sink = (globalThis as typeof globalThis & { [key: symbol]: unknown })[researchSinkKey];
++	if (typeof sink === "function") sink(marker);
++}
++
+ type ContextLike = ExtensionContext;
+ 
+@@ -517,4 +523,6 @@
+ 			readinessIssue = undefined;
+ 			const previousActiveGeneration = config.active?.generation;
++			researchStartup(30);
+ 			const loaded = await loadConfig();
++			researchStartup(31);
+ 			config = loaded;
+@@ -528,3 +536,5 @@
+-			await synchronizeAdministration(config);
++			researchStartup(32);
++			await synchronizeAdministration(config);
++			researchStartup(33);
+ 			const environment = envBinding(config);
+ 			const pending = environment ? undefined : config.pending;
+@@ -552,2 +562,3 @@
+ 			phase = "credential";
++			researchStartup(34);
+ 			const credential = environment?.credential ?? (ctx
+@@ -559,5 +570,8 @@
+ 				));
++			researchStartup(35);
+ 			credentialPresence = credential ? "present" : "missing";
+ 			phase = "config";
++			researchStartup(36);
+ 			const confirmed = await loadConfig();
++			researchStartup(37);
+ 			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
+@@ -647,3 +661,5 @@
++			researchStartup(38);
+ 			if (!synchronized.pendingValidated) await manager.refresh({ force: manual });
++			researchStartup(39);
+ 			if (manual) notify(ctx, `omniroute: ${readiness()}`, manager.status.stale ? "warning" : "info");
+ 		} catch (error) {
+@@ -775,3 +791,6 @@
+ 	pi.on("session_start", async (_event, ctx) => {
++		researchStartup(19);
++		researchStartup(20);
+ 		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
++		researchStartup(21);
+ 		stopped = false;
+@@ -791,9 +810,17 @@
++		researchStartup(22);
+ 		await refresh(ctx, false);
++		researchStartup(23);
++		researchStartup(24);
+ 		await rebindCurrentModel(ctx);
++		researchStartup(25);
++		researchStartup(26);
+ 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
++		researchStartup(27);
+ 		reconnectSettings = parseReconnectSettings(settings);
+ 		transitionNotifications = settings.notifyTransitions !== false;
+ 		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config)) {
+ 			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /omniroute setup. You can open setup at any time.`);
++			researchStartup(28);
+ 			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
++			researchStartup(29);
+ 		}

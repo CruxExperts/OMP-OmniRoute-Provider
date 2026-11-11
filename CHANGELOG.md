@@ -42,6 +42,14 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Rebind a resumed worker's retired OmniRoute API identifier to its active
   connection before inference. Preserve the selected model and thinking level;
   models absent from the current live catalog remain blocked.
+- Bind explicitly declared subprocess and dynamic fixture inputs into qualification
+  test fingerprints; reject private, duplicate, missing, linked, or escaping inputs.
+- Align pinned combo fixtures with current account-label imports and the source's
+  fallback-request and skips-per-request metrics without promoting eligibility.
+- Sample the research host's bounded trace before timeout termination and bind a
+  disposable provider overlay separately from the verified package archive.
+  Missing bridge sentinels or incomplete traces remain inconclusive, not Windows
+  qualification.
 
 ## 1.0.4 — 2026-11-05
 

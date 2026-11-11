@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  applyWindowsResearchOverlay,
   availableOperationMenuPattern,
   createDialogueScheduler,
   hasNativeUnknownOutcomes,
@@ -287,4 +288,28 @@ test("dynamic native warning matcher ignores a redraw of the first plan", async 
   await Bun.sleep(5);
   expect(written).toEqual(["next", "done"]);
   scheduler.cancel();
+});
+
+test("research provider overlay changes only a verified disposable installed source", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "research-provider-overlay-"));
+  const original = await readFile(join(import.meta.dir, "../src/index.ts"));
+  const patch = join(import.meta.dir, "../scripts/windows-research-provider-overlay.patch");
+  try {
+    await mkdir(join(directory, "src"));
+    await writeFile(join(directory, "src/index.ts"), original);
+    await writeFile(join(directory, "untouched.txt"), "preserve");
+    const result = await applyWindowsResearchOverlay(directory, patch);
+    expect(result).toMatchObject({ researchOnly: true, archiveStillVerifiedAfterOverlay: false, file: "src/index.ts" });
+    expect(result.resultingSha256).not.toBe(result.originalSha256);
+    expect(await readFile(join(directory, "untouched.txt"), "utf8")).toBe("preserve");
+    expect(await readFile(join(import.meta.dir, "../src/index.ts"))).toEqual(original);
+    await expect(applyWindowsResearchOverlay(directory, patch)).rejects.toThrow("original provider mismatch");
+    await writeFile(join(directory, "src/index.ts"), original);
+    const invalid = join(directory, "invalid.patch");
+    await writeFile(invalid, `${await readFile(patch, "utf8")}--- a/untouched.txt\n+++ b/untouched.txt\n`);
+    await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("only src/index.ts");
+    expect(await readFile(join(directory, "src/index.ts"))).toEqual(original);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
