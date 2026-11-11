@@ -1814,6 +1814,7 @@ export async function runWindowsLoginResearch(options: {
       nativeLoadFailure: /DLL|dlopen|LoadLibrary|native addon/iu.test(`${versionResult.stdout}\n${versionResult.stderr}`),
     };
     const version = requireSuccess(versionResult, "research host version").trim();
+    result.reportedVersion = /^[0-9A-Za-z.+-]{1,64}$/u.test(version) ? version : "non-semantic-version-output";
     if (!/(?:^|\s)18\.12\.5(?:\s|$)/.test(version)) throw new Error("Research host must report 18.12.5");
     result.hostVersion = "18.12.5";
     await writeFile(options.output, JSON.stringify(result, null, 2), { flag: "wx", mode: 0o600 });
