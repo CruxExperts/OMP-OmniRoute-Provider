@@ -195,9 +195,9 @@ const CREATE_BODY_SCHEMA: JsonSchema = {
   additionalProperties: true,
 };
 
-const LIST_QUERY_NORMALIZER = "omniroute-v3.8.52.model-combo-mappings.list-query" as const;
-const CREATE_NORMALIZER = "omniroute-v3.8.52.model-combo-mappings.create" as const;
-const UPDATE_NORMALIZER = "omniroute-v3.8.52.model-combo-mappings.update" as const;
+const LIST_QUERY_NORMALIZER = "omniroute-v3.8.53.model-combo-mappings.list-query" as const;
+const CREATE_NORMALIZER = "omniroute-v3.8.53.model-combo-mappings.create" as const;
+const UPDATE_NORMALIZER = "omniroute-v3.8.53.model-combo-mappings.update" as const;
 const UPDATE_BODY_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
@@ -314,7 +314,7 @@ function sourceReconciliation(operationId: ModelComboMappingFixtureOperationId):
     return {
       targetRead: {
         ...collectionRead,
-        sourceView: "omniroute-v3.8.52.model-combo-mappings.create-reconcile",
+        sourceView: "omniroute-v3.8.53.model-combo-mappings.create-reconcile",
       },
       reconcile: {
         operationId: "GET /api/model-combo-mappings",
@@ -332,7 +332,7 @@ function sourceReconciliation(operationId: ModelComboMappingFixtureOperationId):
     return {
       targetRead: {
         ...pathRead,
-        sourceView: "omniroute-v3.8.52.model-combo-mappings.update-reconcile",
+        sourceView: "omniroute-v3.8.53.model-combo-mappings.update-reconcile",
       },
       reconcile: {
         operationId: pathRead.operationId,
@@ -357,7 +357,7 @@ function sourceReconciliation(operationId: ModelComboMappingFixtureOperationId):
     return {
       targetRead: {
         ...selectedCollectionRead,
-        sourceView: "omniroute-v3.8.52.model-combo-mappings.delete-reconcile",
+        sourceView: "omniroute-v3.8.53.model-combo-mappings.delete-reconcile",
       },
       reconcile: {
         operationId: collectionRead.operationId,
@@ -402,14 +402,14 @@ function sourceContract(operationId: ModelComboMappingFixtureOperationId): Opera
   const readCompleteness = create
     ? {
         kind: "unpaginated-list" as const,
-        sourceReason: "The pinned v3.8.52 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
+        sourceReason: "The pinned v3.8.53 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
         itemsPath: ["mappings"],
         totalPath: ["total"],
         identityPaths: [["id"]],
       }
     : {
         kind: "single-response" as const,
-        sourceReason: "The pinned v3.8.52 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination.",
+        sourceReason: "The pinned v3.8.53 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination.",
       };
   const mutationSafety: NonNullable<OperationSourceContract["mutationSafety"]> | null = !mutation ? null : {
     preflight: {
@@ -482,6 +482,10 @@ export class ModelComboMappingsHttpFixture {
 
   get database(): Database {
     return this.#routes.db;
+  }
+
+  get cacheVersions(): { readonly combos: number; readonly catalog: number } {
+    return this.#routes.cacheVersions();
   }
 
   resolveComboForModel(model: string): Promise<Record<string, unknown> | null> {
@@ -576,9 +580,9 @@ export async function invokeModelComboMappingAdapter(
 }
 
 export function relationViewForOperation(operationId: ModelComboMappingOperationId): ModelComboMappingRelationViewId | undefined {
-  if (operationId === "POST /api/model-combo-mappings") return "omniroute-v3.8.52.model-combo-mappings.create-reconcile";
-  if (operationId === "PUT /api/model-combo-mappings/{id}") return "omniroute-v3.8.52.model-combo-mappings.update-reconcile";
-  if (operationId === "DELETE /api/model-combo-mappings/{id}") return "omniroute-v3.8.52.model-combo-mappings.delete-reconcile";
+  if (operationId === "POST /api/model-combo-mappings") return "omniroute-v3.8.53.model-combo-mappings.create-reconcile";
+  if (operationId === "PUT /api/model-combo-mappings/{id}") return "omniroute-v3.8.53.model-combo-mappings.update-reconcile";
+  if (operationId === "DELETE /api/model-combo-mappings/{id}") return "omniroute-v3.8.53.model-combo-mappings.delete-reconcile";
   return undefined;
 }
 

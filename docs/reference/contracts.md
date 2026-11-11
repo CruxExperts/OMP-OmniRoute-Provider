@@ -155,8 +155,19 @@ identities onto old observations is not evidence. The controller must separately
 produce and review the handler receipt and update eligibility only after the new
 ingress export and operation-specific evidence pass validation.
 
+The five model-combo-mapping candidates use the pinned v3.8.53 collection and
+item handlers with the actual SQLite repository, persistence facade, and read-cache
+generation signals. Their disposable schema is assembled for the fixture; it is
+not evidence that a cold application database initializes successfully. The ingress
+run probes the exact five methods and paths with a management reachability control,
+including anonymous and invalid-credential denial and an authorized session. This
+probes shared policy, not the real mapping handlers. A fresh complete ingress run
+and independently produced handler observations are required; all candidates remain
+pending until their exact outputs are retained and reviewed. Changing the shared
+ingress inputs also invalidates previously retained ingress evidence.
 
-For `GET /api/health`, `GET /api/health/degradation`, and `GET /api/agent-skills`, a verified eligibility record additionally names a retained
+
+For `GET /api/health`, `GET /api/health/degradation`, `GET /api/agent-skills`, and the five model-combo-mapping operations, a verified eligibility record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and
 extracted declaration identities, and the runner's recomputed disposable overlay

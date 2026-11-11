@@ -46,6 +46,7 @@ export interface PinnedMappingHandlers {
   readonly item: PinnedExports;
   readonly db: Database;
   readonly repository: MappingRepository;
+  readonly cacheVersions: () => { readonly combos: number; readonly catalog: number };
 }
 
 export interface ComboStore {
@@ -849,7 +850,7 @@ function loadMappingHandlers(options: {
   readonly db: Database;
   readonly uuid: () => string;
   readonly date: DateConstructor;
-}): { collection: PinnedExports; item: PinnedExports; repository: MappingRepository } {
+}): { collection: PinnedExports; item: PinnedExports; repository: MappingRepository; cacheVersions: () => { combos: number; catalog: number } } {
   const globPattern = loadPinnedModule("src/shared/utils/globPattern.ts", specifier => {
     throw new Error(`Unapproved pinned model-mapping glob import: ${specifier}`);
   });
@@ -898,6 +899,7 @@ function loadMappingHandlers(options: {
     collection: loadPinnedModule("src/app/api/model-combo-mappings/route.ts", routeRequire),
     item: loadPinnedModule("src/app/api/model-combo-mappings/[id]/route.ts", routeRequire),
     repository,
+    cacheVersions: () => ({ combos: (readCache.getCombosCacheVersion as () => number)(), catalog: (readCache.getModelCatalogCacheVersion as () => number)() }),
   };
 }
 
@@ -948,5 +950,6 @@ export function createPinnedMappingHandlers(options: {
     uuid,
     date: createPinnedFixtureDate(baseTime),
   });
-  return { authorization: options.authorization, collection: loaded.collection, item: loaded.item, db, repository: loaded.repository };
+  const { authorization } = options;
+  return { authorization, collection: loaded.collection, item: loaded.item, db, repository: loaded.repository, cacheVersions: loaded.cacheVersions };
 }

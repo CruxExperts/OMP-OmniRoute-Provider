@@ -371,6 +371,7 @@ def disk_usage(root):
 
 
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
+POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts')
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -460,7 +461,7 @@ def materialize(real_core=False):
     (app / 'next-env.d.ts').touch()
     if not real_core:
         shutil.copyfile('/work/fixture/next.config.mjs', app / 'next.config.mjs')
-        for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts'):
+        for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts', *POLICY_SOURCES):
             put(app, route, Path('/work/fixture/routes/management.ts').read_bytes())
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
@@ -643,7 +644,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source():
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(READ_CLOSURES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -697,6 +698,11 @@ def provision():
         (fixture / name).write_bytes(data)
     identities['src/lib/db/core.ts'] = sha((app / 'src/lib/db/core.ts').read_bytes())
     identities['src/lib/api/requireManagementAuth.ts'] = sha((app / 'src/lib/api/requireManagementAuth.ts').read_bytes())
+    with tarfile.open(archive_path, 'r:gz') as archive:
+        for name in POLICY_SOURCES:
+            member = archive.getmember('OmniRoute-v3.8.53/' + name)
+            require(member.isfile() and member.size <= 2 * 1024 * 1024, 'invalid policy source member: ' + name)
+            identities[name] = sha(archive.extractfile(member).read())
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
     closure = read_closures(app, json.loads((fixture / 'source-manifest.json').read_text()))
     verify_flag_cache_fixture(closure['src/lib/db/featureFlags.ts'].decode(),
@@ -1074,7 +1080,7 @@ def export_observations(output, hashes):
     require(identity['sourceCommit'] == COMMIT and identity['sourceVersion'] == '3.8.53' and identity['archiveSha256'] == ARCHIVE_SHA and identity['nodeSha256'] == NODE_SHA, 'source identity mismatch')
     require(identity['runtime'] == {'node': '24.17.0', 'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime mismatch')
     source = approved_source()
-    identity_names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
+    identity_names = set(ROUTES) | set(POLICY_SOURCES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
     source_hashes = {name: sha(source[name]) for name in identity_names}
     for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
         data = source[name]
@@ -1117,7 +1123,7 @@ def export_observations(output, hashes):
         cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
     public_health = validate_public_health_evidence(auth)
     rows = ingress['results']
-    require(len(rows) == 8 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills'], 'ingress cases incomplete')
+    require(len(rows) == 13 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id'], 'ingress cases incomplete')
     health = []
     for row, path in zip(rows[:2], ('/api/health', '/api/health/ping')):
         response, body = row['response'], row['response']['body']
@@ -1147,6 +1153,11 @@ def export_observations(output, hashes):
     require(allowed['status'] == 200 and body['count'] == 1 and len(body['skills']) == 1 and body['skills'][0]['id'] == 'config-codex-cli' and body['skills'][0]['category'] == 'config' and body['skills'][0]['area'] == 'config-codex-cli', 'agent-skills authorized query mismatch')
     require(body['skills'][0]['rawUrl'] == 'https://raw.githubusercontent.com/cheaper-inference/OmniRoute/refs/heads/main/skills/config-codex-cli/SKILL.md' and body['skills'][0]['githubUrl'] == 'https://github.com/cheaper-inference/OmniRoute/blob/main/skills/config-codex-cli/SKILL.md', 'agent-skills URL mismatch')
     skills = {'method': 'GET', 'path': '/api/agent-skills', 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'query': 'category=config&area=config-codex-cli', 'authorizedStatus': allowed['status'], 'ids': ['config-codex-cli']}
+    mapping_policy = []
+    for row, method, path in zip(rows[8:], ('GET', 'POST', 'GET', 'PUT', 'DELETE'), ('/api/model-combo-mappings', '/api/model-combo-mappings', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id')):
+        denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
+        require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'mapping policy outcome mismatch')
+        mapping_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
     require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
     fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
     require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
@@ -1177,6 +1188,8 @@ def export_observations(output, hashes):
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
     artifact['degradation'] = degradation
     artifact['agentSkills'] = skills
+    artifact['modelComboMappingPolicy'] = mapping_policy
+    artifact['limitations'].append('Mapping ingress exercises policy with a reachability control at the exact method and path; it does not execute mapping handlers or cold database initialization.')
     artifact['limitations'].append('Agent-skills ingress coverage observes management denial and a dashboard-session query, not every credential alternative or hosted failures.')
     artifact['limitations'].append('Degradation handler failure was not induced; fixture signals control only the disposable in-process source registry.')
     artifact['limitations'].append('The IP filter denial and recovery exercise forwarding-header fallback with unknown peer locality under bare Next start. They do not demonstrate authenticated peer-stamp denial, peer locality, or reverse-proxy trust.')

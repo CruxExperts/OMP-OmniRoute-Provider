@@ -21,6 +21,7 @@ import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures
 import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
 import { agentSkillsContract } from "./fixtures/pinned-agent-skills.fixture.ts";
+import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
 
 function sourceRequestAdapter(operationId: string) {
   const source = getOperation(operationId);
@@ -326,6 +327,26 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       record(changed.agentSkills)[key] = value;
       const evidence = await save(changed);
       expect(() => validateHealthIngressEvidence(evidence, skillsBinding, "GET /api/agent-skills")).toThrow(/agent-skills observation mismatch/);
+    }
+    const mappingPolicy = MODEL_COMBO_MAPPING_OPERATION_IDS.map(operationId => {
+      const [method, template] = operationId.split(" ");
+      return { method, path: template!.replace("{id}", "fixture-id"), routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
+    });
+    for (const [index, operationId] of MODEL_COMBO_MAPPING_OPERATION_IDS.entries()) {
+      const mappingBinding = operationEvidenceBinding(operationId, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS[operationId]);
+      const mappingArtifact = { ...artifact, modelComboMappingPolicy: mappingPolicy };
+      const evidence = await save(mappingArtifact);
+      expect(() => validateHealthIngressEvidence(evidence, mappingBinding, operationId)).not.toThrow();
+      expect(() => validateHealthIngressEvidence(evidence, { ...mappingBinding, handlerSha256: "0".repeat(64) }, operationId)).toThrow(/source mismatch/);
+      for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
+        const changed = structuredClone(mappingArtifact);
+        record(changed.modelComboMappingPolicy[index])[key] = value;
+        const changedEvidence = await save(changed);
+        expect(() => validateHealthIngressEvidence(changedEvidence, mappingBinding, operationId)).toThrow(/mapping policy observation mismatch/);
+      }
+      const duplicated = { ...mappingArtifact, modelComboMappingPolicy: [...mappingPolicy, mappingPolicy[index]] };
+      const duplicateEvidence = await save(duplicated);
+      expect(() => validateHealthIngressEvidence(duplicateEvidence, mappingBinding, operationId)).toThrow(/mapping policy observation mismatch/);
     }
     await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation

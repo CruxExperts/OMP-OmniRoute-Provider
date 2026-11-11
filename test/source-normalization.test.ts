@@ -13,9 +13,9 @@ import type { JsonValue } from "../src/admin/types.ts";
 
 const INTERCEPTION: SourceNormalizationId = "omniroute-v3.8.52.provider-interception-rules";
 const PARAM_FILTERS: SourceNormalizationId = "omniroute-v3.8.52.provider-param-filters";
-const MAPPING_QUERY: SourceNormalizationId = "omniroute-v3.8.52.model-combo-mappings.list-query";
-const MAPPING_CREATE: SourceNormalizationId = "omniroute-v3.8.52.model-combo-mappings.create";
-const MAPPING_UPDATE: SourceNormalizationId = "omniroute-v3.8.52.model-combo-mappings.update";
+const MAPPING_QUERY: SourceNormalizationId = "omniroute-v3.8.53.model-combo-mappings.list-query";
+const MAPPING_CREATE: SourceNormalizationId = "omniroute-v3.8.53.model-combo-mappings.create";
+const MAPPING_UPDATE: SourceNormalizationId = "omniroute-v3.8.53.model-combo-mappings.update";
 
 function record(value: JsonValue): Record<string, JsonValue> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new Error("expected object");
@@ -219,9 +219,9 @@ describe("pinned model-combo mapping codecs and relation views", () => {
   });
 
   test("binds create, partial update, and delete relation views to their source list/item reads", () => {
-    const createView = "omniroute-v3.8.52.model-combo-mappings.create-reconcile" as const;
-    const updateView = "omniroute-v3.8.52.model-combo-mappings.update-reconcile" as const;
-    const deleteView = "omniroute-v3.8.52.model-combo-mappings.delete-reconcile" as const;
+    const createView = "omniroute-v3.8.53.model-combo-mappings.create-reconcile" as const;
+    const updateView = "omniroute-v3.8.53.model-combo-mappings.update-reconcile" as const;
+    const deleteView = "omniroute-v3.8.53.model-combo-mappings.delete-reconcile" as const;
     expect(sourceRelationViewMatches(createView, "POST /api/model-combo-mappings", "GET /api/model-combo-mappings", "GET /api/model-combo-mappings", "exists")).toBe(true);
     expect(sourceRelationViewMatches(updateView, "PUT /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings/{id}", "matches")).toBe(true);
     expect(sourceRelationViewMatches(deleteView, "DELETE /api/model-combo-mappings/{id}", "GET /api/model-combo-mappings", "GET /api/model-combo-mappings", "absent")).toBe(true);

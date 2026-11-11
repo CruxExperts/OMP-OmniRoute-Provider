@@ -42,6 +42,16 @@
  * SOFTWARE.
  */
 
+// The notice above records the original v3.8.52 derivation. Current fixture
+// execution uses v3.8.53 commit 191dce8d534ceb56c28a08e71381284a9a87838f:
+// collection 138658e09787bc715fa360c2edead37f0e63f3bfc13027185bc292b7a29dd137;
+// item 88e42628c6e87daf4c44f3c83357d7352b6344307b14685b09c21f66d9bb01ec;
+// facade 3e59c6c78088d33da90e5063d44c72a71d97b88c80c9f6e78e045af328388b43;
+// readCache 97cb59fb5767005900c575e8f6db450c3b94abaa7a7058671dda1717da223448;
+// SQLite repository a4aac28b6aa34870c8136c06a4c9a2863991f82ce59664267b91ba38a2e816d0;
+// glob matching b3497afce7ab3cf13e497d387157128b57bb8882db441b78ca0adbc4d19f108e.
+// The pinned fixture verifies every loaded source against the immutable corpus receipts.
+
 import type { AdminMethod, JsonObject, JsonValue } from "./types.ts";
 import type { ValidatedOperationInput } from "./registry.ts";
 
@@ -58,13 +68,13 @@ export const MODEL_COMBO_MAPPING_OPERATION_IDS = Object.freeze([
 
 export type ModelComboMappingOperationId = typeof MODEL_COMBO_MAPPING_OPERATION_IDS[number];
 export type ModelComboMappingRequestCodecId =
-  | "omniroute-v3.8.52.model-combo-mappings.list-query"
-  | "omniroute-v3.8.52.model-combo-mappings.create"
-  | "omniroute-v3.8.52.model-combo-mappings.update";
+  | "omniroute-v3.8.53.model-combo-mappings.list-query"
+  | "omniroute-v3.8.53.model-combo-mappings.create"
+  | "omniroute-v3.8.53.model-combo-mappings.update";
 export type ModelComboMappingRelationViewId =
-  | "omniroute-v3.8.52.model-combo-mappings.create-reconcile"
-  | "omniroute-v3.8.52.model-combo-mappings.update-reconcile"
-  | "omniroute-v3.8.52.model-combo-mappings.delete-reconcile";
+  | "omniroute-v3.8.53.model-combo-mappings.create-reconcile"
+  | "omniroute-v3.8.53.model-combo-mappings.update-reconcile"
+  | "omniroute-v3.8.53.model-combo-mappings.delete-reconcile";
 
 export interface ModelComboMappingCodecBinding {
   readonly id: ModelComboMappingRequestCodecId;
@@ -105,16 +115,16 @@ function codecBinding(
 }
 
 export const MODEL_COMBO_MAPPING_CODEC_BINDINGS: Readonly<Record<ModelComboMappingRequestCodecId, ModelComboMappingCodecBinding>> = Object.freeze({
-  "omniroute-v3.8.52.model-combo-mappings.list-query": codecBinding(
-    "omniroute-v3.8.52.model-combo-mappings.list-query",
+  "omniroute-v3.8.53.model-combo-mappings.list-query": codecBinding(
+    "omniroute-v3.8.53.model-combo-mappings.list-query",
     ["GET /api/model-combo-mappings"], ["GET"], MODEL_COMBO_MAPPING_COLLECTION_PATH, "query",
   ),
-  "omniroute-v3.8.52.model-combo-mappings.create": codecBinding(
-    "omniroute-v3.8.52.model-combo-mappings.create",
+  "omniroute-v3.8.53.model-combo-mappings.create": codecBinding(
+    "omniroute-v3.8.53.model-combo-mappings.create",
     ["POST /api/model-combo-mappings"], ["POST"], MODEL_COMBO_MAPPING_COLLECTION_PATH, "body",
   ),
-  "omniroute-v3.8.52.model-combo-mappings.update": codecBinding(
-    "omniroute-v3.8.52.model-combo-mappings.update",
+  "omniroute-v3.8.53.model-combo-mappings.update": codecBinding(
+    "omniroute-v3.8.53.model-combo-mappings.update",
     ["PUT /api/model-combo-mappings/{id}"], ["PUT"], MODEL_COMBO_MAPPING_ITEM_PATH, "body",
   ),
 });
@@ -130,22 +140,22 @@ function relationBinding(value: ModelComboMappingRelationBinding): ModelComboMap
 }
 
 export const MODEL_COMBO_MAPPING_RELATION_BINDINGS: Readonly<Record<ModelComboMappingRelationViewId, ModelComboMappingRelationBinding>> = Object.freeze({
-  "omniroute-v3.8.52.model-combo-mappings.create-reconcile": relationBinding({
-    id: "omniroute-v3.8.52.model-combo-mappings.create-reconcile",
+  "omniroute-v3.8.53.model-combo-mappings.create-reconcile": relationBinding({
+    id: "omniroute-v3.8.53.model-combo-mappings.create-reconcile",
     operationIds: ["POST /api/model-combo-mappings"], methods: ["POST"],
     pathTemplate: MODEL_COMBO_MAPPING_COLLECTION_PATH, section: "body",
     targetRead: { operationId: "GET /api/model-combo-mappings", pathTemplate: MODEL_COMBO_MAPPING_COLLECTION_PATH, section: "query" },
     reconciliation: { operationId: "GET /api/model-combo-mappings", pathTemplate: MODEL_COMBO_MAPPING_COLLECTION_PATH, section: "query", outcomeKind: "exists" },
   }),
-  "omniroute-v3.8.52.model-combo-mappings.update-reconcile": relationBinding({
-    id: "omniroute-v3.8.52.model-combo-mappings.update-reconcile",
+  "omniroute-v3.8.53.model-combo-mappings.update-reconcile": relationBinding({
+    id: "omniroute-v3.8.53.model-combo-mappings.update-reconcile",
     operationIds: ["PUT /api/model-combo-mappings/{id}"], methods: ["PUT"],
     pathTemplate: MODEL_COMBO_MAPPING_ITEM_PATH, section: "body",
     targetRead: { operationId: "GET /api/model-combo-mappings/{id}", pathTemplate: MODEL_COMBO_MAPPING_ITEM_PATH, section: "path" },
     reconciliation: { operationId: "GET /api/model-combo-mappings/{id}", pathTemplate: MODEL_COMBO_MAPPING_ITEM_PATH, section: "path", outcomeKind: "matches" },
   }),
-  "omniroute-v3.8.52.model-combo-mappings.delete-reconcile": relationBinding({
-    id: "omniroute-v3.8.52.model-combo-mappings.delete-reconcile",
+  "omniroute-v3.8.53.model-combo-mappings.delete-reconcile": relationBinding({
+    id: "omniroute-v3.8.53.model-combo-mappings.delete-reconcile",
     operationIds: ["DELETE /api/model-combo-mappings/{id}"], methods: ["DELETE"],
     pathTemplate: MODEL_COMBO_MAPPING_ITEM_PATH, section: "body",
     targetRead: { operationId: "GET /api/model-combo-mappings", pathTemplate: MODEL_COMBO_MAPPING_COLLECTION_PATH, section: "query" },
@@ -153,9 +163,9 @@ export const MODEL_COMBO_MAPPING_RELATION_BINDINGS: Readonly<Record<ModelComboMa
   }),
 });
 
-const CREATE_ID: ModelComboMappingRequestCodecId = "omniroute-v3.8.52.model-combo-mappings.create";
-const UPDATE_ID: ModelComboMappingRequestCodecId = "omniroute-v3.8.52.model-combo-mappings.update";
-const LIST_QUERY_ID: ModelComboMappingRequestCodecId = "omniroute-v3.8.52.model-combo-mappings.list-query";
+const CREATE_ID: ModelComboMappingRequestCodecId = "omniroute-v3.8.53.model-combo-mappings.create";
+const UPDATE_ID: ModelComboMappingRequestCodecId = "omniroute-v3.8.53.model-combo-mappings.update";
+const LIST_QUERY_ID: ModelComboMappingRequestCodecId = "omniroute-v3.8.53.model-combo-mappings.list-query";
 const STATE_FIELDS = Object.freeze(["pattern", "comboId", "priority", "enabled", "description"] as const);
 
 function received(value: unknown): string {
@@ -367,7 +377,7 @@ export function modelComboMappingRelationSnapshot(
 ): JsonValue {
   if (!isModelComboMappingRelationViewId(value)) throw new TypeError("unknown model-combo-mapping relation view");
   const entries: JsonObject[] = [];
-  if (value === "omniroute-v3.8.52.model-combo-mappings.create-reconcile") {
+  if (value === "omniroute-v3.8.53.model-combo-mappings.create-reconcile") {
     for (const row of listRows(response)) entries.push(snapshotEntry(row));
     entries.sort((left, right) => String((left.identity as JsonObject).id).localeCompare(String((right.identity as JsonObject).id)));
     const identities = new Set<string>();
@@ -378,7 +388,7 @@ export function modelComboMappingRelationSnapshot(
     }
     return canonicalJson({ kind: "collection", entries });
   }
-  if (value === "omniroute-v3.8.52.model-combo-mappings.update-reconcile") {
+  if (value === "omniroute-v3.8.53.model-combo-mappings.update-reconcile") {
     const responseObject = objectAt(response, "item response");
     return canonicalJson({ kind: "resource", entries: [snapshotEntry(responseObject.mapping)] });
   }
@@ -399,12 +409,12 @@ export function modelComboMappingRelationExpectedPayload(
   originalSnapshot: JsonValue,
 ): ValidatedOperationInput {
   if (!isModelComboMappingRelationViewId(value)) throw new TypeError("unknown model-combo-mapping relation view");
-  if (value === "omniroute-v3.8.52.model-combo-mappings.delete-reconcile") return payload;
+  if (value === "omniroute-v3.8.53.model-combo-mappings.delete-reconcile") return payload;
 
   const body = payloadObject(payload, "body");
-  const codecId = value === "omniroute-v3.8.52.model-combo-mappings.create-reconcile" ? CREATE_ID : UPDATE_ID;
+  const codecId = value === "omniroute-v3.8.53.model-combo-mappings.create-reconcile" ? CREATE_ID : UPDATE_ID;
   const normalized = normalizeModelComboMappingRequest(codecId, body) as JsonObject;
-  if (value === "omniroute-v3.8.52.model-combo-mappings.create-reconcile") {
+  if (value === "omniroute-v3.8.53.model-combo-mappings.create-reconcile") {
     return { ...payload, body: canonicalJson({ ...normalized, pattern: String(normalized.pattern).trim() }) as JsonObject };
   }
 

@@ -221,8 +221,8 @@ async function apply(harness: Harness, operationId: ModelComboMappingFixtureOper
   return harness.executor.apply(plan.planId, { confirmed: true });
 }
 
-function state(fixture: ModelComboMappingsHttpFixture): JsonValue {
-  return structuredClone(fixture.state) as unknown as JsonValue;
+function state(fixture: ModelComboMappingsHttpFixture) {
+  return structuredClone(fixture.state);
 }
 
 afterEach(async () => {
@@ -255,7 +255,7 @@ afterAll(async () => {
   }
 });
 
-test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repository", async () => {
+test("pinned v3.8.53 model-combo mappings use the actual facade and SQLite repository", async () => {
   const fixture = startFixture();
   const harness = createHarness(fixture);
   executors.push(harness.executor);
@@ -269,7 +269,7 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
         read: { operationId: LIST, inputs: [] },
         readCompleteness: {
           kind: "unpaginated-list",
-          sourceReason: "The pinned v3.8.52 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
+          sourceReason: "The pinned v3.8.53 collection GET omits LIMIT when pagination parameters are absent, so its SQLite query returns every mapping and the total in one response.",
           itemsPath: ["mappings"],
           totalPath: ["total"],
           identityPaths: [["id"]],
@@ -288,7 +288,7 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
           read: { operationId: ITEM },
           readCompleteness: {
             kind: "single-response",
-            sourceReason: "The pinned v3.8.52 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination.",
+            sourceReason: "The pinned v3.8.53 item GET selects the requested mapping ID from SQLite and returns its complete mutable state in one response without pagination.",
           },
         }],
       },
@@ -300,6 +300,22 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
     JSON.stringify({ id: "combo-known", name: "Known combo", models: [], isActive: true, apiKey: SECRET_MARKER }),
     "combo-known",
   );
+  const cacheFixture = startFixture();
+  const initialVersions = cacheFixture.cacheVersions;
+  const cacheCreate = await directRequest(cacheFixture, "POST", "/api/model-combo-mappings", { key: MANAGE_KEY, body: { pattern: "cache-fixture/*", comboId: "combo-known" } });
+  expect(cacheCreate.status).toBe(201);
+  expect(cacheFixture.cacheVersions).toEqual({ combos: initialVersions.combos + 1, catalog: initialVersions.catalog + 1 });
+  const cacheId = "00000000-0000-4000-8000-000000000001";
+  const cacheUpdate = await directRequest(cacheFixture, "PUT", `/api/model-combo-mappings/${cacheId}`, { key: MANAGE_KEY, body: { priority: 5 } });
+  expect(cacheUpdate.status).toBe(200);
+  expect(cacheFixture.cacheVersions).toEqual({ combos: initialVersions.combos + 2, catalog: initialVersions.catalog + 2 });
+  const cacheDelete = await directRequest(cacheFixture, "DELETE", `/api/model-combo-mappings/${cacheId}`, { key: MANAGE_KEY });
+  expect(cacheDelete.status).toBe(200);
+  expect(cacheFixture.cacheVersions).toEqual({ combos: initialVersions.combos + 3, catalog: initialVersions.catalog + 3 });
+  const missingUpdate = await directRequest(cacheFixture, "PUT", "/api/model-combo-mappings/missing-cache", { key: MANAGE_KEY, body: { priority: 1 } });
+  const missingDelete = await directRequest(cacheFixture, "DELETE", "/api/model-combo-mappings/missing-cache", { key: MANAGE_KEY });
+  expect([missingUpdate.status, missingDelete.status]).toEqual([404, 404]);
+  expect(cacheFixture.cacheVersions).toEqual({ combos: initialVersions.combos + 3, catalog: initialVersions.catalog + 3 });
 
   const beforeList = state(fixture);
   const anonymousList = await directRequest(fixture, "GET", "/api/model-combo-mappings");
@@ -319,6 +335,7 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(paginatedList.status).toBe(200);
   expect(paginatedList.body).toMatchObject({ total: 5, mappings: [{ id: "mapping-disabled" }, { id: "mapping-known" }] });
   expect(JSON.stringify(list.output)).not.toContain(SECRET_MARKER);
+  expect(state(fixture)).toEqual(beforeList);
   expect(fixture.state.mappings.map(row => row.id)).toEqual([
     "mapping-disabled", "mapping-global", "mapping-known", "mapping-missing-combo", "mapping-prefix",
   ]);
@@ -334,6 +351,7 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
 
   const beforeItem = state(fixture);
   const item = await harness.executor.read(ITEM, { path: { id: "mapping-known" } });
+  expect(state(fixture)).toEqual(beforeItem);
   expect(item.output).toMatchObject({ mapping: { id: "mapping-known", comboId: "combo-known", comboName: "Known combo" } });
   expect(JSON.stringify(item.output)).not.toContain(SECRET_MARKER);
   observe(ITEM, { before: beforeItem, after: state(fixture), result: harness.last(ITEM) });
@@ -409,6 +427,10 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(whitespaceResponse.status).toBe(201);
   expect(whitespaceResponse.body).toMatchObject({ mapping: { pattern: "", priority: 0, enabled: true, description: "" } });
   const whitespaceId = "00000000-0000-4000-8000-000000000002";
+  expect(fixture.state.mappings).toEqual([
+    ...whitespaceBefore.mappings,
+    { id: whitespaceId, pattern: "", combo_id: "combo-known", priority: 0, enabled: 1, description: "", created_at: FIXED_NOW, updated_at: FIXED_NOW },
+  ].sort((a, b) => a.id.localeCompare(b.id)));
   expect(fixture.state.mappings.find(row => row.id === whitespaceId)?.pattern).toBe("");
   const whitespaceItem = await directRequest(fixture, "GET", `/api/model-combo-mappings/${whitespaceId}`, { key: MANAGE_KEY });
   expect(whitespaceItem).toMatchObject({ status: 200, body: { mapping: { id: whitespaceId, pattern: "" } } });
@@ -500,6 +522,8 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
     description: "concurrent external edit",
     comboName: "Known combo",
   } });
+  expect(fixture.state.mappings).toEqual(updateBefore.mappings.map(row =>
+    row.id === "mapping-known" ? { ...row, priority: 90 } : row));
   observe(UPDATE, { before: updateBefore, after: state(fixture), result: updateResponse });
   const updateReadsBeforeResponseComplete = harness.targetReadCount();
   const responseCompleteUpdate = await apply(harness, UPDATE, {
@@ -545,6 +569,7 @@ test("pinned v3.8.52 model-combo mappings use the actual facade and SQLite repos
   expect(harness.dispatchCount(DELETE)).toBe(1);
   const deleteResponse = harness.last(DELETE);
   expect(deleteResponse).toEqual({ status: 200, body: { success: true } });
+  expect(fixture.state.mappings).toEqual(deleteBefore.mappings.filter(row => row.id !== createdId));
   expect(fixture.state.mappings.some(row => row.id === createdId)).toBe(false);
   const missingAfterDelete = await directRequest(fixture, "GET", `/api/model-combo-mappings/${createdId}`, { key: MANAGE_KEY });
   expect(missingAfterDelete.status).toBe(404);

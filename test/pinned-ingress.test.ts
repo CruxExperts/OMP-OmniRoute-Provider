@@ -511,7 +511,7 @@ with tempfile.TemporaryDirectory() as temp:
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
- names = set(m.ROUTES) | set(m.READ_CLOSURES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
  m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
  m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
@@ -538,7 +538,7 @@ with tempfile.TemporaryDirectory() as temp:
  put('materialization.json', material)
  put('host-namespaces.json', {k:'host' for k in ('user','mnt','net','pid')})
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
- identity_names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
+ identity_names = set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
  for name in ('src/app/api/health/degradation/route.ts','src/domain/degradation.ts'):
   data = sources[name]; executed = b'import "./fixture-control";\n'+data if name.endswith('/route.ts') else data
@@ -578,6 +578,8 @@ with tempfile.TemporaryDirectory() as temp:
  skill = {'id':'config-codex-cli','category':'config','area':'config-codex-cli','rawUrl':'https://raw.githubusercontent.com/cheaper-inference/OmniRoute/refs/heads/main/skills/config-codex-cli/SKILL.md','githubUrl':'https://github.com/cheaper-inference/OmniRoute/blob/main/skills/config-codex-cli/SKILL.md'}
  skills = {'case':'GET /api/agent-skills','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'count':1,'skills':[skill]})}
  rows.append(skills)
+ for method,path in [('GET','/api/model-combo-mappings'),('POST','/api/model-combo-mappings'),('GET','/api/model-combo-mappings/fixture-id'),('PUT','/api/model-combo-mappings/fixture-id'),('DELETE','/api/model-combo-mappings/fixture-id')]:
+  rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -588,6 +590,7 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
  assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
+ assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
@@ -637,6 +640,10 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
  ingress['results'] = rows; rows[5]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()
  rows[5]['recovered']['status'] = 200
+ for mapping in rows[8:]:
+  for endpoint,key,bad in [('denied','status',200),('invalid','status',200),('allowed','routeClass','PUBLIC')]:
+   original = mapping[endpoint][key]; mapping[endpoint][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); mapping[endpoint][key] = original
+  original = mapping['case']; mapping['case'] = 'GET /api/wrong'; put('data/pinned-ingress-observations.json',ingress); rejected(); mapping['case'] = original
  original = degradation['summary']['body']; degradation['summary']['body'] = body; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['summary']['body'] = original
  for name in ('falseSummary','capitalSummary'):
   original = degradation[name]['body']; degradation[name]['body'] = {'summary':populated_summary,'isDegraded':True}; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation[name]['body'] = original

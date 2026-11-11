@@ -135,6 +135,13 @@ try {
   assert(skillsDenied.status === 401 && skillsInvalid.status === 401 && !JSON.stringify(skillsInvalid.body).includes(invalidCredential), 'agent-skills-denials');
   assert([skillsDenied, skillsInvalid, skillsAllowed].every(response => response.routeClass === 'MANAGEMENT') && skillsAllowed.status === 200 && skillsAllowed.body?.count === 1 && skillsAllowed.body?.skills?.[0]?.id === 'config-codex-cli', 'agent-skills-query');
   results.push({ case: 'GET /api/agent-skills', denied: skillsDenied, invalid: skillsInvalid, allowed: skillsAllowed });
+  for (const [method, path] of [['GET', '/api/model-combo-mappings'], ['POST', '/api/model-combo-mappings'], ['GET', '/api/model-combo-mappings/fixture-id'], ['PUT', '/api/model-combo-mappings/fixture-id'], ['DELETE', '/api/model-combo-mappings/fixture-id']]) {
+    const denied = await request(path, method);
+    const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
+    const allowed = await request(path, method, { cookie });
+    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT'), `mapping-policy:${method}:${path}`);
+    results.push({ case: `${method} ${path}`, denied, invalid, allowed });
+  }
   assert((await stat(`${dir}/events.jsonl`)).size <= 1048576, 'event-limit');
   const events = (await readFile(`${dir}/events.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
