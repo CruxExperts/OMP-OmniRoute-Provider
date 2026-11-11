@@ -39,6 +39,9 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   arbitrary raw output are not exposed; no additional operation is qualified.
 - Preserve bounded source, run, archive and verified-host identity before native
   Windows login diagnostics, including when the dialogue is interrupted.
+- Rebind a resumed worker's retired OmniRoute API identifier to its active
+  connection before inference. Preserve the selected model and thinking level;
+  models absent from the current live catalog remain blocked.
 
 ## 1.0.4 — 2026-11-05
 

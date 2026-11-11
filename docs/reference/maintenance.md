@@ -37,6 +37,20 @@ release selector and `/releases/latest` response with the recorded pin; a newer
 release is reported as drift for review. The latest observation remains separate
 from the deterministic CI integrity check.
 
+### Resumed worker API registration
+
+Each connection instance registers a distinct guarded inference API. A worker
+resumed after its old instance shuts down can retain that instance's model API
+identifier after the streaming callback has been removed. The native dispatcher
+then reports `Unhandled API in mapOptionsForApi` before sending a request.
+At session start and before a turn, the connector rebinds only an OmniRoute
+model still present in the current validated live catalog to the active API.
+It retains the model identity and thinking level, does not change global role
+settings, and never restores a retired callback or bypasses connection checks.
+Source changes require a package reload before an already-running client can
+use the correction.
+
+
 Each identifiable public finding has a stable marker and one owned issue, labeled
 `maintenance` and `automation`. Duplicate events reuse that issue. A lost create
 response is reconciled by reading server state once; the script does not blindly

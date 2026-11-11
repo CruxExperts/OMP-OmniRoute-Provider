@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { registerCustomApi, unregisterCustomApis, type Api } from "@oh-my-pi/pi-ai";
+import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import { randomUUID } from "node:crypto";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
@@ -756,6 +757,21 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	pi.registerCommand("omniroute-pricing", pricingCommand);
 	pi.registerCommand("cruxomni-pricing", pricingCommand);
 
+	const rebindCurrentModel = async (ctx: ContextLike): Promise<void> => {
+		const current = ctx.model;
+		if (!current || current.provider !== PROVIDER_ID || current.api === guardedApi
+			|| !current.api.startsWith(`${OMNIROUTE_GUARDED_API}-`)) return;
+		// A resumed worker can retain a model from its disposed extension instance.
+		// Only the same model in this instance's validated catalog may be rebound.
+		if (stopped || !manager.getModelApi(current.id)) throw Object.assign(new Error("OmniRoute model is not in the active live catalog"), { code: "inference-model-invalid" });
+		const thinking = pi.getThinkingLevel();
+		const rebound = buildModel({ ...current, api: guardedApi, compat: current.compatConfig });
+		if (!await pi.setModel(rebound)) throw Object.assign(new Error("OmniRoute model could not be rebound to the active connection"), { code: "inference-binding-invalid" });
+		if (thinking !== undefined && pi.getThinkingLevel() !== thinking) pi.setThinkingLevel(thinking);
+	};
+	pi.on("before_agent_start", async (_event, ctx) => {
+		await rebindCurrentModel(ctx);
+	});
 	pi.on("session_start", async (_event, ctx) => {
 		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
 		stopped = false;
@@ -773,6 +789,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		transitionNotifications = false;
 		manager.resume();
 		await refresh(ctx, false);
+		await rebindCurrentModel(ctx);
 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
 		reconnectSettings = parseReconnectSettings(settings);
 		transitionNotifications = settings.notifyTransitions !== false;

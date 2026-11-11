@@ -11,6 +11,7 @@ import { createAdminRuntime } from "../src/admin/runtime.ts";
 import register from "../src/index.ts";
 import type { ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { getCustomApi, registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
+import { streamSimple, type Api, type Model } from "@oh-my-pi/pi-ai";
 
 let directory: string | undefined;
 let cleanupIntegration: (() => void) | undefined;
@@ -484,6 +485,70 @@ test("shared registry restores the surviving provider and keeps instance callbac
   }
 });
 
+
+test("resumed worker rebinds its retired API before inference without changing model identity", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let host: ReturnType<typeof extensionHost> | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    process.env.OMP_OMNIROUTE_BASE_URL = fixture.endpoint;
+    process.env.OMP_OMNIROUTE_API_KEY = RUNTIME_KEY;
+    await updateConfig(current => ({ ...current, allowInsecureHttp: true, invitationDismissed: true }));
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    host = extensionHost(nativeStorage);
+    let config: ProviderConfig | undefined;
+    host.api.registerProvider = (_id, next) => { config = next as ProviderConfig; };
+    let selected: Model<Api> | undefined;
+    let thinking: "high" | "medium" = "high";
+    const api = { ...host.api,
+      getThinkingLevel: () => thinking,
+      setThinkingLevel: (level: "high" | "medium") => { thinking = level; },
+      async setModel(model: Model<Api>) { selected = model; thinking = "medium"; return true; },
+    };
+    await register(api as never);
+    await host.events.get("session_start")!(undefined as never, host.context());
+    const live = { ...config!.models![0]!, provider: "omniroute", baseUrl: `${fixture.endpoint}/v1` } as Model<Api>;
+    const retiredApi = "omniroute-native-guard-retired-worker" as Api;
+    const retired = { ...live, api: retiredApi };
+    expect(getCustomApi(retiredApi)).toBeUndefined();
+    const resumed = { ...host.context() as unknown as object, model: retired };
+    await host.events.get("before_agent_start")!(undefined as never, resumed as never);
+    expect(selected?.id).toBe(retired.id);
+    expect(selected?.provider).toBe("omniroute");
+    expect(selected?.api).toBe(config!.api);
+    expect(thinking).toBe("high");
+    const requests: string[] = [];
+    const capture: typeof fetch = Object.assign(async (input: Parameters<typeof fetch>[0]) => {
+      requests.push(String(input));
+      const item = { id: "msg-rebound", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "rebound", annotations: [] }] };
+      const events = [
+        { type: "response.created", response: { id: "resp-rebound", status: "in_progress" } },
+        { type: "response.output_item.added", output_index: 0, item: { ...item, content: [] } },
+        { type: "response.content_part.added", item_id: item.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } },
+        { type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: "rebound" },
+        { type: "response.output_item.done", output_index: 0, item },
+        { type: "response.completed", response: { id: "resp-rebound", status: "completed", output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } },
+      ];
+      return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
+    }, { preconnect: globalThis.fetch.preconnect });
+    const response = await streamSimple(selected!, { messages: [{ role: "user", content: "hello", timestamp: 1 }], tools: [] }, { fetch: capture, signal: AbortSignal.timeout(2000), maxHttpAttempts: 1 }).result();
+    expect(response.stopReason).toBe("stop");
+    expect(response.content).toEqual([expect.objectContaining({ type: "text", text: "rebound" })]);
+    expect(requests).toEqual([`${fixture.endpoint}/v1/responses`]);
+    selected = undefined;
+    await host.events.get("before_agent_start")!(undefined as never, { ...resumed, model: { ...retired, provider: "another-provider" } } as never);
+    expect(selected).toBeUndefined();
+    await expect(Promise.resolve().then(() => host!.events.get("before_agent_start")!(undefined as never, { ...resumed, model: { ...retired, id: "not-in-live-catalog" } } as never))).rejects.toThrow("not in the active live catalog");
+  } finally {
+    await host?.events.get("session_shutdown")?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+});
 
 function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]) => Promise<void>, onGetActiveTools?: () => void) {
   const commands = new Map<string, { handler: (args: string, context: never) => Promise<void> }>();
