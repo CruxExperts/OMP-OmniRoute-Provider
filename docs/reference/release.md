@@ -142,6 +142,10 @@ The provider overlay remains restricted to the disposable installed `src/index.t
 The host-side research sink accepts the added setup markers 41–44 explicitly;
 an actual patched-module probe rejected adjacent unsupported markers, strings,
 and fractional values. This fixes trace delivery, not the Windows setup stall.
+The baseline gate accepts either the original submission failure or the observed
+setup timeout after both fixture validation responses completed. A successful
+setup, another dialogue stage, or missing validation responses does not satisfy
+the setup-failure gate; the selected reproduction is recorded before tracing.
 
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.

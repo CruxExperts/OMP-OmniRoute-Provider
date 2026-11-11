@@ -206,10 +206,22 @@ def main() -> None:
             stage = "baseline-observation"
             command([bun, "scripts/windows-login-research.ts", "baseline", str(binaries["baseline"]), str(metadata["baselineBinarySha256"]), str(output / "baseline.json")], ROOT, environment)
             observation = json.loads((output / "baseline.json").read_text(encoding="utf-8"))
-            if (observation.get("researchOnly") is not True or observation.get("reproducedSubmissionFailure") is not True
+            setup = observation.get("observations", {}).get("setup", {})
+            effects = setup.get("setupEffects", [])
+            setup_reproduced = (
+                setup.get("completed") is False and setup.get("timedOut") is True
+                and setup.get("dialogueCompleted") == 7
+                and effects == [
+                    {"route": "key-verification", "finished": True, "closed": True, "status": 200},
+                    {"route": "models", "finished": True, "closed": True, "status": 200},
+                ]
+            )
+            if (observation.get("researchOnly") is not True
+                    or not (observation.get("reproducedSubmissionFailure") is True or setup_reproduced)
                     or observation.get("packageArchiveSha256") != package_sha
                     or observation.get("binarySha256") != metadata["baselineBinarySha256"]):
-                raise RuntimeError("unmodified baseline did not reproduce with the exact inputs")
+                raise RuntimeError("unmodified baseline did not reproduce submission or setup failure with the exact inputs")
+            metadata["baselineFailure"] = "setup-after-validation" if setup_reproduced else "submission"
             stage = "instrumented-observation"
             command([bun, "scripts/windows-login-research.ts", "instrumented", str(binaries["instrumented"]), str(metadata["instrumentedBinarySha256"]), str(output / "instrumented.json")], ROOT, environment)
             instrumented = json.loads((output / "instrumented.json").read_text(encoding="utf-8"))
