@@ -1841,27 +1841,38 @@ export interface SmokeResult {
 
 /** Research-only mutation of an already verified disposable installation. */
 export async function applyWindowsResearchOverlay(installedRoot: string, patchPath: string): Promise<JsonObject> {
-  const target = join(installedRoot, "src", "index.ts");
-  const info = await lstat(target);
-  if (!info.isFile() || info.isSymbolicLink() || !isWithin(await realpath(installedRoot), await realpath(target))) {
-    throw new Error("research overlay target is not an ordinary installed source file");
+  const files = [
+    { file: "src/index.ts", originalSha256: "487c6214d4f7048f4399755ac06768ba8770113fa3abd03c041c0cb674fcb837" },
+    { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
+    { file: "src/private-path.ts", originalSha256: "2276066f365400488e3ff64256ef2084d470107805886b8f093a82deb250e2d9" },
+  ];
+  const root = await realpath(installedRoot);
+  for (const { file, originalSha256 } of files) {
+    const target = join(installedRoot, file);
+    const info = await lstat(target);
+    if (!info.isFile() || info.isSymbolicLink() || !isWithin(root, await realpath(target))) {
+      throw new Error("research overlay target is not an ordinary installed source file");
+    }
+    if (createHash("sha256").update(await readFile(target)).digest("hex") !== originalSha256) {
+      throw new Error("research overlay original source mismatch");
+    }
   }
-  const original = await readFile(target);
-  const originalSha256 = createHash("sha256").update(original).digest("hex");
-  if (originalSha256 !== "487c6214d4f7048f4399755ac06768ba8770113fa3abd03c041c0cb674fcb837") throw new Error("research overlay original provider mismatch");
   const patchBytes = await readFile(patchPath);
   const patch = patchBytes.toString("utf8");
-  if ((patch.match(/^--- /gm) ?? []).length !== 1 || (patch.match(/^\+\+\+ /gm) ?? []).length !== 1
-    || !patch.startsWith("--- a/src/index.ts\n+++ b/src/index.ts\n")) throw new Error("research overlay may change only src/index.ts");
+  const headers = patch.match(/^(?:---|\+\+\+) .*$/gm) ?? [];
+  const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
+  if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "47b594e74e70342ce51687c5b14e5cf83e57bc1144eca7ff86de7791e500e643") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "e45eacccfa0d498e25face42b0a4cccdc372f8dbc1eafcf67c2c3fcd61e45ea0") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
-  const resultingSha256 = createHash("sha256").update(await readFile(target)).digest("hex");
-  if (resultingSha256 === originalSha256) throw new Error("research overlay did not change the installed provider");
-  return { researchOnly: true, archiveStillVerifiedAfterOverlay: false, file: "src/index.ts", originalSha256,
-    patchSha256, resultingSha256 };
+  const results = await Promise.all(files.map(async ({ file, originalSha256 }) => {
+    const resultingSha256 = createHash("sha256").update(await readFile(join(installedRoot, file))).digest("hex");
+    if (resultingSha256 === originalSha256) throw new Error("research overlay did not change an installed source file");
+    return { file, originalSha256, resultingSha256 };
+  }));
+  return { researchOnly: true, archiveStillVerifiedAfterOverlay: false, patchSha256, files: results };
 }
 
 /** Research-only entrypoint. Never feeds the official package qualification result. */

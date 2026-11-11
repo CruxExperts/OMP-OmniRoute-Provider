@@ -235,8 +235,9 @@ and semantic setup checkpoints remain observable. This avoids exhausting the
 32-KiB bound and overflow reporting remain unchanged; filtering is diagnostic
 only and does not change terminal input or provider execution.
 The research-only provider overlay is applied only after the disposable installed
-package matches every archive file. Only `src/index.ts` may change; its original,
-patch, and resulting hashes are recorded separately from the archive digest.
+package matches every archive file. Only `src/index.ts`, `src/config.ts`, and
+`src/private-path.ts` may change; each original and resulting hash, plus the
+combined patch hash, is recorded separately from the archive digest.
 The baseline installation remains unchanged. A host-owned global sink records
 integer await markers without importing a second trace module. Its provider-entry
 sentinel must be observed before a missing later marker can identify a pending
@@ -244,6 +245,10 @@ await. Missing sentinels, invalid or overflowing samples, and nonreproducing
 runs remain inconclusive. One trace client retains its cursor across the early
 sample and a bounded final sample before timeout termination; cleanup still runs
 if that sample fails. Neither the single Enter nor the dialogue deadline changes.
+Setup-only configuration markers bracket filesystem awaits and Windows ACL
+subprocess callback/close boundaries without recording paths, values, or output.
+These markers locate the remaining wait; they do not establish its cause until
+the exact dependency and its outcome have been inspected.
 The source exporter treats archive output names as local paths, so Windows drive
 letters are not interpreted as remote tar destinations.
 Package scanning recognizes validated Python digest/integrity assignments and

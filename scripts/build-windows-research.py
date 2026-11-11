@@ -17,7 +17,7 @@ import urllib.request
 
 COMMIT = "d5cd750e41fede277f9eb933455da92a0738915e"
 SOURCE_SHA = "db286adf6c8cce6fdf7037c40ffef97429e75753b9644bd1aeefda4772f51bf1"
-PATCH_SHA = "7568f144fe3da0412c8a5faf4fdc24b572015991b2ae68bb52f97cb1b6b1be51"
+PATCH_SHA = "c27262f935c5ef7fe92964b7412a3eb86e3de6f5645a8f937dc4031494647648"
 NATIVE_ARCHIVE_SHA = "ad0813556575d77b80cb765b8a9d5bd55aa4068274c4496fc59bdc3e9cc4f9ce"
 NATIVE_SRI = "vnaPvnIxojxUmewfX5X57OUnWgd5bjR76j38nw+KogUayrapI/edbGr7XFx/6AQsrCfZLZJ0f/19G3JZ6Hh2GQ=="
 NATIVE_SHA = "c511ffab8a070be6263d28f0bc5985fc160c7ad70f0ceb1b56ef97ff4d396da7"
@@ -25,7 +25,12 @@ BUN_ARCHIVE_SHA = "3a4f6d0453afcc1ed1f736e3a4356306ff359efe75fa11c9a0d82c59f76d4
 BUN_SRI = "lq82LqVjSXAx9gNUcibCdfQdtrelh86FxQqlhpOdiV4SZQAP8HHUxWhnfbjx2fqz+jzglwBvjmlEs7xFyONBZw=="
 BUN_TEMPLATE_SHA = "15277c59ccd6c6c20f8dc9716c2b59c1776320d606b6a8658f70be8799519ca4"
 PROVIDER_SHA = "487c6214d4f7048f4399755ac06768ba8770113fa3abd03c041c0cb674fcb837"
-PROVIDER_PATCH_SHA = "47b594e74e70342ce51687c5b14e5cf83e57bc1144eca7ff86de7791e500e643"
+PROVIDER_PATCH_SHA = "e45eacccfa0d498e25face42b0a4cccdc372f8dbc1eafcf67c2c3fcd61e45ea0"
+OVERLAY_FILES = {
+    "src/index.ts": PROVIDER_SHA,
+    "src/config.ts": "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564",
+    "src/private-path.ts": "2276066f365400488e3ff64256ef2084d470107805886b8f093a82deb250e2d9",
+}
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -134,7 +139,7 @@ def main() -> None:
                 "nativeArchiveSha256": NATIVE_ARCHIVE_SHA, "nativeSha256": NATIVE_SHA,
                 "compilerVersion": "1.4.2", "compilerOriginalProvenanceKnown": False,
                 "compilerTemplateSha256": BUN_TEMPLATE_SHA, "status": "started"}
-    metadata.update({"providerOriginalSha256": PROVIDER_SHA, "providerOverlaySha256": PROVIDER_PATCH_SHA})
+    metadata.update({"overlayOriginalSha256": OVERLAY_FILES, "providerOverlaySha256": PROVIDER_PATCH_SHA})
     stage = "initialization"
     try:
         bun = shutil.which("bun")
@@ -163,7 +168,8 @@ def main() -> None:
         patch = ROOT / "scripts/windows-research-input-instrumentation.patch"
         if digest(patch) != PATCH_SHA:
             raise ValueError("instrumentation patch digest mismatch")
-        if digest(ROOT / "scripts/windows-research-provider-overlay.patch") != PROVIDER_PATCH_SHA or digest(ROOT / "src/index.ts") != PROVIDER_SHA:
+        if (digest(ROOT / "scripts/windows-research-provider-overlay.patch") != PROVIDER_PATCH_SHA
+                or any(digest(ROOT / file) != expected for file, expected in OVERLAY_FILES.items())):
             raise ValueError("provider overlay input mismatch")
         with tempfile.TemporaryDirectory(prefix="omp-windows-research-", dir=os.environ["RUNNER_TEMP"]) as tmp:
             work = Path(tmp)
@@ -238,9 +244,21 @@ def main() -> None:
                     or instrumented.get("binarySha256") != metadata["instrumentedBinarySha256"]):
                 raise RuntimeError("instrumented observation input mismatch")
             overlay = instrumented.get("providerOverlay", {})
-            if overlay.get("originalSha256") != PROVIDER_SHA or overlay.get("patchSha256") != PROVIDER_PATCH_SHA or not re.fullmatch(r"[a-f0-9]{64}", overlay.get("resultingSha256", "")):
+            overlay_files = overlay.get("files")
+            if (overlay.get("researchOnly") is not True or overlay.get("archiveStillVerifiedAfterOverlay") is not False
+                    or overlay.get("patchSha256") != PROVIDER_PATCH_SHA or not isinstance(overlay_files, list)
+                    or len(overlay_files) != len(OVERLAY_FILES)):
                 raise RuntimeError("installed provider overlay binding mismatch")
-            metadata["providerResultingSha256"] = overlay["resultingSha256"]
+            observed = {}
+            for item in overlay_files:
+                if not isinstance(item, dict) or item.get("file") not in OVERLAY_FILES or item["file"] in observed:
+                    raise RuntimeError("installed provider overlay file mismatch")
+                result = item.get("resultingSha256")
+                if (item.get("originalSha256") != OVERLAY_FILES[item["file"]] or not isinstance(result, str)
+                        or not re.fullmatch(r"[a-f0-9]{64}", result) or result == item["originalSha256"]):
+                    raise RuntimeError("installed provider overlay digest mismatch")
+                observed[item["file"]] = result
+            metadata["overlayResultingSha256"] = observed
             metadata["status"] = "observed"
     except Exception as error:
         metadata["status"] = "failed"

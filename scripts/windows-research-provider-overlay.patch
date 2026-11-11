@@ -14,10 +14,11 @@
  
  type ContextLike = ExtensionContext;
  
-@@ -199,7 +206,9 @@
+@@ -199,7 +206,10 @@
  		pendingCandidateEndpoint = endpoint;
  		pendingCandidateKey = candidateKey;
  		manager.reset();
++		(globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for("cruxomni.windowsResearch.setup.v1")] = true;
 +		researchStartup(43);
  		await refresh(context, false);
 +		researchStartup(44);
@@ -133,3 +134,124 @@
  					let cause: unknown = error;
  					while (cause instanceof Error && cause.cause) cause = cause.cause;
  					if (controller.signal.aborted && cause === controller.signal.reason) return;
+--- a/src/config.ts
++++ b/src/config.ts
+@@ -6,6 +6,19 @@
+ import { getAgentDir } from "@oh-my-pi/pi-utils";
+ import type { CatalogSourceId } from "./catalog-sources.ts";
+ import { createPrivateWindowsDirectory, verifyPrivateWindowsConfig, verifyPrivateWindowsPath } from "./private-path.ts";
++
++// Research overlay: emit fixed categories only after setup reaches its refresh.
++function researchMarker(marker: number): void {
++  const state = globalThis as typeof globalThis & { [key: symbol]: unknown };
++  if (state[Symbol.for("cruxomni.windowsResearch.setup.v1")] !== true) return;
++  const sink = state[Symbol.for("cruxomni.windowsResearch.trace.v1")];
++  if (typeof sink === "function") sink(marker);
++}
++
++async function researchAwait<T>(marker: number, operation: () => Promise<T>): Promise<T> {
++  researchMarker(marker);
++  try { return await operation(); } finally { researchMarker(marker + 1); }
++}
+ 
+ export const PROVIDER_ID = "omniroute";
+ export const CONFIG_VERSION = 2 as const;
+@@ -233,24 +246,24 @@
+   let before;
+   try {
+     const directoryPath = join(agentDirResolver(), CONFIG_DIR_NAME);
+-    const directory = await lstat(directoryPath);
++    const directory = await researchAwait(50, () => lstat(directoryPath));
+     if (!directory.isDirectory() || directory.isSymbolicLink() || (process.platform !== "win32" && (directory.mode & 0o077) !== 0)) throw new ConfigError("insecure-permissions", "config directory must be private and not a symlink");
+     if (!allowOwnedLock) {
+       try {
+-        await lstat(join(agentDirResolver(), CONFIG_DIR_NAME, ".config.lock"));
++        await researchAwait(52, () => lstat(join(agentDirResolver(), CONFIG_DIR_NAME, ".config.lock")));
+         throw new ConfigError("config-conflict", "configuration transaction requires reconciliation");
+       } catch (error) {
+         if (error instanceof ConfigError) throw error;
+         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+       }
+     }
+-    try { before = await lstat(path); }
++    try { before = await researchAwait(54, () => lstat(path)); }
+     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+     if (before && (!before.isFile() || before.isSymbolicLink() || (process.platform !== "win32" && (before.mode & 0o077) !== 0))) throw new ConfigError("insecure-permissions", "config must be a private regular file");
+     if (process.platform === "win32") {
+-      try { await verifyPrivateWindowsConfig(directoryPath, before ? path : undefined, signal); }
++      try { await researchAwait(56, () => verifyPrivateWindowsConfig(directoryPath, before ? path : undefined, signal)); }
+       catch (error) { throw new ConfigError("insecure-permissions", "config directory and file must have private ACLs", { cause: error }); }
+-      const checked = await lstat(directoryPath);
++      const checked = await researchAwait(58, () => lstat(directoryPath));
+       if (!checked.isDirectory() || checked.isSymbolicLink() || directory.ino !== checked.ino || directory.dev !== checked.dev) throw new ConfigError("config-conflict", "config directory changed while inspecting");
+     }
+     signal?.throwIfAborted();
+@@ -263,18 +276,18 @@
+   }
+   let bytes: Uint8Array;
+   try {
+-    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
++    const handle = await researchAwait(60, () => open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0)));
+     try {
+-      const opened = await handle.stat();
++      const opened = await researchAwait(62, () => handle.stat());
+       if (!opened.isFile() || before.ino !== opened.ino || before.dev !== opened.dev) throw new Error("config identity changed");
+-      bytes = await handle.readFile();
+-    } finally { await handle.close(); }
++      bytes = await researchAwait(64, () => handle.readFile());
++    } finally { await researchAwait(66, () => handle.close()); }
+   } catch (error) {
+     throw new ConfigError("config-conflict", "config changed while reading", { cause: error });
+   }
+   let after;
+   try {
+-    after = await lstat(path);
++    after = await researchAwait(68, () => lstat(path));
+   } catch (error) {
+     throw new ConfigError("config-conflict", "config changed while reading", { cause: error });
+   }
+--- a/src/private-path.ts
++++ b/src/private-path.ts
+@@ -1,5 +1,13 @@
+ import { execFile } from "node:child_process";
+ import { join } from "node:path";
++
++// Research overlay: emit fixed categories only after setup reaches its refresh.
++function researchMarker(marker: number): void {
++  const state = globalThis as typeof globalThis & { [key: symbol]: unknown };
++  if (state[Symbol.for("cruxomni.windowsResearch.setup.v1")] !== true) return;
++  const sink = state[Symbol.for("cruxomni.windowsResearch.trace.v1")];
++  if (typeof sink === "function") sink(marker);
++}
+ 
+ // Paths are passed over stdin, never interpolated into PowerShell source. The
+ // directory is created with its DACL in place, before it can contain files.
+@@ -69,7 +77,9 @@
+   const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+   const { promise, resolve, reject } = Promise.withResolvers<void>();
+   const closed = Promise.withResolvers<void>();
++  researchMarker(80);
+   const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedWindowsScript], { windowsHide: true, timeout: 30_000, ...(signal ? { signal } : {}) }, (error, _stdout, stderr) => {
++    researchMarker(81);
+     if (error) {
+       if (signal?.aborted && error.name === "AbortError" && error.cause === signal.reason) {
+         reject(signal.reason);
+@@ -80,12 +90,16 @@
+       reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
+     } else resolve();
+   });
+-  child.once("close", closed.resolve);
++  child.once("close", () => { researchMarker(82); closed.resolve(); });
+   child.stdin?.on("error", () => {});
+   child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
+   // Abort can report an error before the child closes. Keep the transaction
+   // owned until no helper process can continue a directory mutation.
+-  try { await promise; } finally { await closed.promise; }
++  researchMarker(83);
++  try { await promise; } finally {
++    researchMarker(84);
++    try { await closed.promise; } finally { researchMarker(85); }
++  }
+ }
+ 
+ export async function createPrivateWindowsDirectory(path: string, signal?: AbortSignal): Promise<void> {

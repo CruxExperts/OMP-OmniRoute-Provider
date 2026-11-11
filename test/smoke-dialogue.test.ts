@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -300,32 +301,47 @@ test("dynamic native warning matcher ignores a redraw of the first plan", async 
   scheduler.cancel();
 });
 
-test("research provider overlay changes only a verified disposable installed source", async () => {
+test("research provider overlay changes only three verified disposable installed sources", async () => {
   const directory = await mkdtemp(join(tmpdir(), "research-provider-overlay-"));
-  const original = await readFile(join(import.meta.dir, "../src/index.ts"));
+  const files = ["src/index.ts", "src/config.ts", "src/private-path.ts"];
+  const originals = await Promise.all(files.map(file => readFile(join(import.meta.dir, "..", file))));
   const patch = join(import.meta.dir, "../scripts/windows-research-provider-overlay.patch");
+  const hash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
   try {
     await mkdir(join(directory, "src"));
-    await writeFile(join(directory, "src/index.ts"), original);
+    for (const [index, file] of files.entries()) await writeFile(join(directory, file), originals[index]!);
     await writeFile(join(directory, "untouched.txt"), "preserve");
     const result = await applyWindowsResearchOverlay(directory, patch);
-    expect(result).toMatchObject({ researchOnly: true, archiveStillVerifiedAfterOverlay: false, file: "src/index.ts" });
-    expect(result.resultingSha256).not.toBe(result.originalSha256);
+    expect(result).toMatchObject({ researchOnly: true, archiveStillVerifiedAfterOverlay: false, patchSha256: hash(await readFile(patch)) });
+    const entries = result.files as Array<{ file: string; originalSha256: string; resultingSha256: string }>;
+    expect(entries.map(entry => entry.file)).toEqual(files);
+    for (const [index, file] of files.entries()) {
+      const modified = await readFile(join(directory, file));
+      expect(entries[index]!.originalSha256).toBe(hash(originals[index]!));
+      expect(entries[index]!.resultingSha256).toBe(hash(modified));
+      expect(modified).not.toEqual(originals[index]);
+      expect(await readFile(join(import.meta.dir, "..", file))).toEqual(originals[index]);
+    }
     const instrumented = await readFile(join(directory, "src/index.ts"), "utf8");
     expect(instrumented).toContain('pi.on("session_start", async (_event, ctx) => {\n\t\tresearchStartup(19);');
     expect(instrumented).toContain('researchStartup(28);\n\t\t\tconst flight = updateConfig');
     expect(instrumented).toContain('() => { researchStartup(29); }');
     expect(instrumented).toContain('error => {\n\t\t\t\t\tresearchStartup(40);');
     expect(await readFile(join(directory, "untouched.txt"), "utf8")).toBe("preserve");
-    expect(await readFile(join(import.meta.dir, "../src/index.ts"))).toEqual(original);
-    await expect(applyWindowsResearchOverlay(directory, patch)).rejects.toThrow("original provider mismatch");
-    await writeFile(join(directory, "src/index.ts"), original);
+    for (const [index, file] of files.entries()) await writeFile(join(directory, file), originals[index]!);
+    for (const [index, file] of files.entries()) {
+      await writeFile(join(directory, file), "drift");
+      await expect(applyWindowsResearchOverlay(directory, patch)).rejects.toThrow("original source mismatch");
+      expect(await readFile(join(directory, file), "utf8")).toBe("drift");
+      await writeFile(join(directory, file), originals[index]!);
+    }
     const invalid = join(directory, "invalid.patch");
     await writeFile(invalid, `${await readFile(patch, "utf8")}--- a/untouched.txt\n+++ b/untouched.txt\n`);
-    await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("only src/index.ts");
+    await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("file allowlist mismatch");
     await writeFile(invalid, `${await readFile(patch, "utf8")}\n`);
     await expect(applyWindowsResearchOverlay(directory, invalid)).rejects.toThrow("patch digest mismatch");
-    expect(await readFile(join(directory, "src/index.ts"))).toEqual(original);
+    for (const [index, file] of files.entries()) expect(await readFile(join(directory, file))).toEqual(originals[index]);
+    expect(await readFile(join(directory, "untouched.txt"), "utf8")).toBe("preserve");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
