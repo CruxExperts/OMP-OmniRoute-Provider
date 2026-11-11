@@ -28,6 +28,48 @@
  /**
   * Interactive mode for the coding agent.
   * Handles TUI rendering and user interaction, delegating business logic to AgentSession.
+@@ -2494,6 +2495,7 @@
+ 		// TUI's multiplexer, output-backlog, and image safety gates.
+ 		this.ui.renderNow();
+ 
++		researchEvent("startup", researchIdentity(this.editor), 1);
+ 		const streamCwd = this.sessionManager.getCwd();
+ 		this.#streamPublisher =
+ 			(await StreamPublisher.connectLazy({
+@@ -2514,6 +2516,7 @@
+ 					this.showStatus(chat);
+ 				},
+ 			})) ?? undefined;
++		researchEvent("startup", researchIdentity(this.editor), 2);
+ 		if (this.#streamPublisher) {
+ 			this.ui.renderNow();
+ 			// Live stream redaction follows `stream.redactPatterns` edits; only the
+@@ -2556,7 +2559,9 @@
+ 		if (options.autoStartCollab === true) this.collabController.autoStart();
+ 
+ 		// Initialize hooks with TUI-based UI context
++		researchEvent("startup", researchIdentity(this.editor), 3);
+ 		await logger.time("InteractiveMode.init:hooks", () => this.initHooksAndCustomTools());
++		researchEvent("startup", researchIdentity(this.editor), 4);
+ 
+ 		// Restore mode from session (e.g. plan mode on resume)
+ 		this.session.setSessionBeforeSwitchReconciler?.(async () => {
+@@ -2565,6 +2570,7 @@
+ 		});
+ 		this.session.setSessionSwitchReconciler?.(() => this.#reconcileModeFromSession({ preserveActiveGoal: true }));
+ 		await logger.time("InteractiveMode.init:reconcileMode", () => this.#reconcileModeFromSession());
++		researchEvent("startup", researchIdentity(this.editor), 5);
+ 
+ 		// Brand-new sessions optionally start in plan mode when the user has made it
+ 		// the startup default. "Brand-new" means the resolved branch carries no
+@@ -2580,6 +2586,7 @@
+ 		// and loop resets also start sessions through handleClearCommand and must
+ 		// never be dragged back into plan mode; user-initiated /new re-applies the
+ 		// default through handleNewCommand instead.
+ 		await this.#applyPlanModeDefault();
++		researchEvent("startup", researchIdentity(this.editor), 6);
+ 
+ 		// Restore unsent editor draft from previous session shutdown (Ctrl+D).
 @@ -2731,6 +2732,7 @@
  		// `streamingBehavior: "steer"`, so whichever lands second queues into the
  		// other's turn instead of dying.

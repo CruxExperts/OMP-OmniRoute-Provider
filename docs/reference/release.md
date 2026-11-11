@@ -161,6 +161,11 @@ to the native runner. Source and installed dependency hashes stay fixed across
 each build; only the coding-agent binaries and the pinned stats compiler's
 `packages/stats/dist/client` output are excluded from the input-tree digest.
 Unexpected input changes stop research and retain a bounded changed-path list.
+The bounded native input trace distinguishes terminal receipt, decoded Enter,
+focused editor dispatch, autocomplete handling and the bootstrap submit gate.
+Startup checkpoints distinguish stream-publisher, extension-hook and session
+reconciliation waits; the trace never opens the gate or substitutes a passing
+result when initialization remains incomplete.
 The source exporter treats archive output names as local paths, so Windows drive
 letters are not interpreted as remote tar destinations.
 Package scanning recognizes validated Python digest/integrity assignments and
