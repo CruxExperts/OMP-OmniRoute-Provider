@@ -1090,6 +1090,10 @@ export function parseWindowsDiagnostic(line: string): JsonObject | undefined {
     && ["entry", "invitation", "config", "runtime", "import", "synchronize", "command", "handler", "ui", "endpoint", "confirmation"].includes(String(value.phase))
     && ["start", "ok", "error", "unavailable"].includes(String(value.outcome))) return value;
   if (value.kind === "acl-close" && keys === "elapsedMs,kind,outcome" && value.outcome === "ok") return value;
+  if (value.kind === "acl-phase" && keys === "elapsedMs,kind,phase" && ["stdin-finish", "exit"].includes(String(value.phase))) return value;
+  if (value.kind === "acl-child-phase" && keys === "childElapsedMs,elapsedMs,kind,phase"
+    && ["first-statement", "read-complete", "parse-complete", "checks-complete"].includes(String(value.phase))
+    && Number.isInteger(value.childElapsedMs) && (value.childElapsedMs as number) >= 0 && (value.childElapsedMs as number) <= 0xffffff) return value;
   if (value.kind === "acl" && keys === "abortedAtEntry,elapsedMs,exitCode,kind,outcome,sentinel,signal"
     && typeof value.abortedAtEntry === "boolean" && ["ok", "error", "aborted"].includes(String(value.outcome))
     && (value.exitCode === null || (Number.isInteger(value.exitCode) && (value.exitCode as number) >= 0 && (value.exitCode as number) <= 255))
@@ -2056,7 +2060,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const files = [
     { file: "src/index.ts", originalSha256: "272882f6f2de289d09bebedc60c5fd618267ba7f77629f8344cc56f33f5affcf" },
     { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
-    { file: "src/private-path.ts", originalSha256: "65f2fa3c6786def02bf7705ae182650166c88bb750fd36e8dd518d2fd572c2ba" },
+    { file: "src/private-path.ts", originalSha256: "83689499d7dd5376ab89fa53fe5aff2f7f5a02887e1f268533ff0898d6ec19cf" },
   ];
   const root = await realpath(installedRoot);
   for (const { file, originalSha256 } of files) {
@@ -2075,7 +2079,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "cef1cd1c559a137c1b439ec5d92ce6d2960514765e992c7ef5673484b9f60d7b") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "7a39cd0def77ab4cc420e92c5c5662c26c785f4950c4f79d391ae8fae475844a") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
@@ -2406,7 +2410,8 @@ export async function runSmoke(): Promise<SmokeResult> {
     let administration: NativeAdministrationEvidence;
     try {
       administration = await nativeAdministrationIo(binary, workspace, nativeEnvironment, fixture, diagnosticPathForSetup ? event => {
-        if (adminWindowsEvents.length < 128) adminWindowsEvents.push(event);
+        if (adminWindowsEvents.length === 512) adminWindowsEvents.shift();
+        adminWindowsEvents.push(event);
         captureSetupEffects();
       } : undefined, diagnosticPathForSetup ? snapshot => { adminSelectorSnapshot = snapshot; captureSetupEffects(); } : undefined);
     } finally {

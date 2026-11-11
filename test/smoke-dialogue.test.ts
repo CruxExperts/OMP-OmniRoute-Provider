@@ -260,11 +260,24 @@ test("Windows smoke diagnostics accept only bounded fixed fields", () => {
   const staging = { kind: "staging", elapsedMs: 3, outcome: "error", error: "config-conflict" };
   const admin = { kind: "admin", elapsedMs: 1, phase: "entry", outcome: "ok" };
   const close = { kind: "acl-close", elapsedMs: 2, outcome: "ok" };
+  const childPhase = { kind: "acl-child-phase", phase: "read-complete", elapsedMs: 22_000, childElapsedMs: 21_000 };
+  const parentPhase = { kind: "acl-phase", phase: "stdin-finish", elapsedMs: 10 };
   expect(parse(credential)).toEqual(credential);
   expect(parse(acl)).toEqual(acl);
   expect(parse(staging)).toEqual(staging);
   expect(parse(admin)).toEqual(admin);
   expect(parse(close)).toEqual(close);
+  expect(parse(childPhase)).toEqual(childPhase);
+  expect(parse(parentPhase)).toEqual(parentPhase);
+  for (const phase of ["first-statement", "read-complete", "parse-complete", "checks-complete"]) {
+    expect(parse({ ...childPhase, phase })).toEqual({ ...childPhase, phase });
+  }
+  expect(parse({ ...parentPhase, phase: "exit" })).toEqual({ ...parentPhase, phase: "exit" });
+  expect(parse({ ...childPhase, phase: "C:\\private\\secret" })).toBeUndefined();
+  expect(parse({ ...childPhase, childElapsedMs: 0x1000000 })).toBeUndefined();
+  expect(parse({ ...childPhase, childElapsedMs: -1 })).toBeUndefined();
+  expect(parse({ ...childPhase, path: "private" })).toBeUndefined();
+  expect(parse({ ...parentPhase, phase: "private error" })).toBeUndefined();
   expect(parse({ ...admin, phase: "private command" })).toBeUndefined();
   expect(parse({ ...admin, path: "private" })).toBeUndefined();
   expect(parse({ ...credential, secret: "private" })).toBeUndefined();

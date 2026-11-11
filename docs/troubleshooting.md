@@ -110,6 +110,17 @@ category, capped fixture GET/POST/DELETE counts, and whether the fixture sent an
 intentional malformed acknowledgement. It retains no terminal text, plan IDs,
 credentials, or raw errors. An explicit terminal apply failure stops the
 dialogue without replay; fresh native qualification evidence remains necessary.
+Run 43044940211 subsequently reported plan expiry and zero fixture POSTs on both
+Windows architectures, with three serial ACL helpers taking about 22 seconds
+each. Earlier standalone ACL measurements of 254 and 391 ms do not explain the
+actual hosted run. The existing opt-in diagnostic artifact now separates parent
+stdin completion, exit, callback and close from child first statement, stdin
+read completion, JSON parse completion and ACL checks completion. Child times
+use the child monotonic stopwatch; parent elapsed times on child events measure
+arrival, not execution. Missing events do not establish a phase's duration. The
+slow phase and its cause remain unresolved until a fresh run on the affected
+host records these events; no policy, lifetime, cache or serializer change is
+implied by the current evidence.
 
 
 

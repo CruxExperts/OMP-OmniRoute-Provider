@@ -14,10 +14,19 @@ export function diagnosticElapsed(started: number): number {
 // Paths are passed over stdin, never interpolated into PowerShell source. The
 // directory is created with its DACL in place, before it can contain files.
 export const windowsScript = String.raw`
+$clock = [System.Diagnostics.Stopwatch]::StartNew()
+$diagnostics = $env:OMP_SMOKE_LOGIN_DIAGNOSTICS -eq '1'
+function Trace-Phase([string]$phase) {
+  if ($diagnostics) { try { [Console]::Error.WriteLine('ACL_PHASE:{0}:{1}', $phase, [Math]::Min(16777215, $clock.ElapsedMilliseconds)) } catch {} }
+}
+Trace-Phase 'first-statement'
 $stage = 1
 try {
 $ErrorActionPreference = 'Stop'
-$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$inputText = [Console]::In.ReadToEnd()
+Trace-Phase 'read-complete'
+$request = $inputText | ConvertFrom-Json
+Trace-Phase 'parse-complete'
 $stage = 2
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
@@ -60,6 +69,7 @@ foreach ($target in $request.targets) {
     if ($rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and $rule.IdentityReference.Value -notin $trusted) { throw 'Untrusted access rule' }
   }
 }
+Trace-Phase 'checks-complete'
 } catch {
   $exceptionType = $_.Exception.GetType().FullName
   if ($exceptionType -notmatch '^[A-Za-z][A-Za-z0-9.]{0,159}$') { $exceptionType = 'Unknown' }
@@ -96,11 +106,27 @@ async function windowsAcl(targets: Array<{ path: string; directory: boolean }>, 
       reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
     } else resolve();
   });
+  child.once("exit", () => windowsDiagnostic({ kind: "acl-phase", phase: "exit", elapsedMs: diagnosticElapsed(started) }));
+  if (process.env.OMP_SMOKE_LOGIN_DIAGNOSTICS === "1") {
+    let pending = "";
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      pending += chunk.toString();
+      const lines = pending.split(/\r?\n/);
+      pending = (lines.pop() ?? "").slice(-128);
+      for (const line of lines) {
+        const match = /^ACL_PHASE:(first-statement|read-complete|parse-complete|checks-complete):([0-9]{1,8})$/.exec(line);
+        if (!match) continue;
+        const childElapsedMs = Number(match[2]);
+        if (childElapsedMs <= 0xffffff) windowsDiagnostic({ kind: "acl-child-phase", phase: match[1]!, elapsedMs: diagnosticElapsed(started), childElapsedMs });
+      }
+    });
+  }
   child.once("close", () => {
     windowsDiagnostic({ kind: "acl-close", elapsedMs: diagnosticElapsed(started), outcome: "ok" });
     closed.resolve();
   });
   child.stdin?.on("error", () => {});
+  child.stdin?.once("finish", () => windowsDiagnostic({ kind: "acl-phase", phase: "stdin-finish", elapsedMs: diagnosticElapsed(started) }));
   child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
   // Abort can report an error before the child closes. Keep the transaction
   // owned until no helper process can continue a directory mutation.

@@ -237,7 +237,7 @@
  
  // Opt-in smoke diagnostics contain only fixed fields, never filesystem data.
  export function windowsDiagnostic(event: Record<string, string | number | boolean | null>): void {
-@@ -69,7 +78,10 @@
+@@ -92,7 +101,10 @@
    const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
    const { promise, resolve, reject } = Promise.withResolvers<void>();
    const closed = Promise.withResolvers<void>();
@@ -248,16 +248,14 @@
      // Retain only our fixed diagnostic, never arbitrary PowerShell output.
      const sentinel = /(?:^|\r?\n)(ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr)?.[1] ?? "";
      const exitCode = !error ? 0 : typeof error.code === "number" && Number.isInteger(error.code) && error.code >= 0 && error.code <= 255 ? error.code : null;
-@@ -80,15 +92,20 @@
-       reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
-     } else resolve();
-   });
+@@ -124,13 +136,18 @@
    child.once("close", () => {
 +    researchMarker(82, invocation);
      windowsDiagnostic({ kind: "acl-close", elapsedMs: diagnosticElapsed(started), outcome: "ok" });
      closed.resolve();
    });
    child.stdin?.on("error", () => {});
+   child.stdin?.once("finish", () => windowsDiagnostic({ kind: "acl-phase", phase: "stdin-finish", elapsedMs: diagnosticElapsed(started) }));
    child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
    // Abort can report an error before the child closes. Keep the transaction
    // owned until no helper process can continue a directory mutation.

@@ -25,11 +25,11 @@ BUN_ARCHIVE_SHA = "3a4f6d0453afcc1ed1f736e3a4356306ff359efe75fa11c9a0d82c59f76d4
 BUN_SRI = "lq82LqVjSXAx9gNUcibCdfQdtrelh86FxQqlhpOdiV4SZQAP8HHUxWhnfbjx2fqz+jzglwBvjmlEs7xFyONBZw=="
 BUN_TEMPLATE_SHA = "15277c59ccd6c6c20f8dc9716c2b59c1776320d606b6a8658f70be8799519ca4"
 PROVIDER_SHA = "272882f6f2de289d09bebedc60c5fd618267ba7f77629f8344cc56f33f5affcf"
-PROVIDER_PATCH_SHA = "cef1cd1c559a137c1b439ec5d92ce6d2960514765e992c7ef5673484b9f60d7b"
+PROVIDER_PATCH_SHA = "7a39cd0def77ab4cc420e92c5c5662c26c785f4950c4f79d391ae8fae475844a"
 OVERLAY_FILES = {
     "src/index.ts": PROVIDER_SHA,
     "src/config.ts": "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564",
-    "src/private-path.ts": "65f2fa3c6786def02bf7705ae182650166c88bb750fd36e8dd518d2fd572c2ba",
+    "src/private-path.ts": "83689499d7dd5376ab89fa53fe5aff2f7f5a02887e1f268533ff0898d6ec19cf",
 }
 ROOT = Path(__file__).resolve().parent.parent
 
