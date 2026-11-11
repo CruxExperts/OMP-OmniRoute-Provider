@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "bun:test";
-import { execFileSync } from "node:child_process";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { ChildProcess, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -707,47 +707,58 @@ describe("release automation", () => {
 
   it("handles an owned native process tree before releasing its workspace", async () => {
     const work = await temporaryDirectory("cruxomni-owned-tree-");
-    // This integration test exercises the real OS process tree and deadline.
+    // Descendants self-expire, so cleanup never signals a possibly reused PID.
     let pids: number[] = [];
-    const childScript = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e', 'setInterval(()=>{},1000)'],{stdio:'ignore'}); console.log(process.pid,child.pid); setInterval(()=>{},1000);`;
-    try {
-      const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", childScript], {
-        cwd: work, timeout: 4_000, maxBuffer: 1024, ownedTree: true,
-        onOutput: (_stream, chunk) => { pids = chunk.toString().trim().split(/\s+/).map(Number); },
-      }));
-      expect(failure.termination).toBe("timeout");
-      expect(pids).toHaveLength(2);
-      if (process.platform === "win32") {
-        expect(failure.residualProcesses).toBe(true);
-        expect(failure.message).toContain("descendants may still be running");
-        expect(failure.message).toContain("termination unconfirmed");
-        expect(() => process.kill(pids[0]!, 0)).toThrow();
-        expect(() => process.kill(pids[1]!, 0)).not.toThrow();
-      } else {
-        expect(failure.residualProcesses).toBe(false);
-        expect(() => process.kill(pids[1]!, 0)).toThrow();
-      }
-    } finally {
-      if (process.platform === "win32") for (const pid of pids) { try { process.kill(pid); } catch {} }
+    const childScript = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e', 'setTimeout(()=>process.exit(0),8000)'],{stdio:'ignore'}); console.log(process.pid,child.pid); setInterval(()=>{},1000);`;
+    const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", childScript], {
+      cwd: work, timeout: 4_000, maxBuffer: 1024, ownedTree: true,
+      onOutput: (_stream, chunk) => { pids = chunk.toString().trim().split(/\s+/).map(Number); },
+    }));
+    expect(failure.termination).toBe("timeout");
+    expect(pids).toHaveLength(2);
+    if (process.platform === "win32") {
+      expect(failure.residualProcesses).toBe(true);
+      expect(failure.message).toContain("descendants may still be running");
+      expect(failure.message).toContain("termination unconfirmed");
+      expect(() => process.kill(pids[0]!, 0)).toThrow();
+    } else {
+      expect(failure.residualProcesses).toBe(false);
+      expect(() => process.kill(pids[1]!, 0)).toThrow();
     }
   });
 
-  it("does not target an exited wrapper whose descendant holds its pipe", async () => {
-    // The real deadline must race an exited OS process with a still-open pipe.
-    let descendant = 0;
-    // Bun keeps the wrapper alive for its child unless it explicitly exits.
-    const script = `const {spawn}=require('node:child_process'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:['ignore',1,2]}); child.once('spawn',()=>process.stdout.write(String(child.pid)+'\\n',()=>process.exit(0)));`;
+  it("does not target an exited wrapper when cancellation races its close event", async () => {
+    // A real child emits exit before close. Abort immediately after the helper's
+    // exit listener, without depending on inherited-pipe behavior on Windows Bun.
+    const controller = new AbortController();
+    let wrapper = 0;
+    let observedExit = false;
+    const originalEmit = ChildProcess.prototype.emit;
+    ChildProcess.prototype.emit = function (this: ChildProcess, ...args: Parameters<typeof originalEmit>): boolean {
+      if (args[0] === "spawn" && wrapper === 0) wrapper = this.pid ?? 0;
+      const result = Reflect.apply(originalEmit, this, args) as boolean;
+      if (args[0] === "exit" && this.pid === wrapper) {
+        observedExit = true;
+        controller.abort();
+      }
+      return result;
+    } as typeof originalEmit;
+    const numericKill = spyOn(process, "kill").mockImplementation(() => true);
+    const childKill = spyOn(ChildProcess.prototype, "kill").mockImplementation(() => true);
     try {
-      const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", script], {
-        timeout: 2_000, ownedTree: true,
-        onOutput: (_stream, chunk) => { descendant = Number(chunk.toString().trim()); },
+      const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", "process.exit(0)"], {
+        timeout: 10_000, ownedTree: true, signal: controller.signal,
       }));
-      expect(descendant).toBeGreaterThan(0);
-      expect(failure.termination).toBe("timeout");
+      expect(wrapper).toBeGreaterThan(0);
+      expect(observedExit).toBe(true);
+      expect(failure.termination).toBe("interrupted");
       expect(failure.residualProcesses).toBe(true);
-      expect(() => process.kill(descendant, 0)).not.toThrow();
+      expect(numericKill).not.toHaveBeenCalled();
+      expect(childKill).not.toHaveBeenCalled();
     } finally {
-      if (descendant) try { process.kill(descendant); } catch {}
+      ChildProcess.prototype.emit = originalEmit;
+      numericKill.mockRestore();
+      childKill.mockRestore();
     }
   });
 
