@@ -80,7 +80,7 @@
  				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
  				: await resolveStartupRuntimeCredential(
 @@ -579,9 +605,12 @@
- 					startupSignal ?? AbortSignal.timeout(10_000),
+ 					startupSignal ? AbortSignal.any([startupSignal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
  					loaded,
  				));
 +			researchStartup(35);

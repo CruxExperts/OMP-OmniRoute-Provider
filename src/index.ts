@@ -590,7 +590,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
 				: await resolveStartupRuntimeCredential(
 					() => pi.pi.discoverAuthStorage(),
-					startupSignal ?? AbortSignal.timeout(10_000),
+					startupSignal ? AbortSignal.any([startupSignal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
 					loaded,
 				));
 			credentialPresence = credential ? "present" : "missing";
@@ -926,14 +926,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const controller = new AbortController();
 	startupAborter = controller;
 	startupSignal = controller.signal;
-	const deadline = setTimeout(() => controller.abort(), 10_000);
 	try {
 		await refresh(undefined, false);
 		if (!stopped && ((config.pending && !runtimeEnvironment) || readinessIssue || recoveryBlocked || manager.status.state === "checking" || manager.status.state === "no-models" || manager.status.state === "unauthorized" || manager.status.state === "offline" || manager.status.state === "degraded" || (config.active && !manager.currentBinding))) {
 			process.stderr.write(`omniroute: ${readiness()}\n`);
 		}
 	} finally {
-		clearTimeout(deadline);
 		startupAborter = undefined;
 		startupSignal = undefined;
 	}

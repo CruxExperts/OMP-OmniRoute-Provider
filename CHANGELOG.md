@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Give startup credential lookup and live discovery their own bounded budgets,
+  independent of configuration ACL reads. Capture separate, sanitized Windows
+  diagnostics for persisted-inference startup when diagnostics are enabled.
+
 - Add configurable bounded fresh inference attempts for transient failures,
   including gateway restarts. Cancellation and connection changes stop retries;
   completed tool calls and administration operations are not replayed. The default is

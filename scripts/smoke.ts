@@ -911,6 +911,7 @@ async function runCommand(command: string, args: string[], options: CommandOptio
     let stderr = "";
     let settled = false;
     let dialogueScheduler: ReturnType<typeof createDialogueScheduler> | undefined;
+    const diagnostics = options.windowsDiagnostic ? createWindowsDiagnosticCollector(options.windowsDiagnostic) : undefined;
     const finish = (result: Omit<CommandResult, "dialogueCompleted">): void => {
       if (settled) return;
       settled = true;
@@ -941,6 +942,7 @@ async function runCommand(command: string, args: string[], options: CommandOptio
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 2_000).unref();
+      diagnostics?.finish();
       finish({ code: null, signal: "SIGTERM", stdout, stderr: `${stderr}\ncommand timeout` });
     }, timeout);
     child.stdout.on("data", chunk => {
@@ -950,6 +952,7 @@ async function runCommand(command: string, args: string[], options: CommandOptio
     });
     child.stderr.on("data", chunk => {
       const text = String(chunk);
+      diagnostics?.observe(text);
       stderr += text;
       advanceDialogue(text);
     });
@@ -958,7 +961,7 @@ async function runCommand(command: string, args: string[], options: CommandOptio
       reject(error);
     });
     child.stdin.on("error", () => {});
-    child.once("exit", (code, signal) => finish({ code, signal, stdout, stderr }));
+    child.once("close", (code, signal) => { diagnostics?.finish(); finish({ code, signal, stdout, stderr }); });
     if (options.inputSteps && options.inputSteps.length > 0) {
       let elapsed = 0;
       for (const step of options.inputSteps) {
@@ -995,6 +998,24 @@ export function parseWindowsDiagnostic(line: string): JsonObject | undefined {
   return undefined;
 }
 
+// The collector retains only a bounded partial line and emits schema-checked events.
+export function createWindowsDiagnosticCollector(capture: (event: JsonObject) => void): { observe(text: string): void; finish(): void } {
+  let buffer = "";
+  const consume = (line: string): void => {
+    const start = line.indexOf("CRUX_WINDOWS_DIAGNOSTIC:");
+    const event = start < 0 ? undefined : parseWindowsDiagnostic(line.slice(start));
+    if (event) capture(event);
+  };
+  return {
+    observe(text) {
+      const lines = (buffer + stripVTControlCharacters(text)).split(/\r?\n/);
+      buffer = (lines.pop() ?? "").slice(-4096);
+      for (const line of lines) consume(line);
+    },
+    finish() { consume(buffer); buffer = ""; },
+  };
+}
+
 export function researchSetupFailureReproduced(setup: JsonObject): boolean {
   const staging = parseWindowsDiagnostic(`CRUX_WINDOWS_DIAGNOSTIC:${JSON.stringify(setup.stagingFailure)}`);
   return setup.completed === false && (setup.timedOut === true || (staging?.kind === "staging" && staging.outcome === "error"))
@@ -1018,7 +1039,6 @@ export async function terminateAfterStagingObservation(observe: (() => Promise<v
 
 async function runPtyCommand(binary: string, options: CommandOptions): Promise<CommandResult> {
   let stdout = "";
-  let diagnosticBuffer = "";
   let timedOut = false;
   let stagingObservation: Promise<void> | undefined;
   const decoder = new TextDecoder();
@@ -1045,6 +1065,16 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
   };
   let child: Bun.Subprocess | undefined;
   let dialogueScheduler: ReturnType<typeof createDialogueScheduler> | undefined;
+  const diagnostics = options.windowsDiagnostic ? createWindowsDiagnosticCollector(event => {
+    options.windowsDiagnostic?.(event);
+    if (event.kind === "staging" && event.outcome === "error" && !stagingObservation) {
+      dialogueScheduler?.cancel();
+      stagingObservation = terminateAfterStagingObservation(options.beforeStagingTermination, () => {
+        child?.kill("SIGTERM");
+        setTimeout(() => child?.kill("SIGKILL"), 2_000).unref();
+      });
+    }
+  }) : undefined;
   const terminal = new Bun.Terminal({
     cols: 160,
     rows: 50,
@@ -1058,23 +1088,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
           child?.kill("SIGTERM");
         }
       }
-      if (options.windowsDiagnostic) {
-        const lines = (diagnosticBuffer + stripVTControlCharacters(text)).split(/\r?\n/);
-        diagnosticBuffer = (lines.pop() ?? "").slice(-4096);
-        for (const line of lines) {
-          const start = line.indexOf("CRUX_WINDOWS_DIAGNOSTIC:");
-          const event = start < 0 ? undefined : parseWindowsDiagnostic(line.slice(start));
-          if (!event) continue;
-          options.windowsDiagnostic(event);
-          if (event.kind === "staging" && event.outcome === "error" && !stagingObservation) {
-            dialogueScheduler?.cancel();
-            stagingObservation = terminateAfterStagingObservation(options.beforeStagingTermination, () => {
-              child?.kill("SIGTERM");
-              setTimeout(() => child?.kill("SIGKILL"), 2_000).unref();
-            });
-          }
-        }
-      }
+      diagnostics?.observe(text);
       dialogueScheduler?.observe(text);
     },
   });
@@ -1693,6 +1707,7 @@ async function nativeProviderInference(
   expectedText: string,
   stallMetadata = false,
   persistedProfile = false,
+  windowsDiagnostic?: (event: JsonObject) => void,
 ): Promise<InferenceEvidence> {
   const requestStart = fixture.requests.length;
   if (stallMetadata) fixture.stallMetadata();
@@ -1705,7 +1720,7 @@ async function nativeProviderInference(
       "--model",
       `${providerId}/${modelId}`,
       "Return a short reply for this isolated protocol check.",
-    ], { cwd, env: environment, timeoutMs: nativeInferenceTimeoutMs(process.platform, persistedProfile) });
+    ], { cwd, env: environment, timeoutMs: nativeInferenceTimeoutMs(process.platform, persistedProfile), ...(windowsDiagnostic ? { windowsDiagnostic } : {}) });
     requireNativeReply(result, label, expectedText);
 
     const requests = fixture.requests.slice(requestStart);
@@ -1934,7 +1949,7 @@ export interface SmokeResult {
 /** Research-only mutation of an already verified disposable installation. */
 export async function applyWindowsResearchOverlay(installedRoot: string, patchPath: string): Promise<JsonObject> {
   const files = [
-    { file: "src/index.ts", originalSha256: "cf27632ae02b070902dcb0b7344640a967f07235b84fa0d7a74a50e4c7bc85d5" },
+    { file: "src/index.ts", originalSha256: "101d8549c35ef8f75476960b01b970ffd436f40ed5241e6bac9b52fbf1951098" },
     { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
     { file: "src/private-path.ts", originalSha256: "b5349373e78d76a0ba2bbfae6fe0550000b483568f84156d3b5eec92773b4c47" },
   ];
@@ -1955,7 +1970,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "8b89d540722ca3ce400e779b5fd3dd4eb8333d3906fda56a3a50884ccb420574") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "f505cbf875644cce8ab650c856869b513253d9bafa67918f2faf380ef513b56c") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
@@ -2223,20 +2238,22 @@ export async function runSmoke(): Promise<SmokeResult> {
     const diagnosticPathForSetup = diagnosticIdentity ? process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH : undefined;
     const setupRequestStart = fixture.requests.length;
     const priorDiagnostic = diagnosticPathForSetup ? JSON.parse(await readFile(diagnosticPathForSetup, "utf8")) as { observations: JsonObject } : undefined;
+    let setupRequestEnd: number | undefined;
     let lastSetupObservation = "";
     let diagnosticWrite = Promise.resolve();
     let diagnosticError: unknown;
     const windowsEvents: JsonObject[] = [];
+    const inferenceWindowsEvents: JsonObject[] = [];
     const captureSetupEffects = (): void => {
       if (!diagnosticPathForSetup || !diagnosticIdentity || !priorDiagnostic) return;
-      const requests = fixture.requests.slice(setupRequestStart)
+      const requests = fixture.requests.slice(setupRequestStart, setupRequestEnd)
         .filter(request => (request.method === "POST" && request.path === "/api/cloud/auth") || (request.method === "GET" && request.path === "/v1/models"))
         .slice(0, 16)
         .map(request => ({ route: request.path === "/api/cloud/auth" ? "key-verification" : "models", finished: request.completedAt !== undefined, closed: request.closedAt !== undefined, status: request.status ?? null }));
-      const observation = JSON.stringify({ requests, windowsEvents });
+      const observation = JSON.stringify({ requests, windowsEvents, inferenceWindowsEvents });
       if (observation === lastSetupObservation) return;
       lastSetupObservation = observation;
-      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents] })).catch(error => { diagnosticError ??= error; });
+      diagnosticWrite = diagnosticWrite.then(() => writeNativeLoginDiagnostic(diagnosticPathForSetup, diagnosticIdentity, { ...priorDiagnostic.observations, setupEffects: requests, windowsEvents: [...windowsEvents], inferenceWindowsEvents: [...inferenceWindowsEvents] })).catch(error => { diagnosticError ??= error; });
     };
     captureSetupEffects();
     await diagnosticWrite;
@@ -2250,22 +2267,27 @@ export async function runSmoke(): Promise<SmokeResult> {
       } : undefined);
     } finally {
       clearInterval(diagnosticTimer);
+      setupRequestEnd = fixture.requests.length;
       captureSetupEffects();
       await diagnosticWrite;
       if (diagnosticError) throw diagnosticError;
     }
-    const persistedChatCompletions = await nativeProviderInference(
-      binary,
-      workspace,
-      environmentA,
-      "persisted Chat Completions inference",
-      fixture,
-      "chat-completions",
-      chatModelId,
-      chatReplyText,
-      false,
-      true,
-    );
+    let persistedChatCompletions: InferenceEvidence;
+    try {
+      persistedChatCompletions = await nativeProviderInference(
+        binary, workspace,
+        diagnosticPathForSetup ? { ...environmentA, OMP_SMOKE_LOGIN_DIAGNOSTICS: "1" } : environmentA,
+        "persisted Chat Completions inference", fixture, "chat-completions", chatModelId, chatReplyText, false, true,
+        diagnosticPathForSetup ? event => {
+          if (inferenceWindowsEvents.length < 128) inferenceWindowsEvents.push(event);
+          captureSetupEffects();
+        } : undefined,
+      );
+    } finally {
+      captureSetupEffects();
+      await diagnosticWrite;
+      if (diagnosticError) throw diagnosticError;
+    }
     if (captureAdmin) {
       const beforeAdminBrowse = fixture.requests.length;
       await nativeAdminWalkthrough(binary, workspace, nativeEnvironment);

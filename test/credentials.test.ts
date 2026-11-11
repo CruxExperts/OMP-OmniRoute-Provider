@@ -284,6 +284,52 @@ test("startup reports partial environment and credential lookup errors without e
   }
 });
 
+test("slow successful config reads do not consume credential or live discovery budgets", async () => {
+  await isolated();
+  const environment = { ...process.env };
+  const fixture = integrationFixture();
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => Promise<void>) | undefined;
+  let restore: (() => void) | undefined;
+  try {
+    for (const name of Object.keys(process.env)) if (name.startsWith("OMP_OMNIROUTE_")) delete process.env[name];
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: RUNTIME_KEY, source: "login" });
+    await updateConfig(current => ({ ...current, runtimeSource: "native", allowInsecureHttp: true, invitationDismissed: true, active: { endpoint: fixture.endpoint, generation: 1 } }));
+    const originalLoad = configModule.loadConfig;
+    let reads = 0;
+    const load = spyOn(configModule, "loadConfig").mockImplementation(async (...args) => {
+      reads++;
+      // Exercise the real startup deadline; mocked clocks do not control AbortSignal.timeout.
+      if (reads === 2 || reads === 3) {
+        const delay = Promise.withResolvers<void>();
+        setTimeout(delay.resolve, 10_100);
+        await delay.promise;
+      }
+      return originalLoad(...args);
+    });
+    restore = () => load.mockRestore();
+    const host = extensionHost(nativeStorage);
+    shutdown = async () => { await host.events.get("session_shutdown")?.(); };
+    let lookups = 0;
+    const discover = host.api.pi.discoverAuthStorage;
+    host.api.pi.discoverAuthStorage = async () => { lookups++; return discover(); };
+    let published: ProviderConfig | undefined;
+    host.api.registerProvider = (_id, config) => { published = config as ProviderConfig; };
+    await register(host.api as never);
+    expect(reads).toBeGreaterThanOrEqual(3);
+    expect(lookups).toBe(1);
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
+    expect(published?.models?.map(model => model.id)).toContain("fixture-model");
+  } finally {
+    restore?.();
+    await shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = environment;
+  }
+}, 45_000);
+
 test("refresh reports offline stale, unauthorized, and a valid empty catalog distinctly", async () => {
   await isolated();
   const environment = { ...process.env };

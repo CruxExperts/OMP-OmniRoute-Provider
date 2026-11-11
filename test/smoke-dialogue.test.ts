@@ -7,6 +7,7 @@ import {
   applyWindowsResearchOverlay,
   availableOperationMenuPattern,
   createDialogueScheduler,
+  createWindowsDiagnosticCollector,
   hasNativeUnknownOutcomes,
   hasNativeAvailableOperationDescription,
   nativeAdminApplyConfirmationPattern,
@@ -99,6 +100,19 @@ test("Windows smoke diagnostics accept only bounded fixed fields", () => {
   expect(parse({ ...acl, sentinel: "C:\\private\\secret" })).toBeUndefined();
   expect(parse({ ...staging, error: "private exception" })).toBeUndefined();
   expect(parse({ ...credential, elapsedMs: 0x1000000 })).toBeUndefined();
+});
+
+test("Windows diagnostic collector accepts split stderr events without retaining raw text", () => {
+  const events: unknown[] = [];
+  const collector = createWindowsDiagnosticCollector(event => events.push(event));
+  const safe = { kind: "credential", elapsedMs: 42, outcome: "ok", abortedAtEntry: false };
+  const line = `CRUX_WINDOWS_DIAGNOSTIC:${JSON.stringify(safe)}`;
+  collector.observe(`secret output\n${line.slice(0, 25)}`);
+  collector.observe(`${line.slice(25)}\r\nCRUX_WINDOWS_DIAGNOSTIC:{"secret":"private"}\n`);
+  collector.observe(`${"x".repeat(5000)}\n${line}`);
+  collector.finish();
+  expect(events).toEqual([safe, safe]);
+  expect(JSON.stringify(events)).not.toContain("private");
 });
 
 test("research setup reproduction requires the fixed staging failure and exact validation effects", () => {
