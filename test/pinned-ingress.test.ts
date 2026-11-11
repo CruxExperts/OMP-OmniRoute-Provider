@@ -276,7 +276,7 @@ with tempfile.TemporaryDirectory() as temp:
  hashes = {'tracked': 'a'*64}; m.input_hashes = lambda: hashes
  state = output/'failure-state.json'
  state.write_text(json.dumps({'stage':'build','exceptionClass':'CalledProcessError','returnCode':-9}))
- (output/'build.private').write_text('private-canary /home/private-account token\nModule not found: cannot find module secret-package\nEROFS: read-only file system\n')
+ (output/'build.private').write_text('private-canary /path/private-account token\nModule not found: cannot find module secret-package\nEROFS: read-only file system\n')
  assert m.worker_failure_state(output) == ('build','CalledProcessError',-9)
  m.write_failure(output, hashes, *m.worker_failure_state(output))
  artifact = json.loads((root/'failure.json').read_text())
