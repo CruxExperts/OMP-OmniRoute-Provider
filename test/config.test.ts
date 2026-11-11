@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -22,6 +22,7 @@ import {
   validateEndpoint,
 } from "../src/config.ts";
 import type { ConfigError } from "../src/config.ts";
+import * as privatePath from "../src/private-path.ts";
 
 const originalAgentDir = process.env.OMP_AGENT_DIR;
 const originalApiKey = process.env.OMP_OMNIROUTE_API_KEY;
@@ -161,6 +162,55 @@ test("optional environment credentials follow a native endpoint only with matchi
   delete process.env.OMP_OMNIROUTE_API_KEY;
   expect(allowsEnvironmentOptionalCredentials(native, "https://native.example")).toBe(true);
 });
+
+test.skipIf(process.platform !== "win32")("cancelled config updates wait for ACL work to stop before releasing the transaction", async () => {
+  await isolated();
+  await updateConfig(current => ({ ...current, adminEnabled: true }));
+  const before = await readFile(getConfigPath());
+  for (const stage of ["read", "locked-write"] as const) {
+    const entered = Promise.withResolvers<void>();
+    const aborted = Promise.withResolvers<void>();
+    const stopped = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    let changeCalled = false;
+    const hold = async (signal?: AbortSignal) => {
+      entered.resolve();
+      if (!signal) throw new Error("missing cancellation signal");
+      if (!signal.aborted) {
+        const event = Promise.withResolvers<void>();
+        signal.addEventListener("abort", () => event.resolve(), { once: true });
+        await event.promise;
+      }
+      aborted.resolve();
+      await stopped.promise;
+      signal.throwIfAborted();
+    };
+    const spy = stage === "read"
+      ? spyOn(privatePath, "verifyPrivateWindowsConfig").mockImplementation(async (_directory, _file, signal) => hold(signal))
+      : spyOn(privatePath, "verifyPrivateWindowsPath").mockImplementation(async (_path, _directory, signal) => hold(signal));
+    try {
+      const update = updateConfig(current => { changeCalled = true; return { ...current, invitationDismissed: true }; }, { signal: controller.signal });
+      let settled = false;
+      const result = update.then(() => { settled = true; return "fulfilled"; }, () => { settled = true; return "rejected"; });
+      await entered.promise;
+      controller.abort();
+      await aborted.promise;
+      expect(settled).toBe(false);
+      if (stage === "locked-write") {
+        await expect(loadConfig()).rejects.toMatchObject({ code: "config-conflict" });
+      } else {
+        expect(changeCalled).toBe(false);
+      }
+      stopped.resolve();
+      expect(await result).toBe("rejected");
+    } finally {
+      stopped.resolve();
+      spy.mockRestore();
+    }
+    expect(await readFile(getConfigPath())).toEqual(before);
+    expect((await loadConfig()).invitationDismissed).toBeUndefined();
+  }
+}, 60_000);
 
 test("profile writes use a private directory and atomic private file", async () => {
   await isolated();

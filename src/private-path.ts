@@ -64,29 +64,38 @@ foreach ($target in $request.targets) {
 `;
 const encodedWindowsScript = Buffer.from(windowsScript, "utf16le").toString("base64");
  
-async function windowsAcl(targets: Array<{ path: string; directory: boolean }>, create = false): Promise<void> {
+async function windowsAcl(targets: Array<{ path: string; directory: boolean }>, create = false, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const { promise, resolve, reject } = Promise.withResolvers<void>();
-  const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedWindowsScript], { windowsHide: true, timeout: 30_000 }, (error, _stdout, stderr) => {
+  const closed = Promise.withResolvers<void>();
+  const child = execFile(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encodedWindowsScript], { windowsHide: true, timeout: 30_000, ...(signal ? { signal } : {}) }, (error, _stdout, stderr) => {
     if (error) {
+      if (signal?.aborted && error.name === "AbortError" && error.cause === signal.reason) {
+        reject(signal.reason);
+        return;
+      }
       // Retain only our fixed diagnostic, never arbitrary PowerShell output.
       const sentinel = /(?:^|\r?\n)(ACL_DIAGNOSTIC:(?:[1-9]|1[0-5]):[A-Za-z][A-Za-z0-9.]{0,159}:[A-Za-z][A-Za-z0-9.]{0,159})(?:\r?\n|$)/.exec(stderr)?.[1] ?? "";
       reject(new Error("Unable to establish private Windows ACL", { cause: Object.assign(error, { stderr: sentinel }) }));
     } else resolve();
   });
+  child.once("close", closed.resolve);
   child.stdin?.on("error", () => {});
   child.stdin?.end(JSON.stringify({ path: targets[0]?.path, targets, create }));
-  await promise;
+  // Abort can report an error before the child closes. Keep the transaction
+  // owned until no helper process can continue a directory mutation.
+  try { await promise; } finally { await closed.promise; }
 }
 
-export async function createPrivateWindowsDirectory(path: string): Promise<void> {
-  await windowsAcl([{ path, directory: true }], true);
+export async function createPrivateWindowsDirectory(path: string, signal?: AbortSignal): Promise<void> {
+  await windowsAcl([{ path, directory: true }], true, signal);
 }
 
-export async function verifyPrivateWindowsPath(path: string, directory: boolean): Promise<void> {
-  await windowsAcl([{ path, directory }]);
+export async function verifyPrivateWindowsPath(path: string, directory: boolean, signal?: AbortSignal): Promise<void> {
+  await windowsAcl([{ path, directory }], false, signal);
 }
 
-export async function verifyPrivateWindowsConfig(directory: string, file?: string): Promise<void> {
-  await windowsAcl(file === undefined ? [{ path: directory, directory: true }] : [{ path: directory, directory: true }, { path: file, directory: false }]);
+export async function verifyPrivateWindowsConfig(directory: string, file?: string, signal?: AbortSignal): Promise<void> {
+  await windowsAcl(file === undefined ? [{ path: directory, directory: true }] : [{ path: directory, directory: true }, { path: file, directory: false }], false, signal);
 }

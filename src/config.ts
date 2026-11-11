@@ -227,7 +227,8 @@ function digest(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-async function readRaw(allowOwnedLock = false): Promise<{ bytes: Uint8Array; revision: string } | undefined> {
+async function readRaw(allowOwnedLock = false, signal?: AbortSignal): Promise<{ bytes: Uint8Array; revision: string } | undefined> {
+  signal?.throwIfAborted();
   const path = configPath();
   let before;
   try {
@@ -247,11 +248,12 @@ async function readRaw(allowOwnedLock = false): Promise<{ bytes: Uint8Array; rev
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     if (before && (!before.isFile() || before.isSymbolicLink() || (process.platform !== "win32" && (before.mode & 0o077) !== 0))) throw new ConfigError("insecure-permissions", "config must be a private regular file");
     if (process.platform === "win32") {
-      try { await verifyPrivateWindowsConfig(directoryPath, before ? path : undefined); }
+      try { await verifyPrivateWindowsConfig(directoryPath, before ? path : undefined, signal); }
       catch (error) { throw new ConfigError("insecure-permissions", "config directory and file must have private ACLs", { cause: error }); }
       const checked = await lstat(directoryPath);
       if (!checked.isDirectory() || checked.isSymbolicLink() || directory.ino !== checked.ino || directory.dev !== checked.dev) throw new ConfigError("config-conflict", "config directory changed while inspecting");
     }
+    signal?.throwIfAborted();
     if (!before) return undefined;
     if (before.size > MAX_CONFIG_BYTES) throw new ConfigError("corrupt-config", "config exceeds size limit");
   } catch (error) {
@@ -281,8 +283,9 @@ async function readRaw(allowOwnedLock = false): Promise<{ bytes: Uint8Array; rev
   }
   return { bytes, revision: digest(bytes) };
 }
-async function readSnapshot(allowOwnedLock = false): Promise<ConfigSnapshot> {
-  const raw = await readRaw(allowOwnedLock);
+async function readSnapshot(allowOwnedLock = false, signal?: AbortSignal): Promise<ConfigSnapshot> {
+  const raw = await readRaw(allowOwnedLock, signal);
+  signal?.throwIfAborted();
   if (!raw) return { config: defaultConfig(), revision: undefined };
   let parsed: unknown;
   try {
@@ -320,11 +323,11 @@ function persisted(config: PluginConfig): PersistedConfig {
 
 async function writeConfig(next: PluginConfig, expectedRevision: string | null | undefined, signal?: AbortSignal): Promise<PluginConfig> {
   signal?.throwIfAborted();
-  await readSnapshot(); // Never repair invalid state implicitly.
+  await readSnapshot(false, signal); // Never repair invalid state implicitly.
   signal?.throwIfAborted();
   const dir = join(agentDirResolver(), CONFIG_DIR_NAME);
   if (process.platform === "win32") {
-    try { await createPrivateWindowsDirectory(dir); }
+    try { await createPrivateWindowsDirectory(dir, signal); }
     catch (error) { throw new ConfigError("insecure-permissions", "unable to establish a private config directory", { cause: error }); }
     const directory = await lstat(dir);
     if (!directory.isDirectory() || directory.isSymbolicLink()) throw new ConfigError("insecure-permissions", "config directory must be private and not a symlink");
@@ -363,7 +366,7 @@ async function writeConfig(next: PluginConfig, expectedRevision: string | null |
 
 async function writeConfigUnlocked(next: PluginConfig, expectedRevision: string | null | undefined, signal?: AbortSignal): Promise<PluginConfig> {
   parseConfig(persisted(next));
-  const current = await readSnapshot(true);
+  const current = await readSnapshot(true, signal);
   signal?.throwIfAborted();
   const effectiveRevision = expectedRevision === undefined ? current.revision : expectedRevision ?? undefined;
   if (effectiveRevision !== current.revision) throw new ConfigError("config-conflict", "config changed concurrently");
@@ -379,17 +382,18 @@ async function writeConfigUnlocked(next: PluginConfig, expectedRevision: string 
     handle = await open(temporary, "wx", 0o600);
     if (process.platform === "win32") {
       const created = await handle.stat();
-      await verifyPrivateWindowsPath(temporary, false);
+      await verifyPrivateWindowsPath(temporary, false, signal);
       const checked = await lstat(temporary);
       if (!checked.isFile() || checked.isSymbolicLink() || created.ino !== checked.ino || created.dev !== checked.dev) throw new ConfigError("config-conflict", "temporary config changed while inspecting");
     }
+    signal?.throwIfAborted();
     await handle.writeFile(body, "utf8");
     await handle.sync();
     await handle.close();
-    const latest = await readRaw(true);
+    const latest = await readRaw(true, signal);
     if ((latest?.revision) !== effectiveRevision) throw new ConfigError("config-conflict", "config changed concurrently");
     signal?.throwIfAborted();
-    if (process.platform === "win32") await verifyPrivateWindowsPath(temporary, false);
+    if (process.platform === "win32") await verifyPrivateWindowsPath(temporary, false, signal);
     else await chmod(temporary, 0o600);
     signal?.throwIfAborted();
     await rename(temporary, configPath());
@@ -414,7 +418,7 @@ function expectedRevision(snapshot: string | undefined, requested: string | null
 /** The sole owner of persisted non-secret setup state. */
 export async function updateConfig(change: (current: PluginConfig) => PluginConfig, options: ConfigWriteOptions & { signal?: AbortSignal } = {}): Promise<PluginConfig> {
   options.signal?.throwIfAborted();
-  const current = await loadConfig();
+  const current = (await readSnapshot(false, options.signal)).config;
   options.signal?.throwIfAborted();
   return writeConfig(change(current), options.expectedRevision === undefined ? current.revision ?? null : options.expectedRevision, options.signal);
 }

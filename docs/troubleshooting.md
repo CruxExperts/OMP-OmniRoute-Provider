@@ -187,6 +187,9 @@ On Windows, private-directory creation and permission verification use Windows
 PowerShell's .NET security APIs directly, without loading the `Get-Acl` cmdlet.
 Verification still rejects inherited directory access rules, untrusted owners,
 and access grants outside the current user, SYSTEM, and Administrators.
+Cancellation is passed to an in-flight Windows permission helper. Configuration
+transactions wait for that process to close before releasing their ownership;
+a canceled startup preference write cannot continue behind a new setup write.
 
 When reporting a problem, include package/OMP versions, command and sanitized
 error code. Remove keys, cookies, authorization headers, account identifiers,
