@@ -69,6 +69,13 @@ The exporter compares each tracked file with its committed Git bytes using a
 streamed SHA-256 digest. Large generated contracts do not require buffering a
 second full copy of each Git blob or raising subprocess output limits. A
 failed Git read or mismatched digest still rejects the export.
+Package verification measures decoded TypeScript and JavaScript string literals
+when checking entropy, so an escaped NUL delimiter is not mistaken for random
+credential material. Escaped high-entropy values remain rejected.
+Isolated ingress failures export only bounded categories for missing modules,
+read-only output, denied permissions, compiler panic, configuration loading,
+type errors, or process creation. Unknown failures remain unclassified; raw
+compiler messages and private paths are not uploaded.
 
 The stricter fully qualified npm/GitHub workflow below remains unchanged. Do not
 rerun that workflow against the already published `v1.0.0` tag or replace its

@@ -276,10 +276,18 @@ with tempfile.TemporaryDirectory() as temp:
  hashes = {'tracked': 'a'*64}; m.input_hashes = lambda: hashes
  state = output/'failure-state.json'
  state.write_text(json.dumps({'stage':'build','exceptionClass':'CalledProcessError','returnCode':-9}))
+ (output/'build.private').write_text('private-canary /home/private-account token\nModule not found: cannot find module secret-package\nEROFS: read-only file system\n')
  assert m.worker_failure_state(output) == ('build','CalledProcessError',-9)
  m.write_failure(output, hashes, *m.worker_failure_state(output))
  artifact = json.loads((root/'failure.json').read_text())
- assert set(artifact) == {'schemaVersion','classification','stage','exceptionClass','exitCode','signal','sourceCommit','sourceArchiveSha256','nodeSha256','trackedInputsSha256'}
+ assert set(artifact) == {'schemaVersion','classification','stage','exceptionClass','exitCode','signal','sourceCommit','sourceArchiveSha256','nodeSha256','trackedInputsSha256','compilerSignals'}
+ assert artifact['compilerSignals'] == ['module-not-found','read-only-output']
+ (output/'build.private').write_text('private-canary unknown compiler failure')
+ assert m.compiler_failure_signals(output) == []
+ (output/'build.private').unlink(); (output/'build.private').symlink_to(state)
+ assert m.compiler_failure_signals(output) == []
+ (output/'build.private').unlink()
+ assert m.compiler_failure_signals(output) == []
  assert artifact['stage'] == 'build' and artifact['signal'] == 9 and artifact['exitCode'] is None
  assert artifact['sourceCommit'] == m.COMMIT and artifact['nodeSha256'] == m.NODE_SHA and artifact['sourceArchiveSha256'] == m.ARCHIVE_SHA
  assert artifact['trackedInputsSha256'] == m.sha(json.dumps(hashes, sort_keys=True, separators=(',', ':')).encode())

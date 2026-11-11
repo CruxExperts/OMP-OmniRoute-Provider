@@ -96,6 +96,21 @@ test("package scanning recognizes immutable field references without exempting o
   }
 });
 
+test("package scanning measures decoded source literals and still rejects escaped secrets", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-escape-scan-"));
+  const file = "binding.ts";
+  const issues: Parameters<typeof scanText>[2] = [];
+  try {
+    await writeFile(join(root, file), String.raw`const delimiter = "\0pinned-framework-pipeline";`);
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+    const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+    await writeFile(join(root, file), `const value = "${[...opaque].map(c => `\\x${c.charCodeAt(0).toString(16)}`).join("")}";`);
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("package scanning recognizes Python digests and schema references without hiding credentials", async () => {
   const root = await mkdtemp(join(tmpdir(), "crux-package-python-scan-"));
   const issues: Parameters<typeof scanText>[2] = [];

@@ -632,6 +632,24 @@ def worker_stage(stage):
     save(Path('/work/failure-state.json'), {'stage': stage, 'exceptionClass': None, 'returnCode': None})
 
 
+def compiler_failure_signals(output):
+    path = output / 'build.private'
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > 2 * 1024**2:
+        return []
+    text = path.read_text(encoding='utf-8', errors='replace').lower()
+    markers = {
+        'module-not-found': ('module not found', 'cannot find module', "can't resolve", 'could not resolve'),
+        'read-only-output': ('read-only file system', 'erofs'),
+        'permission-denied': ('permission denied', 'eacces'),
+        'turbopack-panic': ('turbopack panic', 'turbopack internal error', 'fatal: an unexpected turbopack error'),
+        'next-package-root': ('next.js package not found', 'next.js package could not be found', 'failed to find next.js package'),
+        'configuration-load': ('failed to load next.config', 'error loading next.config'),
+        'typescript-error': ('type error:', 'error ts'),
+        'process-spawn': ('spawn eagain', 'spawn eperm', 'failed to spawn'),
+    }
+    return sorted(name for name, values in markers.items() if any(value in text for value in values))
+
+
 def write_failure(output, hashes, stage, exception_class, returncode):
     require(stage in FAILURE_STAGES and exception_class in FAILURE_CLASSES, 'invalid failure classification')
     require(returncode is None or (type(returncode) is int and -255 <= returncode <= 255 and returncode != 0), 'invalid failure return code')
@@ -643,6 +661,8 @@ def write_failure(output, hashes, stage, exception_class, returncode):
         'signal': -returncode if returncode is not None and returncode < 0 else None,
         'sourceCommit': COMMIT, 'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA,
         'trackedInputsSha256': tracked}
+    if stage == 'build':
+        artifact['compilerSignals'] = compiler_failure_signals(output)
     fd = os.open(output.parent / 'failure.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as destination:
         json.dump(artifact, destination, indent=2)

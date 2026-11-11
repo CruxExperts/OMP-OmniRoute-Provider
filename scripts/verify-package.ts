@@ -721,14 +721,30 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
       if (!isPlaceholder(value)) issues.push({ kind: "secret", path: relativePath, detail: "credential-like bearer literal" });
     }
     let immutableSourceFields: Set<number> | undefined;
+    let sourceLiteralValues: Map<number, string> | undefined;
     for (const match of text.matchAll(literalPattern)) {
       const value = match[0].slice(1, -1);
       const start = match.index ?? -1;
       const python = relativePath.endsWith(".py");
       const formattedPython = python && /(?:^|[^A-Za-z0-9_])[fF]$/.test(text.slice(0, start));
-      const entropyValue = formattedPython
+      let entropyValue = formattedPython
         ? value.replace(/\{[A-Za-z_][A-Za-z0-9_]*(?:\([A-Za-z_][A-Za-z0-9_]*\))?\}/g, "").replace(/\\[0abfnrtv\\]/g, "")
         : value;
+      const sourceLiteral = !jsonLiterals && !python && /\.[cm]?[jt]sx?$/.test(relativePath);
+      if (!hasHighEntropy(entropyValue) && !(sourceLiteral && value.includes("\\"))) continue;
+      if (sourceLiteral) {
+        if (!sourceLiteralValues) {
+          sourceLiteralValues = new Map();
+          const source = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true);
+          const visit = (node: ts.Node): void => {
+            if (ts.isStringLiteral(node)) sourceLiteralValues!.set(node.getStart(source), node.text);
+            ts.forEachChild(node, visit);
+          };
+          visit(source);
+        }
+        const decoded = sourceLiteralValues.get(start);
+        if (decoded !== undefined) entropyValue = decoded;
+      }
       if (!hasHighEntropy(entropyValue)) continue;
       if (python && (pythonDigestAssignment(text, start, value) || pythonFieldReference(text, start, start + match[0].length, value))) continue;
       const jsonLiteral = jsonLiterals?.get(match.index ?? -1);
