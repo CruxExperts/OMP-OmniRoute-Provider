@@ -260,7 +260,7 @@ function healthIngressDerivationKey(archive: string, version: string, commit: st
   const declaration = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, declarationPath), "utf8")) as unknown, "ingress input declaration");
   if (declaration.schemaVersion !== 1) throw new Error("ingress input declaration mismatch");
   const files = stringList(declaration.files, "ingress input declaration files", true);
-  const required = ["scripts/pinned-ingress.py", "test/fixtures/pinned-ingress/alias-map.json", "test/fixtures/pinned-ingress/source-manifest.json", "test/fixtures/pinned-ingress/backend/core.ts", "test/fixtures/pinned-ingress/backend/settings.ts"];
+  const required = ["scripts/pinned-ingress.py", "test/fixtures/pinned-ingress/alias-map.json", "test/fixtures/pinned-ingress/source-manifest.json", "test/fixtures/pinned-ingress/backend/core.ts", "test/fixtures/pinned-ingress/backend/settings.ts", "test/fixtures/pinned-ingress/extracted/degradation-control.ts"];
   if (new Set(files).size !== files.length || required.some(path => !files.includes(path))) throw new Error("ingress derivation inputs are incomplete or duplicated");
   const aliases = requireArray(requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/alias-map.json"), "utf8")) as unknown, "ingress aliases").aliases, "ingress aliases");
   for (const alias of aliases) {
@@ -304,6 +304,9 @@ for a in aliases:
  assert original == a['sourceSha256'] and replacement == a['replacementSha256']
  mapping[a['source']] = {'originalSha256': original, 'replacement': a['replacement'], 'executedSha256': overlays.get(a['replacement'], replacement)}
 identities = {name: m.sha(source[name]) for name in set(m.ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}}
+for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
+ data = source[name]; executed = b'import "./fixture-control";\\n' + data if name.endswith('/route.ts') else data
+ identities[name] = {'originalSha256': m.sha(data), 'executedSha256': m.sha(executed)}
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
 print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
@@ -395,10 +398,12 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const ipFilter = { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } };
   if (canonicalJson(toJson(artifact.publicHealthIpFilter, label)) !== canonicalJson(toJson(ipFilter, label))) throw new Error(`${label} IP filter observation mismatch`);
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
-  for (const key of ["addedSourceSha256", "pingDeclarationSha256"] as const) {
+  const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
+  for (const key of sourceIdentityHashFields) {
     if (canonicalJson(toJson(source[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} source identity mismatch: ${key}`);
   }
-  for (const key of ["sourceOverlaySha256", "executedOverlaySha256"] as const) {
+  const overlayIdentityHashFields = ["sourceOverlaySha256", "executedOverlaySha256"] as const;
+  for (const key of overlayIdentityHashFields) {
     if (canonicalJson(toJson(inputs[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} overlay identity mismatch: ${key}`);
   }
 }

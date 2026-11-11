@@ -101,6 +101,33 @@ try {
   child.kill('SIGUSR2');
   const recovered = await transition('/api/health', 200);
   results.push({ case: 'drain-transition GET /api/health', draining, recovered });
+  const degradationPath = '/api/health/degradation';
+  const invalidCredential = ['oma', 'live', 'unknownfixture'].join('_');
+  const denied = await request(degradationPath);
+  const invalid = await request(degradationPath, 'GET', { authorization: `Bearer ${invalidCredential}` });
+  assert([401, 403].includes(denied.status) && [401, 403].includes(invalid.status) && denied.routeClass === 'MANAGEMENT' && invalid.routeClass === 'MANAGEMENT' && !JSON.stringify(invalid.body).includes(invalidCredential), 'degradation-denials');
+  const empty = await request(degradationPath, 'GET', { cookie });
+  assert(empty.status === 200 && empty.body?.active === false && empty.body?.features?.length === 0, 'degradation-empty');
+  async function control(command) {
+    await writeFile(`${dir}/degradation-control`, command, { mode: 0o600 });
+    assert(child.kill('SIGUSR1'), 'degradation-control-signal');
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      assert(child.exitCode === null && child.signalCode === null, 'degradation-control-server-exited');
+      if ((await readFile(`${dir}/events.jsonl`, 'utf8')).includes(`"event":"degradation:${command}"`)) return;
+      await delay(50);
+    }
+    throw new Error(`DEGRADATION_CONTROL_TIMEOUT:${command}`);
+  }
+  await control('populate');
+  const populated = await request(degradationPath, 'GET', { cookie });
+  const summary = await request(`${degradationPath}?summary=true`, 'GET', { cookie });
+  const falseSummary = await request(`${degradationPath}?summary=false`, 'GET', { cookie });
+  const capitalSummary = await request(`${degradationPath}?summary=True`, 'GET', { cookie });
+  await control('recover');
+  const recovery = await request(degradationPath, 'GET', { cookie });
+  assert([empty, populated, summary, falseSummary, capitalSummary, recovery].every(response => response.routeClass === 'MANAGEMENT'), 'degradation-route-class');
+  results.push({ case: 'GET /api/health/degradation', denied, invalid, empty, populated, summary, falseSummary, capitalSummary, recovery });
   assert((await stat(`${dir}/events.jsonl`)).size <= 1048576, 'event-limit');
   const events = (await readFile(`${dir}/events.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');

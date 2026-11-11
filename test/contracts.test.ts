@@ -270,6 +270,11 @@ test("health ingress evidence separately rejects missing, stale and contradictor
   const runtime = JSON.parse(await readFile(resolve(root, "test/fixtures/pinned-ingress/runtime.json"), "utf8")) as { nodeSha256: string; nodeVersion: string };
   const binding = operationEvidenceBinding("GET /api/health", jsonHealthContract("GET /api/health"));
   const identities = expectedHealthIngressIdentities("3.8.53", source.commit);
+  const added = record(identities.addedSourceSha256);
+  const routeIdentity = record(added["src/app/api/health/degradation/route.ts"]);
+  const domainIdentity = record(added["src/domain/degradation.ts"]);
+  expect(routeIdentity.originalSha256).not.toBe(routeIdentity.executedSha256);
+  expect(domainIdentity.originalSha256).toBe(domainIdentity.executedSha256);
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
     source: { version: "3.8.53", commit: source.commit, archiveSha256: source.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256 },

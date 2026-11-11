@@ -370,7 +370,7 @@ def disk_usage(root):
 
 
 
-ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts')
+ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts')
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -679,6 +679,14 @@ def provision():
             else:
                 target.write_bytes(data)
             identities[name] = sha(data)
+    degradation_route = app / 'src/app/api/health/degradation/route.ts'
+    original = degradation_route.read_bytes()
+    control = (fixture / 'extracted/degradation-control.ts').read_bytes()
+    put(app, 'src/app/api/health/degradation/fixture-control.ts', control)
+    executed = b'import "./fixture-control";\n' + original
+    degradation_route.write_bytes(executed)
+    identities['src/app/api/health/degradation/route.ts'] = {'originalSha256': sha(original), 'executedSha256': sha(executed)}
+    identities['src/domain/degradation.ts'] = {'originalSha256': identities['src/domain/degradation.ts'], 'executedSha256': sha((app / 'src/domain/degradation.ts').read_bytes())}
     package = json.loads((app / 'package.json').read_text())
     require(package['version'] == '3.8.53', 'source version mismatch')
     aliases = overlay_plan(app, fixture, json.loads((fixture / 'source-manifest.json').read_text()))
@@ -957,6 +965,30 @@ def validate_public_health_evidence(auth):
     return {'method': 'GET', 'path': '/api/health', 'anonymous': True, 'status': 200, 'bodyKeys': ['status', 'timestamp'], 'timestampFormatAndRequestWindowValid': True, 'cacheControl': 'no-store, no-cache, must-revalidate', 'contentType': 'application/json', 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'drain': {'status': 503, 'code': 'SERVICE_UNAVAILABLE', 'message': 'Server is shutting down', 'requestIdUuid': True, 'correlationMatchesRequestId': True, 'retryAfter': '5', 'contentType': 'application/json', 'routeClass': 'PUBLIC', 'recoveryStatus': 200}, 'cors': {'configuredAllowedOrigin': 'https://allowed.example', 'allowedOriginEchoed': True, 'unlistedOriginOmitted': True, 'credentialsOmitted': True}}
 
 
+def validate_degradation(row, events):
+    denied, invalid = row['denied'], row['invalid']
+    require(denied['status'] in (401, 403) and invalid['status'] in (401, 403) and denied['routeClass'] == invalid['routeClass'] == 'MANAGEMENT', 'degradation authorization mismatch')
+    require([e.get('event') for e in events if str(e.get('event', '')).startswith('degradation:')] == ['degradation:populate', 'degradation:recover'], 'degradation control evidence mismatch')
+    empty = {'active': False, 'summary': {'full': 0, 'reduced': 0, 'minimal': 0, 'default': 0}, 'features': []}
+    summary = {'full': 1, 'reduced': 1, 'minimal': 0, 'default': 1}
+    for name in ('empty', 'populated', 'summary', 'falseSummary', 'capitalSummary', 'recovery'):
+        require(row[name]['status'] == 200 and row[name]['routeClass'] == 'MANAGEMENT', 'degradation status or route class mismatch: ' + name)
+    require(row['empty']['body'] == empty, 'degradation empty mismatch')
+    body = row['populated']['body']
+    require(set(body) == {'active', 'summary', 'features'} and body['active'] is True and body['summary'] == summary, 'degradation populated mismatch')
+    features = body['features']
+    require(isinstance(features, list) and len(features) == 3, 'degradation feature count mismatch')
+    expected = [('fixture-default', 'default', 'Safe default', 'Error: primary unavailable → Error: fallback unavailable'), ('fixture-reduced', 'reduced', 'Reduced capability', 'primary unavailable'), ('fixture-full', 'full', 'Full capability', '')]
+    for feature, (name, level, capability, reason) in zip(features, expected):
+        require(set(feature) == {'feature', 'level', 'capability', 'reason', 'since'} and (feature['feature'], feature['level'], feature['capability'], feature['reason']) == (name, level, capability, reason) and isinstance(feature['since'], str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z', feature['since']), 'degradation feature mismatch')
+    require(row['summary']['body'] == {'summary': summary, 'isDegraded': True} and row['falseSummary']['body'] == body and row['capitalSummary']['body'] == body, 'degradation query mismatch')
+    recovery = row['recovery']['body']
+    require(set(recovery) == {'active', 'summary', 'features'} and recovery['active'] is False and recovery['summary'] == {'full': 3, 'reduced': 0, 'minimal': 0, 'default': 0} and len(recovery['features']) == 3, 'degradation recovery mismatch')
+    for feature, name in zip(recovery['features'], ('fixture-full', 'fixture-reduced', 'fixture-default')):
+        require(set(feature) == {'feature', 'level', 'capability', 'reason', 'since'} and (feature['feature'], feature['level'], feature['capability'], feature['reason']) == (name, 'full', 'Full capability', '') and isinstance(feature['since'], str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z', feature['since']), 'degradation recovery feature mismatch')
+    return {'method': 'GET', 'path': '/api/health/degradation', 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'empty': {'status': 200, 'summary': empty['summary']}, 'populated': {'status': 200, 'summary': summary, 'levels': [entry['level'] for entry in features]}, 'summaryTrue': {'status': 200, 'bodyKeys': ['isDegraded', 'summary']}, 'summaryFalseAndCapitalTrueReturnFullReport': True, 'recovery': {'status': 200, 'summary': recovery['summary'], 'active': False}, 'handlerFailure': 'unobserved'}
+
+
 def export_observations(output, hashes):
     """Produce an allowlisted research artifact only after the complete isolated run."""
     result = bounded_json(output / 'result.json')
@@ -973,6 +1005,10 @@ def export_observations(output, hashes):
     source = approved_source()
     identity_names = set(ROUTES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
     source_hashes = {name: sha(source[name]) for name in identity_names}
+    for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
+        data = source[name]
+        executed = b'import "./fixture-control";\n' + data if name.endswith('/route.ts') else data
+        source_hashes[name] = {'originalSha256': sha(data), 'executedSha256': sha(executed)}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
     with tempfile.TemporaryDirectory() as temporary:
         app = Path(temporary)
@@ -1010,7 +1046,7 @@ def export_observations(output, hashes):
         cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
     public_health = validate_public_health_evidence(auth)
     rows = ingress['results']
-    require(len(rows) == 6 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health'], 'ingress cases incomplete')
+    require(len(rows) == 7 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation'], 'ingress cases incomplete')
     health = []
     for row, path in zip(rows[:2], ('/api/health', '/api/health/ping')):
         response, body = row['response'], row['response']['body']
@@ -1032,6 +1068,7 @@ def export_observations(output, hashes):
     require(fallback['status'] == 200 and fallback['body']['totalRequests'] == 0 and fallback['body']['totalCachedTokens'] == 0 and fallback['body']['byProvider'] == {}, 'fallback mismatch')
     drain = rows[5]
     require(drain['draining']['status'] == 503 and drain['recovered']['status'] == 200, 'drain transition mismatch')
+    degradation = validate_degradation(rows[6], ingress['events'])
     require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
     fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
     require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
@@ -1060,6 +1097,8 @@ def export_observations(output, hashes):
     artifact['inputs']['sourceOverlaySha256'] = expected_overlays
     artifact['publicHealthHttp'] = public_health
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
+    artifact['degradation'] = degradation
+    artifact['limitations'].append('Degradation handler failure was not induced; fixture signals control only the disposable in-process source registry.')
     artifact['limitations'].append('The IP filter denial and recovery exercise forwarding-header fallback with unknown peer locality under bare Next start. They do not demonstrate authenticated peer-stamp denial, peer locality, or reverse-proxy trust.')
     artifact['inputs']['executedOverlaySha256'] = overlays
     export = output / 'export'

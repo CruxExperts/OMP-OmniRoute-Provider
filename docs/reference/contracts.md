@@ -114,6 +114,16 @@ mount tables, events, or private logs. Missing, partial, or contradictory inputs
 prevent export. This retained prerequisite is not an operation qualification
 receipt; the existing per-operation producer and reviewed eligibility still gate use.
 
+The same isolated ingress research also exercises the pinned
+`GET /api/health/degradation` route and its source registry. A disposable import
+in the route copy reads a private sandbox control file after a signal; it drives
+the actual in-process registry, not an HTTP control endpoint or an authorization
+bypass. The export binds the original and executed route hashes, the unchanged
+domain hash, and the control fixture bytes. It records management denials, the
+authorized empty and populated reports, exact `summary=true` behavior versus
+`false` and `True`, and recovery. The handler's 500 branch is unobserved. These
+observations are research only and do not qualify the degradation operation.
+
 For `GET /api/health`, a verified eligibility record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and

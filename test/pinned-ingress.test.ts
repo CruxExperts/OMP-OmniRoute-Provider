@@ -540,6 +540,9 @@ with tempfile.TemporaryDirectory() as temp:
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
  identity_names = set(m.ROUTES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ for name in ('src/app/api/health/degradation/route.ts','src/domain/degradation.ts'):
+  data = sources[name]; executed = b'import "./fixture-control";\n'+data if name.endswith('/route.ts') else data
+  identity['addedSourceSha256'][name] = {'originalSha256':m.sha(data),'executedSha256':m.sha(executed)}
  identity['addedSourceSha256'].update({name:{'originalSha256':sha,'executedSha256':m.sha(sources[name]+b':executed')} for name,sha in m.READ_CLOSURES.items()})
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
@@ -563,7 +566,16 @@ with tempfile.TemporaryDirectory() as temp:
  totals = {'totalRequests':3,'requestsWithCacheControl':2,'totalInputTokens':300,'totalCachedTokens':150,'totalCacheCreationTokens':10,'byProvider':{'alpha':{'totalRequests':2}},'byStrategy':{'direct':{'cachedTokens':50}},'extra':'private-canary'}
  metrics = lambda method: {'case':method+' /api/settings/cache-metrics','denied':{'status':401},'invalid':{'status':403},'allowed':{'status':200,'body':totals},'usageRowsAfter':3}
  rows = [{'case':'public GET /api/health','response':health(False)},{'case':'public GET /api/health/ping','response':health(True)},metrics('GET'),metrics('DELETE'),{'case':'GET cache-metrics missing usage_history','response':{'status':200,'body':{'totalRequests':0,'totalCachedTokens':0,'byProvider':{}}}},{'case':'drain-transition GET /api/health','draining':{'status':503},'recovered':{'status':200}}]
- ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'}]}
+ timestamp = '2026-01-01T00:00:00.000Z'
+ empty_summary = {'full':0,'reduced':0,'minimal':0,'default':0}
+ populated_summary = {'full':1,'reduced':1,'minimal':0,'default':1}
+ features = [{'feature':name,'level':level,'capability':capability,'reason':reason,'since':timestamp} for name,level,capability,reason in [('fixture-default','default','Safe default','Error: primary unavailable → Error: fallback unavailable'),('fixture-reduced','reduced','Reduced capability','primary unavailable'),('fixture-full','full','Full capability','')]]
+ body = {'active':True,'summary':populated_summary,'features':features}
+ response = lambda value: {'status':200,'routeClass':'MANAGEMENT','body':value}
+ recovered_features = [{'feature':name,'level':'full','capability':'Full capability','reason':'','since':timestamp} for name in ('fixture-full','fixture-reduced','fixture-default')]
+ degradation = {'case':'GET /api/health/degradation','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'empty':response({'active':False,'summary':empty_summary,'features':[]}),'populated':response(body),'summary':response({'summary':populated_summary,'isDegraded':True}),'falseSummary':response(body),'capitalSummary':response(body),'recovery':response({'active':False,'summary':{'full':3,'reduced':0,'minimal':0,'default':0},'features':recovered_features})}
+ rows.append(degradation)
+ ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
  exported = json.loads((p/'export/observed-outcomes.json').read_text())
@@ -571,6 +583,7 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
+ assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
@@ -618,8 +631,22 @@ with tempfile.TemporaryDirectory() as temp:
  original = public.pop('forwardedIp'); put('data/observations.json',auth); rejected(); public['forwardedIp'] = original
  put('data/observations.json',auth)
  ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
- ingress['results'] = rows; rows[-1]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()
- rows[-1]['recovered']['status'] = 200; put('data/pinned-ingress-observations.json',ingress)
+ ingress['results'] = rows; rows[5]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()
+ rows[5]['recovered']['status'] = 200
+ original = degradation['summary']['body']; degradation['summary']['body'] = body; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['summary']['body'] = original
+ for name in ('falseSummary','capitalSummary'):
+  original = degradation[name]['body']; degradation[name]['body'] = {'summary':populated_summary,'isDegraded':True}; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation[name]['body'] = original
+ original = ingress['events']; ingress['events'] = original[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['events'] = original
+ original = degradation['invalid']['status']; degradation['invalid']['status'] = 200; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['invalid']['status'] = original
+ original = degradation['denied']['routeClass']; degradation['denied']['routeClass'] = 'PUBLIC'; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['denied']['routeClass'] = original
+ original = degradation['recovery']['body']['features'][1]['level']; degradation['recovery']['body']['features'][1]['level'] = 'reduced'; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['recovery']['body']['features'][1]['level'] = original
+ route_identity = identity['addedSourceSha256']['src/app/api/health/degradation/route.ts']
+ for key in ('originalSha256','executedSha256'):
+  original = route_identity[key]; route_identity[key] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); route_identity[key] = original
+ domain_identity = identity['addedSourceSha256']['src/domain/degradation.ts']
+ for key in ('originalSha256','executedSha256'):
+  original = domain_identity[key]; domain_identity[key] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); domain_identity[key] = original
+ put('data/pinned-ingress-observations.json',ingress)
  auth['results'][0]['response']['status'] = 500; put('data/observations.json',auth); rejected()
  (p/'data/observations.json').write_text('{'); rejected()
  (p/'data/observations.json').unlink(); rejected()
