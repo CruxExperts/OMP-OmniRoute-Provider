@@ -17,5 +17,5 @@
     "types": ["bun", "node"]
   },
   "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "test/fixtures/pinned-ingress"]
 }

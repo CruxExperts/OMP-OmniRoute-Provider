@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    "scripts/pinned-ingress.py",
+    "scripts/pinned-ingress-driver.mjs",
+    "test/fixtures/pinned-ingress/alias-map.json",
+    "test/fixtures/pinned-ingress/backend/core.ts",
+    "test/fixtures/pinned-ingress/backend/settings.ts",
+    "test/fixtures/pinned-ingress/dependencies.json",
+    "test/fixtures/pinned-ingress/driver.mjs",
+    "test/fixtures/pinned-ingress/extracted/auth.ts",
+    "test/fixtures/pinned-ingress/extracted/runtime-settings.ts",
+    "test/fixtures/pinned-ingress/extracted/shutdown.ts",
+    "test/fixtures/pinned-ingress/extracted/sync.ts",
+    "test/fixtures/pinned-ingress/initialize.mjs",
+    "test/fixtures/pinned-ingress/next.config.mjs",
+    "test/fixtures/pinned-ingress/routes/management.ts",
+    "test/fixtures/pinned-ingress/runtime.json",
+    "test/fixtures/pinned-ingress/source-manifest.json"
+  ]
+}

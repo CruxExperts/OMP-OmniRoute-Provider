@@ -6,3 +6,5 @@ __pycache__/
 *.pyo
 **/*.pyo
 windows-research-provider-overlay.patch
+pinned-ingress.py
+pinned-ingress-driver.mjs

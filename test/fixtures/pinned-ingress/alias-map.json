@@ -1,0 +1,13 @@
+{
+  "purpose": "Research-only webpack cuts; no operation qualification or production equivalence claimed.",
+  "originalConfigSha256": "4520a0ac70196defb89f445ee810010c9d982fc3c05b57f690574f5fd1245fe5",
+  "aliases": [
+    { "source": "src/lib/db/core.ts", "replacement": "backend/core.ts", "kind": "storage-boundary" },
+    { "source": "src/lib/db/settings.ts", "replacement": "backend/settings.ts", "kind": "storage-boundary" },
+    { "source": "src/sse/services/auth.ts", "replacement": "extracted/auth.ts", "kind": "declaration-extraction", "sourceSha256": "ade9d1915bc72ccc46cff18573e1fcb29a6f0fb3cf15bbc1a6548ce2b4528356", "replacementSha256": "7b0d42ab6aeae64260a89afd5bcd0b06c6d8da4c445cbaa6d71c32115850f9c7" },
+    { "source": "src/lib/config/runtimeSettings.ts", "replacement": "extracted/runtime-settings.ts", "kind": "declaration-extraction", "sourceSha256": "f29722c40a0c2af66c7c448126f10c23b544e704e0a9265717d6cce9ade97e8d", "replacementSha256": "e07414a99f9c97ddd402cabfa3f25382ff8e8a33593be2971fa0fd3864af1d3a" },
+    { "source": "src/shared/services/modelSyncScheduler.ts", "replacement": "extracted/sync.ts", "kind": "declaration-extraction", "sourceSha256": "abf79ef2813d6b94ab055a31b4e58510e0d321d40ad9433551bc2455c43297ff", "replacementSha256": "114aa1fae5a4b335f6cb32819ecf52a3bee97b179a5655ca08cfb9100167e508" },
+    { "source": "src/lib/gracefulShutdown.ts", "replacement": "extracted/shutdown.ts", "kind": "declaration-extraction", "sourceSha256": "4ab961cfb6d6159043c9d7b4b0368044c4b3b9b5c75860695d630962ce2e197d", "replacementSha256": "f6191212cb27a5e6119959bebbd25bc451fc16cd71eb50543d9f89bceb7b3753" }
+  ],
+  "note": "Use next build --webpack: the wrapper retains the plugin-processed source config and its original webpack hook, but replacements apply only to webpack resolved resources. Webpack differs from the production-default bundler. readCache.ts, accessTokens.ts and apiKeys.ts are not replaced. Source auth declarations are extracted with adapted imports; backend storage is bounded and fail-closed. Runtime closure remains unverified until the isolated build and HTTP observations succeed."
+}

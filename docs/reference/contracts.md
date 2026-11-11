@@ -20,12 +20,18 @@ Its content-addressed store shares repeated import closures and provenance recor
 readers verify each record digest and the expanded manifest digest. Changing the
 storage representation does not change the expanded source facts.
 
+The current source pin is OmniRoute v3.8.53 at commit
+`191dce8d534ceb56c28a08e71381284a9a87838f`. Its pinned release source asset
+is verified by digest; the collector checks the captured source bytes against
+that archive. A refreshed source inventory does not itself qualify operations
+or make receipts from an earlier source current.
+
 The closure also includes numbered SQL migrations discovered at runtime by the
 pinned database migration runner. They are opaque source bytes, verified against
 the same archive and included in the route and framework digests. External
 migration directories need separate evidence.
 
-The pinned 3.8.52 OpenAPI document has an unquoted comma in the `news` description
+The earlier pinned 3.8.52 OpenAPI document has an unquoted comma in the `news` description
 for `GET /api/system/version`. The generator records this discrepancy and repairs
 only that annotation when the exact source commit, document digest, location, and
 malformed value match. It infers no response type or runtime behavior from the typo.
@@ -55,6 +61,34 @@ source, test, contract, or outcome invalidates the previous qualification.
 The test fingerprint includes the complete `package.json` and available Bun
 lockfiles, as well as the local import closure. Version and tested-host metadata
 changes therefore require fresh receipts even when runtime behavior is unchanged.
+Subprocess and dynamic-file consumers declare additional inputs in a sibling
+`<source-file>.inputs.json` file with `schemaVersion: 1` and a nonempty `files`
+array. Each entry is a unique, normalized repository-relative regular-file path;
+private state, dependency trees, symbolic links, and escaping paths are rejected.
+The declaration and declared opaque bytes enter the same canonical closure hash as
+imports. A changed Python driver or runtime manifest therefore invalidates its
+consuming receipt even when the HTTP observation is unchanged. Unrelated cases
+without that dependency retain their existing fingerprint.
+The source-owned ingress runner uses explicit `--node`, `--source-archive`,
+`--dependency-dir`, and `--output-dir` paths. Its fixture manifests bind the exact
+Node executable, staged dependency tarballs, source archive, and selected source
+files. `--preflight-only` checks user-systemd, cgroup v2 memory and CPU limits,
+bubblewrap namespaces, private loopback and required host tools without downloads.
+`--stage-dir` repeats that preflight, then stages only the pinned Node archive,
+source and manifest tarballs, verifies their identities and extracts only the Node
+executable. The Node archive requires its exact SHA256 as an explicit approval
+input. CI stages beneath `RUNNER_TEMP`, never installing packages or running
+lifecycle scripts during staging. The runner separately verifies actual isolation
+and resource readbacks. Missing prerequisites fail without host changes.
+Qualification dispatch offers `preflight-only` and `ingress-only` modes before
+the full archive and native targets; neither mode creates a qualification receipt.
+These build-only inputs are excluded from the runtime npm package and its
+TypeScript program. The current webpack observations use bounded in-memory
+auth/settings seams and selected disposable `node:sqlite` queries. They do not
+establish native database, production bundler, complete route, or clean hosted-runner
+qualification.
+
+
 After the final manifest edits, rerun every suite named by the active eligibility
 records. Compare each fresh observation and source binding with its reviewed
 reference before updating any receipt. An unchanged observation may be rebound
@@ -71,21 +105,14 @@ bun run verify:contracts
 bun run docs:check
 ```
 
-Active qualification is being rebuilt after a mutation-safety contract migration.
-Historical evidence covered combos, fallback chains, capability overrides,
-provider aliases, model-combo mappings, and provider configuration. That evidence
-is retained, but cannot authorize calls under the new contract. Provider
-configuration, fallback chains, provider aliases, and model-combo mappings have
-regained qualification through fresh tests and review, within their documented
-visibility and outcome limits. Fallback tests
-execute the pinned policy with an in-memory persistence backend and injected
-failures; they do not establish SQLite integration. Combo and capability reads
-have also regained qualification. Metrics reset has qualified invocation with
-required exposed-state reads, explicit hidden-counter and cleanup-timer limits,
-and unknown one-shot settlement. Other combo and capability mutations await
-qualification of their available dependencies and source effects. Other
-operations must complete the same process; direct source-handler tests alone
-do not qualify held client invocations. The
+Active qualification is being rebuilt for the current source and mutation-safety
+contract. Earlier evidence for combos, fallback chains, capability overrides,
+provider aliases, model-combo mappings, and provider configuration is historical;
+it cannot authorize the new candidate. Source-backed fixture checks do not by
+themselves restore eligibility or prove clean framework ingress. Combo metrics
+retain the pinned source's separate fallback-request count and skips-per-request
+fields. Held mutations still require their available dependency reads and
+independent effect evidence. The
 [generated inventory](generated.md#operation-inventory) owns the current counts.
 
 Approval-state checks and outcome reconciliation have separate responsibilities.

@@ -2,6 +2,16 @@ name: release-qualification
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Qualification scope (preflight performs no downloads)
+        type: choice
+        options: [full, ingress-only, preflight-only]
+        default: full
+      approved_node_archive_sha256:
+        description: Explicitly approved Node 24.17.0 Linux x64 archive SHA256 (required except preflight-only)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -27,11 +37,24 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }
+      - name: Check ingress host prerequisites without acquisition
+        run: python3 scripts/pinned-ingress.py --preflight-only
+      - name: Stage and run the pinned ingress research prerequisite
+        if: ${{ inputs.mode != 'preflight-only' }}
+        env:
+          APPROVED_NODE_ARCHIVE_SHA256: ${{ inputs.approved_node_archive_sha256 }}
+        run: |
+          set -euo pipefail
+          python3 scripts/pinned-ingress.py --stage-dir "$RUNNER_TEMP/pinned-ingress" --approve-node-archive-sha256 "$APPROVED_NODE_ARCHIVE_SHA256" > "$RUNNER_TEMP/pinned-ingress-paths.json"
+          python3 scripts/pinned-ingress.py --node "$RUNNER_TEMP/pinned-ingress/node" --source-archive "$RUNNER_TEMP/pinned-ingress/source.tar.gz" --dependency-dir "$RUNNER_TEMP/pinned-ingress/dependencies" --output-dir "$RUNNER_TEMP/pinned-ingress"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ inputs.mode == 'full' }}
         with: { bun-version: "1.4.2" }
       - name: Install exact locked dependencies
+        if: ${{ inputs.mode == 'full' }}
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Validate source and build the single reviewed archive
+        if: ${{ inputs.mode == 'full' }}
         run: |
           set -euo pipefail
           bun run check:upstreams
@@ -50,6 +73,7 @@ jobs:
           bun run export:release
           (cd release && sha256sum -c SHA256SUMS.txt)
       - name: Upload the immutable package and manifest once
+        if: ${{ inputs.mode == 'full' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cruxomni-release-input
@@ -60,6 +84,7 @@ jobs:
   native:
     name: ${{ matrix.id }}
     needs: package
+    if: ${{ inputs.mode == 'full' }}
     strategy:
       fail-fast: false
       matrix:
@@ -113,6 +138,7 @@ jobs:
   linux-x64-musl:
     name: linux-x64-musl
     needs: package
+    if: ${{ inputs.mode == 'full' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -146,6 +172,7 @@ jobs:
   linux-arm64-musl:
     name: linux-arm64-musl
     needs: package
+    if: ${{ inputs.mode == 'full' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     defaults:
@@ -179,7 +206,7 @@ jobs:
   aggregate:
     name: aggregate-qualified-targets
     needs: [package, native, linux-x64-musl, linux-arm64-musl]
-    if: ${{ success() }}
+    if: ${{ success() && inputs.mode == 'full' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
