@@ -12,6 +12,7 @@ import {
   hasNativeAvailableOperationDescription,
   nativeAdminApplyConfirmationPattern,
   nativeAdminEmptyFallbackReadPattern,
+  nativeAdminInitialStep,
   nativeAdminIoTimeoutMs,
   nativeAdminNewPlanPattern,
   nativeAdminPromptPattern,
@@ -37,9 +38,38 @@ test("persisted inference allows five Windows ACL reads without changing other d
 });
 
 test("native administration accounts for bounded Windows startup and command ACL checks", () => {
-  expect(nativeAdminIoTimeoutMs("win32")).toBe(945_000);
+  expect(nativeAdminIoTimeoutMs("win32")).toBe(1_005_000);
   expect(nativeAdminIoTimeoutMs("linux")).toBe(105_000);
   expect(nativeAdminIoTimeoutMs("darwin")).toBe(105_000);
+});
+
+test("native administration waits for the complete startup status and enables only once", async () => {
+  const written: string[] = [];
+  const started = Promise.withResolvers<void>();
+  const finished = Promise.withResolvers<void>();
+  const scheduler = createDialogueScheduler([
+    nativeAdminInitialStep,
+    { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 0 },
+  ], async (_step, index, text) => {
+    written.push(text);
+    if (index === 0) { started.resolve(); await finished.promise; }
+  });
+  expect(scheduler.observe("π-omniroute-smoke > ⬢ fixture >")).toBe(false);
+  expect(scheduler.observe("omniroute operations unavailable; no request was sent\n")).toBe(false);
+  expect(scheduler.observe("omniroute operations: disabled; /omniroute-admin enable, disable, or search; ")).toBe(false);
+  expect(written).toEqual([]);
+  expect(scheduler.observe("mutations require an interactive human confirmation")).toBe(true);
+  await started.promise;
+  scheduler.observe("omniroute operations: disabled; /omniroute-admin enable, disable, or search; mutations require an interactive human confirmation");
+  expect(written).toEqual(["/omniroute-admin enable\n"]);
+  scheduler.cancel();
+  finished.resolve();
+});
+
+test("native administration accepts a completed enabled status", () => {
+  const scheduler = createDialogueScheduler([nativeAdminInitialStep], async () => undefined);
+  expect(scheduler.observe("omniroute operations: enabled; /omniroute-admin enable, disable, or search; mutations require an interactive human confirmation")).toBe(true);
+  scheduler.cancel();
 });
 
 test("native setup stops only after the post-login native catalog is ready", async () => {

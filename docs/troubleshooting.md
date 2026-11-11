@@ -187,9 +187,11 @@ Exact sensitive target state stays private to approval and drift checks.
 Windows qualification run 42992934819 passed native setup and persisted Chat
 Completions inference on both architectures, including the exact reply, usage,
 single POST, and live model discovery. Administration I/O did not complete and
-Windows administration qualification remains pending. The classic PTY prompt
-can appear before the host permits submission; authoritative readiness for that
-surface remains unresolved, and a visible prompt or fixed delay is not proof.
+Windows administration qualification remains pending. A visible classic PTY
+prompt or fixed delay does not prove submission readiness. The smoke dialogue
+now starts the official host with a positional `/omniroute-admin status`
+command and waits for its enabled or disabled status response before enabling administration;
+this readiness barrier does not itself establish qualification.
 
 ## Credential or config recovery
 

@@ -768,6 +768,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
 type CommandOptions = {
   cwd: string;
   env: NodeJS.ProcessEnv;
+  argv?: string[];
   timeoutMs?: number;
   input?: string;
   inputSteps?: Array<{ afterMs: number; text: string }>;
@@ -784,9 +785,9 @@ export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((mat
 export function nativeAdminIoTimeoutMs(platform: NodeJS.Platform): number {
   if (platform !== "win32") return 105_000;
   // Three registration checks and one session check precede the dialogue.
-  // Budget three bounded ACL checks for each of its eight admin commands,
-  // in addition to the original 105s interaction allowance.
-  return (4 + 8 * 3) * 30_000 + 105_000;
+  // Budget three bounded ACL checks for each of its eight admin commands
+  // and two for the initial status config read, plus interaction time.
+  return (4 + 8 * 3 + 2) * 30_000 + 105_000;
 }
 
 /**
@@ -881,6 +882,11 @@ export const nativeLoginCommandCompletedPattern = /\/login[ \t]+\[provider\|redi
 // Native readiness requires the committed binding and a live chat catalog.
 export const nativeSetupActivatedPattern = /omniroute:[ \t]*source=native profile;\s*(?:runtime environment overrides ignored; native source never falls back;\s*)?catalog ready;\s*chat models=[1-9]\d*;\s*live rows=[1-9]\d*/i;
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
+export const nativeAdminInitialStep: DialogueStep = {
+  when: /omniroute operations: (?:disabled|enabled); \/omniroute-admin enable, disable, or search; mutations require an interactive human confirmation/,
+  text: "/omniroute-admin enable\n",
+  afterMs: 0,
+};
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no(?:X?│|[ \t\r\n]|$)/i;
 export const nativeAdminApplyConfirmationPattern = /Confirm this exact target, side effect, and irreversible consequence\?[\s\S]{0,1000}❯[ \t]*Yes\b[\s\S]{0,1000}\bNo\b/i;
 export const nativeAdminUnknownOutcomePattern = /administration outcome is unknown; reconcile before retrying \(([a-z0-9-]+)\)/i;
@@ -1114,7 +1120,7 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
       if (text === "\r" && options.diagnosticDispatch) await options.diagnosticDispatch("dispatched").catch(() => undefined);
     }, () => child?.kill("SIGTERM"));
   }
-  child = Bun.spawn([binary], {
+  child = Bun.spawn([binary, ...(options.argv ?? [])], {
     cwd: options.cwd,
     env: options.env,
     terminal,
@@ -1495,8 +1501,7 @@ async function nativePromptSetup(
 async function nativeAdminWalkthrough(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<void> {
   const prompt = nativeAdminPromptPattern;
   const dialogue = [
-    { when: prompt, text: "/omniroute-admin status\n", afterMs: 6_000 },
-    { when: prompt, text: "/omniroute-admin enable\n", afterMs: 500 },
+    nativeAdminInitialStep,
     { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
     { when: prompt, text: "/omniroute-admin fallback/chains\n", afterMs: 500 },
     { when: /Administration category[\s\S]{0,1000}api\/fallback/i, text: "\n", afterMs: 250 },
@@ -1506,7 +1511,7 @@ async function nativeAdminWalkthrough(binary: string, cwd: string, environment: 
     { when: availableOperationMenuPattern("api/model-capability-overrides", "GET /api/model-capability-overrides"), text: "__ESC__", afterMs: 500 },
     { when: prompt, text: "__SIGTERM__", afterMs: 250 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 45_000, dialogue });
+  const result = await runPtyCommand(binary, { cwd, env: environment, argv: ["/omniroute-admin status"], timeoutMs: 45_000, dialogue });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   const requiredOperations = [
     "GET /api/fallback/chains",
@@ -1574,7 +1579,7 @@ async function nativeAdministrationIo(
   const unknownOutcomeFor = (index: number): RegExp =>
     new RegExp(`administration outcome is unknown; reconcile before retrying \\(${escapeRegExp(planIds[index] ?? "__missing__")}\\)`, "i");
   const dialogue: DialogueStep[] = [
-    { when: nativeAdminPromptPattern, text: "/omniroute-admin enable\n", afterMs: 6_000 },
+    nativeAdminInitialStep,
     { when: /Enable OmniRoute administration[\s\S]{0,1000}\bYes\b[\s\S]{0,1000}\bNo\b/i, text: "\n", afterMs: 250 },
     { when: /administration enabled for exact endpoint/i, text: `/omniroute-admin ${readId}\n`, afterMs: 500 },
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
@@ -1594,7 +1599,7 @@ async function nativeAdministrationIo(
     { when: /Validated JSON input for GET \/api\/fallback\/chains/i, text: "{}\n", afterMs: 250 },
     { when: nativeAdminEmptyFallbackReadPattern, text: "__SIGTERM__", afterMs: 500 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey }, timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue });
+  const result = await runPtyCommand(binary, { cwd, env: { ...environment, OMP_OMNIROUTE_ADMIN_API_KEY: adminKey }, argv: ["/omniroute-admin status"], timeoutMs: nativeAdminIoTimeoutMs(process.platform), dialogue });
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`).replace(/\r\n?/g, "\n");
   if ([runtimeKey, adminKey, metadataKey].some(secret => output.includes(secret))) throw new Error("native administration I/O leaked fixture credentials");
   if (result.dialogueCompleted !== dialogue.length || (result.signal !== "SIGTERM" && result.code !== 143)) {
