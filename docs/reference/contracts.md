@@ -146,11 +146,10 @@ The agent-skills catalog, detail, and coverage candidates use source-bound handl
 and the pinned catalog against a disposable skills directory. Tests cover query and
 path serialization, known and unknown IDs, coverage counts, and unchanged files.
 The ingress producer requires management denials and authorized reads at each exact
-path. Raw remote fetch and skill-generation writes are not qualified. Changing the
-shared ingress inputs invalidates all eight earlier ingress-bound artifacts; a fresh
-complete hosted run and independently produced handler receipts are required before
-any affected eligibility can be accepted. Copying identities onto old observations is
-not evidence. External entries do not count toward coverage totals.
+path. Raw remote fetch and skill-generation writes are not qualified. Current
+eligibility requires both a complete hosted run on the current shared ingress
+inputs and independently produced handler receipts; copying identities onto old
+observations is not evidence. External entries do not count toward coverage totals.
 
 The five model-combo-mapping candidates use the pinned v3.8.53 collection and
 item handlers with the actual SQLite repository, persistence facade, and read-cache
@@ -158,10 +157,18 @@ generation signals. Their disposable schema is assembled for the fixture; it is
 not evidence that a cold application database initializes successfully. The ingress
 run probes the exact five methods and paths with a management reachability control,
 including anonymous and invalid-credential denial and an authorized session. This
-probes shared policy, not the real mapping handlers. A fresh complete ingress run
-and independently produced handler observations are required; all candidates remain
-pending until their exact outputs are retained and reviewed. Changing the shared
-ingress inputs also invalidates previously retained ingress evidence.
+probes shared policy, not the real mapping handlers. The current five records bind
+the separately observed handler outcomes and the retained hosted ingress export.
+Changing shared ingress inputs invalidates the ingress evidence and requires a new
+complete run; it does not establish cold database initialization.
+
+The five combo reads and metrics reset likewise bind independent pinned-handler
+observations and a retained hosted policy export for each exact method and path.
+The ingress policy responses exercise a reachability control, not those handlers.
+The handler fixture uses disposable SQLite storage and configured catalog and
+metrics inputs, not a successful cold application database lifecycle. Metrics
+reset retains its documented visibility and uncertain-settlement limits; the
+other combo mutations remain unavailable.
 
 The provider read fixtures exercise pinned handlers against a disposable, already
 initialized database. Their raw handler responses can contain provider URLs,
@@ -173,7 +180,9 @@ cold database initialization or migrations. Provider reads remain unqualified
 until their cold database lifecycle and the other required evidence are established.
 
 
-For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads, and the five model-combo-mapping operations, a verified eligibility record additionally names a retained
+For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads,
+the five model-combo-mapping operations, and the six qualified combo operations,
+a verified eligibility record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and
 extracted declaration identities, and the runner's recomputed disposable overlay
@@ -234,13 +243,12 @@ this check does not qualify `GET /api/agent-skills/{id}/raw` or change its
 runtime availability.
 
 Active qualification is being rebuilt for the current source and mutation-safety
-contract. Earlier evidence for combos, fallback chains, capability overrides,
-provider aliases, model-combo mappings, and provider configuration is historical;
-it cannot authorize the new candidate. Source-backed fixture checks do not by
-themselves restore eligibility or prove clean framework ingress. Combo metrics
-retain the pinned source's separate fallback-request count and skips-per-request
-fields. Held mutations still require their available dependency reads and
-independent effect evidence. The
+contract. Earlier evidence for fallback chains, capability overrides, provider
+aliases, and provider configuration is historical; it cannot authorize the new
+candidate. Source-backed fixture checks do not by themselves restore eligibility
+or prove clean framework ingress. Combo metrics retain the pinned source's separate
+fallback-request count and skips-per-request fields. Held mutations still require
+their available dependency reads and independent effect evidence. The
 [generated inventory](generated.md#operation-inventory) owns the current counts.
 
 Combo mutation preflight reads the complete collection with both pagination keys

@@ -48,7 +48,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/cli-tools | 0 | 79 | 0 |
 | api/cloud | 0 | 5 | 0 |
 | api/codex | 0 | 2 | 0 |
-| api/combos | 0 | 15 | 0 |
+| api/combos | 6 | 9 | 0 |
 | api/compliance | 0 | 1 | 0 |
 | api/compression | 0 | 7 | 0 |
 | api/conductor | 0 | 5 | 0 |
