@@ -30,8 +30,10 @@ Literal `Response` constructors can contribute status and media evidence through
 returned local helpers with unambiguous literal arguments. Mutable bindings,
 spread arguments and unresolved response bodies do not establish content.
 Method-specific conditions are resolved only from unchanged literal bindings.
-Bodyless HEAD evidence is not serialized as response content; supporting its
-headers and empty entity requires an explicit contract rather than a GET alias.
+HEAD response variants may explicitly mark `body: "empty"` when complete
+source-return evidence establishes it. Media and advertised headers remain
+separate from entity presence. The qualified HEAD transport does not read an
+entity or interpret advertised Content-Length as bytes to download.
 
 For private repair research only, source preparation accepts the explicit
 `--derivation-record PATH --repair-repository PATH --derived-output PATH` options
@@ -161,15 +163,15 @@ source-bound handler receipt and the ingress export are required for eligibility
 The pinned `/livez` GET and HEAD source observations distinguish the exact GET
 text body from HEAD's empty body while retaining its advertised content length.
 GET qualification binds these observations to separately retained real Next
-ingress. HEAD remains unqualified and needs explicit bodyless response contracts,
-independent method-specific ingress and client transport.
+ingress. HEAD requires its own retained method-specific ingress and independent
+handler receipt before qualification; GET evidence is not a substitute.
 
-The isolated ingress producer also records exact GET `/livez` responses for
-anonymous, invalid-bearer and session requests. Its consumer requires the
-unchanged handler and proxy identities, compiled matcher exclusion, exact text
-and cache headers, and no route-class stamp. The retained complete isolated run
-observes all three cases. Changed producer inputs invalidate older exports;
-independent handler evidence and runtime eligibility binding still gate use.
+The isolated ingress producer records GET and HEAD `/livez` responses separately
+for anonymous, invalid-bearer and session requests. Its consumer requires the
+unchanged handler and proxy identities, compiled matcher exclusion, method-specific
+body and cache headers, and no route-class stamp. HEAD retains advertised length
+without an entity. Changed producer inputs invalidate older exports; independent
+handler evidence and runtime eligibility binding still gate use.
 
 The `/api/docs` source-only test observes the pinned static HTML response and
 headers without running its scripts. The page references a mutable external

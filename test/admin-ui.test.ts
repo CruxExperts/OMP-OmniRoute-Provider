@@ -1,6 +1,6 @@
 import { unlink } from "node:fs/promises";
 import { expect, test } from "bun:test";
-import { ADMIN_ADAPTER_LIMITS, adapterFor, invokeJsonAdapter, invokeMultipartAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, validateAdminEndpoint, writeProtectedFile } from "../src/admin/adapters.ts";
+import { ADMIN_ADAPTER_LIMITS, adapterFor, invokeHeadAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, validateAdminEndpoint, writeProtectedFile } from "../src/admin/adapters.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { createAdminCommandHandler } from "../src/admin/ui.ts";
@@ -88,6 +88,65 @@ test("operation protocol selection remains dedicated", () => {
   expect(adapterFor({ ...jsonDescriptor, mediaType: { request: "application/json", response: "application/octet-stream" }, streaming: { mode: "binary" as const, framing: "bytes" } })).toBe("binary");
   expect(adapterFor({ ...jsonDescriptor, mediaType: { request: "application/json", response: "application/octet-stream" } })).toBe("unavailable");
   expect(adapterFor({ ...jsonDescriptor, pathTemplate: "/api/oauth/login" })).toBe("json");
+});
+
+test("qualified HEAD transport preserves metadata without reading an entity", async () => {
+  const descriptor = { ...jsonDescriptor, method: "HEAD" as const,
+    request: { body: null, pathParameters: [] }, coverage: { status: "invokable" as const },
+    mediaType: { request: null, response: "text/plain" },
+    response: { variants: [{ statusCode: "200", body: "empty" as const }] } };
+  const invocation = { descriptor, endpoint: "http://127.0.0.1:20128", resolvedPath: "/api/models", queryParameters: [] };
+  expect(adapterFor(descriptor)).toBe("head");
+  const unmarked = { ...descriptor, response: { variants: [{ statusCode: "200" }] } };
+  expect(adapterFor(unmarked)).toBe("unavailable");
+  expect(adapterFor({ ...descriptor, coverage: { status: "unqualified" } })).toBe("unavailable");
+  expect(adapterFor({ ...unmarked, mediaType: { request: null, response: "application/json" } })).toBe("unavailable");
+  expect(adapterFor({ ...descriptor, response: { variants: [{ statusCode: "403", body: "empty" }] } })).toBe("unavailable");
+  await expect(invokeHeadAdapter({ ...invocation, descriptor: unmarked })).rejects.toMatchObject({ code: "adapter_unavailable" });
+  let cancelled = false;
+  let reads = 0;
+  const response = new Response(new ReadableStream<Uint8Array>({
+    pull() { reads++; },
+    cancel() { cancelled = true; return Promise.reject(new Error("discard failed")); },
+  }, { highWaterMark: 0 }), { headers: { "content-length": String(ADMIN_ADAPTER_LIMITS.maxResponseBytes + 1), "x-health": "ready" } });
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = Object.assign(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.method).toBe("HEAD");
+      expect(init?.redirect).toBe("error");
+      return response;
+    }, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    expect(await invokeHeadAdapter(invocation)).toEqual({ status: 200, headers: {
+      "content-length": String(ADMIN_ADAPTER_LIMITS.maxResponseBytes + 1), "x-health": "ready",
+    } });
+    expect(reads).toBe(0);
+    expect(cancelled).toBe(true);
+    const source = await publicReadDescriptor("HEAD /api/models", "/api/models");
+    const head = { ...source, method: "HEAD" as const, response: { ...source.response,
+      variants: [{ statusCode: "200", content: [], headers: {}, body: "empty" as const }] } };
+    expect(projectResponse(head, undefined)).toBeUndefined();
+    expect(() => projectResponse({ ...head, response: { ...head.response, variants: [] } }, undefined)).toThrow();
+    globalThis.fetch = Object.assign(async () => new Response(null, { status: 403, headers: { "x-error": "denied" } }), { preconnect: originalFetch.preconnect }) as typeof fetch;
+    expect(await invokeHeadAdapter(invocation)).toEqual({ status: 403, headers: { "x-error": "denied" } });
+    globalThis.fetch = Object.assign(async () => new Response(null, { status: 201 }), { preconnect: originalFetch.preconnect }) as typeof fetch;
+    await expect(invokeHeadAdapter(invocation)).rejects.toMatchObject({ code: "invalid_payload", status: 201 });
+    const wildcard = { ...descriptor, response: { variants: [{ statusCode: "2XX", body: "empty" as const }, { statusCode: "201" }] } };
+    await expect(invokeHeadAdapter({ ...invocation, descriptor: wildcard })).rejects.toMatchObject({ code: "invalid_payload", status: 201 });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(invokeHeadAdapter({ ...invocation, signal: controller.signal })).rejects.toMatchObject({ code: "cancelled" });
+    const duringFetch = new AbortController();
+    globalThis.fetch = Object.assign(async () => { duringFetch.abort(); return new Response(null); }, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    await expect(invokeHeadAdapter({ ...invocation, signal: duringFetch.signal })).rejects.toMatchObject({ code: "cancelled" });
+    let fetched = false;
+    globalThis.fetch = Object.assign(async () => { fetched = true; return new Response(null); }, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    await expect(invokeHeadAdapter({ ...invocation, authorize: async () => { throw new Error("authority changed"); } })).rejects.toMatchObject({ code: "request_failed" });
+    expect(fetched).toBe(false);
+    globalThis.fetch = Object.assign(async () => { throw new Error("network"); }, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    await expect(invokeHeadAdapter(invocation)).rejects.toMatchObject({ code: "request_failed" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("text transport is bounded and does not publish unreviewed raw output", async () => {

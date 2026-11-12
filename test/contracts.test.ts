@@ -12,6 +12,8 @@ import {
   outcomeArtifactPath,
   testCaseSourceHash,
   testOutcomeHash,
+  responseFor,
+  validateResponseContract,
   validateHealthIngressEvidence,
 } from "../scripts/generate-contracts.ts";
 import { decodeRouteSources } from "../scripts/route-source-store.ts";
@@ -54,6 +56,25 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("fixture value must be an object");
   return value as Record<string, unknown>;
 }
+
+test("HEAD empty evidence is status-scoped and cannot be invented or dropped by a contract", () => {
+  const sourceFile = "src/app/api/livez/route.ts";
+  const hint = { statusCode: "200", mediaType: "text/plain", sourceFiles: [sourceFile], contentSourceFile: sourceFile };
+  const spec = { responses: { "200": { headers: { "Content-Length": { required: true, schema: { type: "string" } } } } } };
+  const head = record(responseFor(spec, "HEAD /api/livez", [{ ...hint, body: "empty" }]));
+  const variants = head.variants as Array<Record<string, unknown>>;
+  expect(variants[0]).toMatchObject({ statusCode: "200", body: "empty", content: [{ mediaType: "text/plain" }], headers: { "Content-Length": { required: true } } });
+  validateResponseContract(head, head, "HEAD /api/livez");
+  const withoutBody = { ...head, variants: variants.map(({ body: _body, ...variant }) => variant) };
+  expect(() => validateResponseContract(withoutBody, head, "HEAD /api/livez")).toThrow("alters source-derived response body evidence");
+  const unknown = record(responseFor(spec, "HEAD /api/livez", [hint]));
+  expect(record((unknown.variants as unknown[])[0]).body).toBeUndefined();
+  expect(() => validateResponseContract(head, unknown, "HEAD /api/livez")).toThrow("alters source-derived response body evidence");
+  const mixed = record(responseFor(spec, "HEAD /api/livez", [{ ...hint, body: "empty" }, hint]));
+  expect(record((mixed.variants as unknown[])[0]).body).toBeUndefined();
+  const get = record(responseFor(spec, "GET /api/livez", [hint]));
+  expect(record((get.variants as unknown[])[0]).body).toBeUndefined();
+});
 
 test("public health pipeline responses remain conservative without complete exclusivity proof", () => {
   const template = record(operationContractTemplate("GET /api/health").response);
@@ -314,6 +335,22 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     const livenessEvidence = await save(liveness);
     expect(() => validateHealthIngressEvidence(livenessEvidence, livenessBinding, "GET /livez")).not.toThrow();
     expect(() => validateHealthIngressEvidence(livenessEvidence, { ...livenessBinding, handlerSha256: "0".repeat(64) }, "GET /livez")).toThrow(/source mismatch/);
+    expect(() => validateHealthIngressEvidence(livenessEvidence, livenessBinding, "HEAD /livez")).toThrow(/liveness HEAD observation mismatch/);
+    const headResponse = { ...livenessResponse, body: "" };
+    const head = { ...liveness, publicLivenessHeadHttp: { ...liveness.publicLivenessHttp, method: "HEAD", cases: { anonymous: { ...headResponse }, invalidCredential: { ...headResponse }, session: { ...headResponse } } } };
+    const headEvidence = await save(head);
+    expect(() => validateHealthIngressEvidence(headEvidence, livenessBinding, "HEAD /livez")).not.toThrow();
+    expect(() => validateHealthIngressEvidence(headEvidence, { ...livenessBinding, handlerSha256: "0".repeat(64) }, "HEAD /livez")).toThrow(/source mismatch/);
+    for (const condition of ["anonymous", "invalidCredential", "session"] as const) {
+      const changed = structuredClone(head);
+      changed.publicLivenessHeadHttp.cases[condition].body = "ok\n";
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, livenessBinding, "HEAD /livez")).toThrow(/liveness HEAD observation mismatch/);
+    }
+    const wrongHead = structuredClone(head);
+    wrongHead.publicLivenessHeadHttp.method = "GET";
+    const wrongHeadEvidence = await save(wrongHead);
+    expect(() => validateHealthIngressEvidence(wrongHeadEvidence, livenessBinding, "HEAD /livez")).toThrow(/liveness HEAD observation mismatch/);
     for (const key of ["originalSha256", "executedSha256"] as const) {
       const changed = structuredClone(liveness);
       record(record(changed.source.addedSourceSha256)["src/app/livez/route.ts"])[key] = "0".repeat(64);

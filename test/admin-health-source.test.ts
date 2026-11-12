@@ -4,27 +4,31 @@ import { resolve } from "node:path";
 import ts from "typescript";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
 import { canonicalizeJson } from "../src/admin/registry.ts";
-import { createPinnedHealthFixture, LIVEZ_IDS, livezContract } from "./fixtures/pinned-health.fixture.ts";
+import { createPinnedHealthFixture, LIVEZ_IDS, livezContract, type LivezId } from "./fixtures/pinned-health.fixture.ts";
 import { readPinnedSource } from "./fixtures/pinned-handler.fixture.ts";
 
-const GET_ID = "GET /livez";
 const TEST_ID = "test/admin-health-source.test.ts";
-let getObservation: { before: null; after: null; result: { status: number; body: string } } | undefined;
+type Observation = { before: null; after: null; result: { status: number; body: string } };
+let observations: Partial<Record<LivezId, Observation>> = {};
 let matcherObserved = false;
 
 afterAll(async () => {
-  if (!getObservation || !matcherObserved) return;
-  const contract = livezContract(GET_ID);
-  // Binding validates the complete contract before any observation is written.
-  const binding = operationEvidenceBinding(GET_ID, contract);
+  if (!matcherObserved) return;
   const caseSha256 = testCaseSourceHash(TEST_ID);
-  const artifactPath = outcomeArtifactPath(GET_ID);
-  await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
-  await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: GET_ID, testId: TEST_ID, caseSha256, binding, observation: getObservation })}\n`, { mode: 0o600 });
-  testOutcomeHash(GET_ID, TEST_ID, caseSha256, binding, contract, artifactPath);
+  for (const id of LIVEZ_IDS) {
+    const observation = observations[id];
+    if (!observation) continue;
+    const contract = livezContract(id);
+    // Binding validates the complete contract before any observation is written.
+    const binding = operationEvidenceBinding(id, contract);
+    const artifactPath = outcomeArtifactPath(id);
+    await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+    await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: id, testId: TEST_ID, caseSha256, binding, observation })}\n`, { mode: 0o600 });
+    testOutcomeHash(id, TEST_ID, caseSha256, binding, contract, artifactPath);
+  }
 });
 
-test("pinned proxy matcher excludes the exact GET liveness route", () => {
+test("pinned proxy matcher excludes the exact liveness route", () => {
   const source = ts.createSourceFile("src/proxy.ts", readPinnedSource("src/proxy.ts"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const declaration = source.statements.filter(ts.isVariableStatement).flatMap(statement => [...statement.declarationList.declarations])
     .find(item => ts.isIdentifier(item.name) && item.name.text === "config");
@@ -46,7 +50,7 @@ test("pinned proxy matcher excludes the exact GET liveness route", () => {
 
 
 test("pinned livez exports implement distinct GET and HEAD response contracts without handler authorization", async () => {
-  let observed: typeof getObservation;
+  const observed: Partial<Record<LivezId, Observation>> = {};
   const fixture = createPinnedHealthFixture();
   try {
     expect(fixture.live.dynamic).toBe("force-dynamic");
@@ -58,8 +62,8 @@ test("pinned livez exports implement distinct GET and HEAD response contracts wi
       expect(contract.request.body).toBeNull();
       expect(contract.request.pathSchema).toEqual({ type: "object", properties: {}, additionalProperties: false });
       expect(contract.request.querySchema).toEqual({ type: "object", properties: {}, additionalProperties: false });
-      expect(contract.auth.sourcePolicy).toEqual(method === "GET" ? { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } : { status: "unknown" });
-      if (method === "GET") expect(contract.auth.domain).toBe("public");
+      expect(contract.auth.sourcePolicy).toEqual({ status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] });
+      expect(contract.auth.domain).toBe("public");
       expect(contract.sideEffect).toBe("read");
       expect(contract.confirmation.required).toBe(false);
       expect(contract.response.statusCodes).toEqual(["200"]);
@@ -70,6 +74,7 @@ test("pinned livez exports implement distinct GET and HEAD response contracts wi
       expect(contract.response.variants).toHaveLength(1);
       const variant = contract.response.variants[0];
       expect(variant?.statusCode).toBe("200");
+      if (method === "HEAD") expect(variant?.body).toBe("empty");
       expect(variant?.content).toHaveLength(1);
       expect(variant?.content[0]).toMatchObject({ mediaType: "text/plain", schema: method === "GET" ? { type: "string", const: "ok\n" } : null });
       expect(variant?.headers).toEqual({
@@ -86,9 +91,9 @@ test("pinned livez exports implement distinct GET and HEAD response contracts wi
       if (method === "HEAD") expect(response.body).toBeNull();
       const body = await response.text();
       expect(body).toBe(method === "GET" ? "ok\n" : "");
-      if (method === "GET") observed = { before: null, after: null, result: { status: response.status, body } };
+      observed[id] = { before: null, after: null, result: { status: response.status, body } };
     }
-    getObservation = observed;
+    observations = observed;
   } finally {
     fixture.stop();
   }

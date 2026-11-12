@@ -4,6 +4,17 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Support explicit source-proven empty-body HEAD response variants and a qualified
+  transport that preserves headers without downloading an entity. Unresolved
+  return branches cannot establish empty-body evidence; resolved re-exports retain
+  their evidence. HEAD qualification still requires separate handler and ingress
+  observations rather than borrowing GET results.
+
+- Qualify HEAD `/livez` with separate pinned-handler outcomes and fresh isolated
+  framework ingress for anonymous, invalid-credential, and session requests.
+  Refresh affected existing receipts from newly executed handler observations.
+  This brings qualified operations to 20; other operations retain their gates.
+
 - Extend separately source-bound ingress policy observations to fallback-chain,
   provider-node, and provider cc-alias reads. These reachability controls do not
   establish real handler authorization, persistence, or cold database lifecycle.

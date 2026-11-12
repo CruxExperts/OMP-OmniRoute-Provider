@@ -258,6 +258,7 @@
       "required": ["statusCode", "content", "headers"],
       "properties": {
         "statusCode": {"type": "string", "minLength": 1},
+        "body": {"const": "empty"},
         "content": {"type": "array", "items": {"$ref": "#/$defs/contentVariant"}},
         "headers": {"type": "object", "additionalProperties": {"$ref": "#/$defs/responseHeader"}},
         "sourceFiles": {"type": "array", "items": {"type": "string", "pattern": "^(?:src|packages)/.+\\.tsx?$"}, "uniqueItems": true}

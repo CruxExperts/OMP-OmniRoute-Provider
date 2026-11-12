@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1049,
-    "invokableOperations": 19,
+    "invokableOperations": 20,
     "methodCounts": {
       "DELETE": 111,
       "GET": 485,
@@ -18,14 +18,14 @@
     "routeFiles": 798,
     "sourceOperations": 1292,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1257
+    "unqualifiedOperations": 1256
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "3ebc88b47c0321f89ff1949d0afc11d0e75c195f0c9d24ac4cc67533ff737628",
+    "eligibilitySha256": "f9100a44a9a3ce3a7da9d2fb03819b9ce18d0927302d97441d995d23e168a3d1",
     "manifest": "provenance/route-sources.json",
-    "manifestSha256": "488497bd136c5f05f2b8782aab4cae82fefdeca986abf59317655bd9fc067585",
+    "manifestSha256": "871e4e8c3da3a057fa1c2d468be542417cd3f631f855c21ee5484571d061ad6f",
     "sourceCorpusFileCount": 4806
   },
   "operations": [
@@ -6575,10 +6575,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
+          "caseSha256": "b85636158f10e85c88edfe1633bb3f0efa99cb35ac5dd7dda00f806e70369dc3",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "14f63b64278d8d37635bc4210498bfacb45dafec4e9fec4298366536a71a4eef"
         }
@@ -12020,10 +12020,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
+          "caseSha256": "7e68e7f26b3f13fec1ce359d66be7bede6555369306bd1e50f1d36ec8dfe2faa",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
         }
@@ -28573,10 +28573,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
+          "caseSha256": "cf34c19add7f49930e3d9f9356c44179fbace857895a6389b9cd0d3b65e6dbd9",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
         }
@@ -29272,10 +29272,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
+          "caseSha256": "cf34c19add7f49930e3d9f9356c44179fbace857895a6389b9cd0d3b65e6dbd9",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
         }
@@ -29726,10 +29726,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
+          "caseSha256": "cf34c19add7f49930e3d9f9356c44179fbace857895a6389b9cd0d3b65e6dbd9",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
         }
@@ -41629,10 +41629,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
+          "caseSha256": "b85636158f10e85c88edfe1633bb3f0efa99cb35ac5dd7dda00f806e70369dc3",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "8b6ca9dc08737d82eeee804574256c9083b23ccbc63a6e6a8f10425713d31e3f"
         }
@@ -44819,10 +44819,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
+          "caseSha256": "b85636158f10e85c88edfe1633bb3f0efa99cb35ac5dd7dda00f806e70369dc3",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "5e26fc35344baf9007098e4b84029c35b129a04963c7f1c5427a4bed84cabf0b"
         }
@@ -46168,10 +46168,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
+          "caseSha256": "b85636158f10e85c88edfe1633bb3f0efa99cb35ac5dd7dda00f806e70369dc3",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "074217cb5afd62c31405ae76f401a1cc5891a4740eafb41b42b40ca8ec8a87c9"
         }
@@ -47468,10 +47468,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
+          "caseSha256": "b85636158f10e85c88edfe1633bb3f0efa99cb35ac5dd7dda00f806e70369dc3",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "041a6ed0b38afd0bff89ff4815f5f9fae318db04b9022c5f3d0babe400154af6"
         }
@@ -50146,10 +50146,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
+          "caseSha256": "b85636158f10e85c88edfe1633bb3f0efa99cb35ac5dd7dda00f806e70369dc3",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "e2cd04eab301bdec57941938283e8fa9cbb4455b8add9ff4a1c45d5948eaa0b9"
         }
@@ -60794,10 +60794,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "2c4c04807720ad04368779bdb94030bab5bd52db1380b7140849737ee6dbff61",
+          "caseSha256": "663e31e9e8cb6e142b40c793e659d1eebd4fe524bda07920e09f02e39180cf3c",
           "id": "test/admin-fallback-chains.test.ts",
           "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
         }
@@ -65095,10 +65095,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "aee17441e707f8dc215240fbce9cbfebec829baa5a1d166944ff47efcd336620",
+          "caseSha256": "ad15091af19b73ae282e188e9ee8ca880cc474e81bfc5d14e88bda96da7aa82c",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -65328,10 +65328,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "a875a873be81d72c9e0b0b85348db8027d6b99f35a91ff9fbd548d1b046a276e",
+          "caseSha256": "9ef3202632650ec13cab405b3c27219cd02c501375c7275e67ea6afbbb980624",
           "id": "test/admin-degradation.test.ts",
           "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
         }
@@ -76531,10 +76531,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "156377aa677214c81cab8089c98b9c450130f9b704e2be21ee9993e5d4eef91d",
+          "caseSha256": "5759639cba437b1958c4e1dafc6a5fcb582f9c6d733cee9d1901cc84985a2477",
           "id": "test/admin-model-capability-overrides.test.ts",
           "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
         }
@@ -77274,10 +77274,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
+          "caseSha256": "7e68e7f26b3f13fec1ce359d66be7bede6555369306bd1e50f1d36ec8dfe2faa",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
         }
@@ -77986,10 +77986,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
+          "caseSha256": "7e68e7f26b3f13fec1ce359d66be7bede6555369306bd1e50f1d36ec8dfe2faa",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
         }
@@ -148848,10 +148848,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "87901fcb5b7f332158dc2919e1a54e6d8271166dc3c2033ca776395132141cd2",
+          "caseSha256": "f4192f1f788427d8f47913e3db226093ba3dda82635398c2614aeef6579989ca",
           "id": "test/admin-health-source.test.ts",
           "outcomeSha256": "1844a34f4ed08002e481ae0a9758ebed6f9edd2d4cf1e39eeeb8942a67742f28"
         }
@@ -149072,7 +149072,7 @@
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "application/json"
       },
       "method": "HEAD",
       "mutationSafety": null,
@@ -149100,10 +149100,28 @@
         "specificationDocumented": false
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "application/json",
         "schema": null,
-        "statusCodes": [],
-        "variants": []
+        "statusCodes": [
+          "200"
+        ],
+        "variants": [
+          {
+            "body": "empty",
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": null,
+                "sourceFile": "src/app/api/v1/models/route.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/v1/models/route.ts"
+            ],
+            "statusCode": "200"
+          }
+        ]
       },
       "retry": {
         "allowed": false,
@@ -149127,6 +149145,11 @@
             "authority": "source",
             "code": "undocumented-source-operation",
             "detail": "Exported handler method is absent from the pinned OpenAPI specification; request/response behavior remains unqualified."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/v1/models/route.ts establishes HTTP 200 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           }
         ],
         "documented": false,
@@ -149157,7 +149180,7 @@
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "application/json"
       },
       "method": "HEAD",
       "mutationSafety": null,
@@ -149185,10 +149208,28 @@
         "specificationDocumented": false
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "application/json",
         "schema": null,
-        "statusCodes": [],
-        "variants": []
+        "statusCodes": [
+          "200"
+        ],
+        "variants": [
+          {
+            "body": "empty",
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": null,
+                "sourceFile": "src/app/api/v1/models/health/route.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/v1/models/health/route.ts"
+            ],
+            "statusCode": "200"
+          }
+        ]
       },
       "retry": {
         "allowed": false,
@@ -149212,6 +149253,11 @@
             "authority": "source",
             "code": "undocumented-source-operation",
             "detail": "Exported handler method is absent from the pinned OpenAPI specification; request/response behavior remains unqualified."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/v1/models/health/route.ts establishes HTTP 200 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           }
         ],
         "documented": false,
@@ -149242,7 +149288,7 @@
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "application/json"
       },
       "method": "HEAD",
       "mutationSafety": null,
@@ -149270,10 +149316,28 @@
         "specificationDocumented": false
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "application/json",
         "schema": null,
-        "statusCodes": [],
-        "variants": []
+        "statusCodes": [
+          "200"
+        ],
+        "variants": [
+          {
+            "body": "empty",
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": null,
+                "sourceFile": "src/app/api/v1/models/query/route.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/v1/models/query/route.ts"
+            ],
+            "statusCode": "200"
+          }
+        ]
       },
       "retry": {
         "allowed": false,
@@ -149297,6 +149361,11 @@
             "authority": "source",
             "code": "undocumented-source-operation",
             "detail": "Exported handler method is absent from the pinned OpenAPI specification; request/response behavior remains unqualified."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/v1/models/query/route.ts establishes HTTP 200 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           }
         ],
         "documented": false,
@@ -149327,7 +149396,7 @@
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "application/json"
       },
       "method": "HEAD",
       "mutationSafety": null,
@@ -149370,10 +149439,28 @@
         "specificationDocumented": false
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "application/json",
         "schema": null,
-        "statusCodes": [],
-        "variants": []
+        "statusCodes": [
+          "200"
+        ],
+        "variants": [
+          {
+            "body": "empty",
+            "content": [
+              {
+                "mediaType": "application/json",
+                "schema": null,
+                "sourceFile": "src/app/api/v1/models/[...model]/route.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/api/v1/models/[...model]/route.ts"
+            ],
+            "statusCode": "200"
+          }
+        ]
       },
       "retry": {
         "allowed": false,
@@ -149397,6 +149484,11 @@
             "authority": "source",
             "code": "undocumented-source-operation",
             "detail": "Exported handler method is absent from the pinned OpenAPI specification; request/response behavior remains unqualified."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/v1/models/[...model]/route.ts establishes HTTP 200 with application/json; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           }
         ],
         "documented": false,
@@ -149805,24 +149897,31 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "public",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "anonymous"
+            }
+          ],
+          "routeClass": "public",
+          "source": "omniroute-v3.8.53",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "The pinned handler only constructs a fixed process-alive response.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.head.livez",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "text/plain"
       },
       "method": "HEAD",
       "mutationSafety": null,
@@ -149832,6 +149931,28 @@
         "parameters": []
       },
       "pathTemplate": "/livez",
+      "qualification": {
+        "binding": {
+          "authSha256": "d0ddb8822e329887f262e81f63fb392403deae3c4d512f0ca461ad7521916894",
+          "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+          "handlerGitBlobSha": "d82f2dbee9a0595370cfd24a680c17cf129faa30",
+          "handlerSha256": "fffec80c186ddfee8e8a9e8cd251ea4a177df834e5d5c519bee1943b443fad7e",
+          "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "operationSemanticsSha256": "5392d5fa5c4e1c1ba402510a540a9327d50323018990205e5c6fcdbf7dedec5f",
+          "requestSchemaSha256": "176d023976df93ad0768fd4e26cd4e9d22fe97ac5d376f48fbef972a41913063",
+          "responseProjectionSha256": "d0cdca761ff2caa0ffb26ac4a845a95e3429ff5bbf98ff549d36492a42650da3",
+          "routeImportsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
+        "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "test": {
+          "caseSha256": "f4192f1f788427d8f47913e3db226093ba3dda82635398c2614aeef6579989ca",
+          "id": "test/admin-health-source.test.ts",
+          "outcomeSha256": "f4c247fd87795d3895c298eed058e66bb065eb97f4f6703059ac06a5d6f93c40"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -149850,10 +149971,56 @@
         "specificationDocumented": false
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "text/plain",
         "schema": null,
-        "statusCodes": [],
-        "variants": []
+        "statusCodes": [
+          "200"
+        ],
+        "variants": [
+          {
+            "body": "empty",
+            "content": [
+              {
+                "mediaType": "text/plain",
+                "schema": null,
+                "sourceFile": "src/app/livez/route.ts"
+              }
+            ],
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "content-length": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "3"
+                  ],
+                  "type": "string"
+                }
+              },
+              "content-type": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "text/plain; charset=utf-8"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
+            "sourceFiles": [
+              "src/app/livez/route.ts"
+            ],
+            "statusCode": "200"
+          }
+        ]
       },
       "retry": {
         "allowed": false,
@@ -149864,7 +150031,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/livez/route.ts",
@@ -149877,6 +150044,11 @@
             "authority": "source",
             "code": "undocumented-source-operation",
             "detail": "Exported handler method is absent from the pinned OpenAPI specification; request/response behavior remains unqualified."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/livez/route.ts establishes HTTP 200 with text/plain; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           }
         ],
         "documented": false,
@@ -149884,8 +150056,8 @@
         "path": null
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "text/plain",
+        "mode": "text"
       }
     },
     {
@@ -199978,10 +200150,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
+          "caseSha256": "7e68e7f26b3f13fec1ce359d66be7bede6555369306bd1e50f1d36ec8dfe2faa",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
         }
@@ -290181,10 +290353,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "ingressSha256": "f2e32eb38796b65a2626479b25c76d9fce4b46c85ceaa37a6e30fe3aff531a3b",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
+          "caseSha256": "7e68e7f26b3f13fec1ce359d66be7bede6555369306bd1e50f1d36ec8dfe2faa",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
         }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "recordKind": "omniroute-content-addressed-source",
-  "rootSha256": "488497bd136c5f05f2b8782aab4cae82fefdeca986abf59317655bd9fc067585",
+  "rootSha256": "871e4e8c3da3a057fa1c2d468be542417cd3f631f855c21ee5484571d061ad6f",
   "root": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "schemaVersion": 2,
@@ -281778,7 +281778,15 @@
           ]
         },
         "gitBlobSha": "a24816a4e0c36c185d65cad94e38708724d5ec22",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "HEAD",
+            "statusCode": "200",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/v1/models/[...model]/route.ts",
+            "body": "empty"
+          }
+        ],
         "centralResponseHints": [],
         "resolvedImports": {
           "$sequenceChunks": [
@@ -282050,7 +282058,15 @@
           ]
         },
         "gitBlobSha": "2d0b1d45a9dd7876677ef1a3f77ccc9a6609c643",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "HEAD",
+            "statusCode": "200",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/v1/models/health/route.ts",
+            "body": "empty"
+          }
+        ],
         "centralResponseHints": [
           {
             "method": "GET",
@@ -282448,7 +282464,15 @@
           ]
         },
         "gitBlobSha": "e7c4ed486a12f3312039c7bb95c9c7c0f274f03e",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "HEAD",
+            "statusCode": "200",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/v1/models/query/route.ts",
+            "body": "empty"
+          }
+        ],
         "centralResponseHints": [
           {
             "method": "GET",
@@ -282809,7 +282833,15 @@
           ]
         },
         "gitBlobSha": "babb86da5a8150bc52623021cfc9d574866eaddb",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "HEAD",
+            "statusCode": "200",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/v1/models/route.ts",
+            "body": "empty"
+          }
+        ],
         "centralResponseHints": [
           {
             "method": "GET",
@@ -305846,6 +305878,13 @@
             "statusCode": "200",
             "mediaType": "text/plain",
             "sourceFile": "src/app/livez/route.ts"
+          },
+          {
+            "method": "HEAD",
+            "statusCode": "200",
+            "mediaType": "text/plain",
+            "sourceFile": "src/app/livez/route.ts",
+            "body": "empty"
           }
         ],
         "centralResponseHints": [],

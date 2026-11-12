@@ -223,7 +223,8 @@ test("response union branches preserve identifier roles without promoting struct
 
 test("empty-body operations do not accept missing declared JSON responses", () => {
   const descriptor = fixtureOperation();
-  expect(projectResponse({ ...descriptor, response: { ...descriptor.response, schema: null } }, undefined)).toBeUndefined();
+  expect(() => projectResponse({ ...descriptor, response: { ...descriptor.response, schema: null } }, undefined)).toThrow();
+  expect(projectResponse({ ...descriptor, response: { ...descriptor.response, variants: [{ statusCode: "200", content: [], headers: {}, body: "empty" }] } }, undefined)).toBeUndefined();
   expect(() => projectResponse(descriptor, undefined)).toThrow();
 });
 
@@ -278,12 +279,14 @@ test("generated liveness qualification retains its ingress digest for runtime el
   const release = JSON.parse(readFileSync(new URL("../contracts/release-eligibility.json", import.meta.url), "utf8")) as {
     operations: { operationId: string; ingressEvidence?: { sha256: string } }[];
   };
-  const evidence = release.operations.find(item => item.operationId === "GET /livez")?.ingressEvidence;
-  expect(evidence?.sha256).toMatch(/^[a-f0-9]{64}$/);
-  const registry = new OperationRegistry();
-  const operation = registry.getOperation("GET /livez");
-  expect(operation?.qualification?.ingressSha256).toBe(evidence?.sha256);
-  expect(registry.require("GET /livez").eligibility.status).toBe("verified");
+  for (const operationId of ["GET /livez", "HEAD /livez"]) {
+    const evidence = release.operations.find(item => item.operationId === operationId)?.ingressEvidence;
+    expect(evidence?.sha256).toMatch(/^[a-f0-9]{64}$/);
+    const registry = new OperationRegistry();
+    const operation = registry.getOperation(operationId);
+    expect(operation?.qualification?.ingressSha256).toBe(evidence?.sha256);
+    expect(registry.require(operationId).eligibility.status).toBe("verified");
+  }
 });
 
 test("liveness eligibility requires matching ingress evidence in the document and qualification", async () => {

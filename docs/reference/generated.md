@@ -142,5 +142,5 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | dashboard/providers | 0 | 7 | 0 |
 | docs/api | 0 | 0 | 1 |
 | healthz | 0 | 2 | 0 |
-| livez | 1 | 1 | 0 |
+| livez | 2 | 0 | 0 |
 | readyz | 0 | 2 | 0 |

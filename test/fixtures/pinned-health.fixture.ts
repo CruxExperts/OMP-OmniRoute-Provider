@@ -48,16 +48,16 @@ export function createPinnedHealthFixture() {
 export const LIVEZ_IDS = ["GET /livez", "HEAD /livez"] as const;
 export type LivezId = (typeof LIVEZ_IDS)[number];
 
-/** Source-reviewed GET candidate; framework ingress still requires independent qualification. HEAD remains source-only. */
+/** Source-reviewed candidates; framework ingress still requires independent qualification. */
 export function livezContract(id: LivezId): OperationSourceContract {
   const template = operationContractTemplate(id) as unknown as OperationSourceContract;
   const get = id === "GET /livez";
   const schema: JsonSchema | null = get ? { type: "string", const: "ok\n" } : null;
   return {
     ...template,
-    // The pinned proxy matcher excludes /livez and the pinned GET handler has no authorization guard.
-    auth: get ? { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } } : { ...template.auth, sourcePolicy: { status: "unknown" } },
-    response: get ? {
+    // The pinned proxy matcher excludes /livez and neither pinned handler has an authorization guard.
+    auth: { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } },
+    response: {
       ...template.response, schema,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema })), headers: {
         ...variant.headers,
@@ -65,13 +65,6 @@ export function livezContract(id: LivezId): OperationSourceContract {
         "content-length": { required: true, schema: { type: "string", enum: ["3"] } },
         "content-type": { required: true, schema: { type: "string", enum: ["text/plain; charset=utf-8"] } },
       } })),
-    } : {
-      statusCodes: ["200"], mediaType: "text/plain", schema,
-      variants: [{ statusCode: "200", content: [{ mediaType: "text/plain", schema }], headers: {
-        "cache-control": { required: true, schema: { type: "string", enum: ["no-store"] } },
-        "content-length": { required: true, schema: { type: "string", enum: ["3"] } },
-        "content-type": { required: true, schema: { type: "string", enum: ["text/plain; charset=utf-8"] } },
-      } }],
     },
     secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "text", framing: "text/plain" },

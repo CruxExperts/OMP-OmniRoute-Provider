@@ -136,6 +136,7 @@ export interface OperationRequest {
 export interface OperationResponseVariant {
   readonly statusCode: string;
   readonly content: readonly OperationContentVariant[];
+  readonly body?: "empty";
   readonly headers: Readonly<Record<string, { readonly required: boolean; readonly schema: JsonSchema | null }>>;
   readonly sourceFiles?: readonly string[];
 }
@@ -1158,6 +1159,7 @@ function projectNode(
 }
 
 function projectJsonResponse(descriptor: OperationDescriptor, response: unknown, privateTarget: boolean): unknown {
+  if (response === undefined && descriptor.response.variants.some(variant => variant.body === "empty")) return undefined;
   if (descriptor.streaming.mode === "text") {
     const schema = descriptor.response.schema;
     // Free-form text can carry secrets even when the server performs pattern redaction.
@@ -1166,7 +1168,6 @@ function projectJsonResponse(descriptor: OperationDescriptor, response: unknown,
       throw new RegistryError("invalid-inventory", "text response lacks a finite source-reviewed projection", descriptor.operationId);
     }
   }
-  if (response === undefined && descriptor.response.schema === null) return undefined;
   assertJsonValue(response, "response");
   if (Buffer.byteLength(JSON.stringify(response), "utf8") > 8 * 1024 * 1024) throw new RegistryError("invalid-inventory", "response size limit exceeded", descriptor.operationId);
   return projectNode(response, descriptor.response.schema, descriptor, undefined, 0, privateTarget, []);

@@ -66,6 +66,7 @@ export interface RegisteredOperation {
   readonly pathTemplate: string;
   readonly mediaType?: { request?: string | null; response: string | null };
   readonly request?: Pick<OperationRequest, "pathParameters" | "body">;
+  readonly response?: { readonly variants: readonly { readonly statusCode: string; readonly body?: "empty" }[] };
   readonly streaming?: { mode: "json" | "text" | "sse" | "websocket" | "binary" | "unknown"; framing: string };
   readonly auth?: { domain: string };
   readonly coverage?: { status: "invokable" | "unqualified" | "non-invokable" | "operator-required" };
@@ -378,6 +379,34 @@ export async function invokeJsonAdapter(invocation: AdapterInvocation): Promise<
   }
 }
 
+/** HEAD metadata never carries an entity, even when Content-Length describes a large GET. */
+export async function invokeHeadAdapter(invocation: AdapterInvocation): Promise<AdapterResponse> {
+  if (adapterFor(invocation.descriptor) !== "head" || invocation.body !== undefined) {
+    throw new AdminAdapterError("adapter_unavailable", "operation has no qualified HEAD adapter");
+  }
+  const lifetime = await fetchTyped(invocation);
+  try {
+    const response = lifetime.response;
+    // A non-conforming transport may supply a body; discard it without reading or waiting
+    // on cancellation, which can itself stall or reject.
+    if (response.body) void response.body.cancel().catch(() => undefined);
+    if (lifetime.signal.aborted) {
+      throw new AdminAdapterError(invocation.signal?.aborted ? "cancelled" : "timeout",
+        invocation.signal?.aborted ? "administration request cancelled" : "administration request timed out");
+    }
+    const variants = invocation.descriptor.response!.variants;
+    const variant = variants.find(item => item.statusCode === String(response.status))
+      ?? variants.find(item => item.statusCode.toUpperCase() === `${Math.floor(response.status / 100)}XX`)
+      ?? variants.find(item => item.statusCode === "default");
+    if (response.status < 400 && variant?.body !== "empty") {
+      throw new AdminAdapterError("invalid_payload", "HEAD response status has no explicit empty-body contract", response.status);
+    }
+    return { status: response.status, headers: Object.fromEntries(response.headers.entries()) };
+  } finally {
+    lifetime.dispose();
+  }
+}
+
 /** Text is accepted only for a closed, qualified bodyless read; projection happens in the registry. */
 export async function invokeTextAdapter(invocation: AdapterInvocation): Promise<AdapterResponse> {
   if (adapterFor(invocation.descriptor) !== "text" || invocation.body !== undefined) {
@@ -572,10 +601,13 @@ export async function writeProtectedFile(input: string, bytes: Uint8Array): Prom
 }
 
 /** Select only an explicitly qualified protocol adapter; unknown metadata is never guessed. */
-export function adapterFor(descriptor: RegisteredOperation): "json" | "text" | "multipart" | "binary" | "sse" | "websocket" | "operator-required" | "unavailable" {
+export function adapterFor(descriptor: RegisteredOperation): "json" | "text" | "head" | "multipart" | "binary" | "sse" | "websocket" | "operator-required" | "unavailable" {
   ensureDescriptor(descriptor);
   if (descriptor.coverage?.status === "operator-required") return "operator-required";
   if (typeof descriptor.adapterId !== "string") return "unavailable";
+  if (descriptor.method === "HEAD") return descriptor.coverage?.status === "invokable"
+    && descriptor.request?.body === null && (descriptor.mediaType?.request ?? null) === null
+    && descriptor.response?.variants.some(variant => /^2(?:\d\d|XX)$/i.test(variant.statusCode) && variant.body === "empty") ? "head" : "unavailable";
   const request = descriptor.request?.body?.mediaType ?? descriptor.mediaType?.request ?? null;
   const response = descriptor.mediaType?.response?.split(";", 1)[0]?.trim().toLowerCase();
   const mode = descriptor.streaming?.mode ?? "unknown";

@@ -362,9 +362,9 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const release = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
   const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
   const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
-  const livenessSource = operationId === "GET /livez" ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
+  const livenessSource = (operationId === "GET /livez" || operationId === "HEAD /livez") ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || (operationId === "GET /livez" ? livenessSource?.originalSha256 : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : operationId === "GET /api/model-capability-overrides" ? added["src/app/api/model-capability-overrides/route.ts"] : Object.hasOwn(COMBO_POLICY_SOURCES, operationId) ? added[COMBO_POLICY_SOURCES[operationId]!] : Object.hasOwn(READ_POLICY_SOURCES, operationId) ? added[READ_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
+    || source.archiveSha256 !== manifest.archiveSha256 || (livenessSource !== undefined ? livenessSource.originalSha256 : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : operationId === "GET /api/model-capability-overrides" ? added["src/app/api/model-capability-overrides/route.ts"] : Object.hasOwn(COMBO_POLICY_SOURCES, operationId) ? added[COMBO_POLICY_SOURCES[operationId]!] : Object.hasOwn(READ_POLICY_SOURCES, operationId) ? added[READ_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
     || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
     throw new Error(`${label} source mismatch`);
   }
@@ -420,6 +420,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const response = { status: 200, body: "ok\n", contentType: "text/plain; charset=utf-8", cacheControl: "no-store", contentLength: "3", routeClass: null };
     const expectedLiveness = { method: "GET", path: "/livez", matcher: "not-matched", proxyIdentity: { originalSha256: added["src/proxy.ts"], executedSha256: added["src/proxy.ts"] }, cases: { anonymous: response, invalidCredential: response, session: response } };
     if (!isRecord(artifact.publicLivenessHttp) || canonicalJson(toJson(artifact.publicLivenessHttp, label)) !== canonicalJson(toJson(expectedLiveness, label))) throw new Error(`${label} liveness observation mismatch`);
+  }
+  if (operationId === "HEAD /livez") {
+    const response = { status: 200, body: "", contentType: "text/plain; charset=utf-8", cacheControl: "no-store", contentLength: "3", routeClass: null };
+    const expectedLiveness = { method: "HEAD", path: "/livez", matcher: "not-matched", proxyIdentity: { originalSha256: added["src/proxy.ts"], executedSha256: added["src/proxy.ts"] }, cases: { anonymous: response, invalidCredential: response, session: response } };
+    if (!isRecord(artifact.publicLivenessHeadHttp) || canonicalJson(toJson(artifact.publicLivenessHeadHttp, label)) !== canonicalJson(toJson(expectedLiveness, label))) throw new Error(`${label} liveness HEAD observation mismatch`);
   }
   if (operationId === "GET /api/health/degradation") {
     const expectedDegradation = { method: "GET", path: "/api/health/degradation", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, empty: { status: 200, summary: { full: 0, reduced: 0, minimal: 0, default: 0 } }, populated: { status: 200, summary: { full: 1, reduced: 1, minimal: 0, default: 1 }, levels: ["default", "reduced", "full"] }, summaryTrue: { status: 200, bodyKeys: ["isDegraded", "summary"] }, summaryFalseAndCapitalTrueReturnFullReport: true, recovery: { status: 200, summary: { full: 3, reduced: 0, minimal: 0, default: 0 }, active: false }, handlerFailure: "unobserved" };
@@ -766,6 +771,7 @@ type SourceResponseHint = {
   sourceFiles: string[];
   mediaType: string;
   contentSourceFile: string;
+  body?: "empty";
   pipelineKind?: "draining" | "ip-deny";
 };
 
@@ -773,6 +779,7 @@ type SourceResponseVariant = {
   statusCode: string;
   content: Json[];
   headers: Json;
+  body?: "empty";
   sourceFiles?: string[];
 };
 
@@ -990,11 +997,11 @@ function sourceResponseHints(
     requireString(value, `${operationId}.resolvedImports[${index}]`));
   const importSet = new Set(imports);
   const hints: SourceResponseHint[] = [];
-  const addHandler = (statusCode: string, sourceFiles: string[], contentSourceFile: string, mediaType: string): void => {
+  const addHandler = (statusCode: string, sourceFiles: string[], contentSourceFile: string, mediaType: string, body?: "empty"): void => {
     for (const file of sourceFiles) {
       if (file !== routeFile && !importSet.has(file)) throw new Error(`${operationId} response hint source is outside the pinned handler closure: ${file}`);
     }
-    hints.push({ statusCode, sourceFiles: [...new Set(sourceFiles)].sort(compareText), mediaType, contentSourceFile });
+    hints.push({ statusCode, sourceFiles: [...new Set(sourceFiles)].sort(compareText), mediaType, contentSourceFile, ...(body === undefined ? {} : { body }) });
   };
   const addFramework = (statusCode: string, sourceFiles: string[], contentSourceFile: string, mediaType: string): void => {
     for (const file of sourceFiles) {
@@ -1012,12 +1019,13 @@ function sourceResponseHints(
   const retirementFile = "src/lib/providers/chatgptWebRetirementResponse.ts";
   for (const [index, value] of requireArray(route.responseHints, `${routeFile}.responseHints; refresh the pinned source manifest`).entries()) {
     const hint = requireRecord(value, `${routeFile}.responseHints[${index}]`);
-    assertKeys(hint, `${routeFile}.responseHints[${index}]`, ["method", "statusCode", "mediaType", "sourceFile"]);
+    assertKeys(hint, `${routeFile}.responseHints[${index}]`, ["method", "statusCode", "mediaType", "sourceFile"], ["body"]);
     if (!METHODS.includes(hint.method as Method)) throw new Error(`${routeFile} has an invalid source response method`);
     const statusCode = requireString(hint.statusCode, `${routeFile}.responseHints[${index}].statusCode`);
     const mediaType = requireString(hint.mediaType, `${routeFile}.responseHints[${index}].mediaType`);
     const sourceFile = requireString(hint.sourceFile, `${routeFile}.responseHints[${index}].sourceFile`);
     if (!/^[2-5][0-9]{2}$/.test(statusCode) || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) throw new Error(`${routeFile} has malformed source response metadata`);
+    if (hint.body !== undefined && (hint.body !== "empty" || hint.method !== "HEAD" || sourceFile === authFile || sourceFile === retirementFile)) throw new Error(`${routeFile} has invalid empty response evidence`);
     if (hint.method !== method) continue;
     if (sourceFile === authFile) {
       if (!["401", "403", "503"].includes(statusCode) || mediaType !== "application/json") throw new Error(`${operationId} has an unsupported management guard response hint`);
@@ -1025,7 +1033,7 @@ function sourceResponseHints(
     } else if (sourceFile === retirementFile) {
       if (statusCode !== "410" || mediaType !== "application/json") throw new Error(`${operationId} has an unsupported retirement guard response hint`);
       addHandler(statusCode, [routeFile, retirementFile], retirementFile, mediaType);
-    } else addHandler(statusCode, [routeFile, sourceFile], sourceFile, mediaType);
+    } else addHandler(statusCode, [routeFile, sourceFile], sourceFile, mediaType, hint.body as "empty" | undefined);
   }
 
   const routeExports = requireArray(requireRecord(route.exports, `${routeFile}.exports`).resolved, `${routeFile}.exports.resolved`);
@@ -1140,7 +1148,7 @@ function validateCentralResponseHintCoverage(
 }
 
 
-function responseFor(spec: RecordValue | null, operationId: string, sourceHints: SourceResponseHint[]): Json {
+export function responseFor(spec: RecordValue | null, operationId: string, sourceHints: SourceResponseHint[]): Json {
   const variants: SourceResponseVariant[] = [];
   if (spec) {
     const responses = requireRecord(spec.responses, `${operationId}.responses`);
@@ -1191,6 +1199,10 @@ function responseFor(spec: RecordValue | null, operationId: string, sourceHints:
     if (!documentedContent) {
       content.push({ mediaType: hint.mediaType, schema: null, sourceFile: hint.contentSourceFile });
     }
+  }
+  for (const variant of variants) {
+    const matching = sourceHints.filter(hint => hint.statusCode === variant.statusCode);
+    if (matching.length > 0 && matching.every(hint => hint.body === "empty")) variant.body = "empty";
   }
   variants.sort((left, right) => {
     if (left.statusCode === "default") return 1;
@@ -1399,7 +1411,7 @@ function validateEligibility(
   if (requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`) !== expectedOutcomeSha256) {
     throw new Error(`eligibility observed outcome digest mismatch: ${operationId}`);
   }
-  if (operationId === "GET /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId)) {
+  if (operationId === "GET /livez" || operationId === "HEAD /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId)) {
     const ingress = requireRecord(record.ingressEvidence, `${operationId}.eligibility.ingressEvidence`);
     if (typeof ingress.artifact !== "string" || !/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(ingress.artifact)) {
       throw new Error(`eligibility ingress artifact must be retained in provenance: ${operationId}`);
@@ -1563,7 +1575,7 @@ function validateRequestContract(value: unknown, baseValue: unknown, operationId
   }
 }
 
-function validateResponseContract(value: unknown, baseValue: unknown, operationId: string): void {
+export function validateResponseContract(value: unknown, baseValue: unknown, operationId: string): void {
   const response = requireRecord(value, `${operationId}.contract.response`);
   assertKeys(response, `${operationId}.contract.response`, ["statusCodes", "mediaType", "schema", "variants"]);
   const statusCodes = stringList(response.statusCodes, `${operationId}.response.statusCodes`);
@@ -1574,9 +1586,10 @@ function validateResponseContract(value: unknown, baseValue: unknown, operationI
   const successfulTypes = new Set<string>();
   for (const [index, value] of variants.entries()) {
     const variant = requireRecord(value, `${operationId}.response.variants[${index}]`);
-    assertKeys(variant, `${operationId}.response.variant`, ["statusCode", "content", "headers"], ["sourceFiles"]);
+    assertKeys(variant, `${operationId}.response.variant`, ["statusCode", "content", "headers"], ["sourceFiles", "body"]);
     const status = requireString(variant.statusCode, `${operationId}.response.statusCode`);
     if (status !== "default" && !/^[1-5](?:\d{2}|XX)$/.test(status)) throw new Error(`${operationId}.response has unsupported status ${status}`);
+    if (variant.body !== undefined && variant.body !== "empty") throw new Error(`${operationId}.response.body must be empty when present`);
     variantStatuses.push(status);
     if (variant.sourceFiles !== undefined) stringList(variant.sourceFiles, `${operationId}.response.sourceFiles`);
     const content = requireArray(variant.content, `${operationId}.response.content`);
@@ -1614,6 +1627,7 @@ function validateResponseContract(value: unknown, baseValue: unknown, operationI
   for (const [index, item] of variants.entries()) {
     const actual = requireRecord(item, "response variant");
     const expected = requireRecord(baseVariants[index], "base response variant");
+    if (actual.body !== expected.body) throw new Error(`${operationId}.contract alters source-derived response body evidence`);
     const actualTypes = requireArray(actual.content, "response variant content")
       .map(content => requireRecord(content, "response content variant").mediaType);
     const expectedTypes = requireArray(expected.content, "base response content")
@@ -2171,7 +2185,7 @@ function makeOperation(
         caseSha256: requireString(test.caseSha256, `${operationId}.eligibility.test.caseSha256`),
         outcomeSha256: requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`),
       },
-      ...(operationId === "GET /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
+      ...(operationId === "GET /livez" || operationId === "HEAD /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
     };
   }
   return effective;

@@ -9,7 +9,19 @@ export type SourceJsonResponse = {
 };
 
 export type SourceLiteralResponse = SourceJsonResponse & { body: "empty" | "nonempty" | "unknown" };
+export type PublishedSourceResponse = SourceJsonResponse & { body?: "empty" };
+
+export function publishLiteralResponses(responses: SourceLiteralResponse[], method: string, unresolvedReturn = false): PublishedSourceResponse[] {
+  return responses.flatMap(({ body, ...hint }) => {
+    if (method === "HEAD") return [{ ...hint, ...(body === "empty" && !unresolvedReturn ? { body: "empty" as const } : {}) }];
+    return body === "nonempty" ? [hint] : [];
+  });
+}
 type LocalInvocation = { name: string; arguments: (string | undefined)[] };
+
+export function unresolvedResponseExports(local: { handlerFound: boolean; unresolvedReturn: boolean }, imported: boolean[]): boolean {
+  return (local.handlerFound ? local.unresolvedReturn : imported.length === 0) || imported.some(Boolean);
+}
 
 export type ReturnedImportedCall = {
   localName: string;
@@ -28,6 +40,8 @@ export type SourceResponseEvidence = {
   returnedImportedResponseMembers: ReturnedImportedResponseMember[];
   returnedLocalCalls: string[];
   returnedLocalInvocations: LocalInvocation[];
+  handlerFound: boolean;
+  unresolvedReturn: boolean;
 };
 
 export type ManagementPolicyResponse = {
@@ -416,7 +430,7 @@ function collectHandlerEvidence(
   literalConstants: ReadonlyMap<string, string>,
 ): SourceResponseEvidence {
   const body = handler.body;
-  if (!body) return { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [] };
+  if (!body) return { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [], handlerFound: true, unresolvedReturn: true };
   const shadowed = new Set(handler.parameters.flatMap(parameter => bindingNames(parameter.name)));
   if (ts.isFunctionExpression(handler) && handler.name) shadowed.add(handler.name.text);
 
@@ -476,6 +490,7 @@ function collectHandlerEvidence(
   const returnedCalls = new Set<string>();
   const returnedResponseMembers = new Set<string>();
   const returnedLocals = new Set<string>();
+  let unresolvedReturn = false;
 
   const visitAdjacentFailureReturn = (node: ts.Node): void => {
     if (ts.isFunctionLike(node)) return;
@@ -678,6 +693,22 @@ function collectHandlerEvidence(
     }
     return false;
   };
+  const recognizedReturn = (input: ts.Expression): boolean => {
+    const expression = unwrapExpression(input);
+    if (ts.isConditionalExpression(expression)) {
+      const condition = knownCondition(expression.condition);
+      return (condition === false || recognizedReturn(expression.whenTrue))
+        && (condition === true || recognizedReturn(expression.whenFalse));
+    }
+    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)
+      && safeLocalNames.has(expression.expression.text) && !shadowed.has(expression.expression.text)) return true;
+    const saved = [...literalResponses.entries()];
+    literalResponses.clear();
+    addLiteralResponse(expression);
+    const recognized = literalResponses.size > 0;
+    for (const [key, value] of saved) literalResponses.set(key, value);
+    return recognized;
+  };
   const visitReturns = (node: ts.Node): void => {
     if (ts.isFunctionLike(node)) return;
     if (ts.isBlock(node)) {
@@ -697,16 +728,20 @@ function collectHandlerEvidence(
       addJsonResponse(node.expression);
       addLiteralResponse(node.expression);
       collectReturnedCalls(node.expression);
+      if (!recognizedReturn(node.expression)) unresolvedReturn = true;
       return;
     }
+    if (ts.isReturnStatement(node)) { unresolvedReturn = true; return; }
     ts.forEachChild(node, visitReturns);
   };
   if (ts.isBlock(body)) visitReturns(body);
   else {
     addJsonResponse(body);
+    if (!recognizedReturn(body)) unresolvedReturn = true;
     addLiteralResponse(body);
     collectReturnedCalls(body);
   }
+  if (ts.isBlock(body) && !definitelyReturns(body)) unresolvedReturn = true;
 
   return {
     jsonResponses: [...jsonResponses.values()].sort((left, right) =>
@@ -722,6 +757,8 @@ function collectHandlerEvidence(
     }),
     returnedLocalCalls: [...returnedLocals].sort(),
     returnedLocalInvocations: [...returnedLocalInvocations.values()],
+    unresolvedReturn,
+    handlerFound: true,
   };
 }
 
@@ -764,7 +801,7 @@ export function collectSourceResponseEvidence(
   }
 
   const handler = findHandler(source, handlerName);
-  if (!handler) return { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [] };
+  if (!handler) return { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [], handlerFound: false, unresolvedReturn: true };
 
   const localDeclarations = localFunctionDeclarations(source);
   const topLevelBindings = topLevelBindingCounts(source);
@@ -790,6 +827,7 @@ export function collectSourceResponseEvidence(
   const returnedImportedCalls = new Map<string, ReturnedImportedCall>();
   const returnedImportedResponseMembers = new Map<string, ReturnedImportedResponseMember>();
   const visited = new Set<string>();
+  let unresolvedReturn = false;
   const queue: Array<{ handler: Handler; depth: number; args: (string | undefined)[] }> = [{ handler, depth: 0, args: [] }];
   const maxDepth = 16;
   const maxHandlers = 128;
@@ -809,6 +847,7 @@ export function collectSourceResponseEvidence(
     const evidence = collectHandlerEvidence(
       current.handler, sourceFile, publicMethod, constructors, importedBindings, safeLocalNames, safeImportedNames, argumentsByParameter, literalConstants,
     );
+    unresolvedReturn ||= evidence.unresolvedReturn;
     for (const hint of evidence.jsonResponses) {
       jsonResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
     }
@@ -817,7 +856,7 @@ export function collectSourceResponseEvidence(
     for (const member of evidence.returnedImportedResponseMembers) returnedImportedResponseMembers.set(member.localName, member);
     for (const invocation of evidence.returnedLocalInvocations) {
       const declaration = localDeclarations.get(invocation.name)?.[0];
-      if (!declaration || visited.has(`${declaration.pos}\0${JSON.stringify(invocation.arguments)}`)) continue;
+      if (!declaration || visited.has(`${declaration.pos}\0${JSON.stringify(invocation.arguments)}`)) { unresolvedReturn = true; continue; }
       if (current.depth >= maxDepth) throw new Error(`${sourceFile} returned local response helper depth exceeds ${maxDepth}`);
       if (visited.size >= maxHandlers) throw new Error(`${sourceFile} returned local response helper count exceeds ${maxHandlers}`);
       queue.push({ handler: declaration, depth: current.depth + 1, args: invocation.arguments });
@@ -831,6 +870,8 @@ export function collectSourceResponseEvidence(
     returnedImportedCalls: [...returnedImportedCalls.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
     returnedImportedResponseMembers: [...returnedImportedResponseMembers.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
     returnedLocalCalls: [],
+    unresolvedReturn,
+    handlerFound: true,
     returnedLocalInvocations: [],
   };
 }

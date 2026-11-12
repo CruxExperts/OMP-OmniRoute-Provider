@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { allowsEnvironmentOptionalCredentials, loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, type PluginConfig } from "../config.ts";
 import type { OptionalCredentials } from "../credentials.ts";
 import type { DiscoveryBinding } from "../health.ts";
-import { adapterFor, invokeBinaryAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, type AdapterInvocation, type MultipartFile } from "./adapters.ts";
+import { adapterFor, invokeBinaryAdapter, invokeHeadAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, type AdapterInvocation, type MultipartFile } from "./adapters.ts";
 import { createAdminExecutor, type AdminExecutor } from "./executor.ts";
 import { canonicalizeJson, getOperationRegistry, type OperationAdapter, type OperationDescriptor, type OperationReadCompleteness, type OperationReconciliationRelation, type ReconciliationFieldMapping, type ValidatedOperationInput } from "./registry.ts";
 import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "./relations.ts";
@@ -172,6 +172,7 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
     try {
       let result;
       if (kind === "binary") result = await invokeBinaryAdapter(invocation);
+      else if (kind === "head") result = await invokeHeadAdapter(invocation);
       else if (kind === "text") result = await invokeTextAdapter(invocation);
       else if (kind === "sse") result = await invokeSseAdapter(invocation);
       else if (kind === "websocket") result = await invokeWebSocketAdapter(invocation);

@@ -7,10 +7,12 @@ import {
   collectManagementPolicyResponses,
   collectPipelineRejectionWitness,
   collectSourceResponseEvidence,
+  publishLiteralResponses,
+  unresolvedResponseExports,
   collectValidatedJsonBodyFailureResponses,
   type ManagementPolicyResponse,
   type PipelineResponseWitness,
-  type SourceJsonResponse,
+  type PublishedSourceResponse,
   type SourceResponseEvidence,
 } from "./source-response-hints.ts";
 import { addDefaultMigrationInputs, resolvedSourceInputsDigest } from "./runtime-source-inputs.ts";
@@ -40,7 +42,7 @@ type CapturedRoute = {
   classificationReason: string | null;
   exports: { direct: string[]; reExports: string[]; resolved: string[] };
   gitBlobSha: string;
-  responseHints: SourceJsonResponse[];
+  responseHints: PublishedSourceResponse[];
   centralResponseHints: CentralResponseHint[];
   resolvedImports: string[];
   resolvedImportsSha256: string;
@@ -663,10 +665,9 @@ function exportedMethods(file: string, stack = new Set<string>()): { direct: str
 }
 
 /**
- * Preserve returned literal response content and recognized returned-guard responses per exported method.
- * Empty and unresolved constructor bodies cannot be represented by the current response-hint schema.
+ * Preserve recognized responses per exported method, including literal HEAD entity evidence.
  */
-function sourceJsonResponses(file: string, exportName: string, publicMethod: HttpMethod, stack = new Set<string>()): SourceJsonResponse[] {
+function sourceJsonResponses(file: string, exportName: string, publicMethod: HttpMethod, stack = new Set<string>()): { hints: PublishedSourceResponse[]; unresolvedReturn: boolean } {
   const absolute = resolve(file);
   const identity = `${absolute}\0${exportName}`;
   if (stack.has(identity)) throw new Error(`cyclic response export at ${rel(absolute)}#${exportName}`);
@@ -700,19 +701,22 @@ function sourceJsonResponses(file: string, exportName: string, publicMethod: Htt
     }
   }
 
-  const results = new Map<string, SourceJsonResponse>();
-  const add = (hint: SourceJsonResponse): void => {
-    results.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
+  const results = new Map<string, PublishedSourceResponse>();
+  const add = (hint: PublishedSourceResponse): void => {
+    results.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}\0${hint.body ?? "unknown"}`, hint);
   };
-  let evidence: SourceResponseEvidence = { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [] };
+  let evidence: SourceResponseEvidence = { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [], handlerFound: false, unresolvedReturn: true };
   if (!localAliasAmbiguous) {
     evidence = collectSourceResponseEvidence(source, localHandlerName ?? exportName, publicMethod, rel(absolute));
   }
   for (const hint of evidence.jsonResponses) add(hint);
-  for (const { body, ...hint } of evidence.literalResponses) if (body === "nonempty" && publicMethod !== "HEAD") add(hint);
+  for (const hint of publishLiteralResponses(evidence.literalResponses, publicMethod, evidence.unresolvedReturn)) add(hint);
 
+  const importedUnresolved: boolean[] = [];
   for (const imported of importedExports) {
-    for (const hint of sourceJsonResponses(imported.path, imported.sourceName, publicMethod, nextStack)) add(hint);
+    const result = sourceJsonResponses(imported.path, imported.sourceName, publicMethod, nextStack);
+    importedUnresolved.push(result.unresolvedReturn);
+    for (const hint of result.hints) add(hint);
   }
 
   const importedGuardResponses: Record<string, { statusCodes: readonly string[]; sourceFile: string }> = {
@@ -739,8 +743,14 @@ function sourceJsonResponses(file: string, exportName: string, publicMethod: Htt
     if (!helperPath || rel(helperPath) !== "src/shared/validation/helpers.ts") continue;
     for (const hint of collectValidatedJsonBodyFailureResponses(readSource(helperPath).source, rel(helperPath), publicMethod)) add(hint);
   }
-  return [...results.values()].sort((left, right) =>
+  const unresolvedReturn = localAliasAmbiguous || unresolvedResponseExports(evidence, importedUnresolved);
+  const hints = [...results.values()].map(hint => {
+    if (publicMethod !== "HEAD" || !unresolvedReturn) return hint;
+    const { body: _body, ...unresolved } = hint;
+    return unresolved;
+  }).sort((left, right) =>
     compareText(left.statusCode, right.statusCode) || compareText(left.mediaType, right.mediaType) || compareText(left.sourceFile, right.sourceFile));
+  return { hints, unresolvedReturn };
 }
 const frameworkEntryPaths = ["src/proxy.ts", "next.config.mjs", "src/instrumentation.ts"]
   .map(path => resolve(sourceRoot, path));
@@ -841,7 +851,7 @@ for (const absolute of routePaths) {
     classificationReason,
     exports,
     gitBlobSha: sourceHash.gitBlobSha,
-    responseHints: exports.resolved.flatMap(method => sourceJsonResponses(absolute, method, method as HttpMethod)),
+    responseHints: exports.resolved.flatMap(method => sourceJsonResponses(absolute, method, method as HttpMethod).hints),
     centralResponseHints: [],
     resolvedImports,
     resolvedImportsSha256: sourceDigestFor(resolvedImports),

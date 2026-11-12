@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as ts from "typescript";
-import { collectManagementPolicyResponses, collectSourceResponseEvidence, collectValidatedJsonBodyFailureResponses } from "../scripts/source-response-hints.ts";
+import { collectManagementPolicyResponses, collectSourceResponseEvidence, collectValidatedJsonBodyFailureResponses, publishLiteralResponses, unresolvedResponseExports } from "../scripts/source-response-hints.ts";
 
 function parseFixture(text: string): ts.SourceFile {
   return ts.createSourceFile("fixture.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -91,6 +91,63 @@ describe("source response hint collector", () => {
     const post = collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts");
     expect(post.literalResponses).toEqual([]);
     expect(post.jsonResponses).toEqual([{ method: "POST", statusCode: "201", mediaType: "application/json", sourceFile: "fixture.ts" }]);
+  });
+
+  test("publishes HEAD empty evidence but never mistakes unresolved bodies for empty", () => {
+    const source = parseFixture(`
+      export function HEAD(body: string | null) {
+        if (body) return new Response(body, { status: 201, headers: { "Content-Type": "text/plain" } });
+        return new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      export function GET() { return new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } }); }
+    `);
+    const head = collectSourceResponseEvidence(source, "HEAD", "HEAD", "fixture.ts").literalResponses;
+    expect(publishLiteralResponses(head, "HEAD")).toEqual(expect.arrayContaining([
+      { method: "HEAD", statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts", body: "empty" },
+      { method: "HEAD", statusCode: "201", mediaType: "text/plain", sourceFile: "fixture.ts" },
+    ]));
+    const get = collectSourceResponseEvidence(source, "GET", "GET", "fixture.ts").literalResponses;
+    expect(publishLiteralResponses(get, "GET")).toEqual([
+      { method: "GET", statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts" },
+    ]);
+  });
+
+  test("unresolved returned branches prevent status-wide empty claims", () => {
+    for (const expression of [
+      'new Response("payload", { status: 200, headers: { "Content-Type": type } })',
+      'externalResponse()',
+    ]) {
+      const source = parseFixture(`
+        import { externalResponse } from "./external";
+        export function HEAD(type: string, condition: boolean) {
+          if (condition) return ${expression};
+          return new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } });
+        }
+      `);
+      const evidence = collectSourceResponseEvidence(source, "HEAD", "HEAD", "fixture.ts");
+      expect(evidence.unresolvedReturn).toBe(true);
+      expect(publishLiteralResponses(evidence.literalResponses, "HEAD", evidence.unresolvedReturn)).toEqual([
+        { method: "HEAD", statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts" },
+      ]);
+    }
+    const source = parseFixture(`
+      function response(method: string) { return new Response(method === "HEAD" ? null : "ok", { status: 200, headers: { "Content-Type": "text/plain" } }); }
+      export function HEAD() { return response("HEAD"); }
+    `);
+    const evidence = collectSourceResponseEvidence(source, "HEAD", "HEAD", "fixture.ts");
+    expect(evidence.unresolvedReturn).toBe(false);
+    expect(publishLiteralResponses(evidence.literalResponses, "HEAD", evidence.unresolvedReturn)[0]?.body).toBe("empty");
+  });
+
+  test("reexports retain only complete source response proof", () => {
+    const exporting = collectSourceResponseEvidence(parseFixture('export { HEAD } from "./handler";'), "HEAD", "HEAD", "route.ts");
+    const handler = collectSourceResponseEvidence(parseFixture('export function HEAD() { return new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } }); }'), "HEAD", "HEAD", "handler.ts");
+    const importedUnresolved = unresolvedResponseExports(handler, []);
+    expect(unresolvedResponseExports(exporting, [importedUnresolved])).toBe(false);
+    expect(publishLiteralResponses(handler.literalResponses, "HEAD", importedUnresolved)[0]?.body).toBe("empty");
+    expect(unresolvedResponseExports(exporting, [true])).toBe(true);
+    expect(unresolvedResponseExports(exporting, [])).toBe(true);
+    expect(unresolvedResponseExports({ handlerFound: true, unresolvedReturn: true }, [false])).toBe(true);
   });
 
   test("does not guess dynamic constructor status or media and preserves an unresolved body", () => {
