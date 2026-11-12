@@ -200,6 +200,14 @@ does not retain object header entries. These warm fixture observations do not co
 cold database initialization or migrations. Provider reads remain unqualified
 until their cold database lifecycle and the other required evidence are established.
 
+The ACP agents GET fixture executes pinned registry, manifest, route and direct
+authentication logic with intercepted subprocesses and in-memory settings. It
+observes safe version-argument rejection, cache behavior and fixed error responses;
+raw successful custom definitions can still contain undeclared fields. It does
+not prove the central local-only ingress guard, actual executable isolation or
+production settings effects. This GET remains unqualified, not a pure read: it
+can update the process-local registry and launch version probes.
+
 
 For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads,
 the five model-combo-mapping operations, the six qualified combo operations, the
