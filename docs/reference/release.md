@@ -679,12 +679,13 @@ bump, or bypass of the protected environment is part of recovery. Evidence
 archives created by this workflow are reproducible; an older draft whose evidence
 archive differs must be investigated rather than overwritten.
 
-A package-wide npm 404 does not prove absence, scope ownership, or token
-entitlement. The current workflow fails closed in that case, even for a genuinely
-new package and an entitled token. First publication of an unpublished package
-requires a supported authenticated scope-entitlement and absence check before
-this workflow can proceed; no such check is currently implemented. Do not
-create a package outside the protected workflow to bypass this prerequisite.
+After successful npm authentication, a package-wide registry 404 is treated as
+absent for the protected first-publication path. Existing package metadata must
+still match the exact package identity and version inventory; other registry
+errors stop reconciliation. Successful `whoami` authenticates the read but does
+not prove scope ownership or publish entitlement. The protected token must have
+the required permission; a rejected or uncertain publish stops without replay.
+Do not create a package outside the protected workflow to bypass its controls.
 
 No receipt in this document or in the release automation qualifies version
 `1.0.0` by itself. Qualification requires the matching external target evidence

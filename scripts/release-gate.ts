@@ -597,8 +597,16 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
       }
       github = release.draft ? "draft" : "published";
     }
-    const packageResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, npmHeaders);
-    const packageMetadata = objectValue(await readPublicationJson(packageResponse!, "npm package metadata"), "npm package metadata");
+    const packageResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, npmHeaders, true);
+    if (!packageResponse) {
+      const npmResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`, npmHeaders, true);
+      if (npmResponse) {
+        await npmResponse.body?.cancel();
+        throw new Error("npm version readback is inconsistent");
+      }
+      return { github, npm: "absent" };
+    }
+    const packageMetadata = objectValue(await readPublicationJson(packageResponse, "npm package metadata"), "npm package metadata");
     if (packageMetadata.name !== packageName) throw new Error("npm package identity mismatch");
     const versions = objectValue(packageMetadata.versions, "npm package versions");
     const npmResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`, npmHeaders, true);

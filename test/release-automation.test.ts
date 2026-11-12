@@ -349,9 +349,10 @@ describe("release automation", () => {
     assets.set("release-manifest.json", Buffer.from(manifest));
     for (const [name, bytes] of assets) await writeFile(join(dir, name), bytes);
     const sha = createHash("sha512").update(archive).digest("base64");
-    for (const fault of ["none", "chunked", "npm-absent", "github-auth", "npm-auth", "asset", "asset-oversized", "asset-short", "notes", "integrity", "tarball", "tarball-oversized", "tarball-short", "metadata-tag-oversized", "metadata-releases-oversized", "metadata-package-oversized", "metadata-version-oversized", "npm-version-error", "npm-version-unauthorized", "npm-inconsistent", "redirect-untrusted", "redirect-trusted"] as const) {
+    for (const fault of ["none", "chunked", "npm-absent", "first-package", "first-package-publish-error", "npm-package-missing-version-present", "github-auth", "npm-auth", "npm-auth-missing", "npm-package-unauthorized", "npm-package-forbidden", "npm-package-error", "asset", "asset-oversized", "asset-short", "notes", "integrity", "tarball", "tarball-oversized", "tarball-short", "metadata-tag-oversized", "metadata-releases-oversized", "metadata-package-oversized", "metadata-version-oversized", "npm-version-error", "npm-version-unauthorized", "npm-inconsistent", "redirect-untrusted", "redirect-trusted"] as const) {
       const effects: string[] = [];
-      let npmPublished = fault !== "npm-absent";
+      let npmPublished = fault !== "npm-absent" && !fault.startsWith("first-package");
+      let draft = !fault.startsWith("first-package");
       const entries = [...assets.entries()];
       let cancelled = false;
       const streamed = (chunks: Uint8Array[]) => {
@@ -367,9 +368,9 @@ describe("release automation", () => {
         const url = String(input);
         const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
         if (url.endsWith("/repos/owner/repo")) return json({}, fault === "github-auth" ? 403 : 200);
-        if (url.endsWith("/-/whoami")) return json({}, fault === "npm-auth" ? 401 : 200);
+        if (url.endsWith("/-/whoami")) return json({}, fault === "npm-auth" ? 401 : fault === "npm-auth-missing" ? 404 : 200);
         if (url.includes("/git/ref/tags/")) return fault === "metadata-tag-oversized" ? oversizedMetadata() : json({ object: { type: "tag", sha: gitHash } });
-        if (url.includes("/releases?")) return fault === "metadata-releases-oversized" ? oversizedMetadata() : json([{ tag_name: "v0.1.1", name: "OMP OmniRoute Provider 0.1.1", draft: true, prerelease: false, body: fault === "notes" ? "different" : notes, assets: entries.map(([name], index) => ({ name, id: index + 1, state: "uploaded" })) }]);
+        if (url.includes("/releases?")) return fault === "metadata-releases-oversized" ? oversizedMetadata() : json(draft ? [{ tag_name: "v0.1.1", name: "OMP OmniRoute Provider 0.1.1", draft: true, prerelease: false, body: fault === "notes" ? "different" : notes, assets: entries.map(([name], index) => ({ name, id: index + 1, state: "uploaded" })) }] : []);
         if (url.includes("/releases/assets/")) {
           const index = Number(url.split("/").pop()) - 1;
           if (index === 0 && (fault === "redirect-untrusted" || fault === "redirect-trusted")) return new Response(null, { status: 302, headers: { location: fault === "redirect-trusted" ? "https://release-assets.githubusercontent.com/asset" : "https://evil.example/asset" } });
@@ -379,7 +380,13 @@ describe("release automation", () => {
           return new Response(fault === "asset" && index === 0 ? "changed" : new Uint8Array(entries[index]![1]));
         }
         if (url === "https://release-assets.githubusercontent.com/asset") return new Response(new Uint8Array(entries[0]![1]));
-        if (url.endsWith("/%40cruxexperts%2Fcruxomni-omp-client")) return fault === "metadata-package-oversized" ? oversizedMetadata() : json({ name: projectName, versions: npmPublished || fault === "npm-inconsistent" ? { "0.1.1": {} } : {} });
+        if (url.endsWith("/%40cruxexperts%2Fcruxomni-omp-client")) {
+          if (fault === "npm-package-unauthorized") return json({}, 401);
+          if (fault === "npm-package-forbidden") return json({}, 403);
+          if (fault === "npm-package-error") return json({}, 500);
+          if ((fault.startsWith("first-package") && !npmPublished) || fault === "npm-package-missing-version-present") return json({}, 404);
+          return fault === "metadata-package-oversized" ? oversizedMetadata() : json({ name: projectName, versions: npmPublished || fault === "npm-inconsistent" ? { "0.1.1": {} } : {} });
+        }
         if (url.endsWith("/%40cruxexperts%2Fcruxomni-omp-client/0.1.1")) {
           if (fault === "metadata-version-oversized") return oversizedMetadata();
           if (fault === "npm-version-error") return json({}, 500);
@@ -407,10 +414,23 @@ describe("release automation", () => {
       };
       const operation = publishApprovedRelease(dir, dir, "v0.1.1", "owner/repo", "github-token", "npm-token", {
         fetch: request as unknown as typeof fetch,
-        command: async (name, args) => { if (name === "git") return { stdout: gitHash }; effects.push(name); if (name === "npm") { expect(args).toContain("--fetch-retries=0"); npmPublished = true; } else published = true; return { stdout: "" }; },
+        command: async (name, args) => {
+          if (name === "git") return { stdout: gitHash };
+          effects.push(name === "gh" && args[1] === "create" ? "draft" : name);
+          if (name === "npm") {
+            expect(args).toContain("--fetch-retries=0");
+            if (fault === "first-package-publish-error") throw new Error("publish failed");
+            npmPublished = true;
+          } else if (args[1] === "create") draft = true;
+          else published = true;
+          return { stdout: "" };
+        },
       });
       if (fault === "none" || fault === "chunked" || fault === "redirect-trusted") { await operation; expect(effects).toEqual(["gh"]); }
       else if (fault === "npm-absent") { await operation; expect(effects).toEqual(["npm", "gh"]); }
+      else if (fault === "first-package") { await operation; expect(effects).toEqual(["draft", "npm", "gh"]); }
+      else if (fault === "first-package-publish-error") { await expect(operation).rejects.toThrow("publication outcome is uncertain"); expect(effects).toEqual(["draft", "npm"]); }
+      else if (fault === "npm-package-missing-version-present") { await expect(operation).rejects.toThrow("npm version readback is inconsistent"); expect(effects).toEqual([]); }
       else { await expect(operation).rejects.toThrow(); expect(effects).toEqual([]); }
       if (fault.includes("oversized")) expect(cancelled).toBe(true);
     }

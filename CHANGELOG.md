@@ -4,6 +4,16 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Permit authenticated npm package absence during protected first publication;
+  preserve registry-error stops and uncertain-publication reconciliation without
+  replay. Authentication does not establish publish entitlement.
+
+- Retain fresh hosted ingress policy evidence alongside independent pinned-handler
+  outcomes for five combo reads and metrics reset. The candidate now has 16
+  qualified operations, 16 source-evidenced exceptions, and 1,260 unqualified
+  operations out of 1,292. This does not establish cold database initialization
+  or qualify the remaining combo mutations.
+
 - Bind six combo method/path policy observations to their original route digests,
   keeping framework reachability separate from actual handler evidence. Reject
   incomplete or mismatched method, path, policy, and source records.
