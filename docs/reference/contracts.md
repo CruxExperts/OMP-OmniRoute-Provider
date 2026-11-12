@@ -274,6 +274,11 @@ They bind original source digests and prove framework policy routing only;
 the actual handler outcomes must come from the independent pinned combo suite.
 Changing the producer invalidates every receipt bound to its prior input bytes.
 
+The capability-overrides GET ingress observation likewise covers management-policy
+denial and authorized reachability through a replacement control. It does not
+execute the real handler, establish persistence behavior, or qualify PATCH or
+DELETE; independent source-handler observations remain required.
+
 Approval-state checks and outcome reconciliation have separate responsibilities.
 Read and bind the relevant target state that upstream exposes, even when a
 later read cannot prove whether a lost-response mutation completed. An upstream

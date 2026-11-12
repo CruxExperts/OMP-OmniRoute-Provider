@@ -1,10 +1,50 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { expectedHealthIngressIdentities, validateHealthIngressEvidence } from "../scripts/generate-contracts.ts";
+import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
+
+test("capability ingress validation rejects absent, contradictory, and source-mismatched policy", () => {
+  const root = resolve(import.meta.dir, "..");
+  const eligibility = JSON.parse(readFileSync(resolve(root, "contracts/release-eligibility.json"), "utf8")) as { release: { commit: string }; operations: { operationId: string; ingressEvidence?: { artifact: string } }[] };
+  const health = eligibility.operations.find(item => item.operationId === "GET /api/health")!;
+  const artifact = JSON.parse(readFileSync(resolve(root, health.ingressEvidence!.artifact), "utf8"));
+  const identities = expectedHealthIngressIdentities("3.8.53", eligibility.release.commit);
+  artifact.source.addedSourceSha256 = identities.addedSourceSha256;
+  artifact.source.pingDeclarationSha256 = identities.pingDeclarationSha256;
+  artifact.inputs.sourceOverlaySha256 = identities.sourceOverlaySha256;
+  artifact.inputs.executedOverlaySha256 = identities.executedOverlaySha256;
+  const declarationPath = "test/pinned-ingress.test.ts.inputs.json";
+  const declaration = JSON.parse(readFileSync(resolve(root, declarationPath), "utf8")) as { files: string[] };
+  artifact.inputs.sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
+  const route = "src/app/api/model-capability-overrides/route.ts";
+  const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route] } as OperationEvidenceBinding;
+  const operation = "GET /api/model-capability-overrides";
+  const policy = { method: "GET", path: "/api/model-capability-overrides", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
+  function check(value: unknown, expectedBinding: OperationEvidenceBinding, error?: RegExp) {
+    const bytes = Buffer.from(JSON.stringify(value));
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const path = `provenance/qualification/ingress-${sha256}.json`;
+    const absolute = resolve(root, path);
+    writeFileSync(absolute, bytes, { flag: "wx" });
+    try {
+      const validate = () => validateHealthIngressEvidence({ artifact: path, sha256 }, expectedBinding, operation);
+      if (error) expect(validate).toThrow(error); else expect(validate).not.toThrow();
+    } finally { rmSync(absolute); }
+  }
+  check(artifact, binding, /capability policy observation mismatch/);
+  artifact.modelCapabilityOverridesPolicy = policy;
+  check(artifact, binding);
+  for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
+    check({ ...artifact, modelCapabilityOverridesPolicy: { ...policy, [key]: value } }, binding, /capability policy observation mismatch/);
+  }
+  check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, /source mismatch/);
+});
 
 test("ingress rejects an unapproved Node executable before starting the sandbox", () => {
   const dir = mkdtempSync(join(tmpdir(), "pinned-ingress-"));
@@ -584,6 +624,7 @@ with tempfile.TemporaryDirectory() as temp:
   rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  for method,path in [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]:
   rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
+ rows.append({'case':'GET /api/model-capability-overrides','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -597,6 +638,8 @@ with tempfile.TemporaryDirectory() as temp:
  assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
  assert [(item['method'],item['path']) for item in exported['comboPolicy']] == [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]
+ assert exported['modelCapabilityOverridesPolicy'] == {'method':'GET','path':'/api/model-capability-overrides','routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200}
+ assert any('does not execute the capability overrides handler' in limitation for limitation in exported['limitations'])
  assert any('does not execute combo handlers' in limitation for limitation in exported['limitations'])
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
