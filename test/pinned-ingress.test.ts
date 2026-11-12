@@ -653,7 +653,7 @@ with tempfile.TemporaryDirectory() as temp:
  for path in ('/api/fallback/chains','/api/providers/fixture-id/cc-alias','/api/provider-nodes'):
   rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  live = {'status':200,'body':'ok\n','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None}
- ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}}
+ ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}, 'livenessHead':{name:{**live,'body':''} for name in ('anonymous','invalidCredential','session')}}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
  exported = json.loads((p/'export/observed-outcomes.json').read_text())
@@ -661,6 +661,7 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
  assert exported['publicLivenessHttp'] == {'method':'GET','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':ingress['liveness']}
+ assert exported['publicLivenessHeadHttp'] == {'method':'HEAD','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':{name:{'status':200,'body':'','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None} for name in ('anonymous','invalidCredential','session')}}
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
  assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
@@ -686,6 +687,13 @@ with tempfile.TemporaryDirectory() as temp:
   for key,bad in [('status',401),('body','wrong'),('contentType','application/json'),('cacheControl','public'),('contentLength','2'),('routeClass','PUBLIC')]:
    original = ingress['liveness'][name][key]; ingress['liveness'][name][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['liveness'][name][key] = original
   original = ingress['liveness'].pop(name); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['liveness'][name] = original
+ for name in ('anonymous','invalidCredential','session'):
+  for key,bad in [('status',401),('body','ok\n'),('contentType','application/json'),('cacheControl','public'),('contentLength','2'),('routeClass','PUBLIC')]:
+   original = ingress['livenessHead'][name][key]; ingress['livenessHead'][name][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['livenessHead'][name][key] = original
+   original = ingress['livenessHead'][name].pop(key); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['livenessHead'][name][key] = original
+  original = ingress['livenessHead'].pop(name); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['livenessHead'][name] = original
+ ingress['livenessHead']['unexpected'] = dict(live); put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['livenessHead']['unexpected']
+ original = ingress.pop('livenessHead'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['livenessHead'] = original
  ingress['livenessMatcherMatched'] = True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['livenessMatcherMatched'] = False
  for name in ('originalSha256','executedSha256'):
   original = identity['addedSourceSha256'][m.LIVE_ROUTE][name]; identity['addedSourceSha256'][m.LIVE_ROUTE][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.LIVE_ROUTE][name] = original

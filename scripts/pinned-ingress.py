@@ -1139,6 +1139,9 @@ def export_observations(output, hashes):
     expected_live = {'status': 200, 'body': 'ok\n', 'contentType': 'text/plain; charset=utf-8', 'cacheControl': 'no-store', 'contentLength': '3', 'routeClass': None}
     require(ingress['livenessMatcherMatched'] is False and set(ingress['liveness']) == {'anonymous', 'invalidCredential', 'session'}, 'liveness matcher or cases mismatch')
     require(all(ingress['liveness'][name] == expected_live for name in ('anonymous', 'invalidCredential', 'session')), 'liveness response mismatch')
+    expected_live_head = {**expected_live, 'body': ''}
+    require(set(ingress['livenessHead']) == {'anonymous', 'invalidCredential', 'session'}, 'liveness HEAD cases mismatch')
+    require(all(ingress['livenessHead'][name] == expected_live_head for name in ('anonymous', 'invalidCredential', 'session')), 'liveness HEAD response mismatch')
     rows = ingress['results']
     require(len(rows) == 25 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id', 'GET /api/combos', 'GET /api/combos/fixture-id', 'GET /api/combos/auto', 'GET /api/combos/builder/options', 'GET /api/combos/metrics', 'DELETE /api/combos/metrics', 'GET /api/model-capability-overrides', 'GET /api/fallback/chains', 'GET /api/providers/fixture-id/cc-alias', 'GET /api/provider-nodes'], 'ingress cases incomplete')
     health = []
@@ -1227,7 +1230,8 @@ def export_observations(output, hashes):
     artifact['publicHealthHttp'] = public_health
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
     artifact['publicLivenessHttp'] = {'method': 'GET', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live) for name in ('anonymous', 'invalidCredential', 'session')}}
-    artifact['limitations'].append('Liveness observes only GET on isolated Next with the pinned matcher and handler; it does not establish HEAD, full application, or production persistence behavior.')
+    artifact['publicLivenessHeadHttp'] = {'method': 'HEAD', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live_head) for name in ('anonymous', 'invalidCredential', 'session')}}
+    artifact['limitations'].append('Liveness observes only GET and HEAD on isolated Next with the pinned matcher and handler; it does not establish full application or production persistence behavior.')
     artifact['degradation'] = degradation
     artifact['agentSkills'] = skills
     artifact['agentSkillsReads'] = skills_reads

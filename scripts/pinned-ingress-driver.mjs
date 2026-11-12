@@ -83,6 +83,12 @@ try {
     assert(response.status === 200 && response.text === 'ok\n' && response.contentType === 'text/plain; charset=utf-8' && response.cacheControl === 'no-store' && response.contentLength === '3' && response.routeClass === null, `livez:${name}`);
     liveness[name] = { status: response.status, body: response.text, contentType: response.contentType, cacheControl: response.cacheControl, contentLength: response.contentLength, routeClass: response.routeClass };
   }
+  const livenessHead = {};
+  for (const [name, headers] of [['anonymous', {}], ['invalidCredential', { authorization: `Bearer ${liveInvalid}` }], ['session', { cookie }]]) {
+    const response = await request('/livez', 'HEAD', headers);
+    assert(response.status === 200 && response.text === '' && response.contentType === 'text/plain; charset=utf-8' && response.cacheControl === 'no-store' && response.contentLength === '3' && response.routeClass === null, `livez:HEAD:${name}`);
+    livenessHead[name] = { status: response.status, body: response.text, contentType: response.contentType, cacheControl: response.cacheControl, contentLength: response.contentLength, routeClass: response.routeClass };
+  }
   for (const path of ['/api/health', '/api/health/ping']) {
     const response = await request(path);
     assert(response.status === 200 && response.body?.status === 'ok' && typeof response.body?.timestamp === 'string', `health:${path}`);
@@ -193,7 +199,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessMatcherMatched }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   db.close();
   await stop();
