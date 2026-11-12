@@ -41,6 +41,7 @@ const PREFLIGHT_MUTATIONS = [
   "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test",
 ] as const;
 let allAssertionsPassed = false;
+let capabilityAssertionsPassed = false;
 
 function mark(operationId: string, caseId: string): void {
   const cases = completedCases.get(operationId) ?? new Set<string>(); cases.add(caseId); completedCases.set(operationId, cases);
@@ -60,9 +61,9 @@ function sourceAuthorization(): PinnedManagementAuthorization {
     },
   });
 }
-function startFixture(): FixturePair {
+function startFixture(options: { readonly includeSecondModel?: boolean } = {}): FixturePair {
   const auth = sourceAuthorization();
-  const route = CombosHttpFixture.start({ auth, seeds: [
+  const route = CombosHttpFixture.start({ auth, ...options, seeds: [
     { id: "seed-update", name: "Update", models: ["fixture/chat"], strategy: "priority", sortOrder: 0, version: 2,
       config: { maxRetries: 2, reasoningTokenBufferEnabled: true, apiKey: "must-not-project" } },
     { id: "seed-delete", name: "Delete", models: ["fixture/chat"], strategy: "priority", sortOrder: 1, version: 2 },
@@ -177,7 +178,7 @@ afterEach(async () => {
   await Promise.all(fixtures.splice(0).map(async pair => { pair.route.close(); }));
 });
 afterAll(async () => {
-  const complete = allAssertionsPassed && QUALIFIABLE_OPERATIONS.every(operationId => {
+  const complete = allAssertionsPassed && capabilityAssertionsPassed && QUALIFIABLE_OPERATIONS.every(operationId => {
     const requiredCases = operationId === "DELETE /api/combos/metrics" ? [...REQUIRED_CASES, ...RESET_REQUIRED_CASES] : REQUIRED_CASES;
     return requiredCases.every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId);
   });
@@ -313,6 +314,50 @@ test("selected auto materialization drift blocks duplicate and test without prob
   expect(harness.dispatchCount("POST /api/combos/duplicate")).toBe(0);
   expect(harness.dispatchCount("POST /api/combos/test")).toBe(0);
   expect(pair.route.counts["POST /v1/chat/completions"] ?? 0).toBe(0);
+});
+
+test("selected auto reads do not observe capability-resolved duplicate weights", async () => {
+  const pair = startFixture({ includeSecondModel: true });
+  const auto = registry.require("GET /api/combos/auto");
+  const selected = async (id: string) => callAdapter(auto, pair.route.endpoint, { query: { id } });
+  const selectedBefore = await selected("auto/best-coding");
+  const defaultBefore = await selected("auto");
+  expect(selectedBefore.status).toBe(200);
+  expect(defaultBefore.status).toBe(200);
+
+  const duplicate = async () => {
+    const response = await directRequest(pair.route, "POST /api/combos/duplicate", {
+      bearer: MANAGE_KEY, body: { name: "auto/best-coding" },
+    });
+    expect(response.status).toBe(201);
+    return await response.json() as unknown;
+  };
+  const first = await duplicate();
+  pair.route.setCapabilityDrift(true);
+  const selectedAfter = await selected("auto/best-coding");
+  const defaultAfter = await selected("auto");
+  expect(selectedAfter.status).toBe(200);
+  expect(defaultAfter.status).toBe(200);
+  expect(selectedAfter.data).toEqual(selectedBefore.data);
+  expect(defaultAfter.data).toEqual(defaultBefore.data);
+  const second = await duplicate();
+  const weights = (value: unknown) => {
+    if (!isRecord(value) || !Array.isArray(value.models)) throw new Error("Missing duplicate models");
+    return Object.fromEntries(value.models.filter(isRecord).map(model => {
+      if (typeof model.model !== "string" || typeof model.weight !== "number") throw new Error("Invalid duplicate model weight");
+      return [model.model, model.weight];
+    }));
+  };
+  expect(weights(first)).toEqual({ "fixture/chat": 50, "fixture/other": 50 });
+  expect(weights(second)["fixture/chat"]).toBeGreaterThan(50);
+  expect(weights(second)["fixture/other"]).toBeLessThan(50);
+  for (const response of [selectedBefore, selectedAfter, defaultBefore, defaultAfter]) {
+    expect(JSON.stringify(auto.project(response.data))).not.toContain("fixture-provider-secret");
+    expect(JSON.stringify(auto.project(response.data))).not.toContain("fixture-combos-manage");
+  }
+  expect(pair.route.counts["POST /v1/chat/completions"] ?? 0).toBe(0);
+  expect(pair.route.counts["POST /v1/embeddings"] ?? 0).toBe(0);
+  capabilityAssertionsPassed = true;
 });
 
 test("persisted combo tests do not request a materialized auto id", async () => {

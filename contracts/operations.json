@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "a45df7df332b4a7556b3ebaf08c83241ff67eca98edf66e42b6636b99ac2be33",
+    "eligibilitySha256": "e628ee2a41768622d6999c7e871e8102ee36eb08c14d6a9c65b668e8d65a3d9d",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -11758,7 +11758,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+          "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
         }
@@ -66038,7 +66038,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+          "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
         }
@@ -66750,7 +66750,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+          "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
         }
@@ -188657,7 +188657,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+          "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
         }
@@ -278860,7 +278860,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+          "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
         }

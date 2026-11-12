@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Demonstrate the pinned auto-combo read/duplicate capability difference with
+  actual source handlers. Unchanged GET output cannot certify an unchanged
+  capability-resolved duplicate target; no operation is newly qualified.
+
 - Exercise pinned raw skill Markdown reads against disposable files, including
   response headers and sanitized errors. External fallback and ingress evidence
   remain required before this operation can become available.

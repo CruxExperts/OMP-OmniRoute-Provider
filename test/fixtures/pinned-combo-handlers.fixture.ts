@@ -428,7 +428,7 @@ const fixtureProviderModels = [
   { id: "chat", name: "Fixture Chat", supportedEndpoints: ["chat"], contextWindow: 65_536, outputTokenLimit: 4_096 },
 ];
 
-function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily: PinnedExports, breakerState: () => string): PinnedExports {
+function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily: PinnedExports, breakerState: () => string, capabilityDrift: () => boolean, includeSecondModel: boolean): PinnedExports {
   const scoring = loadPinnedModule("open-sse/services/autoCombo/scoring.ts", specifier => {
     if (specifier === "../manifestAdapter") return {};
     if (specifier === "../../utils/number") return { clamp01: (value: number) => Math.max(0, Math.min(1, value)) };
@@ -444,9 +444,10 @@ function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily:
     };
     throw new Error(`Unapproved pinned auto-breaker import: ${specifier}`);
   });
+  const models = includeSecondModel ? [...fixtureProviderModels, { ...fixtureProviderModels[0]!, id: "other", name: "Fixture Other" }] : fixtureProviderModels;
   const modelCapabilities = {
     createModelCapabilityResolutionSnapshot: () => ({}),
-    getResolvedModelCapabilities: () => ({ contextWindow: 65_536, maxOutputTokens: 4_096, supportsVision: false, reasoning: false, supportsThinking: false }),
+    getResolvedModelCapabilities: (target: { model: string }) => ({ contextWindow: 65_536, maxOutputTokens: 4_096, supportsVision: target.model === "chat" && capabilityDrift(), reasoning: target.model === "chat" && capabilityDrift(), supportsThinking: target.model === "chat" && capabilityDrift() }),
   };
   const tokenLimit = { getTokenLimit: () => 65_536 };
   const advertisedLimits = loadPinnedModule("open-sse/services/autoCombo/advertisedLimits.ts", specifier => {
@@ -454,7 +455,7 @@ function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily:
     if (specifier === "../contextManager") return tokenLimit;
     throw new Error(`Unapproved pinned auto-advertised-limits import: ${specifier}`);
   });
-  const fixtureModelIds = new Set(fixtureProviderModels.map(model => model.id));
+  const fixtureModelIds = new Set(models.map(model => model.id));
   const candidatesWithoutRestrictions = (candidates: unknown[]) => candidates;
   const diagnosticPoolWithoutRestrictions = (candidates: unknown[]) => ({ pool: candidates });
   const virtualFactoryDependencies: Record<string, unknown> = {
@@ -466,7 +467,7 @@ function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily:
       getCachedProviderConnections: async (options: { isActive: boolean }) => options.isActive ? [fixtureProviderConnection] : [],
     },
     "@/lib/db/settings": { getSettings: async () => ({}) },
-    "./providerRegistryAccessor": { getProviderRegistry: () => ({ fixture: { alias: "fixture", models: fixtureProviderModels } }) },
+    "./providerRegistryAccessor": { getProviderRegistry: () => ({ fixture: { alias: "fixture", models } }) },
     "@/shared/constants/providers": { NOAUTH_PROVIDERS: {} },
     "@/shared/constants/designerWebRetirement": { isMicrosoftDesignerWebRetiredProviderId: () => false },
     "@/shared/constants/providerRetirement": { isRuntimeRetiredProviderId: () => false },
@@ -486,7 +487,7 @@ function loadPinnedVirtualFactory(suffixComposition: PinnedExports, modelFamily:
     "./modelFamily": modelFamily,
     "@/models": { getHiddenModelsByProvider: () => new Map<string, Set<string>>() },
     "@/lib/db/models": {
-      getSyncedAvailableModelsByConnection: async () => ({ [fixtureProviderConnection.id]: fixtureProviderModels }),
+      getSyncedAvailableModelsByConnection: async () => ({ [fixtureProviderConnection.id]: models }),
       getCustomModels: async () => [],
     },
     "./paidModelFilter": { filterPaidOnlyCandidatesWithDiagnosis: (candidates: unknown[]) => ({ pool: candidates }) },
@@ -582,6 +583,8 @@ function loadComboRoutes(options: {
   uuid: () => string;
   date: DateConstructor;
   breakerState: () => string;
+  capabilityDrift: () => boolean;
+  includeSecondModel: boolean;
 }): { routes: PinnedComboHandlers["routes"]; metrics: PinnedComboMetrics } {
   const { authorization, store } = options;
   const next = { NextResponse: nextResponse };
@@ -693,7 +696,7 @@ function loadComboRoutes(options: {
     if (specifier === "@/shared/constants/visionBridgeDefaults") return visionBridge;
     throw new Error(`Unapproved pinned auto-suffix import: ${specifier}`);
   });
-  const virtualFactory = loadPinnedVirtualFactory(suffixComposition, modelFamily, options.breakerState);
+  const virtualFactory = loadPinnedVirtualFactory(suffixComposition, modelFamily, options.breakerState, options.capabilityDrift, options.includeSecondModel);
   const builtinCatalog = loadPinnedModule("open-sse/services/autoCombo/builtinCatalog.ts", specifier => {
     if (specifier === "./autoPrefix") return autoPrefix;
     if (specifier === "./suffixComposition") return suffixComposition;
@@ -828,12 +831,16 @@ export function createPinnedComboHandlers(options: {
   uuid?: () => string;
   date?: DateConstructor;
   breakerState?: () => string;
+  capabilityDrift?: () => boolean;
+  includeSecondModel?: boolean;
 }): PinnedComboHandlers {
   const loaded = loadComboRoutes({
     ...options,
     uuid: options.uuid ?? randomUUID,
     date: options.date ?? globalThis.Date,
     breakerState: options.breakerState ?? (() => "CLOSED"),
+    capabilityDrift: options.capabilityDrift ?? (() => false),
+    includeSecondModel: options.includeSecondModel ?? false,
   });
   return { authorization: options.authorization, routes: loaded.routes, metrics: loaded.metrics };
 }

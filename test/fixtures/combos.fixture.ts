@@ -465,7 +465,7 @@ export function comboAdapterDescriptor(adapter: OperationAdapter) {
 }
 
 export type ComboSeed = Readonly<Record<string, unknown>>;
-export interface ComboFixtureOptions { readonly auth: PinnedManagementAuthorization; readonly seeds?: readonly ComboSeed[]; }
+export interface ComboFixtureOptions { readonly auth: PinnedManagementAuthorization; readonly seeds?: readonly ComboSeed[]; readonly includeSecondModel?: boolean; }
 const clone = <T>(value: T): T => structuredClone(value);
 const jsonResponse = (body: unknown, status = 200): Response => Response.json(body, { status });
 
@@ -501,10 +501,11 @@ export class CombosHttpFixture {
   readonly #routes: Readonly<Record<string, PinnedExports>>;
   readonly #counts = new Map<string, number>();
   #breakerState: "CLOSED" | "OPEN" = "CLOSED";
+  #capabilityDrift = false;
   readonly #rejectedProbeModels = new Set<string>();
   readonly #server: Bun.Server<undefined>;
 
-  private constructor(auth: PinnedManagementAuthorization, seeds: readonly ComboSeed[]) {
+  private constructor(auth: PinnedManagementAuthorization, seeds: readonly ComboSeed[], includeSecondModel: boolean) {
     this.#auth = auth;
     const fixtureUuid = fixtureUuidGenerator();
     const fixtureDate = createPinnedFixtureDate(FIXTURE_CLOCK_TIME);
@@ -520,6 +521,8 @@ export class CombosHttpFixture {
       apiPort: () => Number(this.#server.url.port),
       uuid: fixtureUuid,
       breakerState: () => this.#breakerState,
+      capabilityDrift: () => this.#capabilityDrift,
+      includeSecondModel,
       date: fixtureDate,
     });
     this.#routes = this.#handlers.routes;
@@ -533,9 +536,10 @@ export class CombosHttpFixture {
   }
 
   static start(options: ComboFixtureOptions): CombosHttpFixture {
-    return new CombosHttpFixture(options.auth, options.seeds ?? []);
+    return new CombosHttpFixture(options.auth, options.seeds ?? [], options.includeSecondModel ?? false);
   }
   setBreakerState(state: "CLOSED" | "OPEN"): void { this.#breakerState = state; }
+  setCapabilityDrift(value: boolean): void { this.#capabilityDrift = value; }
   get counts(): Readonly<Record<string, number>> { return Object.fromEntries(this.#counts); }
   rejectNextProbe(model: string): void {
     if (!model.trim()) throw new Error("A probe model id is required for the controlled fixture failure");

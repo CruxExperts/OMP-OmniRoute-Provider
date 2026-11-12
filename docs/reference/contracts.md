@@ -252,6 +252,13 @@ proxy assignments, or all provider state. Mutations retain unknown settlement
 where hidden effects cannot be independently observed. The loopback probe fixture
 does not qualify a real charged provider request or restore active eligibility.
 
+Pinned-source checks show that selected and default auto-combo GET responses do
+not include the capability resolution used by duplicate POST. Changing model
+capabilities can change the duplicate's normalized weights without changing
+either GET response. These reads therefore do not establish capability-resolved
+duplicate-target equivalence; duplicate qualification must not rely on that
+assumption.
+
 Approval-state checks and outcome reconciliation have separate responsibilities.
 Read and bind the relevant target state that upstream exposes, even when a
 later read cannot prove whether a lost-response mutation completed. An upstream

@@ -2031,8 +2031,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/f1f2b4c372ee18decc6a1534d2368403c482777bf81f1aa69d3e5d6fc7995785.json",
-        "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+        "observedOutcome": "provenance/qualification/762b762a62c1d05f8b02595fbe2f0acfb891e06ab92d5de4494b52e58cbc52c2.json",
+        "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
         "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
       },
       "ingressEvidence": {
@@ -2931,8 +2931,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/b7a2eb8806a0cd97604abf3f9c258078873a2a40ffe6970b1c85b4ce15884949.json",
-        "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+        "observedOutcome": "provenance/qualification/874cb34f217e835f82d14cd8a548a3404f1505559d93352ea278b72f1a415ec5.json",
+        "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
         "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
       },
       "ingressEvidence": {
@@ -3490,8 +3490,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/bfff29eb91809e9fc49e021500ece228a7a3f4a733eef69df64913e475858ffb.json",
-        "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+        "observedOutcome": "provenance/qualification/44774aa5b2a49da577af272b9842871ec94adf8bfb9539d73a879a2a909d8c4e.json",
+        "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
         "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
       },
       "ingressEvidence": {
@@ -4456,8 +4456,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/b035d18287acea8ee9ca72d4cc30c7fd75fcfc60dbfce2fd0b36d60e9c04c67d.json",
-        "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+        "observedOutcome": "provenance/qualification/798bd58405385739e570ac638a32cc1ef3b357a0a765d4ce83d576f69d64c1e1.json",
+        "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
         "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
       },
       "ingressEvidence": {
@@ -5089,8 +5089,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/bf7cdaf4f854c531c3ab8c471ffb2ead27472d2964da0f927ca1a5743bbda327.json",
-        "caseSha256": "828d4dbfa1f1d15c28e9705c7823bdb53e9d8faa2f518dca8dc7a8f7666341c6",
+        "observedOutcome": "provenance/qualification/2889d6fbd0326b3528d6dc38218df8c37353503f0c096e3f32017afdb1b0ead6.json",
+        "caseSha256": "6756085a3b9f7b8bf82a0dd7daacb46c2ca6a8d4fa2cab1295de4b0904c83947",
         "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
       },
       "ingressEvidence": {
