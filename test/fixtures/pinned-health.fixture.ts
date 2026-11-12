@@ -42,7 +42,32 @@ export function createPinnedHealthFixture() {
     if (!probe || (request.method !== "GET" && request.method !== "HEAD")) return new Response(null, { status: 404 });
     return probe[request.method]();
   } });
-  return { lifecycle, endpoint: server.url.origin, stop: () => server.stop(true) };
+  return { lifecycle, live, endpoint: server.url.origin, stop: () => server.stop(true) };
+}
+
+export const LIVEZ_IDS = ["GET /livez", "HEAD /livez"] as const;
+export type LivezId = (typeof LIVEZ_IDS)[number];
+
+/** Handler-derived candidate only; neither ingress authorization nor generator acceptance is established here. */
+export function livezContract(id: LivezId): OperationSourceContract {
+  const template = operationContractTemplate(id) as unknown as OperationSourceContract;
+  const schema: JsonSchema | null = id === "GET /livez" ? { type: "string", enum: ["ok\n"] } : null;
+  return {
+    ...template,
+    auth: { ...template.auth, sourcePolicy: { status: "unknown" } },
+    response: {
+      statusCodes: ["200"], mediaType: "text/plain", schema,
+      variants: [{ statusCode: "200", content: [{ mediaType: "text/plain", schema }], headers: {
+        "cache-control": { required: true, schema: { type: "string", enum: ["no-store"] } },
+        "content-length": { required: true, schema: { type: "string", enum: ["3"] } },
+        "content-type": { required: true, schema: { type: "string", enum: ["text/plain; charset=utf-8"] } },
+      } }],
+    },
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
+    pagination: { mode: "none", parameters: [] }, streaming: { mode: "text", framing: "text/plain" },
+    confirmation: { required: false, reason: "The pinned handler only constructs a fixed process-alive response." },
+    retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null, mutationSafety: null,
+  };
 }
 
 export const JSON_HEALTH_IDS = ["GET /api/health", "GET /api/health/ping"] as const;

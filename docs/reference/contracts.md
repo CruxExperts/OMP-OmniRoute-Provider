@@ -151,6 +151,12 @@ The separate pinned-handler test injects a JSON response failure and observes
 the handler's 500 response; this is not evidence of a hosted 500. Both the
 source-bound handler receipt and the ingress export are required for eligibility.
 
+The pinned `/livez` GET and HEAD source observations distinguish the exact GET
+text body from HEAD's empty body while retaining its advertised content length.
+They do not establish framework ingress or anonymous access. Both operations
+remain unqualified: source response extraction must recognize the local response
+factory, and HEAD additionally needs explicit bodyless client transport support.
+
 The agent-skills catalog, detail, and coverage candidates use source-bound handlers
 and the pinned catalog against a disposable skills directory. Tests cover query and
 path serialization, known and unknown IDs, coverage counts, and unchanged files.
