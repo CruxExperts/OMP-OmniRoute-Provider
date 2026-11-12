@@ -48,7 +48,7 @@ async function request(path, method = 'GET', headers = {}) {
   const text = Buffer.concat(chunks).toString('utf8');
   let body;
   try { body = JSON.parse(text); } catch { body = null; }
-  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), cacheControl: response.headers.get('cache-control'), body };
+  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), cacheControl: response.headers.get('cache-control'), contentType: response.headers.get('content-type'), contentLength: response.headers.get('content-length'), text, body };
 }
 async function transition(path, status) {
   const deadline = Date.now() + 10000;
@@ -71,6 +71,18 @@ async function stop() {
 const results = [];
 try {
   await ready();
+  const config = JSON.parse(await readFile('/work/app/.build/next/server/functions-config-manifest.json', 'utf8'));
+  const matchers = config.functions?.['/_middleware']?.matchers;
+  assert(Array.isArray(matchers) && matchers.length > 0 && matchers.every(entry => typeof entry.regexp === 'string'), 'proxy-matchers-present');
+  const livenessMatcherMatched = matchers.some(entry => new RegExp(entry.regexp).test('/livez'));
+  assert(!livenessMatcherMatched, 'livez-proxy-matcher');
+  const liveInvalid = ['oma', 'live', 'unknownfixture'].join('_');
+  const liveness = {};
+  for (const [name, headers] of [['anonymous', {}], ['invalidCredential', { authorization: `Bearer ${liveInvalid}` }], ['session', { cookie }]]) {
+    const response = await request('/livez', 'GET', headers);
+    assert(response.status === 200 && response.text === 'ok\n' && response.contentType === 'text/plain; charset=utf-8' && response.cacheControl === 'no-store' && response.contentLength === '3' && response.routeClass === null, `livez:${name}`);
+    liveness[name] = { status: response.status, body: response.text, contentType: response.contentType, cacheControl: response.cacheControl, contentLength: response.contentLength, routeClass: response.routeClass };
+  }
   for (const path of ['/api/health', '/api/health/ping']) {
     const response = await request(path);
     assert(response.status === 200 && response.body?.status === 'ok' && typeof response.body?.timestamp === 'string', `health:${path}`);
@@ -181,7 +193,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessMatcherMatched }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   db.close();
   await stop();

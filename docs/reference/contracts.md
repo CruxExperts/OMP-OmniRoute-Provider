@@ -164,6 +164,13 @@ They do not establish framework ingress or anonymous access. Both operations
 remain unqualified pending independent ingress and eligibility evidence. HEAD
 additionally needs explicit bodyless response contracts and client transport.
 
+The isolated ingress producer also records exact GET `/livez` responses for
+anonymous, invalid-bearer and session requests. Its consumer requires the
+unchanged handler and proxy identities, compiled matcher exclusion, exact text
+and cache headers, and no route-class stamp. Changed producer inputs invalidate
+older exports; this support does not qualify the route before a new complete
+isolated run and independent handler evidence are retained.
+
 The agent-skills catalog, detail, and coverage candidates use source-bound handlers
 and the pinned catalog against a disposable skills directory. Tests cover query and
 path serialization, known and unknown IDs, coverage counts, and unchanged files.

@@ -373,6 +373,7 @@ def disk_usage(root):
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts')
+LIVE_ROUTE = 'src/app/livez/route.ts'
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -645,7 +646,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source():
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {LIVE_ROUTE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -705,6 +706,13 @@ def provision():
             require(member.isfile() and member.size <= 2 * 1024 * 1024, 'invalid policy source member: ' + name)
             identities[name] = sha(archive.extractfile(member).read())
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
+    live_bytes = (app / LIVE_ROUTE).read_bytes()
+    live_expected = json.loads((fixture / 'source-manifest.json').read_text())['additionalFiles'][LIVE_ROUTE]['sha256']
+    require(sha(live_bytes) == live_expected, 'liveness source mismatch')
+    identities[LIVE_ROUTE] = {'originalSha256': live_expected, 'executedSha256': sha(live_bytes)}
+    proxy_bytes = (app / 'src/proxy.ts').read_bytes()
+    proxy_expected = json.loads((fixture / 'source-manifest.json').read_text())['selectedFiles']['src/proxy.ts']['sha256']
+    require(sha(proxy_bytes) == proxy_expected, 'proxy executed source mismatch')
     closure = read_closures(app, json.loads((fixture / 'source-manifest.json').read_text()))
     verify_flag_cache_fixture(closure['src/lib/db/featureFlags.ts'].decode(),
                               (fixture / 'extracted/feature-flag-cache.ts').read_text())
@@ -718,6 +726,7 @@ def provision():
     identity = {
         'status': 'unreviewed-observation-not-qualification', 'sourceVersion': '3.8.53',
         'sourceCommit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': identities,
+        'proxyIdentity': {'originalSha256': proxy_expected, 'executedSha256': sha(proxy_bytes)},
         'pingDeclarationSha256': sha(declaration.encode()),
         'sourceOverlaySha256': executed_overlays,
         'fixtureSha256': {str(p.relative_to(fixture)): sha(p.read_bytes()) for p in sorted(fixture.rglob('*')) if p.is_file() and '__pycache__' not in p.parts},
@@ -1087,6 +1096,8 @@ def export_observations(output, hashes):
         data = source[name]
         executed = b'import "./fixture-control";\n' + data if name.endswith('/route.ts') else data
         source_hashes[name] = {'originalSha256': sha(data), 'executedSha256': sha(executed)}
+    live_sha = sha(source[LIVE_ROUTE])
+    source_hashes[LIVE_ROUTE] = {'originalSha256': live_sha, 'executedSha256': live_sha}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
     with tempfile.TemporaryDirectory() as temporary:
         app = Path(temporary)
@@ -1101,6 +1112,8 @@ def export_observations(output, hashes):
     manifest = json.loads(manifest_bytes)
     proxy_sha = sha(source['src/proxy.ts'])
     require(manifest['selectedFiles']['src/proxy.ts']['sha256'] == proxy_sha and material['configSupportSha256']['src/proxy.ts'] == proxy_sha, 'proxy source mismatch')
+    require(manifest['additionalFiles'][LIVE_ROUTE]['sha256'] == live_sha and material['configSupportSha256'][LIVE_ROUTE] == live_sha, 'liveness source mismatch')
+    require(identity['proxyIdentity'] == {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'proxy executed identity mismatch')
     source_hashes['src/proxy.ts'] = proxy_sha
     namespaces = preflight['namespaces']
     require(set(host) == set(namespaces) == {'user', 'mnt', 'net', 'pid'} and all(host[k] != namespaces[k] for k in host), 'namespace evidence mismatch')
@@ -1123,6 +1136,9 @@ def export_observations(output, hashes):
         require(not any(str(e.get('event', '')).startswith('unsupported:') for e in observed['events']), 'unsupported authentication boundary')
         cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
     public_health = validate_public_health_evidence(auth)
+    expected_live = {'status': 200, 'body': 'ok\n', 'contentType': 'text/plain; charset=utf-8', 'cacheControl': 'no-store', 'contentLength': '3', 'routeClass': None}
+    require(ingress['livenessMatcherMatched'] is False and set(ingress['liveness']) == {'anonymous', 'invalidCredential', 'session'}, 'liveness matcher or cases mismatch')
+    require(all(ingress['liveness'][name] == expected_live for name in ('anonymous', 'invalidCredential', 'session')), 'liveness response mismatch')
     rows = ingress['results']
     require(len(rows) == 25 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id', 'GET /api/combos', 'GET /api/combos/fixture-id', 'GET /api/combos/auto', 'GET /api/combos/builder/options', 'GET /api/combos/metrics', 'DELETE /api/combos/metrics', 'GET /api/model-capability-overrides', 'GET /api/fallback/chains', 'GET /api/providers/fixture-id/cc-alias', 'GET /api/provider-nodes'], 'ingress cases incomplete')
     health = []
@@ -1210,6 +1226,8 @@ def export_observations(output, hashes):
     artifact['inputs']['sourceOverlaySha256'] = expected_overlays
     artifact['publicHealthHttp'] = public_health
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
+    artifact['publicLivenessHttp'] = {'method': 'GET', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live) for name in ('anonymous', 'invalidCredential', 'session')}}
+    artifact['limitations'].append('Liveness observes only GET on isolated Next with the pinned matcher and handler; it does not establish HEAD, full application, or production persistence behavior.')
     artifact['degradation'] = degradation
     artifact['agentSkills'] = skills
     artifact['agentSkillsReads'] = skills_reads

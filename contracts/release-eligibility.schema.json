@@ -191,7 +191,7 @@
       ],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}"] } }, "required": ["operationId"] },
           "then": { "required": ["ingressEvidence"] },
           "else": { "not": { "required": ["ingressEvidence"] } }
         }

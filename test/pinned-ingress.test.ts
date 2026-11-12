@@ -574,7 +574,7 @@ with tempfile.TemporaryDirectory() as temp:
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
- names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | {m.LIVE_ROUTE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
  m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
  m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
@@ -587,7 +587,7 @@ with tempfile.TemporaryDirectory() as temp:
   for name, data in sources.items():
    member = tarfile.TarInfo('OmniRoute-v3.8.53/'+name); member.size = len(data); archive.addfile(member, io.BytesIO(data))
  m.SOURCE = archive_path; m.ARCHIVE_SHA = m.sha(archive_path.read_bytes()); m.FIXTURE = fixture
- manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}}}
+ manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}},'additionalFiles':{m.LIVE_ROUTE:{'sha256':m.sha(sources[m.LIVE_ROUTE])}}}
  manifest_bytes = json.dumps(manifest).encode(); (fixture/'source-manifest.json').write_bytes(manifest_bytes)
  hashes['test/fixtures/pinned-ingress/source-manifest.json'] = m.sha(manifest_bytes)
  expected_core = (b'import { DatabaseSync } from "node:sqlite";\nimport path from "node:path";\nlet sqlite: DatabaseSync | undefined;\n'
@@ -596,13 +596,15 @@ with tempfile.TemporaryDirectory() as temp:
   b'        event("sqlite:read");\n        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
   b'        return sqlite.prepare(sql);\n      }\n};\n\nexport const DB_BACKUPS_DIR = isCloud ? null : path.join(DATA_DIR, "db_backups");\n'+declaration+b'\n')
  expected_settings = settings+b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n'
- material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': False, 'bundler':'next-default', 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts'])}}
+ material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': False, 'bundler':'next-default', 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts']),m.LIVE_ROUTE:m.sha(sources[m.LIVE_ROUTE])}}
  put('result.json', {'status':'research-observed', 'qualification':False, 'materialization':material})
  put('materialization.json', material)
  put('host-namespaces.json', {k:'host' for k in ('user','mnt','net','pid')})
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
  identity_names = set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ identity['addedSourceSha256'][m.LIVE_ROUTE] = {'originalSha256':m.sha(sources[m.LIVE_ROUTE]),'executedSha256':m.sha(sources[m.LIVE_ROUTE])}
+ identity['proxyIdentity'] = {'originalSha256':m.sha(sources['src/proxy.ts']),'executedSha256':m.sha(sources['src/proxy.ts'])}
  for name in ('src/app/api/health/degradation/route.ts','src/domain/degradation.ts'):
   data = sources[name]; executed = b'import "./fixture-control";\n'+data if name.endswith('/route.ts') else data
   identity['addedSourceSha256'][name] = {'originalSha256':m.sha(data),'executedSha256':m.sha(executed)}
@@ -650,13 +652,15 @@ with tempfile.TemporaryDirectory() as temp:
  rows.append({'case':'GET /api/model-capability-overrides','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  for path in ('/api/fallback/chains','/api/providers/fixture-id/cc-alias','/api/provider-nodes'):
   rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
- ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
+ live = {'status':200,'body':'ok\n','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None}
+ ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
  exported = json.loads((p/'export/observed-outcomes.json').read_text())
  assert 'private-canary' not in json.dumps(exported) and len(exported['sharedAuthentication']) == 12
  assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
+ assert exported['publicLivenessHttp'] == {'method':'GET','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':ingress['liveness']}
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
  assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
@@ -678,6 +682,14 @@ with tempfile.TemporaryDirectory() as temp:
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ for name in ('anonymous','invalidCredential','session'):
+  for key,bad in [('status',401),('body','wrong'),('contentType','application/json'),('cacheControl','public'),('contentLength','2'),('routeClass','PUBLIC')]:
+   original = ingress['liveness'][name][key]; ingress['liveness'][name][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['liveness'][name][key] = original
+  original = ingress['liveness'].pop(name); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['liveness'][name] = original
+ ingress['livenessMatcherMatched'] = True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['livenessMatcherMatched'] = False
+ for name in ('originalSha256','executedSha256'):
+  original = identity['addedSourceSha256'][m.LIVE_ROUTE][name]; identity['addedSourceSha256'][m.LIVE_ROUTE][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.LIVE_ROUTE][name] = original
+  original = identity['proxyIdentity'][name]; identity['proxyIdentity'][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['proxyIdentity'][name] = original
  source_name = m.ROUTES[0]; original = identity['addedSourceSha256'][source_name]
  identity['addedSourceSha256'][source_name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected()
  identity['addedSourceSha256'][source_name] = original

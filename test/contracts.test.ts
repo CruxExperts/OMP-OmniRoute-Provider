@@ -307,6 +307,52 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     const staleIngressSha256 = "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109";
     expect(() => validateHealthIngressEvidence({ artifact: `provenance/qualification/ingress-${staleIngressSha256}.json`, sha256: staleIngressSha256 }, degradationBinding, "GET /api/health/degradation")).toThrow(/input drift|source identity mismatch/);
     // Synthetic observations exercise validation only; they are not retained evidence.
+    const livenessRoute = record(added["src/app/livez/route.ts"]);
+    const livenessBinding = { ...binding, handlerSha256: String(livenessRoute.originalSha256) };
+    const livenessResponse = { status: 200, body: "ok\n", contentType: "text/plain; charset=utf-8", cacheControl: "no-store", contentLength: "3", routeClass: null };
+    const liveness = { ...artifact, publicLivenessHttp: { method: "GET", path: "/livez", matcher: "not-matched", proxyIdentity: { originalSha256: added["src/proxy.ts"], executedSha256: added["src/proxy.ts"] }, cases: { anonymous: { ...livenessResponse }, invalidCredential: { ...livenessResponse }, session: { ...livenessResponse } } } };
+    const livenessEvidence = await save(liveness);
+    expect(() => validateHealthIngressEvidence(livenessEvidence, livenessBinding, "GET /livez")).not.toThrow();
+    expect(() => validateHealthIngressEvidence(livenessEvidence, { ...livenessBinding, handlerSha256: "0".repeat(64) }, "GET /livez")).toThrow(/source mismatch/);
+    for (const key of ["originalSha256", "executedSha256"] as const) {
+      const changed = structuredClone(liveness);
+      record(record(changed.source.addedSourceSha256)["src/app/livez/route.ts"])[key] = "0".repeat(64);
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, livenessBinding, "GET /livez")).toThrow(/source mismatch/);
+    }
+    const wrongProxy = structuredClone(liveness);
+    record(wrongProxy.source.addedSourceSha256)["src/proxy.ts"] = "0".repeat(64);
+    wrongProxy.publicLivenessHttp.proxyIdentity = { originalSha256: "0".repeat(64), executedSha256: "0".repeat(64) };
+    const wrongProxyEvidence = await save(wrongProxy);
+    expect(() => validateHealthIngressEvidence(wrongProxyEvidence, livenessBinding, "GET /livez")).toThrow(/source identity mismatch/);
+    for (const key of ["originalSha256", "executedSha256"] as const) {
+      const changed = structuredClone(liveness);
+      changed.publicLivenessHttp.proxyIdentity[key] = "0".repeat(64);
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, livenessBinding, "GET /livez")).toThrow(/liveness observation mismatch/);
+    }
+    for (const [key, value] of [["method", "POST"], ["path", "/api/health"], ["matcher", "matched"], ["cases", {}]] as const) {
+      const changed = structuredClone(liveness);
+      record(changed.publicLivenessHttp)[key] = value;
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, livenessBinding, "GET /livez")).toThrow(/liveness observation mismatch/);
+    }
+    for (const condition of ["anonymous", "invalidCredential", "session"] as const) {
+      for (const [key, value] of [["status", 401], ["body", "ok"], ["contentType", "application/json"], ["cacheControl", "public"], ["contentLength", "2"], ["routeClass", "PUBLIC"]] as const) {
+        const changed = structuredClone(liveness);
+        record(changed.publicLivenessHttp.cases[condition])[key] = value;
+        const evidence = await save(changed);
+        expect(() => validateHealthIngressEvidence(evidence, livenessBinding, "GET /livez")).toThrow(/liveness observation mismatch/);
+      }
+      const missing = structuredClone(liveness);
+      delete record(missing.publicLivenessHttp.cases)[condition];
+      const evidence = await save(missing);
+      expect(() => validateHealthIngressEvidence(evidence, livenessBinding, "GET /livez")).toThrow(/liveness observation mismatch/);
+    }
+    const extraCase = structuredClone(liveness);
+    record(extraCase.publicLivenessHttp.cases).extra = livenessResponse;
+    const extraEvidence = await save(extraCase);
+    expect(() => validateHealthIngressEvidence(extraEvidence, livenessBinding, "GET /livez")).toThrow(/liveness observation mismatch/);
     const hosted = { ...artifact, degradation: { method: "GET", path: "/api/health/degradation", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, empty: { status: 200, summary: { full: 0, reduced: 0, minimal: 0, default: 0 } }, populated: { status: 200, summary: { full: 1, reduced: 1, minimal: 0, default: 1 }, levels: ["default", "reduced", "full"] }, summaryTrue: { status: 200, bodyKeys: ["isDegraded", "summary"] }, summaryFalseAndCapitalTrueReturnFullReport: true, recovery: { status: 200, summary: { full: 3, reduced: 0, minimal: 0, default: 0 }, active: false }, handlerFailure: "unobserved" } };
     const hostedEvidence = await save(hosted);
     expect(() => validateHealthIngressEvidence(hostedEvidence, degradationBinding, "GET /api/health/degradation")).not.toThrow();

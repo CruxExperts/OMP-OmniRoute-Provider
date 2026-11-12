@@ -307,6 +307,7 @@ identities = {name: m.sha(source[name]) for name in set(m.ROUTES) | set(m.POLICY
 for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
  data = source[name]; executed = b'import "./fixture-control";\\n' + data if name.endswith('/route.ts') else data
  identities[name] = {'originalSha256': m.sha(data), 'executedSha256': m.sha(executed)}
+identities['src/app/livez/route.ts'] = {'originalSha256': m.sha(source['src/app/livez/route.ts']), 'executedSha256': m.sha(source['src/app/livez/route.ts'])}
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
 print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
@@ -361,8 +362,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const release = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
   const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
   const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
+  const livenessSource = operationId === "GET /livez" ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || (operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : operationId === "GET /api/model-capability-overrides" ? added["src/app/api/model-capability-overrides/route.ts"] : Object.hasOwn(COMBO_POLICY_SOURCES, operationId) ? added[COMBO_POLICY_SOURCES[operationId]!] : Object.hasOwn(READ_POLICY_SOURCES, operationId) ? added[READ_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256) {
+    || source.archiveSha256 !== manifest.archiveSha256 || (operationId === "GET /livez" ? livenessSource?.originalSha256 : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : operationId === "GET /api/model-capability-overrides" ? added["src/app/api/model-capability-overrides/route.ts"] : Object.hasOwn(COMBO_POLICY_SOURCES, operationId) ? added[COMBO_POLICY_SOURCES[operationId]!] : Object.hasOwn(READ_POLICY_SOURCES, operationId) ? added[READ_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
+    || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
     throw new Error(`${label} source mismatch`);
   }
   const inputs = requireRecord(artifact.inputs, `${label}.inputs`);
@@ -413,6 +416,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (authentication.some(row => isRecord(row) && isRecord(row.input) && row.input.path === "/api/health" && row.name !== "default-bypass-health" && row.name !== "disabled-bypass-health")) throw new Error(`${label} unexpected health authentication observation`);
   const ipFilter = { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } };
   if (canonicalJson(toJson(artifact.publicHealthIpFilter, label)) !== canonicalJson(toJson(ipFilter, label))) throw new Error(`${label} IP filter observation mismatch`);
+  if (operationId === "GET /livez") {
+    const response = { status: 200, body: "ok\n", contentType: "text/plain; charset=utf-8", cacheControl: "no-store", contentLength: "3", routeClass: null };
+    const expectedLiveness = { method: "GET", path: "/livez", matcher: "not-matched", proxyIdentity: { originalSha256: added["src/proxy.ts"], executedSha256: added["src/proxy.ts"] }, cases: { anonymous: response, invalidCredential: response, session: response } };
+    if (!isRecord(artifact.publicLivenessHttp) || canonicalJson(toJson(artifact.publicLivenessHttp, label)) !== canonicalJson(toJson(expectedLiveness, label))) throw new Error(`${label} liveness observation mismatch`);
+  }
   if (operationId === "GET /api/health/degradation") {
     const expectedDegradation = { method: "GET", path: "/api/health/degradation", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, empty: { status: 200, summary: { full: 0, reduced: 0, minimal: 0, default: 0 } }, populated: { status: 200, summary: { full: 1, reduced: 1, minimal: 0, default: 1 }, levels: ["default", "reduced", "full"] }, summaryTrue: { status: 200, bodyKeys: ["isDegraded", "summary"] }, summaryFalseAndCapitalTrueReturnFullReport: true, recovery: { status: 200, summary: { full: 3, reduced: 0, minimal: 0, default: 0 }, active: false }, handlerFailure: "unobserved" };
     if (canonicalJson(toJson(artifact.degradation, label)) !== canonicalJson(toJson(expectedDegradation, label))) throw new Error(`${label} degradation observation mismatch`);
@@ -1391,7 +1399,7 @@ function validateEligibility(
   if (requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`) !== expectedOutcomeSha256) {
     throw new Error(`eligibility observed outcome digest mismatch: ${operationId}`);
   }
-  if (operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId)) {
+  if (operationId === "GET /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId)) {
     const ingress = requireRecord(record.ingressEvidence, `${operationId}.eligibility.ingressEvidence`);
     if (typeof ingress.artifact !== "string" || !/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(ingress.artifact)) {
       throw new Error(`eligibility ingress artifact must be retained in provenance: ${operationId}`);
