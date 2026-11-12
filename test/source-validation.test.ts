@@ -40,6 +40,7 @@ function loadPinnedManualCreateOracle() {
     if (cached) return cached;
     const module = loadPinnedModule(`src/shared/constants/providers/${name}.ts`, specifier => {
       if (specifier === "@/shared/constants/gitlabDuoSetupMessage") return gitlabSetup;
+      if (name === "apikey/gateways" && specifier === "./ainetcafe") return loadChild("apikey/ainetcafe");
       if (name === "apikey/gateways" && specifier === "./onomeo") return loadChild("apikey/onomeo");
       if (name === "apikey/gateways" && specifier === "./unifically") return loadChild("apikey/unifically");
       throw new Error(`Unexpected catalog leaf dependency ${specifier} in ${name}`);
@@ -115,8 +116,12 @@ describe("pinned provider-create source validation", () => {
         ...(canonical === "google-pse-search" ? { providerSpecificData: { cx: "fixture-engine" } } : {}),
       };
       const issue = sourceRequestIssue(VALIDATOR_ID, body);
-      expect(issue?.field === "provider").toBe(!source.manual(provider));
+      expect({ provider, rejected: issue?.field === "provider" }).toEqual({ provider, rejected: !source.manual(provider) });
       if (source.manual(provider)) expect(issue).toBeUndefined();
+    }
+    for (const provider of ["ainetcafe", "kimi-search", "tokenharbor", "gisoo", "runcrate"]) {
+      expect(source.manual(provider)).toBe(true);
+      expect(sourceRequestIssue(VALIDATOR_ID, { provider, name: "fixture", apiKey: SECRET })).toBeUndefined();
     }
 
     for (const provider of ["constructor", "toString", "__proto__", "ghe-copilot", "grok-cli", "unknown-provider"]) {

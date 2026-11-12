@@ -30,6 +30,7 @@
     "src",
     "contracts",
     "provenance",
+    ".github/crux-experts-release-signing-key.asc",
     "scripts",
     "test/fixtures",
     "assets",

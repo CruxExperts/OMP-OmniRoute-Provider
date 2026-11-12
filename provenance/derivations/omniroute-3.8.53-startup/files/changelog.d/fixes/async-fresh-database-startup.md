@@ -1,0 +1,1 @@
+- **fix(db):** Probe synchronous SQLite drivers in memory so first async startup recognizes a fresh database without weakening existing-database migration safeguards.

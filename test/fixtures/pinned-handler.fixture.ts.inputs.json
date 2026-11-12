@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    ".github/crux-experts-release-signing-key.asc",
+    "provenance/derivations/omniroute-3.8.53-startup/files/changelog.d/fixes/async-fresh-database-startup.md",
+    "provenance/derivations/omniroute-3.8.53-startup/files/src/lib/db/core.ts",
+    "provenance/derivations/omniroute-3.8.53-startup/files/tests/unit/db-async-fresh-startup.test.ts",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json.asc",
+    "provenance/upstreams.json",
+    "scripts/prepare-upstream.py"
+  ]
+}

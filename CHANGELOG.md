@@ -4,6 +4,12 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Add a signed portable startup-repair capsule with exact official-base and
+  before/after file identities. Clean preparation verifies the owner signature
+  without a private repair checkout and preserves the official extraction.
+  Historical repair-commit linkage is an explicit owner attestation, not an
+  independently fetched Git tree or an official upstream release.
+
 - Support explicit source-proven empty-body HEAD response variants and a qualified
   transport that preserves headers without downloading an entity. Unresolved
   return branches cannot establish empty-body evidence; resolved re-exports retain

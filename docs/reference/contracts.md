@@ -14,17 +14,19 @@ bun run scripts/acquire-route-corpus.ts --check
 bun run verify:contracts
 ```
 
-Source preparation verifies the archive checksum before extraction. The collector
-checks the source files and framework authorization context against that archive.
-Its content-addressed store shares repeated import closures and provenance records;
-readers verify each record digest and the expanded manifest digest. Changing the
-storage representation does not change the expanded source facts.
+Source preparation verifies the official archive checksum before extraction.
+Without `qualification_source`, the collector checks captured source files and
+framework authorization context against that archive. A configured signed
+derivation selects the separately reconstructed effective tree; the collector
+authenticates its complete receipt before consuming files. The content-addressed
+store shares repeated import closures and provenance records; readers verify
+each record digest and the expanded manifest digest.
 
 The current source pin is OmniRoute v3.8.53 at commit
-`191dce8d534ceb56c28a08e71381284a9a87838f`. Its pinned release source asset
-is verified by digest; the collector checks the captured source bytes against
-that archive. A refreshed source inventory does not itself qualify operations
-or make receipts from an earlier source current.
+`191dce8d534ceb56c28a08e71381284a9a87838f`. The release source asset remains
+the immutable base. The configured startup derivation is separate provenance,
+not a replacement release commit. A refreshed source inventory does not itself
+qualify operations or make earlier receipts current.
 
 Literal `Response` constructors can contribute status and media evidence through
 returned local helpers with unambiguous literal arguments. Mutable bindings,
@@ -43,6 +45,50 @@ files, and input and output digests before creating a separate derived tree.
 Signature evidence is recorded as prior independent verification; preparation
 does not verify the signature again. The default official source remains unchanged,
 and a derived startup result cannot qualify the official source.
+
+The portable startup repair capsule lives under
+`provenance/derivations/omniroute-3.8.53-startup/`. Its owner-signed manifest
+retains the official release identity and records exactly three regular payloads,
+their before/after hashes, and the signed repair commit. The payloads were extracted
+from the verified repair commit, not a working tree. The detached manifest signature
+is verified against `.github/crux-experts-release-signing-key.asc` and the full pinned
+owner fingerprint. CI verifies the capsule and exact archive/before/after bytes;
+historical Git-tree linkage is an owner-signed attestation, not an independently
+fetched Git history. This is a qualification-source derivation, not an official
+OmniRoute release or a server deployment.
+
+Portable preparation rejects undeclared payloads, unsafe paths, links, executable
+or special files, and mismatched bytes before exposing a separate effective tree.
+The official extraction is never patched. Existing output is reusable only when
+its complete sorted path/digest receipt, effective-tree digest, signed derivation,
+and official archive agree; extra, missing, or modified files fail closed.
+
+`provenance/upstreams.json` selects the capsule through the closed optional
+`qualification_source` record. Missing or malformed configured inputs are errors,
+never a fallback to official bytes. Default preparation materializes only the
+managed `upstream/derived-<manifest-sha256>` location. The adjacent receipt records
+every relative regular-file path and SHA-256; its canonical sorted-file digest
+is carried separately as `effectiveTreeSha256`. `sourceDerivation` binds the
+manifest path and digest into route, operation, test-observation, runtime
+eligibility, and release comparisons. Changed imported core bytes invalidate
+receipts even if handler text is unchanged.
+
+All previously active official-source observations are retained unchanged in
+eligibility history during this cutover. They do not authorize derived-source
+operations. Actual affected producers must execute again before any operation
+is re-enabled; an empty active collection is not release acceptance.
+
+Database-initialization-dependent handlers also bind a shared cold/warm lifecycle
+prerequisite. The existing isolated producer executes the four signed startup
+regressions, then starts separate processes that initialize the real database,
+persist a settings marker, close it, and observe that marker after restart.
+The exported research artifact is not an operation receipt. Its exact producer
+inputs, approved runtime/dependencies, derived source, migrations, worker build,
+isolation, and ordered observations must match independent recomputation before
+an operation can join `lifecycleEvidence`. Runtime eligibility compares the resulting
+`lifecycleSha256`; missing, stale, or official-only evidence cannot enable a
+derived database-dependent operation. Shared recomputation is cached only under
+the complete verified input-byte digest and checked for drift before reuse.
 
 The closure also includes numbered SQL migrations discovered at runtime by the
 pinned database migration runner. They are opaque source bytes, verified against

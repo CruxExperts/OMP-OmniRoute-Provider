@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { isMuslTarget, validateMuslRuntimeEvidence } from "./musl-runtime.ts";
 import { validateNativeSmokeOutput } from "./qualify-release.ts";
 import { REPOSITORY_SLUG } from "../src/identity.ts";
+import { resolveQualificationSource } from "./route-source-store.ts";
 
 const execFileAsync = promisify(execFile);
 const defaultRoot = resolve(import.meta.dir, "..");
@@ -309,6 +310,47 @@ async function validateManifest(root: string, releaseDirectory: string): Promise
   return { manifest: parsed as unknown as ReleaseManifest, bytes, packageArtifact: packageArtifacts[0]! };
 }
 
+type EffectiveSource = { derivation: { record: string; sha256: string } | null; tree: string | undefined };
+
+function effectiveSource(value: Record<string, unknown>, label: string): EffectiveSource {
+  const derivation = value.sourceDerivation;
+  const tree = value.effectiveTreeSha256;
+  if (derivation === undefined && tree === undefined) return { derivation: null, tree: undefined };
+  const record = objectValue(derivation, `${label} sourceDerivation`);
+  if (Object.keys(record).sort().join(",") !== "record,sha256"
+    || record.record !== "provenance/derivations/omniroute-3.8.53-startup/manifest.json"
+    || typeof record.sha256 !== "string" || !sha256Pattern.test(record.sha256)
+    || typeof tree !== "string" || !sha256Pattern.test(tree)) throw new Error(`${label} effective source identity is invalid`);
+  return { derivation: { record: record.record, sha256: record.sha256 }, tree };
+}
+
+function sameEffectiveSource(left: EffectiveSource, right: EffectiveSource): boolean {
+  return left.tree === right.tree && left.derivation?.record === right.derivation?.record && left.derivation?.sha256 === right.derivation?.sha256;
+}
+
+export function validateReleaseSourceIdentity(root: string, operationsRoot: Record<string, unknown>, eligibilityRoot: Record<string, unknown>): void {
+  const configured = resolveQualificationSource(root).derivation;
+  const operationsSource = effectiveSource(objectValue(operationsRoot.sourceContext, "operations sourceContext"), "operations");
+  const eligibilitySource = effectiveSource(eligibilityRoot, "eligibility");
+  if (!sameEffectiveSource(operationsSource, eligibilitySource)
+    || operationsSource.derivation?.record !== configured?.record || operationsSource.derivation?.sha256 !== configured?.sha256) {
+    throw new Error("release qualification effective source mismatch");
+  }
+  const eligibility = new Map(recordArray(eligibilityRoot.operations, "release eligibility operations").map(entry => [entry.operationId, entry]));
+  for (const operation of recordArray(operationsRoot.operations, "operations contract")) {
+    const evidence = eligibility.get(operation.operationId);
+    if (!evidence) continue;
+    const label = String(operation.operationId);
+    const binding = objectValue(evidence.binding, `${label} qualification binding`);
+    const qualification = objectValue(operation.qualification, `${label} operation qualification`);
+    const operationBinding = objectValue(qualification.binding, `${label} operation binding`);
+    if (!sameEffectiveSource(operationsSource, effectiveSource(binding, `${label} eligibility binding`))
+      || !sameEffectiveSource(operationsSource, effectiveSource(operationBinding, `${label} operation binding`))) {
+      throw new Error(`${label} qualification effective source mismatch`);
+    }
+  }
+}
+
 function validateOperationCoverage(operationsRoot: Record<string, unknown>, eligibilityRoot: Record<string, unknown>): { invokable: number; nonInvokable: number; unqualified: string[] } {
   const operations = recordArray(operationsRoot.operations, "operations contract");
   const operationById = new Map<string, Record<string, unknown>>();
@@ -344,7 +386,7 @@ function validateOperationCoverage(operationsRoot: Record<string, unknown>, elig
       const binding = objectValue(evidence.binding, `${id} qualification binding`);
       const test = objectValue(evidence.test, `${id} qualification test`);
       const details = recordArray(evidence.evidence, `${id} qualification evidence`);
-      const bindingDigestFields = ["requestSchemaSha256", "authSha256", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256"];
+      const bindingDigestFields = ["requestSchemaSha256", "authSha256", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"];
       const bindingComplete = bindingDigestFields.every(field => sha256Pattern.test(String(binding[field])))
         && ["read", "mutation", "secret", "lifecycle", "destructive"].includes(String(binding.sideEffect));
       const sourceComplete = typeof source.file === "string" && source.file.trim() !== ""
@@ -389,6 +431,7 @@ async function validateQualification(root: string, manifest: ReleaseManifest, pa
   if (!sha256Pattern.test(receipt.packageArchiveSha256) || receipt.packageArchiveSha256 !== packageArtifact.sha256) throw new Error("qualification receipt must bind to the exact manifest npm archive hash");
   const operationsRoot = await readJson(resolve(root, "contracts/operations.json"), "operations contract");
   const eligibilityRoot = await readJson(resolve(root, "contracts/release-eligibility.json"), "release eligibility contract");
+  validateReleaseSourceIdentity(root, operationsRoot, eligibilityRoot);
   const coverage = validateOperationCoverage(operationsRoot, eligibilityRoot);
   if (coverage.unqualified.length > 0) {
     const sample = coverage.unqualified.slice(0, 5).join(", ");

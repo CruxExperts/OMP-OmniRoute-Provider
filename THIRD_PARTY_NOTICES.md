@@ -37,6 +37,14 @@ copyright and permission notice, source filenames, and pinned file hashes remain
 embedded in each adapted module. This package does not claim ownership of those
 upstream identifiers or rules.
 
+The signed startup capsule in
+[`provenance/derivations/omniroute-3.8.53-startup/`](provenance/derivations/omniroute-3.8.53-startup/manifest.json)
+contains three repair payloads derived from the MIT-licensed official v3.8.53
+source at `191dce8d534ceb56c28a08e71381284a9a87838f`. Existing upstream
+copyright and permission notices remain unchanged. The owner signature attests
+the separately declared repair; it does not make that repair an official upstream
+release or transfer ownership of third-party source.
+
 ## Media export fonts
 
 The brand exporter references the installed DejaVu Sans font and Pillow renderer.

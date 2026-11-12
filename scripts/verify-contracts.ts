@@ -1,4 +1,4 @@
-import { readRouteSources } from "./route-source-store.ts";
+import { assertQualificationManifest, readRouteSources, verifyQualificationSource } from "./route-source-store.ts";
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
@@ -13,7 +13,6 @@ const manifestPath = resolve(packageRoot, "provenance/route-sources.json");
 const operationsPath = resolve(packageRoot, "contracts/operations.json");
 const upstreamsPath = resolve(packageRoot, "provenance/upstreams.json");
 const eligibilityPath = resolve(packageRoot, "contracts/release-eligibility.json");
-const sourceSnapshotPath = resolve(packageRoot, `.agents/state/omp-provider-release/upstream/omniroute-${expectedOmniRoutePin().tag}`);
 const METHODS = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"] as const;
 const NON_INVOKABLE = new Map<string, string>([
   ["src/app/api/[...omnirouteApiCatchAll]/route.ts", "Source-confirmed unknown-route JSON 404 fallback; OPTIONS supplies only CORS headers."],
@@ -91,7 +90,7 @@ function expectedOmniRoutePin(): UpstreamPin {
     packageGitBlobSha: requireString(packageHash.hash, "OmniRoute package.json Git blob SHA"),
   };
 }
-async function verifyArchiveAndSourceRoot(manifest: AnyRecord, pin: UpstreamPin): Promise<void> {
+async function verifyArchiveAndSourceRoot(manifest: AnyRecord, pin: UpstreamPin, sourceSnapshotPath: string): Promise<void> {
   const archive = requireObject(manifest.sourceArchive, "manifest.sourceArchive");
   const expectedArchivePath = `.agents/state/omp-provider-release/upstream/omniroute-v${pin.tag.slice(1)}-${pin.commit}.tar.gz`;
   if (archive.path !== expectedArchivePath || archive.url !== pin.archiveUrl || archive.commit !== pin.commit
@@ -107,7 +106,7 @@ async function verifyArchiveAndSourceRoot(manifest: AnyRecord, pin: UpstreamPin)
   if (sourcePackage.version !== pin.tag.slice(1)) throw new Error("source snapshot package version does not match the pinned release");
   if (gitBlobSha(readFileSync(safeFile(sourceSnapshotPath, "package.json"))) !== pin.packageGitBlobSha) throw new Error("pinned package.json Git blob hash mismatch");
 }
-function verifySourceReceipts(manifest: AnyRecord): Map<string, Receipt> {
+function verifySourceReceipts(manifest: AnyRecord, sourceSnapshotPath: string, effectiveFiles: ReadonlyMap<string, string> | null): Map<string, Receipt> {
   const corpus = requireObject(manifest.sourceCorpus, "manifest.sourceCorpus");
   const values = requireArray(corpus.files, "manifest.sourceCorpus.files");
   if (corpus.fileCount !== values.length) throw new Error("source corpus file count drift");
@@ -128,6 +127,7 @@ function verifySourceReceipts(manifest: AnyRecord): Map<string, Receipt> {
     if (bytes.byteLength !== receipt.bytes
       || createHash("sha256").update(bytes).digest("hex") !== receipt.sha256
       || gitBlobSha(bytes) !== receipt.gitBlobSha) throw new Error(`pinned source receipt mismatch: ${path}`);
+    if (effectiveFiles && effectiveFiles.get(path) !== receipt.sha256) throw new Error(`source receipt differs from effective tree: ${path}`);
     receipts.set(path, receipt);
   }
   return receipts;
@@ -141,7 +141,7 @@ function sourceDigest(paths: readonly string[], receipts: Map<string, Receipt>, 
   return createHash("sha256").update(JSON.stringify(records)).digest("hex");
 }
 function pathShape(path: string): string { return path.replace(/\*[^/]+|\{[^}]+\}/g, "{}"); }
-function verifyFrameworkAndRoutes(manifest: AnyRecord, receipts: Map<string, Receipt>): Map<string, AnyRecord> {
+function verifyFrameworkAndRoutes(manifest: AnyRecord, receipts: Map<string, Receipt>, sourceSnapshotPath: string): Map<string, AnyRecord> {
   if (manifest.schemaVersion !== 2 || manifest.recordKind !== "omniroute-route-source-manifest") throw new Error("route source manifest version/identity mismatch");
   const framework = requireObject(manifest.frameworkContext, "manifest.frameworkContext");
   const resolvedFiles = requireArray(framework.resolvedFiles, "framework.resolvedFiles").map((value, index) => requireString(value, `framework.resolvedFiles[${index}]`));
@@ -380,15 +380,17 @@ export async function verifyContracts(): Promise<void> {
     if (release[key] !== value || operationRelease[key] !== value) throw new Error(`immutable release pin drift: ${key}`);
   }
   if (release.releaseId !== pin.releaseId || release.latestRedirectTarget !== pin.tag || release.selectorKind !== "github-latest-release") throw new Error("release selector evidence drift");
-  await verifyArchiveAndSourceRoot(manifest, pin);
-  const receipts = verifySourceReceipts(manifest);
+  const source = verifyQualificationSource(packageRoot);
+  assertQualificationManifest(manifest, source);
+  await verifyArchiveAndSourceRoot(manifest, pin, source.root);
+  const receipts = verifySourceReceipts(manifest, source.root, source.files);
   const inputs = requireObject(manifest.inputs, "manifest.inputs");
   for (const key of ["openapi", "package"]) {
     const input = requireObject(inputs[key], `manifest.inputs.${key}`);
     const receipt = receipts.get(requireString(input.path, `manifest.inputs.${key}.path`));
     if (!receipt || input.bytes !== receipt.bytes || input.sha256 !== receipt.sha256 || input.gitBlobSha !== receipt.gitBlobSha) throw new Error(`pinned ${key} input receipt drift`);
   }
-  const routeByKey = verifyFrameworkAndRoutes(manifest, receipts);
+  const routeByKey = verifyFrameworkAndRoutes(manifest, receipts, source.root);
   verifySchemaShapes();
   const generated = generateContracts();
   if (generated !== readFileSync(operationsPath, "utf8")) throw new Error("operations.json differs from deterministic source/eligibility generation");

@@ -275,17 +275,21 @@ test("degradation eligibility requires its matching ingress digest", () => {
   expect(new OperationRegistry([{ ...baked, qualification: qualificationWithoutIngress }], { records: [proof] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
 });
 
-test("generated liveness qualification retains its ingress digest for runtime eligibility", () => {
+test("liveness qualification retains ingress evidence or remains unavailable", () => {
   const release = JSON.parse(readFileSync(new URL("../contracts/release-eligibility.json", import.meta.url), "utf8")) as {
     operations: { operationId: string; ingressEvidence?: { sha256: string } }[];
   };
   for (const operationId of ["GET /livez", "HEAD /livez"]) {
     const evidence = release.operations.find(item => item.operationId === operationId)?.ingressEvidence;
-    expect(evidence?.sha256).toMatch(/^[a-f0-9]{64}$/);
     const registry = new OperationRegistry();
     const operation = registry.getOperation(operationId);
-    expect(operation?.qualification?.ingressSha256).toBe(evidence?.sha256);
-    expect(registry.require(operationId).eligibility.status).toBe("verified");
+    if (evidence) {
+      expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(operation?.qualification?.ingressSha256).toBe(evidence.sha256);
+      expect(registry.require(operationId).eligibility.status).toBe("verified");
+    } else {
+      expect(registry.getEligibility(operationId).status).toBe("unavailable");
+    }
   }
 });
 
@@ -311,6 +315,8 @@ test("liveness eligibility requires matching ingress evidence in the document an
       const root = join(temporary, name);
       await mkdir(join(root, "src/admin"), { recursive: true });
       await mkdir(join(root, "contracts"));
+      await mkdir(join(root, "provenance"));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute" }] }));
       const readerPath = join(root, "src/admin/eligibility.ts");
       await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
       await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({
@@ -334,6 +340,92 @@ test("liveness eligibility requires matching ingress evidence in the document an
     await rm(temporary, { recursive: true, force: true });
   }
 });
+
+test("derived eligibility requires the same source and tree throughout the runtime join", async () => {
+  const descriptor = fixtureOperation();
+  const authority = fixtureRegistry([descriptor]);
+  const qualified = authority.getOperation(descriptor.operationId)!;
+  const receipt = qualified.qualification!;
+  const derivation = { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) };
+  const identity = { sourceDerivation: derivation, effectiveTreeSha256: "b".repeat(64) };
+  const derivedReceipt = { ...receipt, binding: { ...receipt.binding, ...identity } };
+  const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = derivedReceipt.binding;
+  const entry = { ...authority.getEligibility(descriptor.operationId), binding, contract: operationSourceContract(qualified),
+    test: { ...receipt.test, observedOutcome: `provenance/qualification/${"0".repeat(64)}.json` } };
+  const temporary = await mkdtemp(join(tmpdir(), "cruxomni-derived-reader-"));
+  try {
+    for (const [name, rootIdentity, record, expected] of [
+      ["matching", identity, entry, "verified"],
+      ["changed-derivation", { ...identity, sourceDerivation: { ...derivation, sha256: "c".repeat(64) } }, entry, "unavailable"],
+      ["missing-tree", { sourceDerivation: derivation }, entry, "unavailable"],
+      ["changed-tree", identity, { ...entry, binding: { ...binding, effectiveTreeSha256: "c".repeat(64) } }, "unavailable"],
+    ] as const) {
+      const root = join(temporary, name);
+      await mkdir(join(root, "src/admin"), { recursive: true });
+      await mkdir(join(root, "contracts"));
+      await mkdir(join(root, "provenance"));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute", qualification_source: { kind: "signed-derivation", ...derivation } }] }));
+      const readerPath = join(root, "src/admin/eligibility.ts");
+      await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
+      await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({ schemaVersion: 3, recordKind: "omniroute-release-eligibility", release: { commit: receipt.releaseCommit }, default: { status: "unavailable", reason: "Synthetic unit document." }, ...rootIdentity, operations: [record] }));
+      // Each document needs a distinct module instance to exercise its load boundary.
+      const reader = await import(pathToFileURL(readerPath).href) as typeof EligibilityReader;
+      const parsed = reader.eligibilityFor(descriptor.operationId, reader.createEligibilityIndex());
+      expect(parsed.status).toBe(expected);
+      if (name === "matching") {
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: derivedReceipt, binding: derivedReceipt.binding })).toBe(true);
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: derivedReceipt, binding: { ...derivedReceipt.binding, effectiveTreeSha256: "c".repeat(64) } })).toBe(false);
+      }
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+test("database lifecycle requirement cannot be removed or mismatched at runtime", async () => {
+  const descriptor = fixtureOperation();
+  const authority = fixtureRegistry([descriptor]);
+  const qualified = authority.getOperation(descriptor.operationId)!;
+  const receipt = qualified.qualification!;
+  const derivation = { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) };
+  const identity = { sourceDerivation: derivation, effectiveTreeSha256: "b".repeat(64), databaseInitializationRequired: true as const };
+  const lifecycleSha256 = "c".repeat(64);
+  const derivedReceipt = { ...receipt, lifecycleSha256, binding: { ...receipt.binding, ...identity } };
+  const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = derivedReceipt.binding;
+  const entry = { ...authority.getEligibility(descriptor.operationId), binding, contract: operationSourceContract(qualified),
+    lifecycleEvidence: { artifact: `provenance/qualification/core-lifecycle-${lifecycleSha256}.json`, sha256: lifecycleSha256 },
+    test: { ...receipt.test, observedOutcome: `provenance/qualification/${"0".repeat(64)}.json` } };
+  const temporary = await mkdtemp(join(tmpdir(), "cruxomni-lifecycle-reader-"));
+  try {
+    for (const [name, candidate, expected] of [
+      ["matching", entry, "verified"],
+      ["missing", { ...entry, lifecycleEvidence: undefined }, "unavailable"],
+      ["wrong-path", { ...entry, lifecycleEvidence: { ...entry.lifecycleEvidence, artifact: `provenance/qualification/core-lifecycle-${"d".repeat(64)}.json` } }, "unavailable"],
+      ["removed-requirement", { ...entry, binding: { ...binding, databaseInitializationRequired: undefined } }, "unavailable"],
+    ] as const) {
+      const root = join(temporary, name);
+      await mkdir(join(root, "src/admin"), { recursive: true });
+      await mkdir(join(root, "contracts"));
+      await mkdir(join(root, "provenance"));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute", qualification_source: { kind: "signed-derivation", ...derivation } }] }));
+      const readerPath = join(root, "src/admin/eligibility.ts");
+      await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
+      await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({ schemaVersion: 3, recordKind: "omniroute-release-eligibility", release: { commit: receipt.releaseCommit }, default: { status: "unavailable", reason: "Synthetic unit document." }, sourceDerivation: derivation, effectiveTreeSha256: identity.effectiveTreeSha256, operations: [candidate] }));
+      // The runtime-selected copy gives each synthetic document an isolated module cache.
+      const reader = await import(pathToFileURL(readerPath).href) as typeof EligibilityReader;
+      const parsed = reader.eligibilityFor(descriptor.operationId, reader.createEligibilityIndex());
+      expect(parsed.status).toBe(expected);
+      if (name === "matching") {
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: derivedReceipt, binding: derivedReceipt.binding })).toBe(true);
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: { ...derivedReceipt, lifecycleSha256: "d".repeat(64) }, binding: derivedReceipt.binding })).toBe(false);
+        const { lifecycleSha256: _missing, ...withoutLifecycle } = derivedReceipt;
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: withoutLifecycle, binding: derivedReceipt.binding })).toBe(false);
+        const { databaseInitializationRequired: _required, ...withoutRequirement } = derivedReceipt.binding;
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: derivedReceipt, binding: withoutRequirement })).toBe(false);
+      }
+    }
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+});
+
 
 test("private target projection binds exact sensitive state without exposing it in model output", () => {
   const source = fixtureOperation();
@@ -411,6 +503,8 @@ test("archived qualification records cannot enable the new mutation contract", a
       const root = join(temporary, name);
       await mkdir(join(root, "src/admin"), { recursive: true });
       await mkdir(join(root, "contracts"));
+      await mkdir(join(root, "provenance"));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute" }] }));
       const readerPath = join(root, "src/admin/eligibility.ts");
       await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
       await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({

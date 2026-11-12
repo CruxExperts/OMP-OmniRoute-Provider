@@ -9,6 +9,30 @@ import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
 
+test("effective source rejects a changed capsule rather than falling back to the base", () => {
+  const code = String.raw`
+import importlib.util,json,pathlib,shutil,sys,tempfile
+s=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as d:
+ root=pathlib.Path(d)/'checkout'; (root/'scripts').mkdir(parents=True); (root/'provenance').mkdir()
+ shutil.copy(m.ROOT/'scripts/prepare-upstream.py',root/'scripts/prepare-upstream.py')
+ capsule='provenance/derivations/omniroute-3.8.53-startup/manifest.json'
+ (root/capsule).parent.mkdir(parents=True); (root/capsule).write_bytes(b'tampered')
+ pin=json.loads((m.ROOT/'provenance/upstreams.json').read_text())
+ upstream=next(x for x in pin['upstreams'] if x['id']=='omniroute')
+ upstream['qualification_source']={'kind':'signed-derivation','record':capsule,'sha256':'a'*64}
+ (root/'provenance/upstreams.json').write_text(json.dumps(pin))
+ try: m.effective_source(pathlib.Path(d)/'absent-archive',root,pathlib.Path(d)/'output')
+ except ValueError as e: assert 'digest mismatch' in str(e)
+ else: raise AssertionError('invalid capsule accepted')
+ assert not (pathlib.Path(d)/'output').exists()
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
+
 test("read ingress rejects missing, contradictory, duplicate, and source-mismatched policy", () => {
   const root = resolve(import.meta.dir, "..");
   const manifest = JSON.parse(readFileSync(resolve(root, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as { commit: string; archiveSha256: string };
@@ -21,7 +45,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 }));
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
-    source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256 },
+    source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256, sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 },
     inputs: { sha256, nodeSha256: runtime.nodeSha256, runtime: { node: runtime.nodeVersion, next: "16.4.2", react: "19.2.8", "react-dom": "19.2.8" }, sourceOverlaySha256: identities.sourceOverlaySha256, executedOverlaySha256: identities.executedOverlaySha256 },
     isolation: { namespacesDistinct: true, memoryLimitEnforced: true, cpuLimitEnforced: true, privateLoopbackOnly: true, environmentAllowlisted: true },
     health: [{ method: "GET", path: "/api/health", status: 200, bodyKeys: ["status", "timestamp"], timestamp: "2026-01-01T00:00:00.000Z", cacheControl: "no-store" }],
@@ -48,7 +72,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     } finally { rmSync(absolute); }
   }
   for (const [index, [operation, route]] of cases.entries()) {
-    const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route] } as OperationEvidenceBinding;
+    const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route], sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
     check(artifact, binding, operation);
     check({ ...artifact, readPolicy: undefined }, binding, operation, /read policy observation mismatch/);
     check({ ...artifact, readPolicy: policies.filter((_, i) => i !== index) }, binding, operation, /read policy observation mismatch/);
@@ -59,7 +83,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /source mismatch/);
     check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch/);
   }
-  const capabilityBinding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)["src/app/api/model-capability-overrides/route.ts"] } as OperationEvidenceBinding;
+  const capabilityBinding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)["src/app/api/model-capability-overrides/route.ts"], sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
   const capabilityOperation = "GET /api/model-capability-overrides";
   check(artifact, capabilityBinding, capabilityOperation);
   check({ ...artifact, modelCapabilityOverridesPolicy: undefined }, capabilityBinding, capabilityOperation, /capability policy observation mismatch/);
@@ -503,6 +527,16 @@ with tempfile.TemporaryDirectory() as temp:
  for alias in mapping['aliases']:
   for path in (app/alias['source'], fixture/alias['replacement']):
    original = path.read_bytes(); path.write_bytes(b'tampered'); rejected(); path.unlink(); rejected(); path.write_bytes(original)
+ core = next(a for a in mapping['aliases'] if a['source'] == 'src/lib/db/core.ts')
+ path = app/core['source']; base = path.read_bytes(); repaired = b'repaired core'; path.write_bytes(repaired)
+ change = {'input_sha256':m.sha(base),'output_sha256':m.sha(repaired)}
+ derived = m.overlay_plan(app,fixture,manifest,{core['source']:change})
+ assert next(a for a in derived if a['source']==core['source'])['sourceSha256'] == m.sha(repaired)
+ for invalid in ({**change,'input_sha256':'0'*64},{**change,'output_sha256':'0'*64}):
+  try: m.overlay_plan(app,fixture,manifest,{core['source']:invalid})
+  except RuntimeError: pass
+  else: raise AssertionError('incorrect derivation identity accepted')
+ path.write_bytes(base)
  aliases = m.overlay_plan(app, fixture, manifest)
  result = m.apply_overlays(app, fixture, aliases)
  assert len(result) == 6 and all(m.sha((app/a['source']).read_bytes()) == result[a['source']]['executedSha256'] for a in aliases)
@@ -587,6 +621,8 @@ with tempfile.TemporaryDirectory() as temp:
   for name, data in sources.items():
    member = tarfile.TarInfo('OmniRoute-v3.8.53/'+name); member.size = len(data); archive.addfile(member, io.BytesIO(data))
  m.SOURCE = archive_path; m.ARCHIVE_SHA = m.sha(archive_path.read_bytes()); m.FIXTURE = fixture
+ m.effective_source_identities = lambda archive: {'effectiveTreeSha256':'a'*64}
+ m.approved_source = lambda: sources
  manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}},'additionalFiles':{m.LIVE_ROUTE:{'sha256':m.sha(sources[m.LIVE_ROUTE])}}}
  manifest_bytes = json.dumps(manifest).encode(); (fixture/'source-manifest.json').write_bytes(manifest_bytes)
  hashes['test/fixtures/pinned-ingress/source-manifest.json'] = m.sha(manifest_bytes)
@@ -596,13 +632,14 @@ with tempfile.TemporaryDirectory() as temp:
   b'        event("sqlite:read");\n        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
   b'        return sqlite.prepare(sql);\n      }\n};\n\nexport const DB_BACKUPS_DIR = isCloud ? null : path.join(DATA_DIR, "db_backups");\n'+declaration+b'\n')
  expected_settings = settings+b'\nexport { getCacheMetrics, resetCacheMetrics } from "@/lib/db/settings/cacheMetrics";\n'
- material = {'archiveSha256': m.ARCHIVE_SHA, 'webpackDeviation': False, 'bundler':'next-default', 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts']),m.LIVE_ROUTE:m.sha(sources[m.LIVE_ROUTE])}}
+ material = {'archiveSha256': m.ARCHIVE_SHA, 'effectiveTreeSha256':'a'*64, 'webpackDeviation': False, 'bundler':'next-default', 'selectedSourceFiles': 509, 'configSupportSha256':{'src/proxy.ts':m.sha(sources['src/proxy.ts']),m.LIVE_ROUTE:m.sha(sources[m.LIVE_ROUTE])}}
  put('result.json', {'status':'research-observed', 'qualification':False, 'materialization':material})
  put('materialization.json', material)
  put('host-namespaces.json', {k:'host' for k in ('user','mnt','net','pid')})
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
  identity_names = set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ identity['effectiveTreeSha256'] = 'a'*64
  identity['addedSourceSha256'][m.LIVE_ROUTE] = {'originalSha256':m.sha(sources[m.LIVE_ROUTE]),'executedSha256':m.sha(sources[m.LIVE_ROUTE])}
  identity['proxyIdentity'] = {'originalSha256':m.sha(sources['src/proxy.ts']),'executedSha256':m.sha(sources['src/proxy.ts'])}
  for name in ('src/app/api/health/degradation/route.ts','src/domain/degradation.ts'):
@@ -779,11 +816,13 @@ test("real-core export validates lifecycle and excludes private database values"
 import importlib.util,json,pathlib,sys,tempfile
 spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 with tempfile.TemporaryDirectory() as d:
+ m.effective_source_identities=lambda archive:{'effectiveTreeSha256':'b'*64}
  p=pathlib.Path(d); h='a'*64
  source={f'src/lib/db/migrations/{i:03}_fixture.sql':h for i in range(222)}
  source.update({'src/lib/db/healthCheckWorker.ts':h,'scripts/build/colocate-standalone.mjs':h,'src/lib/db/core.ts':h})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerOutputSha256':h,'private':'private-canary'}
+ identity['effectiveTreeSha256']='b'*64
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[]}; warm={**base,'phase':'warm','before':[db]}
@@ -804,6 +843,8 @@ with tempfile.TemporaryDirectory() as d:
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
  assert result['cold']['databaseExistedBefore'] is False and result['warm']['databaseExistedBefore'] is True
  assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
+ assert result['cold']['tableSha256']==result['warm']['tableSha256'] and result['cold']['migrationSha256']==result['warm']['migrationSha256']
+ assert result['isolation']=={'network':'private-loopback-only','capabilities':'dropped','source':'read-only','processes':'separate-cold-warm','startupRegressions':'passed'}
 `;
   const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
   expect(result.stderr).toBe("");

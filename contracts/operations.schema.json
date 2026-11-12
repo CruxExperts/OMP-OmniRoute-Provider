@@ -27,8 +27,11 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["frameworkContextSha256", "routeImportDigests"],
+      "dependentRequired": {"sourceDerivation": ["effectiveTreeSha256"], "effectiveTreeSha256": ["sourceDerivation"]},
       "properties": {
         "frameworkContextSha256": {"$ref": "#/$defs/sha256"},
+        "sourceDerivation": {"$ref": "#/$defs/sourceDerivation"},
+        "effectiveTreeSha256": {"$ref": "#/$defs/sha256"},
         "routeImportDigests": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/sha256"}}
       }
     },
@@ -54,6 +57,13 @@
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sourceDerivation": {
+      "type": "object", "additionalProperties": false, "required": ["record", "sha256"],
+      "properties": {
+        "record": {"const": "provenance/derivations/omniroute-3.8.53-startup/manifest.json"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
     "release": {
       "type": "object",
       "additionalProperties": false,
@@ -1031,10 +1041,16 @@
           "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills"] } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["ingressSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["ingressSha256"] } } } }
+        },
+        {
+          "if": { "properties": { "databaseInitializationRequired": { "const": true } }, "required": ["databaseInitializationRequired"] },
+          "then": { "properties": { "qualification": { "required": ["lifecycleSha256"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } } } },
+          "else": { "properties": { "qualification": { "not": { "required": ["lifecycleSha256"] }, "properties": { "binding": { "not": { "required": ["databaseInitializationRequired"] } } } } } }
         }
       ],
       "properties": {
         "operationId": {"type": "string", "minLength": 1},
+        "databaseInitializationRequired": {"const": true},
         "method": {"enum": ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]},
         "pathTemplate": {"type": "string", "pattern": "^/(?:[A-Za-z0-9._~-]+|\\{[A-Za-z0-9._~-]+\\})(?:/(?:[A-Za-z0-9._~-]+|\\{[A-Za-z0-9._~-]+\\}))*$"},
         "request": {"$ref": "#/$defs/request"},
@@ -1066,11 +1082,12 @@
           "additionalProperties": false,
           "required": ["releaseCommit", "binding", "test"],
           "properties": {
-            "releaseCommit": {"const": "ad6f33f66bda34eba98645d3bfdabbde294bc843"},
+            "releaseCommit": {"$ref": "#/$defs/gitSha"},
             "binding": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["handlerSha256", "handlerGitBlobSha", "requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "sideEffectSha256"],
+              "required": ["handlerSha256", "handlerGitBlobSha", "requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "sideEffectSha256", "mutationSafetySha256"],
+              "dependentRequired": {"sourceDerivation": ["effectiveTreeSha256"], "effectiveTreeSha256": ["sourceDerivation"]},
               "properties": {
                 "handlerSha256": {"$ref": "#/$defs/sha256"},
                 "handlerGitBlobSha": {"$ref": "#/$defs/gitSha"},
@@ -1081,6 +1098,10 @@
                 "operationSemanticsSha256": {"$ref": "#/$defs/sha256"},
                 "routeImportsSha256": {"$ref": "#/$defs/sha256"},
                 "frameworkContextSha256": {"$ref": "#/$defs/sha256"},
+                "sourceDerivation": {"$ref": "#/$defs/sourceDerivation"},
+                "effectiveTreeSha256": {"$ref": "#/$defs/sha256"},
+                "databaseInitializationRequired": {"const": true},
+                "mutationSafetySha256": {"$ref": "#/$defs/sha256"},
                 "sideEffectSha256": {"$ref": "#/$defs/sha256"}
               }
             },
@@ -1094,7 +1115,8 @@
                 "outcomeSha256": {"$ref": "#/$defs/sha256"}
               }
             },
-            "ingressSha256": {"$ref": "#/$defs/sha256"}
+            "ingressSha256": {"$ref": "#/$defs/sha256"},
+            "lifecycleSha256": {"$ref": "#/$defs/sha256"}
           }
         }
       }

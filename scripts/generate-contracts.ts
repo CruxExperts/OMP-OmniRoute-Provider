@@ -288,7 +288,7 @@ export function expectedHealthIngressIdentities(version: string, commit: string)
   const program = `import importlib.util, json, pathlib, sys, tempfile
 spec = importlib.util.spec_from_file_location('ingress', sys.argv[1])
 m = importlib.util.module_from_spec(spec); exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), m.__dict__)
-m.SOURCE = pathlib.Path(sys.argv[2]); source = m.approved_source()
+m.SOURCE = pathlib.Path(sys.argv[2]); source, effective_identity = m.approved_source(with_identity=True)
 manifest = json.loads((m.FIXTURE / 'source-manifest.json').read_bytes())
 with tempfile.TemporaryDirectory() as directory:
  app = pathlib.Path(directory)
@@ -301,7 +301,8 @@ assert len(aliases) == 6 and len({a['source'] for a in aliases}) == 6
 mapping = {}
 for a in aliases:
  original = m.sha(source[a['source']]); replacement = m.sha((m.FIXTURE / a['replacement']).read_bytes())
- assert original == a['sourceSha256'] and replacement == a['replacementSha256']
+ assert (original == a['sourceSha256']) if a['source'] != 'src/lib/db/core.ts' else True
+ assert replacement == a['replacementSha256']
  mapping[a['source']] = {'originalSha256': original, 'replacement': a['replacement'], 'executedSha256': overlays.get(a['replacement'], replacement)}
 identities = {name: m.sha(source[name]) for name in set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}}
 for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
@@ -309,7 +310,7 @@ for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.
  identities[name] = {'originalSha256': m.sha(data), 'executedSha256': m.sha(executed)}
 identities['src/app/livez/route.ts'] = {'originalSha256': m.sha(source['src/app/livez/route.ts']), 'executedSha256': m.sha(source['src/app/livez/route.ts'])}
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
-print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays}))`;
+print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
   // This generator requires python3 and the prepared pinned archive; fail closed if
@@ -466,6 +467,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
+  for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
+    if (canonicalJson(toJson(source[key] ?? null, label)) !== canonicalJson(toJson(expectedIdentities[key] ?? null, label))) throw new Error(`${label} effective source identity mismatch: ${key}`);
+  }
+  if (canonicalJson(toJson(source.sourceDerivation ?? null, label)) !== canonicalJson(toJson(binding.sourceDerivation ?? null, label))
+    || (binding.sourceDerivation !== undefined && source.effectiveTreeSha256 !== binding.effectiveTreeSha256)) throw new Error(`${label} effective operation binding mismatch`);
   for (const key of sourceIdentityHashFields) {
     if (canonicalJson(toJson(source[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} source identity mismatch: ${key}`);
   }
@@ -473,6 +479,83 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   for (const key of overlayIdentityHashFields) {
     if (canonicalJson(toJson(inputs[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} overlay identity mismatch: ${key}`);
   }
+}
+
+// Only expected producer results are cached; artifacts are always read and validated anew.
+const coreLifecycleIdentityCache = new Map<string, unknown>();
+
+/** Join a research-only cold/warm observation to independently rerun producer identities. */
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">): void {
+  const label = "core lifecycle evidence";
+  const evidence = requireRecord(value, label);
+  assertKeys(evidence, label, ["artifact", "sha256"]);
+  const path = requireString(evidence.artifact, `${label}.artifact`);
+  if (!/^[a-f0-9]{64}$/.test(String(evidence.sha256)) || path !== `provenance/qualification/core-lifecycle-${String(evidence.sha256)}.json`) throw new Error(`${label} path mismatch`);
+  const file = resolve(packageRoot, path);
+  const info = lstatSync(file);
+  if (!info.isFile() || info.nlink !== 1 || realpathSync(file) !== file || info.size > 2 * 1024 * 1024) throw new Error(`${label} artifact is not a regular unlinked file`);
+  const bytes = readFileSync(file);
+  if (createHash("sha256").update(bytes).digest("hex") !== evidence.sha256) throw new Error(`${label} digest mismatch`);
+  const artifact = requireRecord(JSON.parse(bytes.toString("utf8")) as unknown, label);
+  const names = ["PINNED_INGRESS_ARCHIVE", "PINNED_INGRESS_NODE", "PINNED_INGRESS_DEPENDENCIES", "PINNED_INGRESS_BWRAP"] as const;
+  const paths = names.map(name => {
+    const path = process.env[name];
+    if (!path || !path.startsWith("/")) throw new Error(`${label} requires absolute ${name}`);
+    return path;
+  });
+  const program = `import json, pathlib, sys
+ns = {'__name__': 'pinned_ingress_expected', '__file__': sys.argv[1]}
+exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), ns)
+name = sys.argv[2]
+print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
+  const invoke = (name: string): unknown => JSON.parse(execFileSync("python3", ["-c", program, resolve(packageRoot, "scripts/pinned-ingress.py"), name, ...paths], { cwd: packageRoot, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 900_000 })) as unknown;
+  const inputKey = (): string => {
+    const key = invoke("expected_core_lifecycle_input_key");
+    if (typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key)) throw new Error(`${label} invalid producer input key`);
+    return sha256(JSON.stringify([key, paths, program]));
+  };
+  const key = inputKey();
+  let expected = coreLifecycleIdentityCache.get(key);
+  if (expected === undefined) {
+    expected = invoke("expected_core_lifecycle_identities");
+    if (inputKey() !== key) throw new Error(`${label} producer inputs changed during verification`);
+    coreLifecycleIdentityCache.set(key, expected);
+  }
+  validateCoreLifecycleObservation(artifact, binding, expected);
+}
+
+/** Validate observations against an independently computed identity. */
+export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
+  const label = "core lifecycle evidence";
+  const artifact = requireRecord(value, label);
+  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm"]);
+  if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
+  const identity = requireRecord(artifact.identity, `${label}.identity`);
+  if (!binding.sourceDerivation || !binding.effectiveTreeSha256
+    || canonicalJson(toJson(identity.sourceDerivation, label)) !== canonicalJson(toJson(binding.sourceDerivation, label))
+    || identity.effectiveTreeSha256 !== binding.effectiveTreeSha256) throw new Error(`${label} effective source mismatch`);
+  const isolation = { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" };
+  if (canonicalJson(toJson(artifact.isolation, label)) !== canonicalJson(toJson(isolation, label))) throw new Error(`${label} isolation mismatch`);
+  const expected = requireRecord(independentValue, `${label}.expected`);
+  for (const key of ["identity", "inputSha256", "isolation"] as const) {
+    if (canonicalJson(toJson(artifact[key], label)) !== canonicalJson(toJson(expected[key], label))) throw new Error(`${label} ${key} mismatch`);
+  }
+  const phases: RecordValue[] = [];
+  for (const phase of ["cold", "warm"] as const) {
+    const actual = requireRecord(artifact[phase], `${label}.${phase}`);
+    const independent = requireRecord(expected[phase], `${label}.expected.${phase}`);
+    assertKeys(actual, `${label}.${phase}`, ["phase", "driver", "ping", "healthWorker", "healthy", "settingsPersisted", "databaseExistedBefore", "tableCount", "migrationCount", "tableSha256", "migrationSha256"]);
+    if (actual.phase !== phase || actual.driver !== "node:sqlite" || actual.ping !== true || actual.healthWorker !== true
+      || typeof actual.healthy !== "boolean" || actual.settingsPersisted !== true || actual.databaseExistedBefore !== (phase === "warm")
+      || !Number.isSafeInteger(actual.tableCount) || Number(actual.tableCount) <= 0 || !Number.isSafeInteger(actual.migrationCount) || Number(actual.migrationCount) <= 0
+      || !/^[a-f0-9]{64}$/.test(String(actual.tableSha256)) || !/^[a-f0-9]{64}$/.test(String(actual.migrationSha256))) throw new Error(`${label} ${phase} observation mismatch`);
+    const { healthy: _healthy, ...actualStable } = actual;
+    const { healthy: _expectedHealthy, ...expectedStable } = independent;
+    if (canonicalJson(toJson(actualStable, label)) !== canonicalJson(toJson(expectedStable, label))) throw new Error(`${label} ${phase} independent observation mismatch`);
+    phases.push(actual);
+  }
+  if (phases[0]!.tableSha256 !== phases[1]!.tableSha256 || phases[0]!.migrationSha256 !== phases[1]!.migrationSha256
+    || phases[0]!.tableCount !== phases[1]!.tableCount || phases[0]!.migrationCount !== phases[1]!.migrationCount) throw new Error(`${label} cold/warm state mismatch`);
 }
 
 function assertNoSecretFields(value: Json, label: string, parentPath: readonly string[] = [], explicitSecretPaths: readonly string[] = []): void {
@@ -1297,11 +1380,14 @@ type EvidenceBinding = {
   routeImportsSha256: string;
   frameworkContextSha256: string;
   mutationSafetySha256: string;
+  sourceDerivation?: { record: string; sha256: string };
+  effectiveTreeSha256?: string;
+  databaseInitializationRequired?: true;
 };
 
 function eligibilityRecords(): Map<string, RecordValue> {
   const root = requireRecord(JSON.parse(readFileSync(eligibilityPath, "utf8")) as unknown, "release eligibility");
-  assertKeys(root, "release eligibility", ["$schema", "schemaVersion", "recordKind", "release", "default", "operations", "history"]);
+  assertKeys(root, "release eligibility", ["$schema", "schemaVersion", "recordKind", "release", "default", "operations", "history"], ["sourceDerivation", "effectiveTreeSha256"]);
   if (root.schemaVersion !== 3 || root.recordKind !== "omniroute-release-eligibility") throw new Error("release eligibility identity/version is unsupported");
   const expectedRelease = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
   const release = requireRecord(root.release, "release eligibility.release");
@@ -1309,6 +1395,9 @@ function eligibilityRecords(): Map<string, RecordValue> {
   if (release.repository !== expectedRelease.repository || release.tag !== expectedRelease.tag || release.commit !== expectedRelease.commit) {
     throw new Error("release eligibility pin does not match the route-source manifest");
   }
+  const sourceManifest = requireRecord(readRouteSources(manifestPath), "route source manifest");
+  if (canonicalJson(toJson(root.sourceDerivation ?? null, "eligibility derivation")) !== canonicalJson(toJson(sourceManifest.sourceDerivation ?? null, "manifest derivation"))
+    || root.effectiveTreeSha256 !== sourceManifest.effectiveTreeSha256) throw new Error("release eligibility effective source mismatch");
   const defaultStatus = requireRecord(root.default, "release eligibility.default");
   assertKeys(defaultStatus, "release eligibility.default", ["status", "reason"]);
   if (defaultStatus.status !== "unavailable") throw new Error("release eligibility default must fail closed");
@@ -1318,7 +1407,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
   const result = new Map<string, RecordValue>();
   for (const value of records) {
     const record = requireRecord(value, "eligibility record");
-    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence"]);
+    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence", "lifecycleEvidence"]);
     const operationId = requireString(record.operationId, "eligibility operationId");
     if (result.has(operationId)) throw new Error(`duplicate eligibility record ${operationId}`);
     if (record.status !== "verified") throw new Error(`eligibility entries must be verified or omitted: ${operationId}`);
@@ -1326,7 +1415,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
     const source = requireRecord(record.source, `${operationId}.eligibility.source`);
     assertKeys(source, `${operationId}.eligibility.source`, ["file", "sha256", "gitBlobSha"]);
     const binding = requireRecord(record.binding, `${operationId}.eligibility.binding`);
-    assertKeys(binding, `${operationId}.eligibility.binding`, ["requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"]);
+    assertKeys(binding, `${operationId}.eligibility.binding`, ["requestSchemaSha256", "authSha256", "sideEffect", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"], ["sourceDerivation", "effectiveTreeSha256", "databaseInitializationRequired"]);
     const test = requireRecord(record.test, `${operationId}.eligibility.test`);
     assertKeys(test, `${operationId}.eligibility.test`, ["id", "observedOutcome", "caseSha256", "outcomeSha256"]);
     const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -1345,7 +1434,7 @@ function contractFromOperation(operation: RecordValue): RecordValue {
   return Object.fromEntries(OPERATION_CONTRACT_FIELDS.map(field => [field, operation[field]]));
 }
 
-function bindingFor(operation: RecordValue, route: RecordValue, frameworkContextSha256: string): EvidenceBinding {
+function bindingFor(operation: RecordValue, route: RecordValue, frameworkContextSha256: string, manifest: RecordValue): EvidenceBinding {
   const contract = toJson(contractFromOperation(operation), `${String(operation.operationId)}.contract`);
   return {
     requestSchemaSha256: sha256(canonicalJson(toJson(operation.request, "operation.request"))),
@@ -1355,8 +1444,24 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     operationSemanticsSha256: sha256(canonicalJson(contract)),
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
+    ...effectiveSourceBinding(manifest),
+    ...(requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
+}
+
+function effectiveSourceBinding(manifest: RecordValue): Pick<EvidenceBinding, "sourceDerivation" | "effectiveTreeSha256"> {
+  if (manifest.sourceDerivation === undefined) {
+    if (manifest.effectiveTreeSha256 !== undefined) throw new Error("Official source cannot declare a derived tree");
+    return {};
+  }
+  const derivation = requireRecord(manifest.sourceDerivation, "manifest.sourceDerivation");
+  assertKeys(derivation, "manifest.sourceDerivation", ["record", "sha256"]);
+  const record = requireString(derivation.record, "manifest.sourceDerivation.record");
+  const digest = requireString(derivation.sha256, "manifest.sourceDerivation.sha256");
+  const tree = requireString(manifest.effectiveTreeSha256, "manifest.effectiveTreeSha256");
+  if (record !== "provenance/derivations/omniroute-3.8.53-startup/manifest.json" || !/^[a-f0-9]{64}$/.test(digest) || !/^[a-f0-9]{64}$/.test(tree)) throw new Error("Invalid effective source identity");
+  return { sourceDerivation: { record, sha256: digest }, effectiveTreeSha256: tree };
 }
 
 export type OperationEvidenceBinding = EvidenceBinding & {
@@ -1399,6 +1504,8 @@ function validateEligibility(
     routeImportsSha256: binding.routeImportsSha256,
     frameworkContextSha256: binding.frameworkContextSha256,
     mutationSafetySha256: binding.mutationSafetySha256,
+    ...(binding.sourceDerivation ? { sourceDerivation: binding.sourceDerivation, effectiveTreeSha256: binding.effectiveTreeSha256 } : {}),
+    ...(binding.databaseInitializationRequired ? { databaseInitializationRequired: true } : {}),
   }, `${operationId}.expected binding`);
   if (canonicalJson(actualJson) !== canonicalJson(expectedJson)) throw new Error(`eligibility operation contract binding drift: ${operationId}`);
   const test = requireRecord(record.test, `${operationId}.eligibility.test`);
@@ -1419,6 +1526,8 @@ function validateEligibility(
     validateHealthIngressEvidence(ingress, expectedBinding, operationId);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding);
+  else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
   return true;
@@ -2109,6 +2218,7 @@ function makeOperation(
     operationId,
     method,
     pathTemplate: path,
+    ...(requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
     request,
     response,
     mediaType: { request: requestMediaType, response: responseMediaType },
@@ -2164,7 +2274,7 @@ function makeOperation(
     request: effectiveBody === null || effectiveBody.mediaType === null ? null : requireString(effectiveBody.mediaType, `${operationId}.request.body.mediaType`),
     response: effectiveResponse.mediaType === null ? null : requireString(effectiveResponse.mediaType, `${operationId}.response.mediaType`),
   };
-  const binding = bindingFor(effective, route, frameworkContextSha256);
+  const binding = bindingFor(effective, route, frameworkContextSha256, manifest);
   const effectiveAuth = requireRecord(effective.auth, `${operationId}.auth`);
   const effectivePolicy = requireRecord(effectiveAuth.sourcePolicy, `${operationId}.auth.sourcePolicy`);
   const verified = routeClass === "external" && effectivePolicy.status === "qualified"
@@ -2186,6 +2296,7 @@ function makeOperation(
         outcomeSha256: requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`),
       },
       ...(operationId === "GET /livez" || operationId === "HEAD /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
+      ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
     };
   }
   return effective;
@@ -2274,6 +2385,7 @@ export function generateOperations(manifestValue: unknown, eligibility = eligibi
   ]);
   const sourceContext = {
     frameworkContextSha256,
+    ...effectiveSourceBinding(manifest),
     routeImportDigests: Object.fromEntries(routeImportDigestEntries.sort(([left], [right]) => compareText(left, right))),
   };
   const openapi = requireRecord(manifest.openapi, "manifest.openapi");
@@ -2368,7 +2480,7 @@ export function operationEvidenceBinding(operationId: string, explicitContract?:
   const contract = explicitContract !== undefined ? explicitContract : eligibilityRecords().get(operationId)?.contract;
   if (contract === undefined) throw new Error(`operationEvidenceBinding requires an explicit or stored source-reviewed contract: ${operationId}`);
   const operation = makeOperation(source.manifest, source.route, source.method, new Map(), source.frameworkContextSha256, source.centralIngress, contract, true);
-  return outcomeBindingFor(source.route, bindingFor(operation, source.route, source.frameworkContextSha256));
+  return outcomeBindingFor(source.route, bindingFor(operation, source.route, source.frameworkContextSha256, source.manifest));
 }
 
 

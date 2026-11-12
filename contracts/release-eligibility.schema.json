@@ -3,6 +3,7 @@
   "$id": "https://cruxexperts.example/cruxomni-omp-client/contracts/release-eligibility.schema.json",
   "type": "object",
   "additionalProperties": false,
+  "dependentRequired": {"sourceDerivation": ["effectiveTreeSha256"], "effectiveTreeSha256": ["sourceDerivation"]},
   "required": [
     "$schema",
     "schemaVersion",
@@ -13,6 +14,8 @@
     "history"
   ],
   "properties": {
+    "sourceDerivation": { "$ref": "#/$defs/sourceDerivation" },
+    "effectiveTreeSha256": { "$ref": "#/$defs/sha256" },
     "$schema": {
       "type": "string"
     },
@@ -73,6 +76,20 @@
     }
   },
   "$defs": {
+    "lifecycleEvidence": {
+      "type": "object", "additionalProperties": false, "required": ["artifact", "sha256"],
+      "properties": {
+        "artifact": { "type": "string", "pattern": "^provenance/qualification/core-lifecycle-[a-f0-9]{64}\\.json$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "sourceDerivation": {
+      "type": "object", "additionalProperties": false, "required": ["record", "sha256"],
+      "properties": {
+        "record": {"const": "provenance/derivations/omniroute-3.8.53-startup/manifest.json"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
     "sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
@@ -194,6 +211,11 @@
           "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}"] } }, "required": ["operationId"] },
           "then": { "required": ["ingressEvidence"] },
           "else": { "not": { "required": ["ingressEvidence"] } }
+        },
+        {
+          "if": { "properties": { "binding": { "properties": { "databaseInitializationRequired": { "const": true } }, "required": ["databaseInitializationRequired"] } }, "required": ["binding"] },
+          "then": { "required": ["lifecycleEvidence"], "properties": { "binding": { "required": ["sourceDerivation", "effectiveTreeSha256"] } } },
+          "else": { "not": { "required": ["lifecycleEvidence"] } }
         }
       ],
       "properties": {
@@ -217,6 +239,7 @@
         "binding": {
           "type": "object",
           "additionalProperties": false,
+          "dependentRequired": {"sourceDerivation": ["effectiveTreeSha256"], "effectiveTreeSha256": ["sourceDerivation"]},
           "required": [
             "requestSchemaSha256",
             "authSha256",
@@ -228,6 +251,9 @@
             "mutationSafetySha256"
           ],
           "properties": {
+            "sourceDerivation": { "$ref": "#/$defs/sourceDerivation" },
+            "effectiveTreeSha256": { "$ref": "#/$defs/sha256" },
+            "databaseInitializationRequired": { "const": true },
             "requestSchemaSha256": {
               "$ref": "#/$defs/sha256"
             },
@@ -286,6 +312,7 @@
             }
           }
         },
+        "lifecycleEvidence": { "$ref": "#/$defs/lifecycleEvidence" },
         "ingressEvidence": {
           "type": "object",
           "additionalProperties": false,
@@ -303,11 +330,14 @@
     "historicalRelease": {
       "type": "object",
       "additionalProperties": false,
+      "dependentRequired": {"sourceDerivation": ["effectiveTreeSha256"], "effectiveTreeSha256": ["sourceDerivation"]},
       "required": [
         "release",
         "operations"
       ],
       "properties": {
+        "sourceDerivation": { "$ref": "#/$defs/sourceDerivation" },
+        "effectiveTreeSha256": { "$ref": "#/$defs/sha256" },
         "release": {
           "type": "object",
           "additionalProperties": false,
@@ -452,6 +482,7 @@
         "binding": {
           "type": "object",
           "additionalProperties": false,
+          "dependentRequired": {"sourceDerivation": ["effectiveTreeSha256"], "effectiveTreeSha256": ["sourceDerivation"]},
           "required": [
             "requestSchemaSha256",
             "authSha256",
@@ -463,6 +494,9 @@
             "mutationSafetySha256"
           ],
           "properties": {
+            "sourceDerivation": { "$ref": "#/$defs/sourceDerivation" },
+            "databaseInitializationRequired": { "const": true },
+            "effectiveTreeSha256": { "$ref": "#/$defs/sha256" },
             "requestSchemaSha256": {
               "$ref": "#/$defs/sha256"
             },
@@ -519,6 +553,16 @@
             "outcomeSha256": {
               "$ref": "#/$defs/sha256"
             }
+          }
+        },
+        "lifecycleEvidence": { "$ref": "#/$defs/lifecycleEvidence" },
+        "ingressEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact", "sha256"],
+          "properties": {
+            "artifact": { "type": "string", "pattern": "^provenance/qualification/ingress-[a-f0-9]{64}\\.json$" },
+            "sha256": { "$ref": "#/$defs/sha256" }
           }
         },
         "evidence": {

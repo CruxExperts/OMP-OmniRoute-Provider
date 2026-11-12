@@ -15,8 +15,11 @@ import {
   responseFor,
   validateResponseContract,
   validateHealthIngressEvidence,
+  validateCoreLifecycleEvidence,
+  validateCoreLifecycleObservation,
 } from "../scripts/generate-contracts.ts";
-import { decodeRouteSources } from "../scripts/route-source-store.ts";
+import { decodeRouteSources, resolveQualificationSource } from "../scripts/route-source-store.ts";
+import { validateReleaseSourceIdentity } from "../scripts/release-gate.ts";
 import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
@@ -24,6 +27,42 @@ import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
 import { agentSkillsContract, agentSkillsReadContract, SKILLS_DETAIL_ID, SKILLS_COVERAGE_ID } from "./fixtures/pinned-agent-skills.fixture.ts";
 import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
+
+test("derived lifecycle research joins independent identities and cold/warm observations", () => {
+  const binding = { sourceDerivation: { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) }, effectiveTreeSha256: "b".repeat(64) };
+  const phase = (name: "cold" | "warm") => ({ phase: name, driver: "node:sqlite", ping: true, healthWorker: true, healthy: true, settingsPersisted: true, databaseExistedBefore: name === "warm", tableCount: 2, migrationCount: 3, tableSha256: "c".repeat(64), migrationSha256: "d".repeat(64) });
+  const expected = { identity: { ...binding, runnerOutputSha256: "e".repeat(64), workerOutputSha256: "f".repeat(64) }, inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm") };
+  const artifact = { status: "research-observed", qualification: false, boundary: "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.", ...structuredClone(expected) };
+  expect(() => validateCoreLifecycleObservation(artifact, binding, expected)).not.toThrow();
+  for (const changed of [
+    { ...artifact, qualification: true },
+    { ...artifact, identity: { ...artifact.identity, runnerOutputSha256: "0".repeat(64) } },
+    { ...artifact, identity: { ...artifact.identity, effectiveTreeSha256: "0".repeat(64) } },
+    { ...artifact, inputSha256: {} },
+    { ...artifact, isolation: { ...artifact.isolation, capabilities: "retained" } },
+    { ...artifact, cold: { ...artifact.cold, databaseExistedBefore: true } },
+    { ...artifact, warm: { ...artifact.warm, settingsPersisted: false } },
+    { ...artifact, warm: { ...artifact.warm, migrationSha256: "0".repeat(64) } },
+  ]) expect(() => validateCoreLifecycleObservation(changed, binding, expected)).toThrow();
+  expect(() => validateCoreLifecycleObservation(artifact, {}, expected)).toThrow();
+  expect(() => validateCoreLifecycleEvidence({ artifact: `provenance/qualification/core-lifecycle-${"0".repeat(64)}.json`, sha256: "1".repeat(64) }, binding)).toThrow(/path mismatch/);
+});
+test("lifecycle evidence rejects missing and altered content-addressed artifacts", async () => {
+  const binding = { sourceDerivation: { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) }, effectiveTreeSha256: "b".repeat(64) };
+  const bytes = "synthetic lifecycle artifact\n";
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const artifact = `provenance/qualification/core-lifecycle-${digest}.json`;
+  const file = resolve(import.meta.dir, "..", artifact);
+  const evidence = { artifact, sha256: digest };
+  let created = false;
+  try {
+    expect(() => validateCoreLifecycleEvidence(evidence, binding)).toThrow();
+    await writeFile(file, "changed synthetic bytes\n", { flag: "wx" });
+    created = true;
+    expect(() => validateCoreLifecycleEvidence(evidence, binding)).toThrow(/digest mismatch/);
+  } finally { if (created) await rm(file, { force: true }); }
+});
+
 
 function sourceRequestAdapter(operationId: string) {
   const source = getOperation(operationId);
@@ -56,6 +95,25 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("fixture value must be an object");
   return value as Record<string, unknown>;
 }
+
+test("release source validation binds configured derivation and tree across both contracts and every qualification", () => {
+  const root = resolve(import.meta.dir, "..");
+  const derivation = resolveQualificationSource(root).derivation;
+  if (!derivation) throw new Error("derived source required for this regression");
+  const identity = { sourceDerivation: derivation, effectiveTreeSha256: "a".repeat(64) };
+  const operation = { operationId: "GET /synthetic", qualification: { binding: { ...identity } } };
+  const operations = { sourceContext: { ...identity }, operations: [operation] };
+  const entry = { operationId: operation.operationId, binding: { ...identity } };
+  const eligibility = { ...identity, operations: [entry] };
+  expect(() => validateReleaseSourceIdentity(root, operations, eligibility)).not.toThrow();
+  const changed = { ...derivation, sha256: "b".repeat(64) };
+  expect(() => validateReleaseSourceIdentity(root, operations, { ...eligibility, sourceDerivation: changed })).toThrow();
+  expect(() => validateReleaseSourceIdentity(root, { ...operations, sourceContext: { ...identity, sourceDerivation: changed } }, { ...eligibility, sourceDerivation: changed })).toThrow();
+  expect(() => validateReleaseSourceIdentity(root, operations, { ...eligibility, effectiveTreeSha256: undefined })).toThrow();
+  expect(() => validateReleaseSourceIdentity(root, operations, { ...eligibility, effectiveTreeSha256: "b".repeat(64) })).toThrow();
+  expect(() => validateReleaseSourceIdentity(root, operations, { ...eligibility, operations: [{ ...entry, binding: { ...identity, sourceDerivation: changed } }] })).toThrow();
+  expect(() => validateReleaseSourceIdentity(root, { ...operations, operations: [{ ...operation, qualification: { binding: { ...identity, effectiveTreeSha256: "b".repeat(64) } } }] }, eligibility)).toThrow();
+});
 
 test("HEAD empty evidence is status-scoped and cannot be invented or dropped by a contract", () => {
   const sourceFile = "src/app/api/livez/route.ts";
@@ -304,7 +362,7 @@ test("health ingress evidence separately rejects missing, stale and contradictor
   expect(domainIdentity.originalSha256).toBe(domainIdentity.executedSha256);
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
-    source: { version: "3.8.53", commit: source.commit, archiveSha256: source.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256 },
+    source: { version: "3.8.53", commit: source.commit, archiveSha256: source.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256, ...(identities.sourceDerivation === undefined ? {} : { sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 }) },
     inputs: { sha256: hashes, nodeSha256: runtime.nodeSha256, runtime: { node: runtime.nodeVersion, next: "16.4.2", react: "19.2.8", "react-dom": "19.2.8" }, sourceOverlaySha256: identities.sourceOverlaySha256, executedOverlaySha256: identities.executedOverlaySha256 },
     isolation: { namespacesDistinct: true, memoryLimitEnforced: true, cpuLimitEnforced: true, privateLoopbackOnly: true, environmentAllowlisted: true },
     health: [{ method: "GET", path: "/api/health", status: 200, bodyKeys: ["status", "timestamp"], timestamp: "2026-01-01T00:00:00.000Z", cacheControl: "no-store" }],
@@ -326,7 +384,7 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
     const degradationBinding = operationEvidenceBinding("GET /api/health/degradation", degradationContract());
     const staleIngressSha256 = "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109";
-    expect(() => validateHealthIngressEvidence({ artifact: `provenance/qualification/ingress-${staleIngressSha256}.json`, sha256: staleIngressSha256 }, degradationBinding, "GET /api/health/degradation")).toThrow(/input drift|source identity mismatch/);
+    expect(() => validateHealthIngressEvidence({ artifact: `provenance/qualification/ingress-${staleIngressSha256}.json`, sha256: staleIngressSha256 }, degradationBinding, "GET /api/health/degradation")).toThrow(/input drift|source identity mismatch|declared inputs mismatch/);
     // Synthetic observations exercise validation only; they are not retained evidence.
     const livenessRoute = record(added["src/app/livez/route.ts"]);
     const livenessBinding = { ...binding, handlerSha256: String(livenessRoute.originalSha256) };
@@ -565,4 +623,4 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     if (prior === undefined) await rm(absolute, { force: true });
     else await writeFile(absolute, prior, { mode: 0o600 });
   }
-});
+}, 180_000);

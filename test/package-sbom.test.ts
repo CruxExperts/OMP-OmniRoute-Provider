@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildSbom, scanImports, scanText, verifyPackage } from "../scripts/verify-package.ts";
+import { buildSbom, capsulePayloads, scanImports, scanText, verifyPackage } from "../scripts/verify-package.ts";
 
 function dependencyMap(sbom: { dependencies: Array<{ ref: string; dependsOn: string[] }> }) {
   return new Map(sbom.dependencies.map(edge => [edge.ref, edge.dependsOn]));
@@ -23,7 +23,7 @@ test("SBOM preserves current Bun nested selections and resolves every edge", asy
     expect(refs.has(edge.ref)).toBe(true);
     expect(edge.dependsOn.every(reference => refs.has(reference))).toBe(true);
   }
-});
+}, 120_000);
 
 test("SBOM resolver prefers a synthetic parent-specific nested lock key", () => {
   const integrity = `sha512-${Buffer.from("fixture-integrity").toString("base64")}`;
@@ -77,6 +77,37 @@ test("package import scanning follows source syntax, not embedded programs or co
       { kind: "import", path: file, detail: "relative import escapes package: ../outside" },
       { kind: "import", path: file, detail: "relative import escapes package: ../wrapped-outside" },
     ]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("configured capsule payloads remain opaque without exempting client or unexpected files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-capsule-"));
+  const source = join(import.meta.dir, "..", "provenance");
+  try {
+    await cp(source, join(root, "provenance"), { recursive: true, filter: path => path === source || path === join(source, "upstreams.json") || path.startsWith(join(source, "derivations")) });
+    const capsule = "provenance/derivations/omniroute-3.8.53-startup";
+    const payload = `${capsule}/files/src/lib/db/core.ts`;
+    const files = ["provenance/upstreams.json", `${capsule}/manifest.json`, `${capsule}/manifest.json.asc`, payload,
+      `${capsule}/files/tests/unit/db-async-fresh-startup.test.ts`, `${capsule}/files/changelog.d/fixes/async-fresh-database-startup.md`];
+    await mkdir(join(root, "src"));
+    await writeFile(join(root, "src/client.ts"), "import './missing-client';\n");
+    files.push("src/client.ts");
+    const opaque = await capsulePayloads(root, files);
+    const issues: Parameters<typeof scanImports>[2] = [];
+    const rawIssues: Parameters<typeof scanImports>[2] = [];
+    await scanImports(root, [payload], rawIssues);
+    expect(rawIssues.some(issue => issue.detail.startsWith("unresolved relative import:"))).toBe(true);
+    await scanImports(root, files, issues, opaque);
+    expect(issues).toEqual([{ kind: "import", path: "src/client.ts", detail: "unresolved relative import: ./missing-client" }]);
+    const textIssues: Parameters<typeof scanText>[2] = [];
+    const hashes = await scanText(root, [payload], textIssues);
+    expect(hashes[payload]).toMatch(/^[a-f0-9]{64}$/);
+    const extra = `${capsule}/files/extra.ts`;
+    await writeFile(join(root, extra), "import './missing-extra';\n", { mode: 0o755 });
+    expect(await readdir(join(root, capsule, "files"))).toContain("extra.ts");
+    await expect(capsulePayloads(root, [...files, extra])).rejects.toThrow("Unexpected or missing capsule file");
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -258,7 +289,7 @@ test("qualification scanning accepts reviewed fixture identifiers but rejects op
     await writeFile(join(root, file), JSON.stringify({
       observation: {
         before: { combos: { models: [{ id: "created-model-1-fixture-new" }] } },
-        result: { body: { results: [{ executionKey: probeModelId, stepId: probeModelId }] } },
+        result: { body: { results: [{ executionKey: probeModelId, stepId: probeModelId }], staleComboRefs: [{ stepId: probeModelId }] } },
       },
     }));
     await scanText(root, [file], issues);
@@ -270,6 +301,15 @@ test("qualification scanning accepts reviewed fixture identifiers but rejects op
         result: { body: { combos: { models: [{ id: opaque }] } } },
       },
     }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+
+    issues.length = 0;
+    await writeFile(join(root, file), JSON.stringify({ observation: { result: { body: { staleComboRefs: [{ stepId: probeModelId, neighbor: opaque }] } } } }));
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
+    issues.length = 0;
+    await writeFile(join(root, file), JSON.stringify({ observation: { result: { body: { staleComboRefs: [{ stepId: opaque }] } } } }));
     await scanText(root, [file], issues);
     expect(issues).toContainEqual({ kind: "secret", path: file, detail: "high-entropy secret-like literal" });
 

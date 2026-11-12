@@ -18,6 +18,7 @@ MAX_PATH_LENGTH = 1024
 EXACT_FILES = {
     "package.json",
     "VERSION",
+    ".github/crux-experts-release-signing-key.asc",
     "README.md",
     "SECURITY.md",
     "CONTRIBUTING.md",

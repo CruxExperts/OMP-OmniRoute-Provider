@@ -1,4 +1,4 @@
-import { decodeRouteSources } from "./route-source-store.ts";
+import { decodeRouteSources, resolveQualificationSource } from "./route-source-store.ts";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -12,7 +12,7 @@ const execFileAsync = promisify(execFile);
 const packageRoot = resolve(import.meta.dir, "..");
 const requiredDocs = ["README.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md", "ASSET_LICENSE.md", "THIRD_PARTY_NOTICES.md", "SUPPORT.md", "LICENSE"] as const;
 const maxPackageArchiveBytes = 512 * 1024 * 1024;
-const allowedExact = new Set(["package.json", "VERSION", ...requiredDocs]);
+const allowedExact = new Set(["package.json", "VERSION", ".github/crux-experts-release-signing-key.asc", ...requiredDocs]);
 const allowedPrefixes = ["src/", "contracts/", "provenance/", "scripts/", "test/fixtures/", "assets/", "docs/", ".omp-plugin/"] as const;
 const hostProvidedOmpPackages: Record<string, true> = {
   "@oh-my-pi/pi-ai": true,
@@ -353,9 +353,44 @@ async function resolveEntrypoint(root: string, target: string): Promise<string> 
   throw new Error(`entrypoint does not resolve: ${target}`);
 }
 
-export async function scanImports(root: string, files: string[], issues: ScanIssue[]): Promise<void> {
+// These are preparation inputs, not independently runnable client modules. Their
+// signature is verified by preparation; this only checks the configured bytes.
+export async function capsulePayloads(root: string, files: string[]): Promise<Set<string>> {
+  const { derivation } = resolveQualificationSource(root);
+  if (!derivation) {
+    if (files.some(path => path.startsWith("provenance/derivations/"))) throw new Error("Unexpected derivation payload without configured source");
+    return new Set();
+  }
+  const record = derivation.record;
+  const directory = `${dirname(record).split(sep).join("/")}/`;
+  if (!record.startsWith("provenance/derivations/") || !record.endsWith("/manifest.json")) throw new Error("Invalid capsule record location");
+  const manifest: unknown = JSON.parse(await readFile(join(root, record), "utf8"));
+  const keys = (value: unknown, expected: string): value is Record<string, unknown> => recordValue(value) && Object.keys(value).sort().join(",") === expected;
+  if (!keys(manifest, ["base", "changes", "repair_commit", "schema_version", "signature_evidence"].sort().join(",")) || manifest.schema_version !== 1 ||
+    !keys(manifest.base, ["archive_sha256", "commit", "repository", "tag"].sort().join(",")) || !keys(manifest.signature_evidence, ["evidence", "fingerprint", "kind"].sort().join(",")) ||
+    typeof manifest.repair_commit !== "string" || !Array.isArray(manifest.changes)) throw new Error("Invalid capsule manifest");
+  const expectedPaths = new Set(["src/lib/db/core.ts", "tests/unit/db-async-fresh-startup.test.ts", "changelog.d/fixes/async-fresh-database-startup.md"]);
+  const payloads = new Set<string>();
+  for (const change of manifest.changes) {
+    if (!keys(change, ["input_sha256", "output_sha256", "path"].sort().join(",")) || typeof change.path !== "string" || !expectedPaths.delete(change.path) ||
+      (change.input_sha256 !== null && (typeof change.input_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(change.input_sha256))) ||
+      typeof change.output_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(change.output_sha256)) throw new Error("Invalid capsule change list");
+    const path = `${directory}files/${change.path}`;
+    const info = await lstat(join(root, path));
+    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o111) !== 0 ||
+      createHash("sha256").update(await readFile(join(root, path))).digest("hex") !== change.output_sha256) throw new Error(`Invalid capsule payload: ${path}`);
+    payloads.add(path);
+  }
+  if (expectedPaths.size !== 0) throw new Error("Incomplete capsule change list");
+  const expectedFiles = new Set([record, `${record}.asc`, ...payloads]);
+  const capsuleFiles = files.filter(path => path.startsWith("provenance/derivations/"));
+  if (capsuleFiles.length !== expectedFiles.size || capsuleFiles.some(path => !expectedFiles.has(path))) throw new Error("Unexpected or missing capsule file");
+  return payloads;
+}
+
+export async function scanImports(root: string, files: string[], issues: ScanIssue[], opaquePayloads: ReadonlySet<string> = new Set()): Promise<void> {
   for (const relativePath of files) {
-    if (!/\.(?:ts|tsx|js|mjs|cjs)$/.test(relativePath)) continue;
+    if (opaquePayloads.has(relativePath) || !/\.(?:ts|tsx|js|mjs|cjs)$/.test(relativePath)) continue;
     const text = await readFile(join(root, relativePath), "utf8");
     const source = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true);
     const specifiers: string[] = [];
@@ -530,6 +565,7 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     "observation.result.body.results.stepId",
     "observation.result.body.resolvedByExecutionKey",
     "observation.result.body.resolvedByTarget.executionKey",
+    "observation.result.body.staleComboRefs.stepId",
     "observation.result.body.resolvedByTarget.stepId",
   ]);
   const qualificationFixtureIdentifiers = new Set([
@@ -1008,7 +1044,10 @@ export async function verifyPackage(options: { keepTemporary?: boolean; archiveP
         issues.push({ kind: "entrypoint", path: target, detail: error instanceof Error ? error.message : String(error) });
       }
     }
-    await scanImports(extractedRoot, files, issues);
+    const source = resolveQualificationSource(packageRoot).derivation;
+    const packedSource = resolveQualificationSource(extractedRoot).derivation;
+    if (JSON.stringify(source) !== JSON.stringify(packedSource)) throw new Error("Packed qualification source differs from reviewed source");
+    await scanImports(extractedRoot, files, issues, await capsulePayloads(extractedRoot, files));
     const fileSha256 = await scanText(extractedRoot, files, issues);
     await verifyDocumentation(extractedRoot, files, issues);
     if (issues.length > 0) throw new Error(`package verification failed:\n${issues.map(issue => `${issue.kind}: ${issue.path}: ${issue.detail}`).join("\n")}`);

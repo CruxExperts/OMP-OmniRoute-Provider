@@ -1,4 +1,4 @@
-import { encodeRouteSources } from "./route-source-store.ts";
+import { encodeRouteSources, verifyQualificationSource } from "./route-source-store.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, relative, resolve, sep } from "node:path";
@@ -91,7 +91,8 @@ const publishedAt = requireString(release.published_at, "OmniRoute publication t
 const sourceArchiveSha256 = requireString(artifactIntegrity.source_archive_sha256, "OmniRoute source archive digest").replace(/^sha256:/, "");
 const sourceArchiveUrl = requireString(artifactIntegrity.source_archive_url, "OmniRoute source archive URL");
 const sourceArchivePath = resolve(packageRoot, `.agents/state/omp-provider-release/upstream/omniroute-v${expectedVersion}-${expectedCommit}.tar.gz`);
-const sourceRoot = resolve(packageRoot, `.agents/state/omp-provider-release/upstream/omniroute-v${expectedVersion}`);
+const qualificationSource = verifyQualificationSource(packageRoot);
+const sourceRoot = qualificationSource.root;
 const packageRealRoot = realpathSync(packageRoot);
 const sourceRealRoot = realpathSync(sourceRoot);
 if (sourceRealRoot !== packageRealRoot && !sourceRealRoot.startsWith(`${packageRealRoot}${sep}`)) {
@@ -881,24 +882,29 @@ captureSource(resolve(sourceRoot, "docs/openapi.yaml"));
 const openapiSource = sourceFiles.get("docs/openapi.yaml");
 if (!openapiSource) throw new Error("pinned OpenAPI bytes were not captured");
 const sortedSourceFiles = [...sourceFiles.values()].sort((left, right) => compareText(left.path, right.path));
-// Checking the compressed archive's digest alone does not authenticate an
-// existing extraction. Compare every byte receipt used by parsing and policy
-// analysis with the matching regular member in that exact archive.
-const memberPatterns = sortedSourceFiles.map(record => `*/${record.path.replace(/[\\*?\[\]{}!]/g, "\\$&")}`);
-const archiveMembers = await new Bun.Archive(sourceArchiveBytes).files(memberPatterns);
-if (archiveMembers.size !== sortedSourceFiles.length) throw new Error("pinned archive does not contain exactly the captured source members");
-const archiveRoots = new Set<string>();
-for (const [memberPath, member] of archiveMembers) {
-  const separator = memberPath.indexOf("/");
-  if (separator <= 0) throw new Error("pinned archive member has no release root");
-  archiveRoots.add(memberPath.slice(0, separator));
-  const sourcePath = memberPath.slice(separator + 1);
-  const receipt = sourceFiles.get(sourcePath);
-  if (!receipt || member.size !== receipt.bytes || hash(new Uint8Array(await member.arrayBuffer())) !== receipt.sha256) {
-    throw new Error(`extracted source bytes do not match the pinned archive: ${sourcePath}`);
+// The derived receipt is authenticated against a freshly reconstructed archive and capsule.
+if (qualificationSource.files) {
+  for (const receipt of sortedSourceFiles) {
+    if (qualificationSource.files.get(receipt.path) !== receipt.sha256) throw new Error(`captured source differs from authenticated effective tree: ${receipt.path}`);
   }
+} else {
+  // Official extractions must match the pinned archive member by member.
+  const memberPatterns = sortedSourceFiles.map(record => `*/${record.path.replace(/[\\*?\[\]{}!]/g, "\\$&")}`);
+  const archiveMembers = await new Bun.Archive(sourceArchiveBytes).files(memberPatterns);
+  if (archiveMembers.size !== sortedSourceFiles.length) throw new Error("pinned archive does not contain exactly the captured source members");
+  const archiveRoots = new Set<string>();
+  for (const [memberPath, member] of archiveMembers) {
+    const separator = memberPath.indexOf("/");
+    if (separator <= 0) throw new Error("pinned archive member has no release root");
+    archiveRoots.add(memberPath.slice(0, separator));
+    const sourcePath = memberPath.slice(separator + 1);
+    const receipt = sourceFiles.get(sourcePath);
+    if (!receipt || member.size !== receipt.bytes || hash(new Uint8Array(await member.arrayBuffer())) !== receipt.sha256) {
+      throw new Error(`extracted source bytes do not match the pinned archive: ${sourcePath}`);
+    }
+  }
+  if (archiveRoots.size !== 1 || [...archiveRoots][0] !== `OmniRoute-v${expectedVersion}`) throw new Error("pinned archive source root does not match its release version");
 }
-if (archiveRoots.size !== 1 || [...archiveRoots][0] !== `OmniRoute-v${expectedVersion}`) throw new Error("pinned archive source root does not match its release version");
 // Load only after all imported classifier bytes and their full runtime closure have matched the pinned archive.
 const classifierArtifact: unknown = await import(pathToFileURL(classifierImportPath).href);
 if (!isRecord(classifierArtifact) || typeof classifierArtifact.classifyRoute !== "function") {
@@ -1067,6 +1073,7 @@ const routeSources = {
   retrievedAt,
   sourceRoot: "src/app",
   sourceArchiveSha256: sourceArchiveDigest,
+  ...(qualificationSource.derivation ? { sourceDerivation: qualificationSource.derivation, effectiveTreeSha256: qualificationSource.treeSha256 } : {}),
   sourceArchive: {
     path: relative(packageRoot, sourceArchivePath).split(sep).join("/"),
     url: sourceArchiveUrl,

@@ -114,6 +114,7 @@ function qualificationOperation(id: string): Record<string, unknown> {
     "operationSemanticsSha256",
     "routeImportsSha256",
     "frameworkContextSha256",
+    "mutationSafetySha256",
   ].map(field => [field, hashB]));
   return {
     operationId: id,
@@ -126,7 +127,7 @@ function qualificationOperation(id: string): Record<string, unknown> {
   };
 }
 
-async function fixtureRepo(options: { secondInvokable?: boolean; missingQualificationWorkflow?: boolean; eligibilitySchemaVersion?: number } = {}): Promise<string> {
+async function fixtureRepo(options: { secondInvokable?: boolean; missingQualificationWorkflow?: boolean; eligibilitySchemaVersion?: number; derivedMismatch?: boolean } = {}): Promise<string> {
   const root = await temporaryDirectory("cruxomni-release-repo-");
   git(root, "init", "-b", "main");
   git(root, "config", "user.name", "Unsigned Fixture");
@@ -134,9 +135,14 @@ async function fixtureRepo(options: { secondInvokable?: boolean; missingQualific
   const packageJson = { name: projectName, version: "0.1.1", packageManager: "bun@1.4.2" };
   const marketplace = { id: "cruxomni-omp-client", version: "0.1.1" };
   const invokableId = "GET /api/fixture";
+  const capsule = "synthetic signed-source record for validation only\n";
+  const derivation = { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: createHash("sha256").update(capsule).digest("hex") };
+  const identity = options.derivedMismatch ? { sourceDerivation: derivation, effectiveTreeSha256: hashA } : {};
+  const proof = qualificationOperation(invokableId);
   const invokable = {
     operationId: invokableId,
     source: { file: "src/index.ts", sha256: hashA, gitBlobSha: gitHash },
+    qualification: { binding: { ...(proof.binding as Record<string, unknown>), ...identity } },
     coverage: { adapterId: "fixture.get", reason: null, status: "invokable" },
   };
   const nonInvokable = {
@@ -163,10 +169,12 @@ async function fixtureRepo(options: { secondInvokable?: boolean; missingQualific
     "package.json": `${JSON.stringify(packageJson, null, 2)}\n`,
     "tsconfig.json": "{}\n",
     ".omp-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
-    "contracts/operations.json": `${JSON.stringify({ operations }, null, 2)}\n`,
-    "contracts/release-eligibility.json": `${JSON.stringify({ schemaVersion: options.eligibilitySchemaVersion ?? 3, recordKind: "omniroute-release-eligibility", operations: [qualificationOperation(invokableId)] }, null, 2)}\n`,
+    "provenance/upstreams.json": JSON.stringify({ upstreams: [{ id: "omniroute", release: { version: "3.8.53" }, ...(options.derivedMismatch ? { qualification_source: { kind: "signed-derivation", ...derivation } } : {}) }] }),
+    "contracts/operations.json": `${JSON.stringify({ sourceContext: identity, operations }, null, 2)}\n`,
+    "contracts/release-eligibility.json": `${JSON.stringify({ schemaVersion: options.eligibilitySchemaVersion ?? 3, recordKind: "omniroute-release-eligibility", ...identity, operations: [{ ...proof, binding: { ...(proof.binding as Record<string, unknown>), ...identity, ...(options.derivedMismatch ? { effectiveTreeSha256: hashB } : {}) } }] }, null, 2)}\n`,
     "src/index.ts": "export {};\n",
   };
+  if (options.derivedMismatch) files[derivation.record] = capsule;
   if (options.missingQualificationWorkflow) delete files[".github/workflows/qualification.yml"];
   for (const [path, content] of Object.entries(files)) await put(root, path, content);
   unsignedCommit(root, "chore: fixture baseline");
@@ -1368,6 +1376,14 @@ describe("release automation", () => {
     await exportFixture(root, output);
     const qualification = await qualificationFor(output, root, true);
     await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("release eligibility contract identity is invalid");
+  });
+
+  it("rejects a derived eligibility binding for a different effective tree", async () => {
+    const root = await fixtureRepo({ derivedMismatch: true });
+    const output = join(await temporaryDirectory("cruxomni-derived-gate-"), "release");
+    await exportFixture(root, output);
+    const qualification = await qualificationFor(output, root, true);
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("qualification effective source mismatch");
   });
 
   it("blocks a short eligibility subset when any invokable source operation is missing evidence", async () => {

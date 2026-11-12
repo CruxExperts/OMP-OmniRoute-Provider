@@ -2163,6 +2163,16 @@
       "url": "https://registry.npmjs.org/split2/-/split2-4.2.0.tgz"
     },
     {
+      "location": "node_modules/sql.js",
+      "name": "sql.js",
+      "version": "1.14.2",
+      "integrity": "sha512-3ZGPovObMFrdw79zrUHbfdE/DLIsy8jdNdssmMSQuRAymedU6q84asPt0kgiqrdMYlPegDItiIMfmIXzZnYFcw==",
+      "sha256": "9d491337e1850df39362be640c23f9751bf0fbd33fc232c2a580bb87b70d62fd",
+      "bytes": 9443490,
+      "file": "9d491337e1850df39362be640c23f9751bf0fbd33fc232c2a580bb87b70d62fd.tgz",
+      "url": "https://registry.npmjs.org/sql.js/-/sql.js-1.14.2.tgz"
+    },
+    {
       "location": "node_modules/stringify-entities",
       "name": "stringify-entities",
       "version": "4.0.4",
@@ -2261,6 +2271,16 @@
       "bytes": 18477,
       "file": "b15471035cb0e3fd0f67f5f2a9ba9d02b10199a0c7444b602f4db58821b076cb.tgz",
       "url": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz"
+    },
+    {
+      "location": "node_modules/tsx",
+      "name": "tsx",
+      "version": "4.23.13",
+      "integrity": "sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==",
+      "sha256": "2596b16677948b542eb1e74518a53d04ab3f504ef32acabcc1cdfdacb2fe20a8",
+      "bytes": 187531,
+      "file": "2596b16677948b542eb1e74518a53d04ab3f504ef32acabcc1cdfdacb2fe20a8.tgz",
+      "url": "https://registry.npmjs.org/tsx/-/tsx-4.23.13.tgz"
     },
     {
       "location": "node_modules/unified",

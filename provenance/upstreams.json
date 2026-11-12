@@ -16,6 +16,11 @@
       "id": "omniroute",
       "repository": "diegosouzapw/OmniRoute",
       "compatibility_role": "descriptor-corpus provenance only; not a runtime package or exact server requirement",
+      "qualification_source": {
+        "kind": "signed-derivation",
+        "record": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+        "sha256": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+      },
       "release": {
         "tag": "v3.8.53",
         "version": "3.8.53",
@@ -281,6 +286,36 @@
     }
   ],
   "package_source_hashes": [
+    {
+      "path": ".github/crux-experts-release-signing-key.asc",
+      "algorithm": "sha256",
+      "hash": "7cb100f640dfa00deb6c12b7dbc5ed974319d3275e92d203743b7c5b37b97523"
+    },
+    {
+      "path": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+      "algorithm": "sha256",
+      "hash": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+    },
+    {
+      "path": "provenance/derivations/omniroute-3.8.53-startup/manifest.json.asc",
+      "algorithm": "sha256",
+      "hash": "8e1a50fd30bb3cb81ae68c0bf0dfd48c01a6c1e5fad4c3db62a954c67dd57a8c"
+    },
+    {
+      "path": "provenance/derivations/omniroute-3.8.53-startup/files/src/lib/db/core.ts",
+      "algorithm": "sha256",
+      "hash": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd"
+    },
+    {
+      "path": "provenance/derivations/omniroute-3.8.53-startup/files/tests/unit/db-async-fresh-startup.test.ts",
+      "algorithm": "sha256",
+      "hash": "9e9811c881d6919970aa8cba69babd2c989590a994a3a80f39a2993b155673fa"
+    },
+    {
+      "path": "provenance/derivations/omniroute-3.8.53-startup/files/changelog.d/fixes/async-fresh-database-startup.md",
+      "algorithm": "sha256",
+      "hash": "2b254dccffe5de0de1f1622031403e0e191a319943fe8221f92e24e494f4d905"
+    },
     {
       "path": "src/pricing.ts",
       "algorithm": "sha256",

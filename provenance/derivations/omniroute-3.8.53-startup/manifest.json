@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "base": {
+    "repository": "diegosouzapw/OmniRoute",
+    "tag": "v3.8.53",
+    "commit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+    "archive_sha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b"
+  },
+  "repair_commit": "61f3b1f7b3e3e114de5841b24e35d2f208b408dc",
+  "signature_evidence": {
+    "kind": "prior-independent-verification",
+    "fingerprint": "AF7968466B5B39C5E928FEFE716342D3EFBA5522",
+    "evidence": "The owner verified the repair commit signature and direct official-base parent before extracting these exact Git blobs. The detached signature attests their linkage to that commit. Clean preparation verifies this capsule signature and exact official archive, before and after bytes; it does not independently fetch or verify the repair Git tree. This is an explicitly derived qualification source, not an official OmniRoute release or a server deployment."
+  },
+  "changes": [
+    {
+      "path": "changelog.d/fixes/async-fresh-database-startup.md",
+      "input_sha256": null,
+      "output_sha256": "2b254dccffe5de0de1f1622031403e0e191a319943fe8221f92e24e494f4d905"
+    },
+    {
+      "path": "src/lib/db/core.ts",
+      "input_sha256": "097ef3b46440d89f22ff2b483b4bc591df8165faea256f02e3aada22ef891ed4",
+      "output_sha256": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd"
+    },
+    {
+      "path": "tests/unit/db-async-fresh-startup.test.ts",
+      "input_sha256": null,
+      "output_sha256": "9e9811c881d6919970aa8cba69babd2c989590a994a3a80f39a2993b155673fa"
+    }
+  ]
+}

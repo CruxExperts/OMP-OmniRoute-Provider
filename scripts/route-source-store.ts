@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { dirname, isAbsolute, resolve, sep } from "node:path";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 const canonical = (value: Json): string => {
@@ -119,6 +121,72 @@ export function decodeRouteSources(store: Json): Json {
   if (Object.keys(records).some(key => !visited.has(key))) throw new Error("Unreferenced content-addressed source records");
   if (hash(manifest) !== store.rootSha256) throw new Error("Expanded source manifest digest mismatch");
   return manifest;
+}
+
+export type SourceDerivation = { record: string; sha256: string };
+export type QualificationSource = { root: string; derivation: SourceDerivation | null };
+export type VerifiedQualificationSource = QualificationSource & { treeSha256: string | null; files: ReadonlyMap<string, string> | null };
+
+/** Resolve configuration without executing source or changing the workspace. */
+export function resolveQualificationSource(packageRoot: string): QualificationSource {
+  const root = resolve(packageRoot);
+  for (let path = root;; path = dirname(path)) {
+    if (lstatSync(path).isSymbolicLink()) throw new Error("Package root contains symlink");
+    if (dirname(path) === path) break;
+  }
+  const provenance: unknown = JSON.parse(readFileSync(resolve(root, "provenance/upstreams.json"), "utf8"));
+  if (!isRecord(provenance) || !Array.isArray(provenance.upstreams)) throw new Error("Invalid upstream provenance");
+  const matches = provenance.upstreams.filter(item => isRecord(item) && item.id === "omniroute");
+  if (matches.length !== 1 || !isRecord(matches[0])) throw new Error("Invalid OmniRoute upstream pin");
+  const upstream = matches[0];
+  if (!isRecord(upstream.release) || typeof upstream.release.version !== "string" || !/^\d+\.\d+\.\d+$/.test(upstream.release.version)) throw new Error("Invalid OmniRoute release version");
+  const state = resolve(root, ".agents/state/omp-provider-release/upstream");
+  if (!("qualification_source" in upstream)) return { root: resolve(state, `omniroute-v${upstream.release.version}`), derivation: null };
+  const source = upstream.qualification_source;
+  if (!isRecord(source) || Object.keys(source).sort().join(",") !== "kind,record,sha256" || source.kind !== "signed-derivation"
+    || typeof source.record !== "string" || typeof source.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(source.sha256)) throw new Error("Invalid qualification source configuration");
+  if (isAbsolute(source.record) || /^[A-Za-z]:/.test(source.record) || source.record.includes("\\") || source.record.includes("\0") || source.record.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid qualification source record path");
+  const path = resolve(root, source.record);
+  if (!path.startsWith(`${root}${sep}`)) throw new Error("Qualification source record escapes package root");
+  let current = root;
+  for (const part of source.record.split("/")) {
+    current = resolve(current, part);
+    if (lstatSync(current).isSymbolicLink()) throw new Error("Qualification source record contains symlink");
+  }
+  if (!lstatSync(path).isFile()) throw new Error("Qualification source record is not a regular file");
+  if (createHash("sha256").update(readFileSync(path)).digest("hex") !== source.sha256) throw new Error("Qualification source digest mismatch");
+  const derivation = { record: source.record, sha256: source.sha256 };
+  return { root: resolve(state, `derived-${source.sha256}`), derivation };
+}
+
+/** Authenticate the complete prepared tree by reconstructing it with the Python owner. */
+export function verifyQualificationSource(packageRoot: string): VerifiedQualificationSource {
+  const selection = resolveQualificationSource(packageRoot);
+  if (!selection.derivation) return { ...selection, treeSha256: null, files: null };
+  const output = execFileSync("python3", [resolve(packageRoot, "scripts/prepare-upstream.py"), "--verify-qualification-source"], { cwd: packageRoot, encoding: "utf8", maxBuffer: 1024 * 1024 });
+  const verified: unknown = JSON.parse(output);
+  if (!isRecord(verified) || verified.root !== selection.root || !isRecord(verified.derivation)
+    || verified.derivation.record !== selection.derivation.record || verified.derivation.sha256 !== selection.derivation.sha256
+    || typeof verified.treeSha256 !== "string" || !/^[a-f0-9]{64}$/.test(verified.treeSha256)) throw new Error("Invalid verified qualification source identity");
+  const receipt: unknown = JSON.parse(readFileSync(`${selection.root}.receipt.json`, "utf8"));
+  if (!isRecord(receipt) || !Array.isArray(receipt.files) || hash(receipt.files) !== verified.treeSha256) throw new Error("Effective source receipt digest mismatch");
+  const files = new Map<string, string>();
+  for (const entry of receipt.files) {
+    if (!isRecord(entry) || Object.keys(entry).sort().join(",") !== "path,sha256" || typeof entry.path !== "string" || typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256) || files.has(entry.path)) throw new Error("Invalid effective source file receipt");
+    files.set(entry.path, entry.sha256);
+  }
+  return { ...selection, treeSha256: verified.treeSha256, files };
+}
+
+export function assertQualificationManifest(manifest: unknown, source: VerifiedQualificationSource): void {
+  if (!isRecord(manifest)) throw new Error("Invalid route source manifest");
+  if (source.derivation === null) {
+    if (manifest.sourceDerivation !== undefined || manifest.effectiveTreeSha256 !== undefined) throw new Error("Unexpected qualification source identity");
+    return;
+  }
+  const value = manifest.sourceDerivation;
+  if (!isRecord(value) || Object.keys(value).sort().join(",") !== "record,sha256" || value.record !== source.derivation.record
+    || value.sha256 !== source.derivation.sha256 || manifest.effectiveTreeSha256 !== source.treeSha256) throw new Error("Qualification source identity mismatch");
 }
 
 const cache = new Map<string, { digest: string; manifest: Json }>();

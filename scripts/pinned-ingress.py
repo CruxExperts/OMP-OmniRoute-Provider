@@ -234,7 +234,7 @@ def ci_profile(approved, cleanup=False):
 
 
 def preflight():
-    missing = [path for path in ('/usr/bin/python3', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/ip') if not os.access(path, os.X_OK)]
+    missing = [path for path in ('/usr/bin/python3', '/usr/bin/systemd-run', '/usr/bin/systemctl', '/usr/bin/ip', '/usr/bin/gpg', '/usr/bin/git') if not os.access(path, os.X_OK)]
     require(not missing, 'missing prerequisite executables: ' + ', '.join(missing))
     require(sys.platform == 'linux' and os.uname().machine == 'x86_64', 'requires Linux x86_64')
     require(Path('/sys/fs/cgroup/cgroup.controllers').is_file(), 'cgroup v2 unavailable')
@@ -280,7 +280,7 @@ def stage(root, approval):
     dependencies = root / 'dependencies'
     dependencies.mkdir(mode=0o700)
     manifest = json.loads((FIXTURE / 'dependencies.json').read_text())
-    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 265, 'dependency manifest mismatch')
+    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 267, 'dependency manifest mismatch')
     seen = {}
     total = 0
     for item in manifest['packages']:
@@ -389,6 +389,84 @@ def verified_dependency(directory, item):
     return raw
 
 
+def effective_source(archive, root, output):
+    """Reconstruct the declared source with the preparation owner's verifier."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('prepare_upstream', root / 'scripts/prepare-upstream.py')
+    owner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(owner)
+    pin = json.loads((root / 'provenance/upstreams.json').read_text())
+    upstream = next(item for item in pin['upstreams'] if item['id'] == 'omniroute')
+    release = upstream['release']
+    require(release['peeled_commit'] == COMMIT and release['version'] == '3.8.53' and upstream['artifact_integrity']['source_archive_sha256'] == ARCHIVE_SHA, 'base source pin mismatch')
+    derivation = owner.resolve_qualification_source(root)
+    if derivation is None:
+        require(file_sha(archive) == ARCHIVE_SHA, 'source archive mismatch')
+        with tempfile.TemporaryDirectory(dir=output.parent) as temporary:
+            with tarfile.open(archive, 'r:gz') as bundle:
+                members = bundle.getmembers()
+                require(len(members) <= 100000 and sum(member.size for member in members) <= 2 * 1024**3 and all(member.isdir() or member.isfile() for member in members), 'unsafe source archive')
+                bundle.extractall(temporary, members=members, filter='data')
+            children = list(Path(temporary).iterdir())
+            require(len(children) == 1 and children[0].is_dir(), 'invalid source archive root')
+            require(json.loads((children[0] / 'package.json').read_text())['version'] == release['version'], 'source version mismatch')
+            receipt = owner._receipt(children[0], ARCHIVE_SHA, None)
+            children[0].rename(output)
+        return {'effectiveTreeSha256': receipt['treeSha256']}
+    old_path = os.environ.get('PATH')
+    try:
+        os.environ['PATH'] = '/usr/bin:/bin'
+        receipt = owner.derive_portable(archive, release, ARCHIVE_SHA, root / derivation['record'], output, derivation, root=root)
+    finally:
+        if old_path is None:
+            os.environ.pop('PATH', None)
+        else:
+            os.environ['PATH'] = old_path
+    return {'sourceDerivation': derivation, 'effectiveTreeSha256': receipt['treeSha256']}
+
+
+def effective_source_identities(archive, root=ROOT):
+    """Return the verified identity for independent expected-ingress consumers."""
+    with tempfile.TemporaryDirectory() as temporary:
+        return effective_source(archive, root, Path(temporary) / 'source')
+
+
+def expected_core_lifecycle_input_key(archive, node, dependency_dir, bwrap, root=ROOT):
+    """Hash verified input bytes for a caller-owned, before-and-after checked cache."""
+    require(Path(root).resolve(strict=True) == ROOT, 'unexpected producer root')
+    archive, node, dependency_dir, bwrap = map(Path, (archive, node, dependency_dir, bwrap))
+    require(archive.is_file() and not archive.is_symlink() and file_sha(archive) == ARCHIVE_SHA, 'source archive mismatch')
+    require(node.is_file() and not node.is_symlink() and file_sha(node) == NODE_SHA, 'Node runtime mismatch')
+    require(dependency_dir.is_dir() and not dependency_dir.is_symlink(), 'dependency directory unavailable')
+    validate_bwrap(bwrap)
+    manifest = bounded_json(FIXTURE / 'dependencies.json')
+    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 267, 'dependency manifest mismatch')
+    dependencies = {}
+    for item in manifest['packages']:
+        raw = verified_dependency(dependency_dir, item)
+        dependencies[item['file']] = sha(raw)
+    value = {'inputs': input_hashes(), 'archive': file_sha(archive), 'node': file_sha(node),
+             'bwrap': file_sha(bwrap), 'bwrapPackage': file_sha(bwrap.parent / 'bubblewrap.deb'),
+             'dependencies': dependencies}
+    return sha(json.dumps(value, sort_keys=True, separators=(',', ':')).encode())
+
+
+def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, root=ROOT):
+    """Recompute expectations by executing the current producer in fresh isolated scratch."""
+    with tempfile.TemporaryDirectory(prefix='pinned-lifecycle-expect-') as temporary:
+        command = ['/usr/bin/python3', str(root / 'scripts/pinned-ingress.py'), '--real-core',
+                   '--source-archive', str(Path(archive).resolve(strict=True)),
+                   '--node', str(Path(node).resolve(strict=True)),
+                   '--dependency-dir', str(Path(dependency_dir).resolve(strict=True)),
+                   '--bwrap', str(Path(bwrap).resolve(strict=True)), '--output-dir', temporary]
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=660, check=True)
+        response = json.loads(result.stdout)
+        output = Path(response['output'])
+        require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
+        artifact = bounded_json(output / 'export/core-lifecycle.json')
+        return {key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm')}
+
+
 def materialize(real_core=False):
     source = Path('/inputs/source.tar.gz')
     app = Path('/work/app')
@@ -398,6 +476,10 @@ def materialize(real_core=False):
     require(manifest['schemaVersion'] == runtime['schemaVersion'] == 1 and runtime['nodeVersion'] == '24.17.0' and runtime['nodeSha256'] == NODE_SHA, 'runtime manifest mismatch')
     require(manifest['commit'] == runtime['sourceCommit'] == COMMIT, 'source commit mismatch')
     require(file_sha(source) == manifest['archiveSha256'] == runtime['sourceArchiveSha256'] == ARCHIVE_SHA, 'source archive mismatch')
+    effective = Path('/work/effective-source')
+    source_identity = effective_source(source, Path('/source-input'), effective)
+    changes = json.loads((Path('/source-input') / source_identity['sourceDerivation']['record']).read_text())['changes'] if 'sourceDerivation' in source_identity else []
+    changed = {item['path']: item for item in changes}
     selected = manifest['selectedFiles']
     additional = manifest['additionalFiles']
     require(len(selected) == 509, 'selected source coverage mismatch')
@@ -421,9 +503,22 @@ def materialize(real_core=False):
             for expected in (selected.get(name), additional.get(name), manifest['nextConfig'] if name == 'next.config.mjs' else None):
                 if expected:
                     require(digest(data) == expected['sha256'] and blob == expected['gitBlob'], 'source identity mismatch: ' + name)
-            support[name] = digest(data)
-            put(app, 'next.config.upstream.mjs' if name == 'next.config.mjs' else name, data)
+            effective_data = (effective / name).read_bytes()
+            if name in changed:
+                require(digest(data) == changed[name]['input_sha256'] and digest(effective_data) == changed[name]['output_sha256'], 'derived source identity mismatch: ' + name)
+            else:
+                require(data == effective_data, 'effective source differs from base: ' + name)
+            support[name] = digest(effective_data)
+            put(app, 'next.config.upstream.mjs' if name == 'next.config.mjs' else name, effective_data)
     require(set(selected) <= seen and set(additional) <= seen and wanted <= seen, 'missing source closure')
+    if real_core:
+        regression = 'tests/unit/db-async-fresh-startup.test.ts'
+        require(regression in changed, 'signed startup regression missing')
+        data = (effective / regression).read_bytes()
+        require(sha(data) == changed[regression]['output_sha256'], 'startup regression identity mismatch')
+        if regression not in seen:
+            put(app, regression, data)
+        support[regression] = sha(data)
     dependencies = json.loads((fixture / 'dependencies.json').read_text())
     require(dependencies['schemaVersion'] == 1 and dependencies['platform'] == 'linux-x64-glibc', 'unsupported dependency manifest')
     locations = set()
@@ -456,6 +551,9 @@ def materialize(real_core=False):
                 put(package_root, rel, data, bool(member.mode & 0o111))
         package = json.loads((package_root / 'package.json').read_text())
         require(package.get('name') == name and package.get('version') == item['version'], 'package manifest mismatch: ' + name)
+    if real_core:
+        versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('tsx', 'sql.js', 'esbuild', '@esbuild/linux-x64')}
+        require(versions == {'tsx': '4.23.13', 'sql.js': '1.14.2', 'esbuild': '0.28.2', '@esbuild/linux-x64': '0.28.2'}, 'startup dependency version mismatch')
     shutil.copytree(fixture, '/work/fixture', ignore=shutil.ignore_patterns('__pycache__'))
     shutil.copyfile('/driver.mjs', '/work/fixture/pinned-ingress-driver.mjs')
     (app / '.build').mkdir(exist_ok=True)
@@ -467,7 +565,7 @@ def materialize(real_core=False):
             put(app, route, Path('/work/fixture/routes/management.ts').read_bytes())
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
-    return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA}
+    return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA, **source_identity}
 
 def replace_once(text, before, after):
     require(text.count(before) == 1, 'fixture boundary changed: ' + before[:80])
@@ -605,7 +703,7 @@ def overlay_bytes(core, settings, declaration):
     }
 
 
-def overlay_plan(app, fixture, manifest):
+def overlay_plan(app, fixture, manifest, changes=None):
     """Verify all original and replacement bytes before modifying disposable source."""
     mapping = json.loads((fixture / 'alias-map.json').read_text())
     require(file_sha(app / 'next.config.upstream.mjs') == mapping['originalConfigSha256'] == manifest['nextConfig']['sha256'], 'config identity mismatch')
@@ -622,7 +720,14 @@ def overlay_plan(app, fixture, manifest):
         original = (app / name).read_bytes()
         data = (fixture / replacement).read_bytes()
         recorded = manifest['selectedFiles'].get(name) or manifest['additionalFiles'].get(name)
-        require(recorded and sha(original) == alias['sourceSha256'] == recorded['sha256'] and sha(data) == alias['replacementSha256'], 'overlay identity mismatch: ' + name)
+        require(recorded and alias['sourceSha256'] == recorded['sha256'] and sha(data) == alias['replacementSha256'], 'overlay base identity mismatch: ' + name)
+        change = (changes or {}).get(name)
+        expected_source = alias['sourceSha256']
+        if change:
+            require(change['input_sha256'] == expected_source, 'overlay derivation base mismatch: ' + name)
+            expected_source = change['output_sha256']
+        require(sha(original) == expected_source, 'overlay effective identity mismatch: ' + name)
+        alias['sourceSha256'] = expected_source
         if alias['kind'] == 'declaration-extraction':
             text = '\n'.join(line for line in data.decode('utf-8').split('\n') if not line.startswith('import '))
             declarations = [part.strip() for part in re.split(r'(?=^(?:export |type |interface |const |let |function ))', text, flags=re.M) if part.strip()]
@@ -643,7 +748,7 @@ def apply_overlays(app, fixture, aliases):
     return identities
 
 
-def approved_source():
+def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
     names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {LIVE_ROUTE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
@@ -661,11 +766,15 @@ def approved_source():
             require(len(data) == member.size, 'short source member: ' + name)
             found[name] = data
     require(set(found) == names, 'missing source identity member')
-    return found
+    with tempfile.TemporaryDirectory() as temporary:
+        tree = Path(temporary) / 'source'
+        identity = effective_source(SOURCE, ROOT, tree)
+        found = {name: (tree / name).read_bytes() for name in names}
+    return (found, identity) if with_identity else found
 
 
 
-def provision():
+def provision(material):
     """Executed only in the baseline runner's isolated worker after materialization."""
     app, fixture = Path('/work/app'), Path('/work/fixture')
     archive_path = Path('/inputs/source.tar.gz')
@@ -694,7 +803,9 @@ def provision():
     identities['src/domain/degradation.ts'] = {'originalSha256': identities['src/domain/degradation.ts'], 'executedSha256': sha((app / 'src/domain/degradation.ts').read_bytes())}
     package = json.loads((app / 'package.json').read_text())
     require(package['version'] == '3.8.53', 'source version mismatch')
-    aliases = overlay_plan(app, fixture, json.loads((fixture / 'source-manifest.json').read_text()))
+    derivation = material.get('sourceDerivation')
+    changes = json.loads((Path('/source-input') / derivation['record']).read_text())['changes'] if derivation else []
+    aliases = overlay_plan(app, fixture, json.loads((fixture / 'source-manifest.json').read_text()), {item['path']: item for item in changes})
     declaration = ping_declaration((app / 'src/lib/db/core.ts').read_text())
     for name, data in overlay_bytes((fixture / 'backend/core.ts').read_bytes(), (fixture / 'backend/settings.ts').read_bytes(), declaration).items():
         (fixture / name).write_bytes(data)
@@ -726,6 +837,7 @@ def provision():
     identity = {
         'status': 'unreviewed-observation-not-qualification', 'sourceVersion': '3.8.53',
         'sourceCommit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': identities,
+        **{key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material},
         'proxyIdentity': {'originalSha256': proxy_expected, 'executedSha256': sha(proxy_bytes)},
         'pingDeclarationSha256': sha(declaration.encode()),
         'sourceOverlaySha256': executed_overlays,
@@ -872,8 +984,20 @@ def core_lifecycle(material, deadline):
     runner = app / 'src/lib/db/pinned-lifecycle.mjs'
     run_bounded([esbuild, str(entry), *common, '--outfile=' + str(runner)], Path('/work/lifecycle-build.private'), deadline, env)
     identity = {'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA, 'sourceFilesSha256': source, 'migrationSqlSha256': migrations, 'workerSourceSha256': source[worker_source], 'productionRecipeSha256': source[recipe], 'workerBuildArguments': common, 'workerOutputSha256': file_sha(app / 'src/lib/db/healthCheckWorker.js'), 'runnerSourceSha256': file_sha(fixture), 'runnerOutputSha256': file_sha(runner)}
+    identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
+    worker_stage('build')
+    import_check = """import { realpathSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', '1.14.2', 'sql.js']]) {
+  const root = `/work/app/node_modules/${name}`;
+  const pkg = JSON.parse(readFileSync(`${root}/package.json`, 'utf8'));
+  if (pkg.name !== name || pkg.version !== version || !realpathSync(fileURLToPath(import.meta.resolve(entry))).startsWith(realpathSync(root) + '/')) throw new Error(`unexpected ${name} resolution`);
+  await import(entry);
+}"""
+    run_bounded(isolate + ['/runtime/node', '--input-type=module', '-e', import_check], Path('/work/startup-imports.private'), deadline, env)
+    run_bounded(isolate + ['/runtime/node', '--import', 'tsx/esm', '--test', 'tests/unit/db-async-fresh-startup.test.ts'], Path('/work/startup-regression.private'), deadline, env)
     worker_stage('pinnedHTTP')
     for phase in ('cold', 'warm'):
         run_bounded(isolate + ['/runtime/node', str(runner), phase], Path('/work/' + phase + '-lifecycle.private'), deadline, env)
@@ -899,9 +1023,11 @@ def export_core_lifecycle(output, hashes):
             require(isinstance(entries, list) and len(entries) <= 4096 and all(isinstance(x, dict) and isinstance(x.get('name'), str) and x.get('kind') in ('file', 'directory') for x in entries), 'invalid file observation')
         existed = any(x['name'] == 'storage.sqlite' and x['kind'] == 'file' for x in value['before'])
         require(existed == (phase == 'warm') and any(x['name'] == 'storage.sqlite' and x['kind'] == 'file' for x in value['after']), 'database lifecycle mismatch')
-        observations.append({'phase': phase, 'driver': 'node:sqlite', 'ping': True, 'healthWorker': True, 'healthy': value['healthy'], 'settingsPersisted': True, 'databaseExistedBefore': existed, 'tableCount': len(tables), 'migrationCount': len(migrations)})
+        observations.append({'phase': phase, 'driver': 'node:sqlite', 'ping': True, 'healthWorker': True, 'healthy': value['healthy'], 'settingsPersisted': True, 'databaseExistedBefore': existed, 'tableCount': len(tables), 'migrationCount': len(migrations), 'tableSha256': sha(json.dumps(tables, separators=(',', ':'), ensure_ascii=False).encode()), 'migrationSha256': sha(json.dumps(migrations, separators=(',', ':'), ensure_ascii=False).encode())})
     require(cold['migrations'] == warm['migrations'] and cold['tables'] == warm['tables'], 'warm lifecycle differs')
     require(isinstance(identity, dict) and identity.get('sourceArchiveSha256') == ARCHIVE_SHA and identity.get('nodeSha256') == NODE_SHA, 'lifecycle identity mismatch')
+    expected_source = effective_source_identities(SOURCE)
+    require(all(identity.get(k) == v for k, v in expected_source.items()) and all(k in expected_source or k not in identity for k in ('sourceDerivation', 'effectiveTreeSha256')), 'lifecycle effective source mismatch')
     source, migrations = identity.get('sourceFilesSha256'), identity.get('migrationSqlSha256')
     require(isinstance(source, dict) and 0 < len(source) <= 50000 and all(isinstance(k, str) and 0 < len(k) <= 512 and not any(ord(c) < 32 for c in k) and isinstance(v, str) and re.fullmatch(r'[0-9a-f]{64}', v) for k, v in source.items()), 'invalid source identities')
     require(isinstance(migrations, dict) and migrations == {k: v for k, v in source.items() if k.startswith('src/lib/db/migrations/') and k.endswith('.sql')} and len(migrations) == 222, 'invalid migration identities')
@@ -910,13 +1036,14 @@ def export_core_lifecycle(output, hashes):
     arguments = ['--bundle', '--platform=node', '--packages=external', '--format=esm']
     require(identity.get('workerBuildArguments') == arguments and all(isinstance(identity.get(k), str) and re.fullmatch(r'[0-9a-f]{64}', identity[k]) for k in ('workerOutputSha256', 'runnerSourceSha256', 'runnerOutputSha256')), 'invalid build identity')
     public_identity = {k: identity[k] for k in ('sourceArchiveSha256', 'nodeSha256', 'workerSourceSha256', 'productionRecipeSha256', 'workerBuildArguments', 'workerOutputSha256', 'runnerSourceSha256', 'runnerOutputSha256')}
+    public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
     public_identity['sourceFileCount'] = len(source)
     public_identity['migrationSqlCount'] = len(migrations)
     export = output / 'export'
     export.mkdir(mode=0o700)
-    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': observations[0], 'warm': observations[1]})
+    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1]})
 
 
 def worker(real_core=False):
@@ -940,7 +1067,7 @@ def worker(real_core=False):
     if real_core:
         return core_lifecycle(material, deadline)
     worker_stage('provision')
-    provision()
+    provision(material)
     state = {'bypass': 'disabled', 'settings': {'requireLogin': True, 'password': 'fixture-configured', 'setupComplete': True}, 'tokens': []}
     save(Path('/work/data/state.json'), state)
     Path('/work/data/events.jsonl').write_text('')
@@ -1089,6 +1216,8 @@ def export_observations(output, hashes):
     require(material['archiveSha256'] == ARCHIVE_SHA and material['webpackDeviation'] is False and material['bundler'] == 'next-default' and material['selectedSourceFiles'] == 509, 'materialization mismatch')
     require(identity['sourceCommit'] == COMMIT and identity['sourceVersion'] == '3.8.53' and identity['archiveSha256'] == ARCHIVE_SHA and identity['nodeSha256'] == NODE_SHA, 'source identity mismatch')
     require(identity['runtime'] == {'node': '24.17.0', 'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime mismatch')
+    source_identity = effective_source_identities(SOURCE)
+    require(all(material.get(key) == value and identity.get(key) == value for key, value in source_identity.items()) and all(key in source_identity or (key not in material and key not in identity) for key in ('sourceDerivation', 'effectiveTreeSha256')), 'effective source identity mismatch')
     source = approved_source()
     identity_names = set(ROUTES) | set(POLICY_SOURCES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
     source_hashes = {name: sha(source[name]) for name in identity_names}
@@ -1222,10 +1351,13 @@ def export_observations(output, hashes):
     for alias in aliases:
         name, replacement = alias['source'], alias['replacement']
         original = sha(source[name])
-        require(original == alias['sourceSha256'] and fixture_hashes[replacement] == alias['replacementSha256'], 'overlay input mismatch: ' + name)
+        changes = json.loads((ROOT / source_identity['sourceDerivation']['record']).read_text())['changes'] if 'sourceDerivation' in source_identity else []
+        change = next((item for item in changes if item['path'] == name), None)
+        require((original == alias['sourceSha256'] if change is None else change['input_sha256'] == alias['sourceSha256'] and original == change['output_sha256']) and fixture_hashes[replacement] == alias['replacementSha256'], 'overlay input mismatch: ' + name)
         expected_overlays[name] = {'originalSha256': original, 'replacement': replacement, 'executedSha256': overlays.get(replacement, fixture_hashes[replacement])}
     require(identity['sourceOverlaySha256'] == expected_overlays, 'executed source overlay mismatch')
     artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Default Next bundler uses disposable source overlays; runtime observation is not production database qualification.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
+    artifact['source'].update(source_identity)
     artifact['inputs']['sourceOverlaySha256'] = expected_overlays
     artifact['publicHealthHttp'] = public_health
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
@@ -1258,6 +1390,8 @@ def bridge(output, real_core=False):
     require(memory.read_text().strip() == str(MEMORY), 'systemd memory boundary unavailable')
     command = ['/usr/bin/bwrap', '--unshare-all', '--uid', '0', '--gid', '0', '--cap-add', 'CAP_NET_ADMIN', '--cap-add', 'CAP_SYS_ADMIN', '--die-with-parent', '--new-session', '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib', '--ro-bind', '/lib64', '/lib64', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/home', '--tmpfs', '/etc', '--clearenv', '--dir', '/runtime', '--ro-bind', str(NODE), '/runtime/node', '--ro-bind', str(FIXTURE), '/fixture-src', '--dir', '/inputs', '--ro-bind', str(SOURCE), '/inputs/source.tar.gz', '--ro-bind', str(DEPENDENCIES), '/inputs/dependencies', '--ro-bind', str(ROOT / 'scripts/pinned-ingress-driver.mjs'), '/driver.mjs', '--ro-bind', str(ROOT / 'scripts/pinned-ingress.py'), '/runner.py', '--bind', str(output), '/work', '--dir', '/limits', '--ro-bind', str(memory), '/limits/memory.max', '--setenv', 'PATH', '/runtime:/usr/bin', '--setenv', 'HOME', '/work/home', '--setenv', 'TMPDIR', '/work/tmp', '--setenv', 'LANG', 'C.UTF-8', '--setenv', 'LC_ALL', 'C.UTF-8', '--chdir', '/work/app', '/usr/bin/python3', '/runner.py', '--worker']
     command[0] = str(BWRAP)
+    inputs = command.index('--bind')
+    command[inputs:inputs] = ['--dir', '/source-input', '--dir', '/source-input/scripts', '--dir', '/source-input/provenance', '--dir', '/source-input/.github', '--ro-bind', str(ROOT / 'scripts/prepare-upstream.py'), '/source-input/scripts/prepare-upstream.py', '--ro-bind', str(ROOT / 'provenance/upstreams.json'), '/source-input/provenance/upstreams.json', '--ro-bind', str(ROOT / '.github/crux-experts-release-signing-key.asc'), '/source-input/.github/crux-experts-release-signing-key.asc', '--ro-bind', str(ROOT / 'provenance/derivations'), '/source-input/provenance/derivations']
     runtime = command.index('/runtime/node') + 1
     command[runtime:runtime] = ['--ro-bind', str(BWRAP), '/runtime/bwrap']
     if real_core:

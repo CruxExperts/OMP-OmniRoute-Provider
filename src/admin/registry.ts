@@ -232,6 +232,7 @@ export interface OperationDescriptor {
   readonly mutationSafety: OperationMutationSafety | null;
   readonly coverage: { readonly status: "invokable" | "unqualified" | "non-invokable"; readonly adapterId: string | null; readonly reason: string | null };
   readonly qualification?: OperationQualificationReceipt;
+  readonly databaseInitializationRequired?: true;
 }
 
 export interface ValidatedOperationInput {
@@ -1187,7 +1188,7 @@ export function operationSourceContract(descriptor: OperationDescriptor): Operat
   };
 }
 
-export function operationContractBinding(descriptor: OperationDescriptor, provenance: Pick<OperationEvidenceBinding, "routeImportsSha256" | "frameworkContextSha256">): OperationEvidenceBinding {
+export function operationContractBinding(descriptor: OperationDescriptor, provenance: Pick<OperationEvidenceBinding, "routeImportsSha256" | "frameworkContextSha256" | "sourceDerivation" | "effectiveTreeSha256">): OperationEvidenceBinding {
   const hash = (value: unknown): string => createHash("sha256").update(canonicalizeJson(value)).digest("hex");
   return {
     handlerSha256: descriptor.source.sha256, handlerGitBlobSha: descriptor.source.gitBlobSha,
@@ -1195,6 +1196,8 @@ export function operationContractBinding(descriptor: OperationDescriptor, proven
     sideEffect: descriptor.sideEffect, responseProjectionSha256: hash(descriptor.response),
     operationSemanticsSha256: hash(operationSourceContract(descriptor)), sideEffectSha256: hash(descriptor.sideEffect),
     routeImportsSha256: provenance.routeImportsSha256, frameworkContextSha256: provenance.frameworkContextSha256,
+    ...(descriptor.databaseInitializationRequired ? { databaseInitializationRequired: true as const } : {}),
+    ...(provenance.sourceDerivation ? { sourceDerivation: provenance.sourceDerivation, effectiveTreeSha256: provenance.effectiveTreeSha256 } : {}),
     mutationSafetySha256: hash(descriptor.mutationSafety),
   };
 }

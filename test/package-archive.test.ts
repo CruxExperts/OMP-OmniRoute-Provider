@@ -171,10 +171,13 @@ describe("caller-supplied package archive verification", () => {
       expect((await readdir(verified.extractedRoot)).length).toBeGreaterThan(0);
       expect(verified.entries).toContain("scripts/verify-package.ts");
       expect(verified.entries).toContain("scripts/package-archive.py");
+      expect(verified.entries).toContain(".github/crux-experts-release-signing-key.asc");
+      expect(verified.entries).not.toContain(".github/workflows/qualification.yml");
+      expect(verified.entries.filter(path => path.startsWith(".github/"))).toEqual([".github/crux-experts-release-signing-key.asc"]);
       expect(verified.entries.some(path => path.split("/").some(component => component.toLowerCase() === "__pycache__")
         || /\.py[co]$/i.test(path))).toBe(false);
     } finally {
       if (verified) await rm(join(verified.extractedRoot, "..", ".."), { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 });

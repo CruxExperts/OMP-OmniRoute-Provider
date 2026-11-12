@@ -3,11 +3,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
 import * as zod from "zod";
-import { readRouteSources } from "../../scripts/route-source-store.ts";
+import { assertQualificationManifest, readRouteSources, resolveQualificationSource, verifyQualificationSource, type VerifiedQualificationSource } from "../../scripts/route-source-store.ts";
 
 const pinnedNodeCrypto = { createHash, createHmac, randomUUID, timingSafeEqual };
-const UPSTREAM_ROOT = resolve(process.cwd(), ".agents/state/omp-provider-release/upstream/omniroute-v3.8.53");
 const MANIFEST_PATH = resolve(process.cwd(), "provenance/route-sources.json");
+// Authenticate the whole tree once per fixture process; every subsequently consumed
+// file is checked against that snapshot and the manifest before it is executed.
+// Later changes to unconsumed files are irrelevant only while all consumers use this reader.
+const sourceSnapshot: VerifiedQualificationSource = verifyQualificationSource(process.cwd());
 
 interface SourceReceipt {
   readonly path: string;
@@ -65,9 +68,17 @@ function manifest(): SourceManifest {
 }
 
 export function readPinnedSource(path: string): string {
-  const receipt = manifest().sourceCorpus.files.find(entry => entry.path === path);
+  const source = sourceSnapshot;
+  const current = resolveQualificationSource(process.cwd());
+  if (current.root !== source.root || current.derivation?.record !== source.derivation?.record || current.derivation?.sha256 !== source.derivation?.sha256) {
+    throw new Error("Pinned qualification source changed after snapshot authentication");
+  }
+  const value = manifest();
+  assertQualificationManifest(value, source);
+  const receipt = value.sourceCorpus.files.find(entry => entry.path === path);
   if (!receipt) throw new Error(`Pinned source manifest has no receipt for ${path}`);
-  const bytes = readFileSync(resolve(UPSTREAM_ROOT, path));
+  if (source.files && source.files.get(path) !== receipt.sha256) throw new Error(`Pinned source receipt differs from effective tree: ${path}`);
+  const bytes = readFileSync(resolve(source.root, path));
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   if (bytes.byteLength !== receipt.bytes || sha256 !== receipt.sha256) {
     throw new Error(`Pinned source bytes do not match manifest receipt: ${path}`);
