@@ -48,14 +48,24 @@ export function createPinnedHealthFixture() {
 export const LIVEZ_IDS = ["GET /livez", "HEAD /livez"] as const;
 export type LivezId = (typeof LIVEZ_IDS)[number];
 
-/** Handler-derived candidate only; neither ingress authorization nor generator acceptance is established here. */
+/** Source-reviewed GET candidate; framework ingress still requires independent qualification. HEAD remains source-only. */
 export function livezContract(id: LivezId): OperationSourceContract {
   const template = operationContractTemplate(id) as unknown as OperationSourceContract;
-  const schema: JsonSchema | null = id === "GET /livez" ? { type: "string", enum: ["ok\n"] } : null;
+  const get = id === "GET /livez";
+  const schema: JsonSchema | null = get ? { type: "string", const: "ok\n" } : null;
   return {
     ...template,
-    auth: { ...template.auth, sourcePolicy: { status: "unknown" } },
-    response: {
+    // The pinned proxy matcher excludes /livez and the pinned GET handler has no authorization guard.
+    auth: get ? { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } } : { ...template.auth, sourcePolicy: { status: "unknown" } },
+    response: get ? {
+      ...template.response, schema,
+      variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema })), headers: {
+        ...variant.headers,
+        "cache-control": { required: true, schema: { type: "string", enum: ["no-store"] } },
+        "content-length": { required: true, schema: { type: "string", enum: ["3"] } },
+        "content-type": { required: true, schema: { type: "string", enum: ["text/plain; charset=utf-8"] } },
+      } })),
+    } : {
       statusCodes: ["200"], mediaType: "text/plain", schema,
       variants: [{ statusCode: "200", content: [{ mediaType: "text/plain", schema }], headers: {
         "cache-control": { required: true, schema: { type: "string", enum: ["no-store"] } },

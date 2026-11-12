@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { getOperation, getOperationRegistry, OperationRegistry, operationSourceContract, projectResponse, redactSourceOutput, type JsonSchema, type OperationDescriptor } from "../src/admin/registry.ts";
+import type * as EligibilityReader from "../src/admin/eligibility.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
 import { assertSafetyReadRequest, assertSafetyReadResponse } from "../src/admin/relations.ts";
@@ -270,6 +272,64 @@ test("degradation eligibility requires its matching ingress digest", () => {
   expect(new OperationRegistry([baked], { records: [{ ...proof, ingressSha256: "1".repeat(64) }] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
   const { ingressSha256: _qualificationIngress, ...qualificationWithoutIngress } = baked.qualification!;
   expect(new OperationRegistry([{ ...baked, qualification: qualificationWithoutIngress }], { records: [proof] }).getEligibility(descriptor.operationId).status).toBe("unavailable");
+});
+
+test("generated liveness qualification retains its ingress digest for runtime eligibility", () => {
+  const release = JSON.parse(readFileSync(new URL("../contracts/release-eligibility.json", import.meta.url), "utf8")) as {
+    operations: { operationId: string; ingressEvidence?: { sha256: string } }[];
+  };
+  const evidence = release.operations.find(item => item.operationId === "GET /livez")?.ingressEvidence;
+  expect(evidence?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  const registry = new OperationRegistry();
+  const operation = registry.getOperation("GET /livez");
+  expect(operation?.qualification?.ingressSha256).toBe(evidence?.sha256);
+  expect(registry.require("GET /livez").eligibility.status).toBe("verified");
+});
+
+test("liveness eligibility requires matching ingress evidence in the document and qualification", async () => {
+  const health: OperationDescriptor = { ...degradationDescriptor(), coverage: { status: "invokable", adapterId: "typed.get.api.health.degradation", reason: null } };
+  const authority = fixtureRegistry([health]);
+  const qualified = authority.getOperation(health.operationId)!;
+  const receipt = qualified.qualification!;
+  const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = receipt.binding;
+  const { ingressSha256, ...proof } = authority.getEligibility(health.operationId);
+  const entry = {
+    ...proof, operationId: "GET /livez", binding, contract: operationSourceContract(qualified),
+    test: { ...receipt.test, observedOutcome: `provenance/qualification/${"0".repeat(64)}.json` },
+  };
+  const ingress = { sha256: "0".repeat(64), artifact: `provenance/qualification/ingress-${"0".repeat(64)}.json` };
+  const temporary = await mkdtemp(join(tmpdir(), "cruxomni-liveness-reader-"));
+  try {
+    for (const [name, record, expected] of [
+      ["matching", { ...entry, ingressEvidence: ingress }, "verified"],
+      ["missing", entry, "unavailable"],
+      ["mismatched-artifact", { ...entry, ingressEvidence: { ...ingress, artifact: `provenance/qualification/ingress-${"1".repeat(64)}.json` } }, "unavailable"],
+    ] as const) {
+      const root = join(temporary, name);
+      await mkdir(join(root, "src/admin"), { recursive: true });
+      await mkdir(join(root, "contracts"));
+      const readerPath = join(root, "src/admin/eligibility.ts");
+      await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
+      await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({
+        schemaVersion: 3, recordKind: "omniroute-release-eligibility", release: { commit: receipt.releaseCommit },
+        default: { status: "unavailable", reason: "Synthetic unit document." }, operations: [record],
+      }));
+      // Each isolated root has its own document; a static import would reuse the default module cache.
+      const reader = await import(pathToFileURL(readerPath).href) as typeof EligibilityReader;
+      const parsed = reader.eligibilityFor("GET /livez", reader.createEligibilityIndex());
+      expect(parsed.status).toBe(expected);
+      if (name === "matching") {
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: receipt, binding: receipt.binding })).toBe(true);
+        const { ingressSha256: _missingRecordIngress, ...withoutRecordIngress } = parsed;
+        expect(reader.isVerifiedEligibility(withoutRecordIngress, { source: qualified.source, qualification: receipt, binding: receipt.binding })).toBe(false);
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: { ...receipt, ingressSha256: "1".repeat(64) }, binding: receipt.binding })).toBe(false);
+        const { ingressSha256: _missing, ...withoutIngress } = receipt;
+        expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: withoutIngress, binding: receipt.binding })).toBe(false);
+      }
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
 
 test("private target projection binds exact sensitive state without exposing it in model output", () => {

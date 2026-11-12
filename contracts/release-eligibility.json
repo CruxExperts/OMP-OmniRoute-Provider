@@ -13,6 +13,163 @@
   },
   "operations": [
     {
+      "operationId": "GET /livez",
+      "status": "verified",
+      "reason": "Pinned GET liveness handler and separately retained isolated Next ingress observations qualify this read only; HEAD remains unqualified.",
+      "source": {
+        "file": "src/app/livez/route.ts",
+        "sha256": "fffec80c186ddfee8e8a9e8cd251ea4a177df834e5d5c519bee1943b443fad7e",
+        "gitBlobSha": "d82f2dbee9a0595370cfd24a680c17cf129faa30"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": false
+        },
+        "auth": {
+          "domain": "public",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "public",
+            "alternatives": [
+              {
+                "kind": "anonymous"
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200"
+          ],
+          "mediaType": "text/plain",
+          "schema": {
+            "type": "string",
+            "const": "ok\n"
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "text/plain",
+                  "schema": {
+                    "type": "string",
+                    "const": "ok\n"
+                  },
+                  "sourceFile": "src/app/livez/route.ts"
+                }
+              ],
+              "headers": {
+                "cache-control": {
+                  "required": true,
+                  "schema": {
+                    "type": "string",
+                    "enum": [
+                      "no-store"
+                    ]
+                  }
+                },
+                "content-length": {
+                  "required": true,
+                  "schema": {
+                    "type": "string",
+                    "enum": [
+                      "3"
+                    ]
+                  }
+                },
+                "content-type": {
+                  "required": true,
+                  "schema": {
+                    "type": "string",
+                    "enum": [
+                      "text/plain; charset=utf-8"
+                    ]
+                  }
+                }
+              },
+              "sourceFiles": [
+                "src/app/livez/route.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "text",
+          "framing": "text/plain"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "The pinned handler only constructs a fixed process-alive response."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "176d023976df93ad0768fd4e26cd4e9d22fe97ac5d376f48fbef972a41913063",
+        "authSha256": "d0ddb8822e329887f262e81f63fb392403deae3c4d512f0ca461ad7521916894",
+        "sideEffect": "read",
+        "responseProjectionSha256": "b143ac86efc85dbeb29f6bb27766be34cb7d3c7a2897b2433fbaf84b4e007cbd",
+        "operationSemanticsSha256": "4f914ec2f7628cce64f1a6fb34649e8bc183c6181e65d510b5884cc4c7a27aec",
+        "routeImportsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-health-source.test.ts",
+        "observedOutcome": "provenance/qualification/d3e846c17fb098b4c837a990034757eaca555c3eb8592d89382ee48d98a9e044.json",
+        "caseSha256": "87901fcb5b7f332158dc2919e1a54e6d8271166dc3c2033ca776395132141cd2",
+        "outcomeSha256": "1844a34f4ed08002e481ae0a9758ebed6f9edd2d4cf1e39eeeb8942a67742f28"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned v3.8.53 GET handler and proxy matcher establish the fixed response and exclusion from the proxy matcher."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The source handler returns the finite text body ok followed by a newline with no-store and explicit content headers."
+        },
+        {
+          "kind": "fixture",
+          "detail": "The pinned handler and proxy matcher were exercised independently; the separately retained isolated Next ingress research export observes anonymous, invalid-credential and session requests."
+        }
+      ]
+    },
+    {
       "operationId": "GET /api/health",
       "status": "verified",
       "reason": "Pinned liveness handler and separately retained isolated Next ingress observations qualify this read only; they do not establish production deployment behavior.",
@@ -191,13 +348,13 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/787df56b0fe23d61fa75bd30027de4847dd439aadc60fd32fb1741b2d17d5a32.json",
-        "caseSha256": "4bd28063db3997b4599a91d4ca0484538ee982a7149412a8973cec44e4944af7",
+        "observedOutcome": "provenance/qualification/3a4aae6e08bb2f58b67e4eab6c15b108f63c62718ad8e3f6a5915d3c32c11c6a.json",
+        "caseSha256": "aee17441e707f8dc215240fbce9cbfebec829baa5a1d166944ff47efcd336620",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -703,13 +860,13 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/552c214b2c144746bf6cf89a491786674f75582589f1efa6deffbbd63e5e5057.json",
-        "caseSha256": "654029332f4e4d248f2c65df4011d1fbe95f290c62a91b50709dd51da4a59cae",
+        "observedOutcome": "provenance/qualification/ccd8044a622ef5cdfae616a3429dee533e46e5c98f85b387bda6a709381e1ccd.json",
+        "caseSha256": "a875a873be81d72c9e0b0b85348db8027d6b99f35a91ff9fbd548d1b046a276e",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -1374,13 +1531,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/0fc637fce7e20fe92a2b9c74db8c780aaf4172aa5f79c4defcf121e4f2bd8cad.json",
-        "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
+        "observedOutcome": "provenance/qualification/d2a054218fd32ed3e596c761ce632b4a8f6592cebab8dfad550cdca1466d3d6e.json",
+        "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
         "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -2031,13 +2188,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/ba735c0756b196b8586c5178a97699d1d5e0d45dae0d2fe615764a8ee2827b7f.json",
-        "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+        "observedOutcome": "provenance/qualification/0b10581e28eaca3f737a5eb2522a526ab37fb98c1e86775e11efb64bb37450c6.json",
+        "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
         "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -2931,13 +3088,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/e12977e0b5d4d3816ec4e5f8c17e00dbe34bfddb36b60b1ca94ebdd82f65b350.json",
-        "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+        "observedOutcome": "provenance/qualification/9853b631805e014cf3ed0cc012230bd7edff6c00400449735062a072d2bdaa15.json",
+        "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
         "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -3490,13 +3647,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/f9e45b962bc5656b69545c542d7cc4608e901b5a19a14cf6293a1485f2b30903.json",
-        "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+        "observedOutcome": "provenance/qualification/be1b2b361f84a9f060d9f0329aaf210f6b3b5a139ce4c9c3d33b11e7beb49aeb.json",
+        "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
         "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -4456,13 +4613,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/501b3770341946f31da127a84c1a8302da41f7b0820cead1f6c67e705f344689.json",
-        "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+        "observedOutcome": "provenance/qualification/583cc713d416ff83217acfda71872182037a586819305e3672f2774076d9759d.json",
+        "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
         "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -5089,13 +5246,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/2c6dc029c735372e63af97b79f83646e31a2327fb6327c699861c165627dfa97.json",
-        "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+        "observedOutcome": "provenance/qualification/eb40ef3cc87f54d05f0572c9ee587d4d56118de3f88c1ef9f0d32ff9d498af5f.json",
+        "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
         "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -5515,13 +5672,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/066e4a7cd85a51abd05c7c5e62d739c4b893b1637a50f1f81b52ec198c351d31.json",
-        "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
+        "observedOutcome": "provenance/qualification/4a6dd3dbd0bb40eef18029564f987072ddfac5e9566381eb0d38140ff5a6a9be.json",
+        "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
         "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -6032,13 +6189,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/52677f5bdf9ee2b08e5de9eb2ec67a3d03ca845c9d39e67bf26cea558fdfa7bc.json",
-        "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
+        "observedOutcome": "provenance/qualification/83cb325bd56e2116a3449e01c00b118ddd07233b2ae3e2826030c5a85832a454.json",
+        "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
         "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       },
       "evidence": [
         {
@@ -9167,8 +9324,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/42c81977e7286f49d23dfddbebed8093357bb41df27525cc3e2a4dbad05ba215.json",
-        "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+        "observedOutcome": "provenance/qualification/da7bec41e3097c0e478d74e57c2cfaa8ec256bc71d6fbcb81b851f5e8342c03a.json",
+        "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
         "outcomeSha256": "8b6ca9dc08737d82eeee804574256c9083b23ccbc63a6e6a8f10425713d31e3f"
       },
       "evidence": [
@@ -9186,8 +9343,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -12146,8 +12303,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/8347df872df07054a34c8685649236cc4c02eac657df1e508ad73d7d52730684.json",
-        "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+        "observedOutcome": "provenance/qualification/b0dbc9a4d90fb0ff6dcbaeda43cff0de489b3a1253f50039361b253ce5f24f2e.json",
+        "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
         "outcomeSha256": "e2cd04eab301bdec57941938283e8fa9cbb4455b8add9ff4a1c45d5948eaa0b9"
       },
       "evidence": [
@@ -12165,8 +12322,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -13437,8 +13594,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/e6908e053d883e082bd887483378da2fb48e89821a8b0479286d18728e38a3c7.json",
-        "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+        "observedOutcome": "provenance/qualification/ab8dfcffaa60579c1c26dfb0556aba56733bb62aad08b39c576e68c749947760.json",
+        "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
         "outcomeSha256": "5e26fc35344baf9007098e4b84029c35b129a04963c7f1c5427a4bed84cabf0b"
       },
       "evidence": [
@@ -13456,8 +13613,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -14465,8 +14622,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/0745e03459fdf6350befabb11ec7fef87bb2b56f0bdfe4bb7f5c8953438a1f43.json",
-        "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+        "observedOutcome": "provenance/qualification/6961cb70805f99853d7763e3284c88852c2159b7b1447ef9f90697531845f29a.json",
+        "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
         "outcomeSha256": "074217cb5afd62c31405ae76f401a1cc5891a4740eafb41b42b40ca8ec8a87c9"
       },
       "evidence": [
@@ -14484,8 +14641,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -17090,8 +17247,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/e655e7a37e39208b376889735aff30dc6ea416a5a749f749283ac32e2a8cd148.json",
-        "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+        "observedOutcome": "provenance/qualification/62415c57f09be36a22a27d8832de230b772498b9cea5b86dc8098f6d686a2821.json",
+        "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
         "outcomeSha256": "041a6ed0b38afd0bff89ff4815f5f9fae318db04b9022c5f3d0babe400154af6"
       },
       "evidence": [
@@ -17109,8 +17266,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -17550,8 +17707,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/ffe3173f3329602dd36f0d46f9070e9dc6f970113d479793a2d3ba0ea6c3d6be.json",
-        "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+        "observedOutcome": "provenance/qualification/9d4300041edf40d41c3216a67d37158e866bea155fb1c5450cfd654ad6b65905.json",
+        "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
         "outcomeSha256": "14f63b64278d8d37635bc4210498bfacb45dafec4e9fec4298366536a71a4eef"
       },
       "evidence": [
@@ -17569,8 +17726,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -18242,8 +18399,8 @@
       },
       "test": {
         "id": "test/admin-model-capability-overrides.test.ts",
-        "observedOutcome": "provenance/qualification/87a0357b8199c1baa0983f6bda7118bd47f6e712974d686df4fa74af376ec5f8.json",
-        "caseSha256": "4036b9a7327bfc7f42ef062c36683ccb7913c533ac3825bd2c379d17a9e047f4",
+        "observedOutcome": "provenance/qualification/c3ed343ad2107a41801d439ee57df6b72073d71ece893590f8ccaa04077ef028.json",
+        "caseSha256": "156377aa677214c81cab8089c98b9c450130f9b704e2be21ee9993e5d4eef91d",
         "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
       },
       "evidence": [
@@ -18261,8 +18418,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     },
     {
@@ -18745,8 +18902,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/05813c4f1dc4cbc6a9fdce89c873df41b504bc989f5be003d3087b9bd9f55f88.json",
-        "caseSha256": "6d438e35448aea65bca65e79bfb9211ead58563fd9b30243ecfb44e3cd199cb1",
+        "observedOutcome": "provenance/qualification/3385a7f7769c70f28c3d42cd728074a1d901953ffe110a9f3921dc69a5b75036.json",
+        "caseSha256": "2c4c04807720ad04368779bdb94030bab5bd52db1380b7140849737ee6dbff61",
         "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
       },
       "evidence": [
@@ -18764,8 +18921,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457.json",
-        "sha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457"
+        "artifact": "provenance/qualification/ingress-0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81.json",
+        "sha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81"
       }
     }
   ],

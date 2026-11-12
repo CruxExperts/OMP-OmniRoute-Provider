@@ -1,7 +1,52 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import ts from "typescript";
+import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
+import { canonicalizeJson } from "../src/admin/registry.ts";
 import { createPinnedHealthFixture, LIVEZ_IDS, livezContract } from "./fixtures/pinned-health.fixture.ts";
+import { readPinnedSource } from "./fixtures/pinned-handler.fixture.ts";
+
+const GET_ID = "GET /livez";
+const TEST_ID = "test/admin-health-source.test.ts";
+let getObservation: { before: null; after: null; result: { status: number; body: string } } | undefined;
+let matcherObserved = false;
+
+afterAll(async () => {
+  if (!getObservation || !matcherObserved) return;
+  const contract = livezContract(GET_ID);
+  // Binding validates the complete contract before any observation is written.
+  const binding = operationEvidenceBinding(GET_ID, contract);
+  const caseSha256 = testCaseSourceHash(TEST_ID);
+  const artifactPath = outcomeArtifactPath(GET_ID);
+  await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+  await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: GET_ID, testId: TEST_ID, caseSha256, binding, observation: getObservation })}\n`, { mode: 0o600 });
+  testOutcomeHash(GET_ID, TEST_ID, caseSha256, binding, contract, artifactPath);
+});
+
+test("pinned proxy matcher excludes the exact GET liveness route", () => {
+  const source = ts.createSourceFile("src/proxy.ts", readPinnedSource("src/proxy.ts"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declaration = source.statements.filter(ts.isVariableStatement).flatMap(statement => [...statement.declarationList.declarations])
+    .find(item => ts.isIdentifier(item.name) && item.name.text === "config");
+  if (!declaration?.initializer || !ts.isObjectLiteralExpression(declaration.initializer)) throw new Error("Missing pinned proxy config");
+  const matcher = declaration.initializer.properties.find(property => ts.isPropertyAssignment(property) && property.name.getText(source) === "matcher");
+  if (!matcher || !ts.isPropertyAssignment(matcher) || !ts.isArrayLiteralExpression(matcher.initializer)) throw new Error("Missing pinned matcher array");
+  const entries = matcher.initializer.elements.map(element => {
+    if (!ts.isStringLiteral(element)) throw new Error("Nonliteral pinned matcher");
+    return element.text;
+  });
+  expect(entries).toEqual([
+    "/", "/dashboard/:path*", "/home", "/home/:path*", "/api/:path*",
+    "/:v1seg([vV]1)/:path*", "/:v1seg([vV]1)", "/:v1betaseg([vV]1[bB][eE][tT][aA])/:path*", "/:v1betaseg([vV]1[bB][eE][tT][aA])",
+    "/:chatseg([cC][hH][aA][tT])/:path*", "/:respseg([rR][eE][sS][pP][oO][nN][sS][eE][sS])/:path*", "/:respseg([rR][eE][sS][pP][oO][nN][sS][eE][sS])",
+    "/:codexseg([cC][oO][dD][eE][xX])/:path*", "/:codexseg([cC][oO][dD][eE][xX])", "/:modelsseg([mM][oO][dD][eE][lL][sS])", "/:v0seg([vV]0)/:path*",
+  ]);
+  matcherObserved = true;
+});
+
 
 test("pinned livez exports implement distinct GET and HEAD response contracts without handler authorization", async () => {
+  let observed: typeof getObservation;
   const fixture = createPinnedHealthFixture();
   try {
     expect(fixture.live.dynamic).toBe("force-dynamic");
@@ -13,19 +58,25 @@ test("pinned livez exports implement distinct GET and HEAD response contracts wi
       expect(contract.request.body).toBeNull();
       expect(contract.request.pathSchema).toEqual({ type: "object", properties: {}, additionalProperties: false });
       expect(contract.request.querySchema).toEqual({ type: "object", properties: {}, additionalProperties: false });
-      expect(contract.auth.sourcePolicy).toEqual({ status: "unknown" });
+      expect(contract.auth.sourcePolicy).toEqual(method === "GET" ? { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } : { status: "unknown" });
+      if (method === "GET") expect(contract.auth.domain).toBe("public");
       expect(contract.sideEffect).toBe("read");
       expect(contract.confirmation.required).toBe(false);
       expect(contract.response.statusCodes).toEqual(["200"]);
       expect(contract.response.mediaType).toBe("text/plain");
-      expect(contract.response.schema).toEqual(method === "GET" ? { type: "string", enum: ["ok\n"] } : null);
+      expect(contract.response.schema).toEqual(method === "GET" ? { type: "string", const: "ok\n" } : null);
 
       expect(contract.streaming).toEqual({ mode: "text", framing: "text/plain" });
-      expect(contract.response.variants).toEqual([{ statusCode: "200", content: [{ mediaType: "text/plain", schema: method === "GET" ? { type: "string", enum: ["ok\n"] } : null }], headers: {
+      expect(contract.response.variants).toHaveLength(1);
+      const variant = contract.response.variants[0];
+      expect(variant?.statusCode).toBe("200");
+      expect(variant?.content).toHaveLength(1);
+      expect(variant?.content[0]).toMatchObject({ mediaType: "text/plain", schema: method === "GET" ? { type: "string", const: "ok\n" } : null });
+      expect(variant?.headers).toEqual({
         "cache-control": { required: true, schema: { type: "string", enum: ["no-store"] } },
         "content-length": { required: true, schema: { type: "string", enum: ["3"] } },
         "content-type": { required: true, schema: { type: "string", enum: ["text/plain; charset=utf-8"] } },
-      } }]);
+      });
       // Invoke the source export itself: a transport can suppress a mistakenly populated HEAD body.
       const response = fixture.live[method]();
       expect(response.status).toBe(200);
@@ -33,8 +84,11 @@ test("pinned livez exports implement distinct GET and HEAD response contracts wi
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("content-length")).toBe("3");
       if (method === "HEAD") expect(response.body).toBeNull();
-      expect(await response.text()).toBe(method === "GET" ? "ok\n" : "");
+      const body = await response.text();
+      expect(body).toBe(method === "GET" ? "ok\n" : "");
+      if (method === "GET") observed = { before: null, after: null, result: { status: response.status, body } };
     }
+    getObservation = observed;
   } finally {
     fixture.stop();
   }

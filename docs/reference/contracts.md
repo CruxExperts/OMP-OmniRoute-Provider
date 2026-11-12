@@ -160,16 +160,21 @@ source-bound handler receipt and the ingress export are required for eligibility
 
 The pinned `/livez` GET and HEAD source observations distinguish the exact GET
 text body from HEAD's empty body while retaining its advertised content length.
-They do not establish framework ingress or anonymous access. Both operations
-remain unqualified pending independent ingress and eligibility evidence. HEAD
-additionally needs explicit bodyless response contracts and client transport.
+GET qualification binds these observations to separately retained real Next
+ingress. HEAD remains unqualified and needs explicit bodyless response contracts,
+independent method-specific ingress and client transport.
 
 The isolated ingress producer also records exact GET `/livez` responses for
 anonymous, invalid-bearer and session requests. Its consumer requires the
 unchanged handler and proxy identities, compiled matcher exclusion, exact text
-and cache headers, and no route-class stamp. Changed producer inputs invalidate
-older exports; this support does not qualify the route before a new complete
-isolated run and independent handler evidence are retained.
+and cache headers, and no route-class stamp. The retained complete isolated run
+observes all three cases. Changed producer inputs invalidate older exports;
+independent handler evidence and runtime eligibility binding still gate use.
+
+The `/api/docs` source-only test observes the pinned static HTML response and
+headers without running its scripts. The page references a mutable external
+Redoc bundle; no browser, CDN availability or central ingress behavior is
+established. This HTML route remains unqualified.
 
 The agent-skills catalog, detail, and coverage candidates use source-bound handlers
 and the pinned catalog against a disposable skills directory. Tests cover query and

@@ -2171,7 +2171,7 @@ function makeOperation(
         caseSha256: requireString(test.caseSha256, `${operationId}.eligibility.test.caseSha256`),
         outcomeSha256: requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`),
       },
-      ...(operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
+      ...(operationId === "GET /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
     };
   }
   return effective;

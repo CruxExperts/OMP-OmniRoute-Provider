@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1049,
-    "invokableOperations": 18,
+    "invokableOperations": 19,
     "methodCounts": {
       "DELETE": 111,
       "GET": 485,
@@ -18,12 +18,12 @@
     "routeFiles": 798,
     "sourceOperations": 1292,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1258
+    "unqualifiedOperations": 1257
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "463dde03f281cf51a660dbdb93709499fcd9532be7706fa49f33b3bfa48bcf92",
+    "eligibilitySha256": "3ebc88b47c0321f89ff1949d0afc11d0e75c195f0c9d24ac4cc67533ff737628",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "488497bd136c5f05f2b8782aab4cae82fefdeca986abf59317655bd9fc067585",
     "sourceCorpusFileCount": 4806
@@ -6575,10 +6575,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "14f63b64278d8d37635bc4210498bfacb45dafec4e9fec4298366536a71a4eef"
         }
@@ -12020,10 +12020,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
         }
@@ -28573,10 +28573,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
+          "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
         }
@@ -29272,10 +29272,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
+          "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
         }
@@ -29726,10 +29726,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
+          "caseSha256": "d4fa83e94c93e2cf5cbe0f1cbb7e7f790e68902709253f88a7a1e619869083f3",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
         }
@@ -41629,10 +41629,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "8b6ca9dc08737d82eeee804574256c9083b23ccbc63a6e6a8f10425713d31e3f"
         }
@@ -44819,10 +44819,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "5e26fc35344baf9007098e4b84029c35b129a04963c7f1c5427a4bed84cabf0b"
         }
@@ -46168,10 +46168,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "074217cb5afd62c31405ae76f401a1cc5891a4740eafb41b42b40ca8ec8a87c9"
         }
@@ -47468,10 +47468,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "041a6ed0b38afd0bff89ff4815f5f9fae318db04b9022c5f3d0babe400154af6"
         }
@@ -50146,10 +50146,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
+          "caseSha256": "d3a5c42df44e02710040af9709a23f5d83b9d487dbb0390c6a31be2ff0a560a2",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "e2cd04eab301bdec57941938283e8fa9cbb4455b8add9ff4a1c45d5948eaa0b9"
         }
@@ -60794,10 +60794,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "6d438e35448aea65bca65e79bfb9211ead58563fd9b30243ecfb44e3cd199cb1",
+          "caseSha256": "2c4c04807720ad04368779bdb94030bab5bd52db1380b7140849737ee6dbff61",
           "id": "test/admin-fallback-chains.test.ts",
           "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
         }
@@ -65095,10 +65095,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4bd28063db3997b4599a91d4ca0484538ee982a7149412a8973cec44e4944af7",
+          "caseSha256": "aee17441e707f8dc215240fbce9cbfebec829baa5a1d166944ff47efcd336620",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -65328,10 +65328,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "654029332f4e4d248f2c65df4011d1fbe95f290c62a91b50709dd51da4a59cae",
+          "caseSha256": "a875a873be81d72c9e0b0b85348db8027d6b99f35a91ff9fbd548d1b046a276e",
           "id": "test/admin-degradation.test.ts",
           "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
         }
@@ -76531,10 +76531,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4036b9a7327bfc7f42ef062c36683ccb7913c533ac3825bd2c379d17a9e047f4",
+          "caseSha256": "156377aa677214c81cab8089c98b9c450130f9b704e2be21ee9993e5d4eef91d",
           "id": "test/admin-model-capability-overrides.test.ts",
           "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
         }
@@ -77274,10 +77274,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
         }
@@ -77986,10 +77986,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
         }
@@ -148800,20 +148800,27 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "public",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "anonymous"
+            }
+          ],
+          "routeClass": "public",
+          "source": "omniroute-v3.8.53",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "The pinned handler only constructs a fixed process-alive response.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.livez",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -148827,6 +148834,28 @@
         "parameters": []
       },
       "pathTemplate": "/livez",
+      "qualification": {
+        "binding": {
+          "authSha256": "d0ddb8822e329887f262e81f63fb392403deae3c4d512f0ca461ad7521916894",
+          "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+          "handlerGitBlobSha": "d82f2dbee9a0595370cfd24a680c17cf129faa30",
+          "handlerSha256": "fffec80c186ddfee8e8a9e8cd251ea4a177df834e5d5c519bee1943b443fad7e",
+          "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "operationSemanticsSha256": "4f914ec2f7628cce64f1a6fb34649e8bc183c6181e65d510b5884cc4c7a27aec",
+          "requestSchemaSha256": "176d023976df93ad0768fd4e26cd4e9d22fe97ac5d376f48fbef972a41913063",
+          "responseProjectionSha256": "b143ac86efc85dbeb29f6bb27766be34cb7d3c7a2897b2433fbaf84b4e007cbd",
+          "routeImportsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
+        "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "test": {
+          "caseSha256": "87901fcb5b7f332158dc2919e1a54e6d8271166dc3c2033ca776395132141cd2",
+          "id": "test/admin-health-source.test.ts",
+          "outcomeSha256": "1844a34f4ed08002e481ae0a9758ebed6f9edd2d4cf1e39eeeb8942a67742f28"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -148846,7 +148875,10 @@
       },
       "response": {
         "mediaType": "text/plain",
-        "schema": null,
+        "schema": {
+          "const": "ok\n",
+          "type": "string"
+        },
         "statusCodes": [
           "200"
         ],
@@ -148855,11 +148887,42 @@
             "content": [
               {
                 "mediaType": "text/plain",
-                "schema": null,
+                "schema": {
+                  "const": "ok\n",
+                  "type": "string"
+                },
                 "sourceFile": "src/app/livez/route.ts"
               }
             ],
-            "headers": {},
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "content-length": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "3"
+                  ],
+                  "type": "string"
+                }
+              },
+              "content-type": {
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "text/plain; charset=utf-8"
+                  ],
+                  "type": "string"
+                }
+              }
+            },
             "sourceFiles": [
               "src/app/livez/route.ts"
             ],
@@ -148876,7 +148939,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/livez/route.ts",
@@ -148901,8 +148964,8 @@
         "path": null
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "text/plain",
+        "mode": "text"
       }
     },
     {
@@ -199915,10 +199978,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
         }
@@ -290118,10 +290181,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "ingressSha256": "0576b8f52ade229ccc0f0eb513657104a2b4a8d5dee4b06fae29e386e3a86e81",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
+          "caseSha256": "47409b3e0a63b830e200c6f5d7a5055bb662ab8b998a6d91477a1d7f5ae250c5",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
         }
