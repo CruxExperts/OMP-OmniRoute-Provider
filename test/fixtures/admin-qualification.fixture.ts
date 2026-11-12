@@ -10,7 +10,7 @@ export function fixtureRegistry(input: readonly OperationDescriptor[]): Operatio
     const descriptor = structuredClone(original);
     const binding = operationContractBinding(descriptor, { routeImportsSha256: "0".repeat(64), frameworkContextSha256: "0".repeat(64) });
     const test = { id: "test/fixtures/admin-qualification.fixture.ts", caseSha256: "0".repeat(64), outcomeSha256: "0".repeat(64) };
-    const ingress = descriptor.operationId === "GET /api/health" || descriptor.operationId === "GET /api/health/degradation" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(descriptor.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(descriptor.operationId) ? { ingressSha256: "0".repeat(64) } : {};
+    const ingress = descriptor.operationId === "GET /api/health" || descriptor.operationId === "GET /api/health/degradation" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(descriptor.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(descriptor.operationId) || ["GET /api/combos", "GET /api/combos/{id}", "GET /api/combos/auto", "GET /api/combos/builder/options", "GET /api/combos/metrics", "DELETE /api/combos/metrics"].includes(descriptor.operationId) ? { ingressSha256: "0".repeat(64) } : {};
     records.push({ operationId: descriptor.operationId, status: "verified", reason: "Synthetic fixture authority; not release qualification.",
       source: descriptor.source, binding, test, ...ingress, evidence: [{ kind: "synthetic-fixture", detail: "Unit-dispatch authority only; no pinned-source qualification is claimed." }] });
     return { ...descriptor, qualification: { releaseCommit: release.release.commit, binding, test, ...ingress } };

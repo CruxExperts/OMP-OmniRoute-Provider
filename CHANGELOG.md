@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Bind six combo method/path policy observations to their original route digests,
+  keeping framework reachability separate from actual handler evidence. Reject
+  incomplete or mismatched method, path, policy, and source records.
+
 - Demonstrate the pinned auto-combo read/duplicate capability difference with
   actual source handlers. Unchanged GET output cannot certify an unchanged
   capability-resolved duplicate target; no operation is newly qualified.

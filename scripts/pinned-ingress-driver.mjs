@@ -151,6 +151,14 @@ try {
     assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT'), `mapping-policy:${method}:${path}`);
     results.push({ case: `${method} ${path}`, denied, invalid, allowed });
   }
+  // These routes are reachability controls, not the pinned combo handlers.
+  for (const [method, path] of [['GET', '/api/combos'], ['GET', '/api/combos/fixture-id'], ['GET', '/api/combos/auto'], ['GET', '/api/combos/builder/options'], ['GET', '/api/combos/metrics'], ['DELETE', '/api/combos/metrics']]) {
+    const denied = await request(path, method);
+    const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
+    const allowed = await request(path, method, { cookie });
+    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), `combo-policy:${method}:${path}`);
+    results.push({ case: `${method} ${path}`, denied, invalid, allowed });
+  }
   assert((await stat(`${dir}/events.jsonl`)).size <= 1048576, 'event-limit');
   const events = (await readFile(`${dir}/events.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');

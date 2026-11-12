@@ -582,6 +582,8 @@ with tempfile.TemporaryDirectory() as temp:
   rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response(value)})
  for method,path in [('GET','/api/model-combo-mappings'),('POST','/api/model-combo-mappings'),('GET','/api/model-combo-mappings/fixture-id'),('PUT','/api/model-combo-mappings/fixture-id'),('DELETE','/api/model-combo-mappings/fixture-id')]:
   rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
+ for method,path in [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]:
+  rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -594,6 +596,8 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
  assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
+ assert [(item['method'],item['path']) for item in exported['comboPolicy']] == [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]
+ assert any('does not execute combo handlers' in limitation for limitation in exported['limitations'])
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
@@ -643,10 +647,16 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
  ingress['results'] = rows; rows[5]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()
  rows[5]['recovered']['status'] = 200
+ rows[14], rows[15] = rows[15], rows[14]; put('data/pinned-ingress-observations.json',ingress); rejected(); rows[14], rows[15] = rows[15], rows[14]
+ rows.append(rows[-1]); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.pop()
  for mapping in rows[8:]:
-  for endpoint,key,bad in [('denied','status',200),('invalid','status',200),('allowed','routeClass','PUBLIC')]:
+  for endpoint,key,bad in [('denied','status',200),('invalid','status',200),('allowed','status',403),('denied','routeClass','PUBLIC'),('invalid','routeClass','PUBLIC'),('allowed','routeClass','PUBLIC')]:
    original = mapping[endpoint][key]; mapping[endpoint][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); mapping[endpoint][key] = original
   original = mapping['case']; mapping['case'] = 'GET /api/wrong'; put('data/pinned-ingress-observations.json',ingress); rejected(); mapping['case'] = original
+ for row in rows[10:]:
+  original = row['allowed']['body']; row['allowed']['body'] = {'fixture':'wrong'}; put('data/pinned-ingress-observations.json',ingress); rejected(); row['allowed']['body'] = original
+ for name in m.POLICY_SOURCES:
+  original = identity['addedSourceSha256'][name]; identity['addedSourceSha256'][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][name] = original
  original = degradation['summary']['body']; degradation['summary']['body'] = body; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['summary']['body'] = original
  for name in ('falseSummary','capitalSummary'):
   original = degradation[name]['body']; degradation[name]['body'] = {'summary':populated_summary,'isDegraded':True}; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation[name]['body'] = original

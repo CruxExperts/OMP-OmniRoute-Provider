@@ -359,6 +359,33 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       const duplicateEvidence = await save(duplicated);
       expect(() => validateHealthIngressEvidence(duplicateEvidence, mappingBinding, operationId)).toThrow(/mapping policy observation mismatch/);
     }
+    const comboRoutes = [
+      ["GET /api/combos", "src/app/api/combos/route.ts"],
+      ["GET /api/combos/{id}", "src/app/api/combos/[id]/route.ts"],
+      ["GET /api/combos/auto", "src/app/api/combos/auto/route.ts"],
+      ["GET /api/combos/builder/options", "src/app/api/combos/builder/options/route.ts"],
+      ["GET /api/combos/metrics", "src/app/api/combos/metrics/route.ts"],
+      ["DELETE /api/combos/metrics", "src/app/api/combos/metrics/route.ts"],
+    ] as const;
+    const comboPolicy = comboRoutes.map(([operationId]) => {
+      const [method, template] = operationId.split(" ");
+      return { method, path: template!.replace("{id}", "fixture-id"), routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
+    });
+    for (const [index, [operationId, route]] of comboRoutes.entries()) {
+      const comboBinding = { ...binding, handlerSha256: String(added[route]) };
+      const comboArtifact = { ...artifact, comboPolicy };
+      const evidence = await save(comboArtifact);
+      expect(() => validateHealthIngressEvidence(evidence, comboBinding, operationId)).not.toThrow();
+      expect(() => validateHealthIngressEvidence(evidence, { ...comboBinding, handlerSha256: "0".repeat(64) }, operationId)).toThrow(/source mismatch/);
+      for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
+        const changed = structuredClone(comboArtifact);
+        record(changed.comboPolicy[index])[key] = value;
+        const changedEvidence = await save(changed);
+        expect(() => validateHealthIngressEvidence(changedEvidence, comboBinding, operationId)).toThrow(/combo policy observation mismatch/);
+      }
+      const duplicateEvidence = await save({ ...comboArtifact, comboPolicy: [...comboPolicy, comboPolicy[index]] });
+      expect(() => validateHealthIngressEvidence(duplicateEvidence, comboBinding, operationId)).toThrow(/combo policy observation mismatch/);
+    }
     await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation
     // bytes must force a new verification rather than reuse the prior derivation.

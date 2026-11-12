@@ -371,7 +371,7 @@ def disk_usage(root):
 
 
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
-POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts')
+POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts')
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -1123,7 +1123,7 @@ def export_observations(output, hashes):
         cases.append({'name': name, 'input': {'method': 'GET', 'path': path, 'bypass': bypass, 'credential': credential, 'requireLogin': True, 'setupComplete': True}, 'observed': {'status': response['status'], 'routeClass': response['routeClass'], 'successMarkerPresent': success_marker, 'usageStampObserved': usage_stamp}})
     public_health = validate_public_health_evidence(auth)
     rows = ingress['results']
-    require(len(rows) == 15 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id'], 'ingress cases incomplete')
+    require(len(rows) == 21 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id', 'GET /api/combos', 'GET /api/combos/fixture-id', 'GET /api/combos/auto', 'GET /api/combos/builder/options', 'GET /api/combos/metrics', 'DELETE /api/combos/metrics'], 'ingress cases incomplete')
     health = []
     for row, path in zip(rows[:2], ('/api/health', '/api/health/ping')):
         response, body = row['response'], row['response']['body']
@@ -1164,10 +1164,15 @@ def export_observations(output, hashes):
             require(body.get('id') == 'config-codex-cli' and body.get('category') == 'config' and body.get('area') == 'config-codex-cli', 'agent-skills detail mismatch')
         skills_reads.append({'method': 'GET', 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': 401, 'invalidCredentialStatus': 401, 'authorizedStatus': 200})
     mapping_policy = []
-    for row, method, path in zip(rows[10:], ('GET', 'POST', 'GET', 'PUT', 'DELETE'), ('/api/model-combo-mappings', '/api/model-combo-mappings', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id')):
+    for row, method, path in zip(rows[10:15], ('GET', 'POST', 'GET', 'PUT', 'DELETE'), ('/api/model-combo-mappings', '/api/model-combo-mappings', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id', '/api/model-combo-mappings/fixture-id')):
         denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
         require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'mapping policy outcome mismatch')
         mapping_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
+    combo_policy = []
+    for row, method, path in zip(rows[15:21], ('GET', 'GET', 'GET', 'GET', 'GET', 'DELETE'), ('/api/combos', '/api/combos/fixture-id', '/api/combos/auto', '/api/combos/builder/options', '/api/combos/metrics', '/api/combos/metrics')):
+        denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
+        require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'combo policy outcome mismatch')
+        combo_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
     require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
     fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
     require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
@@ -1200,6 +1205,8 @@ def export_observations(output, hashes):
     artifact['agentSkills'] = skills
     artifact['agentSkillsReads'] = skills_reads
     artifact['modelComboMappingPolicy'] = mapping_policy
+    artifact['comboPolicy'] = combo_policy
+    artifact['limitations'].append('Combo ingress exercises policy with a reachability control at the exact method and path; it does not execute combo handlers or cold database initialization.')
     artifact['limitations'].append('Mapping ingress exercises policy with a reachability control at the exact method and path; it does not execute mapping handlers or cold database initialization.')
     artifact['limitations'].append('Agent-skills ingress coverage observes management denial and a dashboard-session query, not every credential alternative or hosted failures.')
     artifact['limitations'].append('Degradation handler failure was not induced; fixture signals control only the disposable in-process source registry.')

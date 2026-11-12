@@ -259,6 +259,13 @@ either GET response. These reads therefore do not establish capability-resolved
 duplicate-target equivalence; duplicate qualification must not rely on that
 assumption.
 
+The ingress producer separately records six exact combo method/path cases:
+collection, item, auto, builder options, metrics read, and metrics reset. These
+use the existing management reachability control in place of each route body.
+They bind original source digests and prove framework policy routing only;
+the actual handler outcomes must come from the independent pinned combo suite.
+Changing the producer invalidates every receipt bound to its prior input bytes.
+
 Approval-state checks and outcome reconciliation have separate responsibilities.
 Read and bind the relevant target state that upstream exposes, even when a
 later read cannot prove whether a lost-response mutation completed. An upstream
