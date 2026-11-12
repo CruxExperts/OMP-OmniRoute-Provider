@@ -8,9 +8,17 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   preserve registry-error stops and uncertain-publication reconciliation without
   replay. Authentication does not establish publish entitlement.
 
+- Permit explicit private source derivation for repair research with pinned base,
+  commit, and file digest checks. Prior signature evidence is recorded, not freshly
+  verified; derived startup results do not qualify the official source.
+
+- Qualify the model-capability-overrides read with an independent pinned-handler
+  observation and separately retained ingress policy evidence. Capability writes
+  remain unavailable; the fixture does not establish cold database initialization.
+
 - Retain fresh hosted ingress policy evidence alongside independent pinned-handler
-  outcomes for five combo reads and metrics reset. The candidate now has 16
-  qualified operations, 16 source-evidenced exceptions, and 1,260 unqualified
+  outcomes for five combo reads and metrics reset. The candidate now has 17
+  qualified operations, 16 source-evidenced exceptions, and 1,259 unqualified
   operations out of 1,292. This does not establish cold database initialization
   or qualify the remaining combo mutations.
 

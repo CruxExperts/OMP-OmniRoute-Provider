@@ -26,6 +26,15 @@ is verified by digest; the collector checks the captured source bytes against
 that archive. A refreshed source inventory does not itself qualify operations
 or make receipts from an earlier source current.
 
+For private repair research only, source preparation accepts the explicit
+`--derivation-record PATH --repair-repository PATH --derived-output PATH` options
+together. The private record and repair repository are required. Preparation
+checks the official archive and base identity, repair commit parent and changed
+files, and input and output digests before creating a separate derived tree.
+Signature evidence is recorded as prior independent verification; preparation
+does not verify the signature again. The default official source remains unchanged,
+and a derived startup result cannot qualify the official source.
+
 The closure also includes numbered SQL migrations discovered at runtime by the
 pinned database migration runner. They are opaque source bytes, verified against
 the same archive and included in the route and framework digests. External
@@ -170,6 +179,12 @@ metrics inputs, not a successful cold application database lifecycle. Metrics
 reset retains its documented visibility and uncertain-settlement limits; the
 other combo mutations remain unavailable.
 
+The model-capability-overrides read binds an independently exercised pinned
+handler to the separately retained management policy ingress observation. The
+handler fixture supplies disposable capability and provider data and tests prefix
+ordering, UUID suppression, and authorization boundaries; it does not establish
+cold application database initialization. Capability mutations remain unavailable.
+
 The provider read fixtures exercise pinned handlers against a disposable, already
 initialized database. Their raw handler responses can contain provider URLs,
 paths, icons, and arbitrary JSON custom headers. The client response projection
@@ -181,8 +196,9 @@ until their cold database lifecycle and the other required evidence are establis
 
 
 For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads,
-the five model-combo-mapping operations, and the six qualified combo operations,
-a verified eligibility record additionally names a retained
+the five model-combo-mapping operations, the six qualified combo operations, and
+the model-capability-overrides read, a verified eligibility record additionally
+names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and
 extracted declaration identities, and the runner's recomputed disposable overlay
@@ -243,9 +259,9 @@ this check does not qualify `GET /api/agent-skills/{id}/raw` or change its
 runtime availability.
 
 Active qualification is being rebuilt for the current source and mutation-safety
-contract. Earlier evidence for fallback chains, capability overrides, provider
-aliases, and provider configuration is historical; it cannot authorize the new
-candidate. Source-backed fixture checks do not by themselves restore eligibility
+contract. Earlier evidence for fallback chains, capability override mutations,
+provider aliases, and provider configuration is historical; it cannot authorize the
+new candidate. Source-backed fixture checks do not by themselves restore eligibility
 or prove clean framework ingress. Combo metrics retain the pinned source's separate
 fallback-request count and skips-per-request fields. Held mutations still require
 their available dependency reads and independent effect evidence. The

@@ -191,13 +191,13 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/ba089fcede839c767f2d894391e2be20693f60742c581faec5857fbb5f3950fd.json",
-        "caseSha256": "36b690e5900739bf357129c38855103bda4f34eccde338dc046f32b8670736c6",
+        "observedOutcome": "provenance/qualification/43453600d15c9d928f4a82f1ca54d32b1bca89ca7508745a7e095df4c13f16fa.json",
+        "caseSha256": "1a9b34cee3d9edeab5af1dc4813e42350a5fe8e38b32abd5601268a1a8ffc5ff",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -703,13 +703,13 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/27fed361ea1ce5e62b2996c2096be5f4a1066b2431be265563fb861798fd8ff7.json",
-        "caseSha256": "c49a09eb57b0932c67feb739b0b461b0f456e359dd397ea0af8f4ea9e60b7088",
+        "observedOutcome": "provenance/qualification/4422aae503b198f3f7172cc8fc5c8c8a182fafa001933f053b49d80b1a4f07da.json",
+        "caseSha256": "1204e9bafb1f2f0e1c1e82719f3a17a1b63fc528d05dd19dfecc5d747c92ed13",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -1374,13 +1374,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/d07bf772824e6888edecbdc9045f9b5fbf638dedbd960fe4160df1e7dc179791.json",
-        "caseSha256": "d311753e9925ae05a61c25418aa975dafabd20bca0d9606241becebc0d19cdcd",
+        "observedOutcome": "provenance/qualification/b6062935ada611cd8901b9cb0f6d113f671592e3c79a81789a79f62259845109.json",
+        "caseSha256": "20c56f04f4afbd8b5960678a4cba0f78b336853627510bb8114bc52c293e073e",
         "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -2031,13 +2031,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/d8542380ffa1b0511a19261b688d3b91bff1715ba82632e35a930bd266553476.json",
-        "caseSha256": "a1660805c453b4e530dda671e2e68d1200176ed3f5c699dad4258b8b25830a24",
+        "observedOutcome": "provenance/qualification/9195f2ba86e98a9ae33dbf51f7f37b7ec45f7901f67ce86ec2e618e2665d046d.json",
+        "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
         "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -2931,13 +2931,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/19bf3f6f94472d951823caf518a07ac75bd5bbd65635533906e25a1f87c06081.json",
-        "caseSha256": "a1660805c453b4e530dda671e2e68d1200176ed3f5c699dad4258b8b25830a24",
+        "observedOutcome": "provenance/qualification/549944789d504e661838a5c70d834598ab0212832c2a8ea07359063f3d2dcf30.json",
+        "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
         "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -3490,13 +3490,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/41bdfb136646e95018b00ea239d549cae1761ca24c17894d22c635ec6bc69d37.json",
-        "caseSha256": "a1660805c453b4e530dda671e2e68d1200176ed3f5c699dad4258b8b25830a24",
+        "observedOutcome": "provenance/qualification/c7358404be5e4f3963033b4a87bdb2bd8796272db00fa4f0f18df92051d46767.json",
+        "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
         "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -4456,13 +4456,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/e52dfb0b45e1edfb21b22387c6617315534c1c37a0ae9c544f791a1af794361d.json",
-        "caseSha256": "a1660805c453b4e530dda671e2e68d1200176ed3f5c699dad4258b8b25830a24",
+        "observedOutcome": "provenance/qualification/2959ecbc0828ba0a2a9ad6e619e327efb399c69320d911c19d2bbcb92c94ac77.json",
+        "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
         "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -5089,13 +5089,13 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/231bf05c4ec99a19ac272128f65e474a4f17c57da75f17404bb8135858734d9e.json",
-        "caseSha256": "a1660805c453b4e530dda671e2e68d1200176ed3f5c699dad4258b8b25830a24",
+        "observedOutcome": "provenance/qualification/d9887791cc0e03b358fbce8a9c900d4cd8e5b6455a3893e0f28fae2d6580c934.json",
+        "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
         "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -5515,13 +5515,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/f0067a625fcaf252ba41e23b67d7f928efb092db615b1f7f5d7063757fe983fa.json",
-        "caseSha256": "d311753e9925ae05a61c25418aa975dafabd20bca0d9606241becebc0d19cdcd",
+        "observedOutcome": "provenance/qualification/2b1c54ba56c535b06ab8db343c9634c97c9edbc568109149a54390aa9d4097b6.json",
+        "caseSha256": "20c56f04f4afbd8b5960678a4cba0f78b336853627510bb8114bc52c293e073e",
         "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -6032,13 +6032,13 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/ad89a118dd2c0c97c87fc51cbc8a85da9f948352dbeb54c2323673fb8a7b9489.json",
-        "caseSha256": "d311753e9925ae05a61c25418aa975dafabd20bca0d9606241becebc0d19cdcd",
+        "observedOutcome": "provenance/qualification/465b9d1bb44178e11ddc6e2ae602b6f020794145c8655cc70bf6b2e952a15025.json",
+        "caseSha256": "20c56f04f4afbd8b5960678a4cba0f78b336853627510bb8114bc52c293e073e",
         "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       },
       "evidence": [
         {
@@ -9167,8 +9167,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/4f6041c0230f08251a17ec9409b1bd76fa26e99c45340af1f31c244e3e5e7170.json",
-        "caseSha256": "2a1292488a80453552458cc94c88fdf597b93d462a2ab6489bb6c22a2ccd133b",
+        "observedOutcome": "provenance/qualification/98c39ab373f4797149ec3e76847790515bff03d02e253022f23caca310bdd9d6.json",
+        "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
         "outcomeSha256": "8b6ca9dc08737d82eeee804574256c9083b23ccbc63a6e6a8f10425713d31e3f"
       },
       "evidence": [
@@ -9186,8 +9186,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       }
     },
     {
@@ -12146,8 +12146,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/640cca5e66942dbc55f542e6b95e45eab0ed1b7ba58a570b05bec4b3a65b8b3e.json",
-        "caseSha256": "2a1292488a80453552458cc94c88fdf597b93d462a2ab6489bb6c22a2ccd133b",
+        "observedOutcome": "provenance/qualification/d7d390ce9d1389a23c1b3b6c3a1dbeee982198489859f1ce85bf0b51a7b738c6.json",
+        "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
         "outcomeSha256": "e2cd04eab301bdec57941938283e8fa9cbb4455b8add9ff4a1c45d5948eaa0b9"
       },
       "evidence": [
@@ -12165,8 +12165,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       }
     },
     {
@@ -13437,8 +13437,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/e5c59832529b421cba90bac335c38c8163d7eeac4b0b604c1aed2b15aca9adcb.json",
-        "caseSha256": "2a1292488a80453552458cc94c88fdf597b93d462a2ab6489bb6c22a2ccd133b",
+        "observedOutcome": "provenance/qualification/5f1f7cff2caf061de703d077444ca1651ad45b32e103d282670790f203e47af1.json",
+        "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
         "outcomeSha256": "5e26fc35344baf9007098e4b84029c35b129a04963c7f1c5427a4bed84cabf0b"
       },
       "evidence": [
@@ -13456,8 +13456,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       }
     },
     {
@@ -14465,8 +14465,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/40949ba5995ebe9f0ac7fa7f5bac767f9cc6f7cbe3db2eb465828cd416c71987.json",
-        "caseSha256": "2a1292488a80453552458cc94c88fdf597b93d462a2ab6489bb6c22a2ccd133b",
+        "observedOutcome": "provenance/qualification/83d98f67c058e94f89656c5fbe0fe8d5d69609a212571e6869d2c22473f89dae.json",
+        "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
         "outcomeSha256": "074217cb5afd62c31405ae76f401a1cc5891a4740eafb41b42b40ca8ec8a87c9"
       },
       "evidence": [
@@ -14484,8 +14484,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       }
     },
     {
@@ -17090,8 +17090,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/8a9ea3af6309f93ab44fb74e1b8f0a6df0cc7a19386661de9740da72deab73bd.json",
-        "caseSha256": "2a1292488a80453552458cc94c88fdf597b93d462a2ab6489bb6c22a2ccd133b",
+        "observedOutcome": "provenance/qualification/3156cb606582f799983b7bab9f6351090c4e0157409cc531440c5cbe107a26d1.json",
+        "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
         "outcomeSha256": "041a6ed0b38afd0bff89ff4815f5f9fae318db04b9022c5f3d0babe400154af6"
       },
       "evidence": [
@@ -17109,8 +17109,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       }
     },
     {
@@ -17550,8 +17550,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/2683579c4f725606aa57d6593cea108c3f8e531b72be17c70ff6ae6c19ccd658.json",
-        "caseSha256": "2a1292488a80453552458cc94c88fdf597b93d462a2ab6489bb6c22a2ccd133b",
+        "observedOutcome": "provenance/qualification/68133004c54c2d4c1a052d10d791308a58a73b242c286af6f9c7bab852bbb7a5.json",
+        "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
         "outcomeSha256": "14f63b64278d8d37635bc4210498bfacb45dafec4e9fec4298366536a71a4eef"
       },
       "evidence": [
@@ -17569,8 +17569,700 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630.json",
-        "sha256": "b0aebef5c6a2126dabf62d8e0e8d97e24d01d00ee683ac6a048fcc7b8c242630"
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
+      }
+    },
+    {
+      "operationId": "GET /api/model-capability-overrides",
+      "status": "verified",
+      "reason": "Pinned capability override read handler and independently retained ingress policy evidence qualify this operation within the documented fixture boundaries.",
+      "source": {
+        "file": "src/app/api/model-capability-overrides/route.ts",
+        "sha256": "f81174fcde828e968d18f7f90402cef9959f7f0619d96fa6fd44d21db9095b9b",
+        "gitBlobSha": "2b03ef8a3a30deec78160415ff36e7a04dc7b6b6"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "overrides"
+                ],
+                "properties": {
+                  "overrides": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "provider",
+                        "modelId",
+                        "target",
+                        "key",
+                        "value",
+                        "refreshedAt"
+                      ],
+                      "properties": {
+                        "provider": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "modelId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "target": {
+                          "type": "string",
+                          "minLength": 3
+                        },
+                        "key": {
+                          "type": "string",
+                          "enum": [
+                            "context_length",
+                            "max_input_tokens",
+                            "max_output_tokens",
+                            "max_token",
+                            "reasoning_efforts"
+                          ]
+                        },
+                        "value": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1
+                            },
+                            {
+                              "type": "array",
+                              "minItems": 1,
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "low",
+                                  "medium",
+                                  "high",
+                                  "xhigh",
+                                  "max",
+                                  "ultra"
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        "refreshedAt": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "code",
+                            "message",
+                            "path"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "message": {
+                              "type": "string"
+                            },
+                            "path": {
+                              "type": "array",
+                              "items": {
+                                "type": [
+                                  "string",
+                                  "integer"
+                                ]
+                              }
+                            },
+                            "expected": {
+                              "type": "string"
+                            },
+                            "received": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": true
+                        }
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error",
+                  "requestId"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "message",
+                      "type"
+                    ],
+                    "properties": {
+                      "message": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "invalid_request",
+                          "server_error"
+                        ]
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "object",
+                    "required": [
+                      "code",
+                      "message",
+                      "correlation_id"
+                    ],
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "correlation_id": {
+                        "type": "string",
+                        "format": "uuid"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "required": [
+                      "overrides"
+                    ],
+                    "properties": {
+                      "overrides": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "provider",
+                            "modelId",
+                            "target",
+                            "key",
+                            "value",
+                            "refreshedAt"
+                          ],
+                          "properties": {
+                            "provider": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "modelId": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "target": {
+                              "type": "string",
+                              "minLength": 3
+                            },
+                            "key": {
+                              "type": "string",
+                              "enum": [
+                                "context_length",
+                                "max_input_tokens",
+                                "max_output_tokens",
+                                "max_token",
+                                "reasoning_efforts"
+                              ]
+                            },
+                            "value": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                {
+                                  "type": "array",
+                                  "minItems": 1,
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "none",
+                                      "low",
+                                      "medium",
+                                      "high",
+                                      "xhigh",
+                                      "max",
+                                      "ultra"
+                                    ]
+                                  }
+                                }
+                              ]
+                            },
+                            "refreshedAt": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/model-capability-overrides/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-capability-overrides/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "error",
+                          "requestId"
+                        ],
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "required": [
+                              "message",
+                              "type"
+                            ],
+                            "properties": {
+                              "message": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "invalid_request",
+                                  "server_error"
+                                ]
+                              }
+                            },
+                            "additionalProperties": true
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "error"
+                        ],
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "message",
+                              "correlation_id"
+                            ],
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "correlation_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-capability-overrides/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "error",
+                          "requestId"
+                        ],
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "required": [
+                              "message",
+                              "type"
+                            ],
+                            "properties": {
+                              "message": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "invalid_request",
+                                  "server_error"
+                                ]
+                              }
+                            },
+                            "additionalProperties": true
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "error"
+                        ],
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "message",
+                              "correlation_id"
+                            ],
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "correlation_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-capability-overrides/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "error",
+                          "requestId"
+                        ],
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "required": [
+                              "message",
+                              "type"
+                            ],
+                            "properties": {
+                              "message": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "invalid_request",
+                                  "server_error"
+                                ]
+                              }
+                            },
+                            "additionalProperties": true
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        },
+                        "additionalProperties": true
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "error"
+                        ],
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "required": [
+                              "code",
+                              "message",
+                              "correlation_id"
+                            ],
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "correlation_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/model-capability-overrides/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Reads a bounded public-prefix projection of the two override tables."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "b2eb0d866b868cf698fa865f6f46cac76fbce7fd127c1b43e527bf0e44e33945",
+        "authSha256": "d48be4bbc33176f7d5a2b8e5fccdf0627b926a827e8578f8ff6053665c2e58af",
+        "sideEffect": "read",
+        "responseProjectionSha256": "fe48e7c5c84cda57f35924920d9b2b882529c4fc08d2b90ced5aa3bb0b4dcd74",
+        "operationSemanticsSha256": "3ed0815e0c90c40408ea5225ecab24c71e0cb9f2d6284c79fe9481adc611dcc4",
+        "routeImportsSha256": "84a001b424df25420077361d64d5c5ccf85cee33727dbd933d84a2efe26996fe",
+        "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-model-capability-overrides.test.ts",
+        "observedOutcome": "provenance/qualification/ecd3956decc5014fa3d9273118e9f0c50fe735ed71ddf7f3eee27b01567b600e.json",
+        "caseSha256": "a9c90e1b37232eed44dd198562baefd24c457a4acaea81d7e13c8b17794faef6",
+        "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Pinned v3.8.53 handler, imports and framework authorization context bind the operation contract."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "The source-bound handler resolves provider prefixes and suppresses underlying UUID identities using disposable fixture database inputs; this does not prove cold application database initialization."
+        },
+        {
+          "kind": "fixture",
+          "detail": "An independent pinned-handler test observes list ordering, authorization boundaries, cookie sessions and disabled-auth behavior; isolated ingress separately observes management policy reachability."
+        }
+      ],
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c.json",
+        "sha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c"
       }
     }
   ],
