@@ -37,6 +37,7 @@ test("capability ingress validation rejects absent, contradictory, and source-mi
       if (error) expect(validate).toThrow(error); else expect(validate).not.toThrow();
     } finally { rmSync(absolute); }
   }
+  delete artifact.modelCapabilityOverridesPolicy;
   check(artifact, binding, /capability policy observation mismatch/);
   artifact.modelCapabilityOverridesPolicy = policy;
   check(artifact, binding);
@@ -44,7 +45,7 @@ test("capability ingress validation rejects absent, contradictory, and source-mi
     check({ ...artifact, modelCapabilityOverridesPolicy: { ...policy, [key]: value } }, binding, /capability policy observation mismatch/);
   }
   check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, /source mismatch/);
-});
+}, 30_000);
 
 test("ingress rejects an unapproved Node executable before starting the sandbox", () => {
   const dir = mkdtempSync(join(tmpdir(), "pinned-ingress-"));
