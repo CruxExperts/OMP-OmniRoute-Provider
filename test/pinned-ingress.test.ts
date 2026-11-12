@@ -9,43 +9,65 @@ import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
 
-test("capability ingress validation rejects absent, contradictory, and source-mismatched policy", () => {
+test("read ingress rejects missing, contradictory, duplicate, and source-mismatched policy", () => {
   const root = resolve(import.meta.dir, "..");
-  const eligibility = JSON.parse(readFileSync(resolve(root, "contracts/release-eligibility.json"), "utf8")) as { release: { commit: string }; operations: { operationId: string; ingressEvidence?: { artifact: string } }[] };
-  const health = eligibility.operations.find(item => item.operationId === "GET /api/health")!;
-  const artifact = JSON.parse(readFileSync(resolve(root, health.ingressEvidence!.artifact), "utf8"));
-  const identities = expectedHealthIngressIdentities("3.8.53", eligibility.release.commit);
-  artifact.source.addedSourceSha256 = identities.addedSourceSha256;
-  artifact.source.pingDeclarationSha256 = identities.pingDeclarationSha256;
-  artifact.inputs.sourceOverlaySha256 = identities.sourceOverlaySha256;
-  artifact.inputs.executedOverlaySha256 = identities.executedOverlaySha256;
+  const manifest = JSON.parse(readFileSync(resolve(root, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as { commit: string; archiveSha256: string };
+  const runtime = JSON.parse(readFileSync(resolve(root, "test/fixtures/pinned-ingress/runtime.json"), "utf8")) as { nodeVersion: string; nodeSha256: string };
+  const identities = expectedHealthIngressIdentities("3.8.53", manifest.commit);
   const declarationPath = "test/pinned-ingress.test.ts.inputs.json";
   const declaration = JSON.parse(readFileSync(resolve(root, declarationPath), "utf8")) as { files: string[] };
-  artifact.inputs.sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
-  const route = "src/app/api/model-capability-overrides/route.ts";
-  const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route] } as OperationEvidenceBinding;
-  const operation = "GET /api/model-capability-overrides";
-  const policy = { method: "GET", path: "/api/model-capability-overrides", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
-  function check(value: unknown, expectedBinding: OperationEvidenceBinding, error?: RegExp) {
+  const sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
+  const publicCase = (name: string, bypass: string) => ({ name, input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } });
+  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 }));
+  const artifact = {
+    schemaVersion: 1, classification: "research-only-not-qualification",
+    source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256 },
+    inputs: { sha256, nodeSha256: runtime.nodeSha256, runtime: { node: runtime.nodeVersion, next: "16.4.2", react: "19.2.8", "react-dom": "19.2.8" }, sourceOverlaySha256: identities.sourceOverlaySha256, executedOverlaySha256: identities.executedOverlaySha256 },
+    isolation: { namespacesDistinct: true, memoryLimitEnforced: true, cpuLimitEnforced: true, privateLoopbackOnly: true, environmentAllowlisted: true },
+    health: [{ method: "GET", path: "/api/health", status: 200, bodyKeys: ["status", "timestamp"], timestamp: "2026-01-01T00:00:00.000Z", cacheControl: "no-store" }],
+    publicHealthHttp: { method: "GET", path: "/api/health", anonymous: true, status: 200, bodyKeys: ["status", "timestamp"], timestampFormatAndRequestWindowValid: true, cacheControl: "no-store, no-cache, must-revalidate", contentType: "application/json", routeClass: "PUBLIC", requestIdUuid: true, drain: { status: 503, code: "SERVICE_UNAVAILABLE", message: "Server is shutting down", requestIdUuid: true, correlationMatchesRequestId: true, retryAfter: "5", contentType: "application/json", routeClass: "PUBLIC", recoveryStatus: 200 }, cors: { configuredAllowedOrigin: "https://allowed.example", allowedOriginEchoed: true, unlistedOriginOmitted: true, credentialsOmitted: true } },
+    sharedAuthentication: [publicCase("default-bypass-health", "source-default"), publicCase("disabled-bypass-health", "disabled")],
+    publicHealthIpFilter: { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } },
+    readPolicy: policies,
+    modelCapabilityOverridesPolicy: { method: "GET", path: "/api/model-capability-overrides", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 },
+  };
+  const cases = [
+    ["GET /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
+    ["GET /api/providers/{id}/cc-alias", "src/app/api/providers/[id]/cc-alias/route.ts"],
+    ["GET /api/provider-nodes", "src/app/api/provider-nodes/route.ts"],
+  ] as const;
+  function check(value: unknown, binding: OperationEvidenceBinding, operation: string, error?: RegExp) {
     const bytes = Buffer.from(JSON.stringify(value));
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const path = `provenance/qualification/ingress-${sha256}.json`;
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const path = `provenance/qualification/ingress-${digest}.json`;
     const absolute = resolve(root, path);
     writeFileSync(absolute, bytes, { flag: "wx" });
     try {
-      const validate = () => validateHealthIngressEvidence({ artifact: path, sha256 }, expectedBinding, operation);
+      const validate = () => validateHealthIngressEvidence({ artifact: path, sha256: digest }, binding, operation);
       if (error) expect(validate).toThrow(error); else expect(validate).not.toThrow();
     } finally { rmSync(absolute); }
   }
-  delete artifact.modelCapabilityOverridesPolicy;
-  check(artifact, binding, /capability policy observation mismatch/);
-  artifact.modelCapabilityOverridesPolicy = policy;
-  check(artifact, binding);
-  for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
-    check({ ...artifact, modelCapabilityOverridesPolicy: { ...policy, [key]: value } }, binding, /capability policy observation mismatch/);
+  for (const [index, [operation, route]] of cases.entries()) {
+    const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route] } as OperationEvidenceBinding;
+    check(artifact, binding, operation);
+    check({ ...artifact, readPolicy: undefined }, binding, operation, /read policy observation mismatch/);
+    check({ ...artifact, readPolicy: policies.filter((_, i) => i !== index) }, binding, operation, /read policy observation mismatch/);
+    check({ ...artifact, readPolicy: [...policies, policies[index]] }, binding, operation, /read policy observation mismatch/);
+    for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
+      check({ ...artifact, readPolicy: policies.map((policy, i) => i === index ? { ...policy, [key]: value } : policy) }, binding, operation, /read policy observation mismatch/);
+    }
+    check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /source mismatch/);
+    check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch/);
   }
-  check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, /source mismatch/);
-}, 30_000);
+  const capabilityBinding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)["src/app/api/model-capability-overrides/route.ts"] } as OperationEvidenceBinding;
+  const capabilityOperation = "GET /api/model-capability-overrides";
+  check(artifact, capabilityBinding, capabilityOperation);
+  check({ ...artifact, modelCapabilityOverridesPolicy: undefined }, capabilityBinding, capabilityOperation, /capability policy observation mismatch/);
+  for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
+    check({ ...artifact, modelCapabilityOverridesPolicy: { ...artifact.modelCapabilityOverridesPolicy, [key]: value } }, capabilityBinding, capabilityOperation, /capability policy observation mismatch/);
+  }
+  check(artifact, { ...capabilityBinding, handlerSha256: "0".repeat(64) }, capabilityOperation, /source mismatch/);
+}, 120_000);
 
 test("ingress rejects an unapproved Node executable before starting the sandbox", () => {
   const dir = mkdtempSync(join(tmpdir(), "pinned-ingress-"));
@@ -626,6 +648,8 @@ with tempfile.TemporaryDirectory() as temp:
  for method,path in [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]:
   rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  rows.append({'case':'GET /api/model-capability-overrides','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
+ for path in ('/api/fallback/chains','/api/providers/fixture-id/cc-alias','/api/provider-nodes'):
+  rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}]}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -640,6 +664,9 @@ with tempfile.TemporaryDirectory() as temp:
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
  assert [(item['method'],item['path']) for item in exported['comboPolicy']] == [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]
  assert exported['modelCapabilityOverridesPolicy'] == {'method':'GET','path':'/api/model-capability-overrides','routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200}
+ assert [item['path'] for item in exported['readPolicy']] == ['/api/fallback/chains','/api/providers/fixture-id/cc-alias','/api/provider-nodes']
+ assert all(item == {'method':'GET','path':item['path'],'routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200} for item in exported['readPolicy'])
+ assert any('not the pinned handlers or their semantics' in limitation for limitation in exported['limitations'])
  assert any('does not execute the capability overrides handler' in limitation for limitation in exported['limitations'])
  assert any('does not execute combo handlers' in limitation for limitation in exported['limitations'])
  assert '198.51.100.' not in json.dumps(exported)
@@ -725,7 +752,7 @@ with tempfile.TemporaryDirectory() as temp:
   const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
   expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
-});
+}, 120_000);
 
 test("real-core export validates lifecycle and excludes private database values", () => {
   const code = String.raw`

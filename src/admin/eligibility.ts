@@ -67,6 +67,7 @@ const DEFAULT_REASON = "No exact pinned-source and observed behavior evidence is
 const CONTRACT_FIELDS = ["request", "auth", "response", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "reconciliation", "mutationSafety"] as const;
 const HASH_FIELDS = ["requestSchemaSha256", "authSha256", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"] as const;
 const COMBO_POLICY_OPERATIONS: Readonly<Record<string, true>> = { "GET /api/combos": true, "GET /api/combos/{id}": true, "GET /api/combos/auto": true, "GET /api/combos/builder/options": true, "GET /api/combos/metrics": true, "DELETE /api/combos/metrics": true };
+const READ_POLICY_OPERATIONS: Readonly<Record<string, true>> = { "GET /api/fallback/chains": true, "GET /api/providers/{id}/cc-alias": true, "GET /api/provider-nodes": true };
 let document: EligibilityDocument | undefined;
 function unavailable(operationId: string, reason = DEFAULT_REASON): OperationEligibilityRecord { return { operationId, status: "unavailable", reason }; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -92,7 +93,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
   if (!record(test) || typeof test.id !== "string" || !/^test\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\\]+$/.test(test.id) || !sha(test.caseSha256, 64) || !sha(test.outcomeSha256, 64)) return undefined;
   if (typeof test.observedOutcome !== "string" || !/^provenance\/qualification\/[a-f0-9]{64}\.json$/.test(test.observedOutcome)) return undefined;
   const ingress = value.ingressEvidence;
-  if (value.operationId === "GET /api/health" || value.operationId === "GET /api/health/degradation" || value.operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(value.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(value.operationId) || Object.hasOwn(COMBO_POLICY_OPERATIONS, value.operationId)) {
+  if (value.operationId === "GET /api/health" || value.operationId === "GET /api/health/degradation" || value.operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(value.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(value.operationId) || Object.hasOwn(COMBO_POLICY_OPERATIONS, value.operationId) || Object.hasOwn(READ_POLICY_OPERATIONS, value.operationId)) {
     if (!record(ingress) || !sha(ingress.sha256, 64) || ingress.artifact !== `provenance/qualification/ingress-${ingress.sha256}.json`) return undefined;
   } else if (ingress !== undefined) return undefined;
   if (!Array.isArray(evidence) || evidence.length === 0 || evidence.some(item => !record(item) || typeof item.kind !== "string" || !item.kind || typeof item.detail !== "string" || !item.detail)) return undefined;
@@ -135,7 +136,7 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
     || qualification.binding.handlerSha256 !== source.sha256 || qualification.binding.handlerGitBlobSha !== source.gitBlobSha
     || item.test.id !== qualification.test.id || item.test.caseSha256 !== qualification.test.caseSha256 || item.test.outcomeSha256 !== qualification.test.outcomeSha256
     || !sha(item.test.caseSha256, 64) || !sha(item.test.outcomeSha256, 64)) return false;
-  if (item.operationId === "GET /api/health" || item.operationId === "GET /api/health/degradation" || item.operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(item.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(item.operationId) || Object.hasOwn(COMBO_POLICY_OPERATIONS, item.operationId)) {
+  if (item.operationId === "GET /api/health" || item.operationId === "GET /api/health/degradation" || item.operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(item.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(item.operationId) || Object.hasOwn(COMBO_POLICY_OPERATIONS, item.operationId) || Object.hasOwn(READ_POLICY_OPERATIONS, item.operationId)) {
     if (!sha(item.ingressSha256, 64) || item.ingressSha256 !== qualification.ingressSha256) return false;
   } else if (item.ingressSha256 !== undefined || qualification.ingressSha256 !== undefined) return false;
   if (binding.sideEffect === "unknown" || item.binding.sideEffect !== binding.sideEffect) return false;

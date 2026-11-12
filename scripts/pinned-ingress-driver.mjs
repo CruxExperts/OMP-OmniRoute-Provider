@@ -168,6 +168,14 @@ try {
     assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), 'capability-policy:GET');
     results.push({ case: `GET ${path}`, denied, invalid, allowed });
   }
+  // These GET routes observe policy reachability only, not pinned handlers.
+  for (const path of ['/api/fallback/chains', '/api/providers/fixture-id/cc-alias', '/api/provider-nodes']) {
+    const denied = await request(path);
+    const invalid = await request(path, 'GET', { authorization: `Bearer ${invalidCredential}` });
+    const allowed = await request(path, 'GET', { cookie });
+    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), `read-policy:GET:${path}`);
+    results.push({ case: `GET ${path}`, denied, invalid, allowed });
+  }
   assert((await stat(`${dir}/events.jsonl`)).size <= 1048576, 'event-limit');
   const events = (await readFile(`${dir}/events.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');

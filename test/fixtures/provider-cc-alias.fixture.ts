@@ -154,7 +154,7 @@ function sourceContract(operationId: ProviderCcAliasOperationId): ProviderCcAlia
         read: aliasRelation.targetRead,
         readCompleteness: {
           kind: "single-response",
-          sourceReason: "The pinned v3.8.52 GET reads the provider override by exact key and every model override in one SQLite query, then returns the provider's complete override map in one response.",
+          sourceReason: "The pinned v3.8.53 GET reads the provider override by exact key and every model override in one SQLite query, then returns the provider's complete override map in one response.",
         },
       }],
     },

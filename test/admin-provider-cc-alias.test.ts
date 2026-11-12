@@ -179,17 +179,17 @@ afterEach(async () => {
 
 afterAll(async () => {
   const requiredCases: Readonly<Record<ProviderCcAliasOperationId, readonly string[]>> = {
-    [GET_CC_ALIAS]: ["anonymous-auth", "authorized-read", "provider-model-isolation"],
+    [GET_CC_ALIAS]: ["anonymous-auth", "authorized-read", "provider-model-isolation", "handler-error"],
     [PUT_CC_ALIAS]: ["scope-denial", "schema-validation", "trim-set-clear", "credential-cancellation", "selected-target-drift", "competing-plans", "unrelated-alias-change", "prototype-model-identifiers", "malformed-json", "storage-errors", "lost-response-unknown", "partial-error-unknown"],
   };
-  if (!allAssertionsPassed || !PROVIDER_CC_ALIAS_OPERATION_IDS.every(operationId =>
-    requiredCases[operationId].every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId))) return;
 
   const observationDirectory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(observationDirectory, { recursive: true, mode: 0o700 });
   for (const operationId of PROVIDER_CC_ALIAS_OPERATION_IDS) {
+    if (!requiredCases[operationId].every(caseId => completedCases.get(operationId)?.has(caseId))
+      || (operationId === PUT_CC_ALIAS && !allAssertionsPassed)) continue;
     const observation = observations.get(operationId);
-    if (!observation) return;
+    if (!observation) continue;
     const contract = PROVIDER_CC_ALIAS_SOURCE_CONTRACTS[operationId];
     const binding = operationEvidenceBinding(operationId, contract);
     const caseSha256 = testCaseSourceHash(TEST_ID);
@@ -200,7 +200,7 @@ afterAll(async () => {
   }
 });
 
-test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state checks, SQLite, and confirmation semantics", async () => {
+test("pinned v3.8.53 cc-alias GET and PUT preserve source auth, selected-state checks, SQLite, and confirmation semantics", async () => {
   const fixture = new ProviderCcAliasFixture();
   fixtures.push(fixture);
   const harness = createHarness(fixture);
@@ -214,7 +214,7 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
         read: { operationId: GET_CC_ALIAS },
         readCompleteness: {
           kind: "single-response",
-          sourceReason: "The pinned v3.8.52 GET reads the provider override by exact key and every model override in one SQLite query, then returns the provider's complete override map in one response.",
+          sourceReason: "The pinned v3.8.53 GET reads the provider override by exact key and every model override in one SQLite query, then returns the provider's complete override map in one response.",
         },
       }],
     },
@@ -226,6 +226,7 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
 
   const anonymousRead = await directRequest(fixture, "GET", "anthropic");
   expect(anonymousRead.status).toBe(401);
+  expect((await directRequest(fixture, "GET", "anthropic", { key: READ_KEY })).status).toBe(403);
   const insufficientScope = await directRequest(fixture, "PUT", "anthropic", {
     key: READ_KEY,
     body: { scope: "provider", value: "on" },
@@ -280,6 +281,17 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
   expect(isolatedProvider.status).toBe(200);
   const anthropicRead = await directRequest(fixture, "GET", "anthropic", { key: MANAGEMENT_KEY });
   expect(anthropicRead).toEqual({ status: 200, body: { provider: "on", models: { "model/opus": "off" } } });
+  const readBefore = fixture.state();
+  const isolatedRead = await harness.executor.read(GET_CC_ALIAS, { path: { id: "anthropic" } });
+  expect(isolatedRead.output).toEqual({ provider: "on", models: { "model/opus": "off" } });
+  const isolatedResponse = harness.last(GET_CC_ALIAS);
+  expect(isolatedResponse).toEqual({ status: 200, body: { provider: "on", models: { "model/opus": "off" } } });
+  expect(fixture.state()).toEqual(readBefore);
+  observe(GET_CC_ALIAS, ["anonymous-auth", "authorized-read", "provider-model-isolation"], {
+    before: readBefore,
+    after: fixture.state(),
+    result: isolatedResponse,
+  });
 
   const clearProvider = await directRequest(fixture, "PUT", "anthropic", {
     key: MANAGEMENT_KEY,
@@ -466,6 +478,7 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
   expect(failedRead.status).toBe(500);
   expect(failedRead.body).toEqual({ error: { message: "SQLiteError: no such table: key_value", type: "server_error", code: "internal_server_error" } });
   fixture.restoreStorageAfterReadFailure();
+  mark(GET_CC_ALIAS, "handler-error");
   expect(fixture.state()).toContainEqual({ key: "provider:claude", value: "off" });
 
   expect(fixture.state()).toContainEqual({ key: "provider:claude", value: "off" });
@@ -473,11 +486,6 @@ test("pinned v3.8.52 cc-alias GET and PUT preserve source auth, selected-state c
 
   const finalState = fixture.state();
   const putResult = harness.last(PUT_CC_ALIAS);
-  observe(GET_CC_ALIAS, ["anonymous-auth", "authorized-read", "provider-model-isolation"], {
-    before,
-    after: finalState,
-    result: { status: getResult.status, body: getResult.body },
-  });
   observe(PUT_CC_ALIAS, ["scope-denial", "schema-validation", "trim-set-clear", "credential-cancellation", "selected-target-drift", "competing-plans", "unrelated-alias-change", "prototype-model-identifiers", "malformed-json", "storage-errors", "lost-response-unknown", "partial-error-unknown"], {
     before,
     after: finalState,

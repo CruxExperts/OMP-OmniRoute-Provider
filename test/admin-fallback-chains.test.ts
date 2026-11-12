@@ -256,15 +256,15 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  const complete = FALLBACK_CHAIN_OPERATION_IDS.every(operationId =>
-    REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId)),
-  );
-  if (!complete) return;
   const observationDirectory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(observationDirectory, { recursive: true, mode: 0o700 });
   for (const operationId of FALLBACK_CHAIN_OPERATION_IDS) {
+    if (!REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId))) continue;
+    if (operationId !== FALLBACK_CHAIN_GET && !FALLBACK_CHAIN_OPERATION_IDS.every(id =>
+      REQUIRED_CASES[id].every(caseId => completedCases.get(id)?.has(caseId)),
+    )) continue;
     const observation = observations.get(operationId);
-    if (!observation) return;
+    if (!observation) continue;
     const binding = operationEvidenceBinding(operationId, FALLBACK_CHAIN_SOURCE_CONTRACTS[operationId]);
     const caseSha256 = testCaseSourceHash(TEST_ID);
     const artifactPath = outcomeArtifactPath(operationId);
@@ -325,6 +325,12 @@ describe("pinned OmniRoute fallback-chain operations", () => {
     const response = harness.lastResponse(FALLBACK_CHAIN_GET);
     if (!response) throw new Error("GET did not record the observed response");
     expect(response.status).toBe(200);
+    const raw = await directRequest(pair.route, "GET", { bearer: MANAGE_KEY });
+    expect(raw.status).toBe(200);
+    const rawBody = await raw.json() as Record<string, unknown[]>;
+    expect(rawBody["fixture/model-a"]?.[0]).toHaveProperty("apiKey");
+    expect(rawBody["fixture/model-a"]?.[1]).toHaveProperty("nested");
+    expect(safeState(pair)).toEqual(before);
     observe(FALLBACK_CHAIN_GET, ["model-map-read-and-projection"], {
       before,
       after: safeState(pair),

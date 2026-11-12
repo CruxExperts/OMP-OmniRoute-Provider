@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Extend separately source-bound ingress policy observations to fallback-chain,
+  provider-node, and provider cc-alias reads. These reachability controls do not
+  establish real handler authorization, persistence, or cold database lifecycle.
+
 - Permit authenticated npm package absence during protected first publication;
   preserve registry-error stops and uncertain-publication reconciliation without
   replay. Authentication does not establish publish entitlement.

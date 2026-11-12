@@ -295,6 +295,12 @@ denial and authorized reachability through a replacement control. It does not
 execute the real handler, establish persistence behavior, or qualify PATCH or
 DELETE; independent source-handler observations remain required.
 
+Fallback-chain, provider-node, and provider cc-alias GET controls use the same
+policy-only boundary with separate original route digests and exact paths.
+The cc-alias handler's own management-auth check still requires independent
+handler evidence. None of these controls proves database initialization or
+durable state, and none authorizes a sibling write operation.
+
 Approval-state checks and outcome reconciliation have separate responsibilities.
 Read and bind the relevant target state that upstream exposes, even when a
 later read cannot prove whether a lost-response mutation completed. An upstream
