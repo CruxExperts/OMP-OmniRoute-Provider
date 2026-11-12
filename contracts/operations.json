@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1049,
-    "invokableOperations": 17,
+    "invokableOperations": 18,
     "methodCounts": {
       "DELETE": 111,
       "GET": 485,
@@ -18,12 +18,12 @@
     "routeFiles": 798,
     "sourceOperations": 1292,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1259
+    "unqualifiedOperations": 1258
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "ab652c3b8325c4c96025c217fb2383c98c4baf6d61f032ddbe8a81519b746271",
+    "eligibilitySha256": "14d5e38a184b7aed4e9a65271216096af223b311d410adbbf4e03eb3424d1583",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -6575,10 +6575,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
+          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "14f63b64278d8d37635bc4210498bfacb45dafec4e9fec4298366536a71a4eef"
         }
@@ -12020,10 +12020,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
+          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
         }
@@ -28573,10 +28573,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "20c56f04f4afbd8b5960678a4cba0f78b336853627510bb8114bc52c293e073e",
+          "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
         }
@@ -29272,10 +29272,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "20c56f04f4afbd8b5960678a4cba0f78b336853627510bb8114bc52c293e073e",
+          "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
         }
@@ -29726,10 +29726,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "20c56f04f4afbd8b5960678a4cba0f78b336853627510bb8114bc52c293e073e",
+          "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
         }
@@ -41629,10 +41629,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
+          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "8b6ca9dc08737d82eeee804574256c9083b23ccbc63a6e6a8f10425713d31e3f"
         }
@@ -44819,10 +44819,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
+          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "5e26fc35344baf9007098e4b84029c35b129a04963c7f1c5427a4bed84cabf0b"
         }
@@ -46168,10 +46168,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
+          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "074217cb5afd62c31405ae76f401a1cc5891a4740eafb41b42b40ca8ec8a87c9"
         }
@@ -47468,10 +47468,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
+          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "041a6ed0b38afd0bff89ff4815f5f9fae318db04b9022c5f3d0babe400154af6"
         }
@@ -50146,10 +50146,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4166d9d5a0ae716abb7ce14ce36f788afcbb1c41427e08c2ea2b61c49729bf5f",
+          "caseSha256": "78ff4c5380eac30a32ba867950dbd1d3c4143a8645aca68bbd0f25cb6b3a91e7",
           "id": "test/admin-combos.test.ts",
           "outcomeSha256": "e2cd04eab301bdec57941938283e8fa9cbb4455b8add9ff4a1c45d5948eaa0b9"
         }
@@ -60710,20 +60710,49 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            },
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "oma-access-token",
+              "minimumScope": "read"
+            },
+            {
+              "kind": "trusted-local",
+              "loopbackOnly": true
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "none",
+          "localOnly": false,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.53",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
-        "required": true
+        "reason": "Source-defined ordinary read; central management authorization remains enforced.",
+        "required": false
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.api.fallback.chains",
+        "reason": null,
+        "status": "invokable"
       },
       "mediaType": {
         "request": null,
@@ -60737,6 +60766,28 @@
         "parameters": []
       },
       "pathTemplate": "/api/fallback/chains",
+      "qualification": {
+        "binding": {
+          "authSha256": "b16c7c97707c564a734becd42129159bf882bd4b11bb3682c2f9f9678b42135e",
+          "frameworkContextSha256": "8e8be435e5438fbecaf31198b495611d4b165621e4177e3d7c1f1137bd827156",
+          "handlerGitBlobSha": "bbb7bd4a67a76d3ecef1281054f25d88f9825094",
+          "handlerSha256": "2fc08aa36a836012d0c3c1c18e0e8b0f71a3396b14caaffa7d1acf4d96c5a43d",
+          "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "operationSemanticsSha256": "00b4d1fb968fcc2b4d9d4fc30617cf701c74bddd0b5284c8af00c25807f72533",
+          "requestSchemaSha256": "b2eb0d866b868cf698fa865f6f46cac76fbce7fd127c1b43e527bf0e44e33945",
+          "responseProjectionSha256": "3e0a86f76095fb9994e84c1f3a272a9833ea0da305cfbdf920d1a0a52bebd457",
+          "routeImportsSha256": "b535dec03a9aae0b2d75cf2fc3f428c380f969c3a07684296765650170a6e8ce",
+          "sideEffect": "read",
+          "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
+        },
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
+        "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "test": {
+          "caseSha256": "6d438e35448aea65bca65e79bfb9211ead58563fd9b30243ecfb44e3cd199cb1",
+          "id": "test/admin-fallback-chains.test.ts",
+          "outcomeSha256": "9896c24a747eeee06c05d0fdd4e177b17bafb1c551d50f27234a972bc0c3c4aa"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -60756,7 +60807,122 @@
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "oneOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "additionalProperties": true,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "priority": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "provider": {
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "priority",
+                    "enabled"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "type": "object",
+              "x-key-role": "identifier"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "details": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "field": {
+                                "type": "string"
+                              },
+                              "keys": {
+                                "items": {
+                                  "type": "string"
+                                },
+                                "type": "array"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "message"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "error": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "correlation_id": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message",
+                    "correlation_id"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        },
         "statusCodes": [
           "200",
           "401",
@@ -60769,7 +60935,35 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "additionalProperties": true,
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "priority": {
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "provider": {
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "provider",
+                        "priority",
+                        "enabled"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object",
+                  "x-key-role": "identifier"
+                },
                 "sourceFile": "src/app/api/fallback/chains/route.ts"
               }
             ],
@@ -60783,7 +60977,35 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlation_id"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/server/authz/pipeline.ts"
               }
             ],
@@ -60803,7 +61025,35 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlation_id"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/server/authz/pipeline.ts"
               }
             ],
@@ -60823,7 +61073,60 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "details": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "field": {
+                                    "type": "string"
+                                  },
+                                  "keys": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "message": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "field",
+                                  "message"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "message": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/app/api/fallback/chains/route.ts"
               }
             ],
@@ -60837,7 +61140,35 @@
             "content": [
               {
                 "mediaType": "application/json",
-                "schema": null,
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "correlation_id": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlation_id"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                },
                 "sourceFile": "src/server/authz/pipeline.ts"
               }
             ],
@@ -60864,7 +61195,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "read",
       "source": {
         "export": "direct",
         "file": "src/app/api/fallback/chains/route.ts",
@@ -60914,8 +61245,8 @@
         "path": "/api/fallback/chains"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {
@@ -64750,10 +65081,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "1a9b34cee3d9edeab5af1dc4813e42350a5fe8e38b32abd5601268a1a8ffc5ff",
+          "caseSha256": "3ada85e3c518f01d3e79071838f539f9c40d8cdc4ad2f45f5983e2ef3d5fea02",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -64983,10 +65314,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "1204e9bafb1f2f0e1c1e82719f3a17a1b63fc528d05dd19dfecc5d747c92ed13",
+          "caseSha256": "4c16d41df3aa088cfe1d41a974d6cd49a529dc3867d796ba777444daf3107a56",
           "id": "test/admin-degradation.test.ts",
           "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
         }
@@ -76186,10 +76517,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "a9c90e1b37232eed44dd198562baefd24c457a4acaea81d7e13c8b17794faef6",
+          "caseSha256": "4036b9a7327bfc7f42ef062c36683ccb7913c533ac3825bd2c379d17a9e047f4",
           "id": "test/admin-model-capability-overrides.test.ts",
           "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
         }
@@ -76929,10 +77260,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
+          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
         }
@@ -77641,10 +77972,10 @@
           "sideEffect": "read",
           "sideEffectSha256": "6f3658822a73dc4c1d09ba64a062d0d1ef89fb250f5f5923c3a1755c2f63b1db"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
+          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
         }
@@ -199548,10 +199879,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
+          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
         }
@@ -289751,10 +290082,10 @@
           "sideEffect": "mutation",
           "sideEffectSha256": "261cbd27e4898423d47ba926369b58a69dbcd9312149b150d9d909f336754c7c"
         },
-        "ingressSha256": "d5f1fd1ab8dbb22ac11a1b37cef01b65773721d8f11fa479a6f384cff8fffc5c",
+        "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "d8987a2bbbfe64e3812a39d3dd162098f9295d726ee7564946313f143e5ce482",
+          "caseSha256": "f2cc3a1683bf9f3632adfee7ad1455466fffee1c97af059824ab89fc1c8aa1fe",
           "id": "test/admin-model-combo-mappings.test.ts",
           "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
         }

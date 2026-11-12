@@ -8,6 +8,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   provider-node, and provider cc-alias reads. These reachability controls do not
   establish real handler authorization, persistence, or cold database lifecycle.
 
+- Qualify the fallback-chain read with separate pinned-handler and hosted policy
+  observations. An empty process-local map does not establish empty durable
+  storage after a swallowed initial load failure; fallback writes remain unavailable.
+
 - Permit authenticated npm package absence during protected first publication;
   preserve registry-error stops and uncertain-publication reconciliation without
   replay. Authentication does not establish publish entitlement.
@@ -21,8 +25,8 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   remain unavailable; the fixture does not establish cold database initialization.
 
 - Retain fresh hosted ingress policy evidence alongside independent pinned-handler
-  outcomes for five combo reads and metrics reset. The candidate now has 17
-  qualified operations, 16 source-evidenced exceptions, and 1,259 unqualified
+  outcomes for five combo reads and metrics reset. The candidate now has 18
+  qualified operations, 16 source-evidenced exceptions, and 1,258 unqualified
   operations out of 1,292. This does not establish cold database initialization
   or qualify the remaining combo mutations.
 

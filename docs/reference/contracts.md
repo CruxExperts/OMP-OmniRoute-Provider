@@ -185,6 +185,12 @@ handler fixture supplies disposable capability and provider data and tests prefi
 ordering, UUID suppression, and authorization boundaries; it does not establish
 cold application database initialization. Capability mutations remain unavailable.
 
+The fallback-chain read binds the pinned handler and process-local fallback map
+observations to a separate hosted management policy observation. Its fixture
+uses a disposable storage seam. The pinned policy can swallow an initial database
+load failure without retrying; an empty result does not prove durable storage is
+empty. The read does not qualify fallback writes or the cold database lifecycle.
+
 The provider read fixtures exercise pinned handlers against a disposable, already
 initialized database. Their raw handler responses can contain provider URLs,
 paths, icons, and arbitrary JSON custom headers. The client response projection
@@ -196,9 +202,9 @@ until their cold database lifecycle and the other required evidence are establis
 
 
 For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads,
-the five model-combo-mapping operations, the six qualified combo operations, and
-the model-capability-overrides read, a verified eligibility record additionally
-names a retained
+the five model-combo-mapping operations, the six qualified combo operations, the
+model-capability-overrides read, and the fallback-chain read, a verified eligibility
+record additionally names a retained
 `provenance/qualification/ingress-<sha256>.json` export and its SHA-256 over the
 exact file bytes. The generator checks the pinned source archive, proxy and
 extracted declaration identities, and the runner's recomputed disposable overlay
@@ -259,9 +265,9 @@ this check does not qualify `GET /api/agent-skills/{id}/raw` or change its
 runtime availability.
 
 Active qualification is being rebuilt for the current source and mutation-safety
-contract. Earlier evidence for fallback chains, capability override mutations,
-provider aliases, and provider configuration is historical; it cannot authorize the
-new candidate. Source-backed fixture checks do not by themselves restore eligibility
+contract. Earlier evidence for fallback chain mutations, capability override
+mutations, provider aliases, and provider configuration is historical; it cannot
+authorize the new candidate. Source-backed fixture checks do not by themselves restore eligibility
 or prove clean framework ingress. Combo metrics retain the pinned source's separate
 fallback-request count and skips-per-request fields. Held mutations still require
 their available dependency reads and independent effect evidence. The

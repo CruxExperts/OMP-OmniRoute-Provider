@@ -62,7 +62,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/discovery | 0 | 5 | 0 |
 | api/docs | 0 | 2 | 0 |
 | api/evals | 0 | 7 | 0 |
-| api/fallback | 0 | 3 | 0 |
+| api/fallback | 1 | 2 | 0 |
 | api/files | 0 | 2 | 0 |
 | api/free-models | 0 | 1 | 0 |
 | api/free-provider-rankings | 0 | 2 | 0 |
