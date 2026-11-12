@@ -50,14 +50,15 @@ function pinnedErrors(): PinnedExports {
 /** Direct handler HTTP only; filesystem reads are confined to the supplied disposable root. */
 export class PinnedAgentSkillsFixture {
   readonly #server: { readonly url: URL; stop(closeActiveConnections?: boolean): unknown };
+  readonly #getRaw: (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
   failNextJson = false;
   constructor(root: string) {
     readPinnedSource("src/lib/agentSkills/types.ts"); // erased type-only imports
     const constants = loadPinnedModule("src/shared/constants/agentSkills.ts", s => { throw new Error(`Unexpected constants import: ${s}`); });
     const schemas = loadPinnedModule("src/lib/agentSkills/schemas.ts", s => { if (s === "zod") return zod; throw new Error(`Unexpected schema import: ${s}`); });
     const skillsDir = path.resolve(root, "skills");
-    const sandboxPath = { ...path, resolve: (...parts: string[]) => parts.length === 2 && parts[1] === "skills" ? skillsDir : path.resolve(...parts) };
-    const readOnlyFs = { readdirSync: fs.readdirSync, existsSync: fs.existsSync };
+    const sandboxPath = { ...path, resolve: (...parts: string[]) => parts[1] === "skills" ? path.resolve(skillsDir, ...parts.slice(2)) : path.resolve(...parts) };
+    const readOnlyFs = { readdirSync: fs.readdirSync, existsSync: fs.existsSync, readFileSync: fs.readFileSync };
     const catalog = loadPinnedModule("src/lib/agentSkills/catalog.ts", s => {
       if (s === "node:fs") return readOnlyFs;
       if (s === "node:path") return sandboxPath;
@@ -78,6 +79,8 @@ export class PinnedAgentSkillsFixture {
     const route = loadPinnedModule(ROUTE, requireRoute);
     const detail = loadPinnedModule("src/app/api/agent-skills/[id]/route.ts", requireRoute);
     const coverageRoute = loadPinnedModule("src/app/api/agent-skills/coverage/route.ts", requireRoute);
+    const raw = loadPinnedModule("src/app/api/agent-skills/[id]/raw/route.ts", requireRoute);
+    this.#getRaw = raw.GET as (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
     const get = route.GET as (request: Request) => Promise<Response>;
     const getDetail = detail.GET as (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
     const getCoverage = coverageRoute.GET as () => Promise<Response>;
@@ -86,12 +89,15 @@ export class PinnedAgentSkillsFixture {
       if (request.method !== "GET") return new Response(null, { status: 404 });
       if (pathname === "/api/agent-skills") return get(request);
       if (pathname === "/api/agent-skills/coverage") return getCoverage();
+      const rawMatch = /^\/api\/agent-skills\/([^/]+)\/raw$/.exec(pathname);
+      if (rawMatch) return this.#getRaw(request, { params: Promise.resolve({ id: decodeURIComponent(rawMatch[1]!) }) });
       const match = /^\/api\/agent-skills\/([^/]+)$/.exec(pathname);
       return match ? getDetail(request, { params: Promise.resolve({ id: decodeURIComponent(match[1]!) }) }) : new Response(null, { status: 404 });
     } });
   }
   handle(query = ""): Promise<Response> { return fetch(`${this.#server.url.origin}/api/agent-skills${query}`); }
   handlePath(pathname: string): Promise<Response> { return fetch(`${this.#server.url.origin}${pathname}`); }
+  handleRawParams(params: Promise<{ id: string }>): Promise<Response> { return this.#getRaw(new Request(`${this.#server.url.origin}/api/agent-skills/raw`), { params }); }
   close(): void { this.#server.stop(true); }
 }
 

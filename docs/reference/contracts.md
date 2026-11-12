@@ -226,6 +226,13 @@ bun run verify:contracts
 bun run docs:check
 ```
 
+The raw agent-skill handler also has a disposable-filesystem check for its
+Markdown body, cache/source headers, missing catalog ID, and sanitized handler
+errors. The direct invalid-parameter checks are not HTTP ingress evidence.
+GitHub fallback fetching and its upstream-failure response remain unobserved;
+this check does not qualify `GET /api/agent-skills/{id}/raw` or change its
+runtime availability.
+
 Active qualification is being rebuilt for the current source and mutation-safety
 contract. Earlier evidence for combos, fallback chains, capability overrides,
 provider aliases, model-combo mappings, and provider configuration is historical;

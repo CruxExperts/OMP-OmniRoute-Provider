@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "05ace4b85f3c42599a51dc8e5abd65736931656a7b40a95591b9b384f4c7fadd",
+    "eligibilitySha256": "a45df7df332b4a7556b3ebaf08c83241ff67eca98edf66e42b6636b99ac2be33",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
     "sourceCorpusFileCount": 4806
@@ -28311,7 +28311,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "e1d2edec219a3026bbd70f8da79fa7f88e261c46469c6fd30bd416cdd4dac1d2",
+          "caseSha256": "9e74b7240752f57123c89f953a98eea5ee0c124e5381c19c5d3dbc35d22566a6",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
         }
@@ -29010,7 +29010,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "e1d2edec219a3026bbd70f8da79fa7f88e261c46469c6fd30bd416cdd4dac1d2",
+          "caseSha256": "9e74b7240752f57123c89f953a98eea5ee0c124e5381c19c5d3dbc35d22566a6",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
         }
@@ -29464,7 +29464,7 @@
         "ingressSha256": "0f8972e4be7d163dac3480669dc3f4e6be3c41281f29ecee26730a19b0e18931",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "e1d2edec219a3026bbd70f8da79fa7f88e261c46469c6fd30bd416cdd4dac1d2",
+          "caseSha256": "9e74b7240752f57123c89f953a98eea5ee0c124e5381c19c5d3dbc35d22566a6",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
         }

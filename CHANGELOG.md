@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Exercise pinned raw skill Markdown reads against disposable files, including
+  response headers and sanitized errors. External fallback and ingress evidence
+  remain required before this operation can become available.
+
 - Give startup credential lookup and live discovery their own bounded budgets,
   independent of configuration ACL reads. Capture separate, sanitized Windows
   diagnostics for persisted-inference startup when diagnostics are enabled.

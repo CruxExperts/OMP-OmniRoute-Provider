@@ -164,3 +164,41 @@ test("missing skills directory is a successful zero-coverage read", async () => 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("pinned raw handler reads disposable markdown and reports source errors", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agent-skills-raw-"));
+  const log = spyOn(console, "error").mockImplementation(() => {});
+  let fixture: PinnedAgentSkillsFixture | undefined;
+  try {
+    await mkdir(join(root, "skills", "omni-auth"), { recursive: true });
+    await writeFile(join(root, "skills", "omni-auth", "SKILL.md"), "---\nname: 'Fixture skill'\ndescription: \"Local description\"\nextra: discarded\n---\n# Local body\n");
+    const before = await snapshot(root);
+    fixture = new PinnedAgentSkillsFixture(root);
+    const response = await fixture.handlePath("/api/agent-skills/omni-auth/raw");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=3600");
+    expect(response.headers.get("x-skill-source")).toBe("filesystem");
+    expect(response.headers.get("x-skill-fetched-at")).toBe(SKILLS_TIME);
+    expect(await response.text()).toBe("---\nname: Fixture skill\ndescription: Local description\n---\n# Local body\n");
+
+    const missing = await fixture.handlePath("/api/agent-skills/not-a-skill/raw");
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("content-type")).toContain("application/json");
+    expect((await missing.json() as { error: { message: string } }).error.message).toBe("Skill not found: not-a-skill");
+
+    const invalid = await fixture.handleRawParams(Promise.resolve({ id: "" }));
+    expect(invalid.status).toBe(400);
+    expect((await invalid.json() as { error: { message: string } }).error.message).toBe("Missing skill id");
+    const failed = await fixture.handleRawParams(Promise.reject(new Error("fixture-private-params-failure")));
+    expect(failed.status).toBe(500);
+    const failureBody = await failed.json() as { error: { message: string } };
+    expect(failureBody.error.message).toBe("Failed to fetch skill content");
+    expect(JSON.stringify(failureBody)).not.toContain("fixture-private-params-failure");
+    expect(await snapshot(root)).toEqual(before);
+  } finally {
+    fixture?.close();
+    log.mockRestore();
+    await rm(root, { recursive: true, force: true });
+  }
+});
