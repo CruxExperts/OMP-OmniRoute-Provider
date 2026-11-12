@@ -8,6 +8,9 @@ export type SourceJsonResponse = {
   sourceFile: string;
 };
 
+export type SourceLiteralResponse = SourceJsonResponse & { body: "empty" | "nonempty" | "unknown" };
+type LocalInvocation = { name: string; arguments: (string | undefined)[] };
+
 export type ReturnedImportedCall = {
   localName: string;
   importedName: string;
@@ -20,9 +23,11 @@ export type ReturnedImportedResponseMember = ReturnedImportedCall & {
 
 export type SourceResponseEvidence = {
   jsonResponses: SourceJsonResponse[];
+  literalResponses: SourceLiteralResponse[];
   returnedImportedCalls: ReturnedImportedCall[];
   returnedImportedResponseMembers: ReturnedImportedResponseMember[];
   returnedLocalCalls: string[];
+  returnedLocalInvocations: LocalInvocation[];
 };
 
 export type ManagementPolicyResponse = {
@@ -308,17 +313,6 @@ function expressionCallNames(input: ts.Expression): string[] {
   return [];
 }
 
-function returnedValueNames(input: ts.Expression): string[] {
-  const expression = unwrapExpression(input);
-  if (ts.isIdentifier(expression)) return [expression.text];
-  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
-    return [...returnedValueNames(expression.left), ...returnedValueNames(expression.right)];
-  }
-  if (ts.isConditionalExpression(expression)) {
-    return [...returnedValueNames(expression.whenTrue), ...returnedValueNames(expression.whenFalse)];
-  }
-  return [];
-}
 
 function localFunctionDeclarations(source: ts.SourceFile): Map<string, Handler[]> {
   const declarations = new Map<string, Handler[]>();
@@ -397,6 +391,9 @@ function reassignedBindings(source: ts.SourceFile): Set<string> {
     if (ts.isBinaryExpression(node)
       && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
       && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) addTargets(node.left);
+    if ((ts.isForOfStatement(node) || ts.isForInStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) {
+      addTargets(node.initializer);
+    }
     if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
       && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)
       && ts.isIdentifier(node.operand)) reassigned.add(node.operand.text);
@@ -415,9 +412,11 @@ function collectHandlerEvidence(
   importedBindings: ReadonlyMap<string, ImportedBinding>,
   safeLocalNames: ReadonlySet<string>,
   safeImportedNames: ReadonlySet<string>,
+  argumentsByParameter: ReadonlyMap<string, string>,
+  literalConstants: ReadonlyMap<string, string>,
 ): SourceResponseEvidence {
   const body = handler.body;
-  if (!body) return { jsonResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [] };
+  if (!body) return { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [] };
   const shadowed = new Set(handler.parameters.flatMap(parameter => bindingNames(parameter.name)));
   if (ts.isFunctionExpression(handler) && handler.name) shadowed.add(handler.name.text);
 
@@ -434,6 +433,9 @@ function collectHandlerEvidence(
     if (ts.isBinaryExpression(node)
       && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
       && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment) markWriteTargets(node.left);
+    if ((ts.isForOfStatement(node) || ts.isForInStatement(node)) && !ts.isVariableDeclarationList(node.initializer)) {
+      markWriteTargets(node.initializer);
+    }
     if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
       && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken)) {
       markWriteTargets(node.operand);
@@ -444,10 +446,12 @@ function collectHandlerEvidence(
     if (ts.isFunctionLike(node)) {
       if (ts.isFunctionDeclaration(node) && node.name) shadowed.add(node.name.text);
       else if (ts.isFunctionExpression(node) && node.name) shadowed.add(node.name.text);
+      if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name && argumentsByParameter.has(node.name.text)) writtenNames.add(node.name.text);
       return;
     }
     if (ts.isVariableDeclaration(node)) {
       const names = bindingNames(node.name);
+      for (const name of names) if (argumentsByParameter.has(name)) writtenNames.add(name);
       for (const name of names) shadowed.add(name);
       if (ts.isIdentifier(node.name)) {
         const calls = node.initializer ? expressionCallNames(node.initializer) : [];
@@ -457,15 +461,18 @@ function collectHandlerEvidence(
         else initializerCalls.set(node.name.text, candidate);
       }
     }
-    if (ts.isClassDeclaration(node) && node.name) shadowed.add(node.name.text);
+    if (ts.isClassDeclaration(node) && node.name) {
+      shadowed.add(node.name.text);
+      if (argumentsByParameter.has(node.name.text)) writtenNames.add(node.name.text);
+    }
     ts.forEachChild(node, collectLocals);
   };
-  if (ts.isBlock(body)) {
-    collectWrites(body);
-    collectLocals(body);
-  }
+  collectWrites(body);
+  if (ts.isBlock(body)) collectLocals(body);
 
   const jsonResponses = new Map<string, SourceJsonResponse>();
+  const literalResponses = new Map<string, SourceLiteralResponse>();
+  const returnedLocalInvocations = new Map<string, LocalInvocation>();
   const returnedCalls = new Set<string>();
   const returnedResponseMembers = new Set<string>();
   const returnedLocals = new Set<string>();
@@ -509,8 +516,9 @@ function collectHandlerEvidence(
   const addJsonResponse = (input: ts.Expression): void => {
     const expression = unwrapExpression(input);
     if (ts.isConditionalExpression(expression)) {
-      addJsonResponse(expression.whenTrue);
-      addJsonResponse(expression.whenFalse);
+      const condition = knownCondition(expression.condition);
+      if (condition !== false) addJsonResponse(expression.whenTrue);
+      if (condition !== true) addJsonResponse(expression.whenFalse);
       return;
     }
     if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)
@@ -552,21 +560,142 @@ function collectHandlerEvidence(
     jsonResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
   };
 
-  const collectReturnedCalls = (input: ts.Expression): void => {
-    for (const callName of expressionCallNames(input)) {
-      if (importedBindings.has(callName) && !shadowed.has(callName)) returnedCalls.add(callName);
-      if (safeLocalNames.has(callName) && !shadowed.has(callName)) returnedLocals.add(callName);
+  const literalString = (input: ts.Expression): string | undefined => {
+    const value = unwrapExpression(input);
+    if (ts.isStringLiteralLike(value)) return value.text;
+    if (ts.isIdentifier(value) && !writtenNames.has(value.text)) return argumentsByParameter.get(value.text);
+    return undefined;
+  };
+  const knownCondition = (input: ts.Expression): boolean | undefined => {
+    const condition = unwrapExpression(input);
+    if (!ts.isBinaryExpression(condition) || (condition.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken
+      && condition.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken)) return undefined;
+    const left = literalString(condition.left);
+    const right = literalString(condition.right);
+    if (left === undefined || right === undefined) return undefined;
+    return condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ? left === right : left !== right;
+  };
+  const bodyKind = (input: ts.Expression | undefined): SourceLiteralResponse["body"] => {
+    if (!input) return "empty";
+    const value = unwrapExpression(input);
+    if (value.kind === ts.SyntaxKind.NullKeyword) return "empty";
+    if (ts.isStringLiteralLike(value)) return value.text.length === 0 ? "empty" : "nonempty";
+    if (ts.isIdentifier(value) && !shadowed.has(value.text)) {
+      const literal = literalConstants.get(value.text);
+      if (literal !== undefined) return literal.length === 0 ? "empty" : "nonempty";
     }
-    for (const name of returnedValueNames(input)) {
-      const initialized = initializerCalls.get(name);
-      if (initialized && !writtenNames.has(name) && importedBindings.has(initialized) && !shadowed.has(initialized)) returnedCalls.add(initialized);
+    if (ts.isConditionalExpression(value)) {
+      const condition = knownCondition(value.condition);
+      if (condition !== undefined) return bodyKind(condition ? value.whenTrue : value.whenFalse);
+      const first = bodyKind(value.whenTrue);
+      return first === bodyKind(value.whenFalse) ? first : "unknown";
+    }
+    return "unknown";
+  };
+  const addLiteralResponse = (input: ts.Expression): void => {
+    const expression = unwrapExpression(input);
+    if (ts.isConditionalExpression(expression)) {
+      const condition = knownCondition(expression.condition);
+      if (condition !== false) addLiteralResponse(expression.whenTrue);
+      if (condition !== true) addLiteralResponse(expression.whenFalse);
+      return;
+    }
+    if (!ts.isNewExpression(expression) || !ts.isIdentifier(expression.expression)
+      || !constructors.has(expression.expression.text) || shadowed.has(expression.expression.text)) return;
+    const args = expression.arguments;
+    const options = args?.[1];
+    if (!options || !ts.isObjectLiteralExpression(options)) return;
+    let status: number | undefined;
+    let mediaType: string | undefined;
+    let seenHeaders = false;
+    for (const property of options.properties) {
+      if (!ts.isPropertyAssignment(property)) return;
+      const name = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ? property.name.text : undefined;
+      if (name === undefined) return;
+      if (name === "status") {
+        if (!ts.isNumericLiteral(property.initializer) || status !== undefined) return;
+        status = Number(property.initializer.text);
+      } else if (name === "headers") {
+        if (!ts.isObjectLiteralExpression(property.initializer) || seenHeaders) return;
+        seenHeaders = true;
+        for (const header of property.initializer.properties) {
+          if (!ts.isPropertyAssignment(header)) return;
+          const key = ts.isIdentifier(header.name) || ts.isStringLiteral(header.name) ? header.name.text : undefined;
+          if (key === undefined) return;
+          if (key.toLowerCase() === "content-type") {
+            if (!ts.isStringLiteralLike(header.initializer)) return;
+            if (mediaType !== undefined) return;
+            mediaType = header.initializer.text.split(";", 1)[0]!.trim().toLowerCase();
+          }
+        }
+      }
+    }
+    if (status === undefined || !Number.isInteger(status) || status < 200 || status > 599
+      || [204, 205, 304].includes(status) || !mediaType
+      || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) return;
+    const hint: SourceLiteralResponse = { method: publicMethod, statusCode: String(status), mediaType, sourceFile, body: bodyKind(args?.[0]) };
+    literalResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.body}`, hint);
+  };
+
+  const collectReturnedCalls = (input: ts.Expression): void => {
+    const expression = unwrapExpression(input);
+    if (ts.isConditionalExpression(expression)) {
+      const condition = knownCondition(expression.condition);
+      if (condition !== false) collectReturnedCalls(expression.whenTrue);
+      if (condition !== true) collectReturnedCalls(expression.whenFalse);
+      return;
+    }
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      collectReturnedCalls(expression.left);
+      collectReturnedCalls(expression.right);
+      return;
+    }
+    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)) {
+      const callName = expression.expression.text;
+      if (importedBindings.has(callName) && !shadowed.has(callName)) returnedCalls.add(callName);
+      if (safeLocalNames.has(callName) && !shadowed.has(callName)) {
+        returnedLocals.add(callName);
+        const args = expression.arguments.some(ts.isSpreadElement) ? [] : expression.arguments.map(literalString);
+        const invocation = { name: callName, arguments: args };
+        returnedLocalInvocations.set(JSON.stringify(invocation), invocation);
+      }
+      return;
+    }
+    if (ts.isIdentifier(expression)) {
+      const initialized = initializerCalls.get(expression.text);
+      if (initialized && !writtenNames.has(expression.text) && importedBindings.has(initialized) && !shadowed.has(initialized)) returnedCalls.add(initialized);
     }
   };
 
+  const definitelyReturns = (node: ts.Statement): boolean => {
+    if (ts.isReturnStatement(node) || ts.isThrowStatement(node)) return true;
+    if (ts.isBlock(node)) return node.statements.some(definitelyReturns);
+    if (ts.isIfStatement(node)) {
+      const condition = knownCondition(node.expression);
+      if (condition === true) return definitelyReturns(node.thenStatement);
+      if (condition === false) return node.elseStatement !== undefined && definitelyReturns(node.elseStatement);
+      return node.elseStatement !== undefined && definitelyReturns(node.thenStatement) && definitelyReturns(node.elseStatement);
+    }
+    return false;
+  };
   const visitReturns = (node: ts.Node): void => {
     if (ts.isFunctionLike(node)) return;
+    if (ts.isBlock(node)) {
+      for (const statement of node.statements) {
+        visitReturns(statement);
+        if (definitelyReturns(statement)) break;
+      }
+      return;
+    }
+    if (ts.isIfStatement(node)) {
+      const condition = knownCondition(node.expression);
+      if (condition !== false) visitReturns(node.thenStatement);
+      if (condition !== true && node.elseStatement) visitReturns(node.elseStatement);
+      return;
+    }
     if (ts.isReturnStatement(node) && node.expression) {
       addJsonResponse(node.expression);
+      addLiteralResponse(node.expression);
       collectReturnedCalls(node.expression);
       return;
     }
@@ -575,12 +704,14 @@ function collectHandlerEvidence(
   if (ts.isBlock(body)) visitReturns(body);
   else {
     addJsonResponse(body);
+    addLiteralResponse(body);
     collectReturnedCalls(body);
   }
 
   return {
     jsonResponses: [...jsonResponses.values()].sort((left, right) =>
       left.statusCode.localeCompare(right.statusCode) || left.mediaType.localeCompare(right.mediaType) || left.sourceFile.localeCompare(right.sourceFile)),
+    literalResponses: [...literalResponses.values()],
     returnedImportedCalls: [...returnedCalls].sort().flatMap(localName => {
       const binding = importedBindings.get(localName);
       return binding ? [{ localName, ...binding }] : [];
@@ -590,6 +721,7 @@ function collectHandlerEvidence(
       return binding ? [{ localName, ...binding, member: "response" as const }] : [];
     }),
     returnedLocalCalls: [...returnedLocals].sort(),
+    returnedLocalInvocations: [...returnedLocalInvocations.values()],
   };
 }
 
@@ -632,49 +764,73 @@ export function collectSourceResponseEvidence(
   }
 
   const handler = findHandler(source, handlerName);
-  if (!handler) return { jsonResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [] };
+  if (!handler) return { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [] };
 
   const localDeclarations = localFunctionDeclarations(source);
   const topLevelBindings = topLevelBindingCounts(source);
   const reassigned = reassignedBindings(source);
+  for (const name of reassigned) constructors.delete(name);
+  const literalConstants = new Map<string, string>();
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isStringLiteralLike(declaration.initializer)
+        && topLevelBindings.get(declaration.name.text) === 1 && !reassigned.has(declaration.name.text)) {
+        literalConstants.set(declaration.name.text, declaration.initializer.text);
+      }
+    }
+  }
   const safeImportedNames = new Set([...importedBindings].flatMap(([name, binding]) =>
     binding.moduleSpecifier === "@/shared/validation/helpers" && binding.importedName === "validatedJsonBody"
       && topLevelBindings.get(name) === 1 && !reassigned.has(name) ? [name] : []));
   const safeLocalNames = new Set([...localDeclarations].flatMap(([name, declarations]) =>
     declarations.length === 1 && topLevelBindings.get(name) === 1 && !reassigned.has(name) ? [name] : []));
   const jsonResponses = new Map<string, SourceJsonResponse>();
+  const literalResponses = new Map<string, SourceLiteralResponse>();
   const returnedImportedCalls = new Map<string, ReturnedImportedCall>();
   const returnedImportedResponseMembers = new Map<string, ReturnedImportedResponseMember>();
-  const visited = new Set<Handler>([handler]);
-  const queue: Array<{ handler: Handler; depth: number }> = [{ handler, depth: 0 }];
+  const visited = new Set<string>();
+  const queue: Array<{ handler: Handler; depth: number; args: (string | undefined)[] }> = [{ handler, depth: 0, args: [] }];
   const maxDepth = 16;
   const maxHandlers = 128;
 
   while (queue.length > 0) {
     const current = queue.shift()!;
+    const identity = `${current.handler.pos}\0${JSON.stringify(current.args)}`;
+    if (visited.has(identity)) continue;
+    visited.add(identity);
+    const argumentsByParameter = new Map<string, string>();
+    current.handler.parameters.forEach((parameter, index) => {
+      const value = current.args[index];
+      if (value !== undefined && ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken) {
+        argumentsByParameter.set(parameter.name.text, value);
+      }
+    });
     const evidence = collectHandlerEvidence(
-      current.handler, sourceFile, publicMethod, constructors, importedBindings, safeLocalNames, safeImportedNames,
+      current.handler, sourceFile, publicMethod, constructors, importedBindings, safeLocalNames, safeImportedNames, argumentsByParameter, literalConstants,
     );
     for (const hint of evidence.jsonResponses) {
       jsonResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
     }
+    for (const hint of evidence.literalResponses) literalResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.body}`, hint);
     for (const call of evidence.returnedImportedCalls) returnedImportedCalls.set(call.localName, call);
     for (const member of evidence.returnedImportedResponseMembers) returnedImportedResponseMembers.set(member.localName, member);
-    for (const localName of evidence.returnedLocalCalls) {
-      const declaration = localDeclarations.get(localName)?.[0];
-      if (!declaration || visited.has(declaration)) continue;
+    for (const invocation of evidence.returnedLocalInvocations) {
+      const declaration = localDeclarations.get(invocation.name)?.[0];
+      if (!declaration || visited.has(`${declaration.pos}\0${JSON.stringify(invocation.arguments)}`)) continue;
       if (current.depth >= maxDepth) throw new Error(`${sourceFile} returned local response helper depth exceeds ${maxDepth}`);
       if (visited.size >= maxHandlers) throw new Error(`${sourceFile} returned local response helper count exceeds ${maxHandlers}`);
-      visited.add(declaration);
-      queue.push({ handler: declaration, depth: current.depth + 1 });
+      queue.push({ handler: declaration, depth: current.depth + 1, args: invocation.arguments });
     }
   }
 
   return {
     jsonResponses: [...jsonResponses.values()].sort((left, right) =>
       left.statusCode.localeCompare(right.statusCode) || left.mediaType.localeCompare(right.mediaType) || left.sourceFile.localeCompare(right.sourceFile)),
+    literalResponses: [...literalResponses.values()],
     returnedImportedCalls: [...returnedImportedCalls.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
     returnedImportedResponseMembers: [...returnedImportedResponseMembers.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
     returnedLocalCalls: [],
+    returnedLocalInvocations: [],
   };
 }

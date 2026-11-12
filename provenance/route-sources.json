@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "recordKind": "omniroute-content-addressed-source",
-  "rootSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
+  "rootSha256": "488497bd136c5f05f2b8782aab4cae82fefdeca986abf59317655bd9fc067585",
   "root": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "schemaVersion": 2,
@@ -83731,7 +83731,14 @@
           ]
         },
         "gitBlobSha": "978449f1d168f565d5036e84f3f43f9922a7155b",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "GET",
+            "statusCode": "200",
+            "mediaType": "text/html",
+            "sourceFile": "src/app/api/docs/route.ts"
+          }
+        ],
         "centralResponseHints": [
           {
             "method": "GET",
@@ -305833,7 +305840,14 @@
           ]
         },
         "gitBlobSha": "d82f2dbee9a0595370cfd24a680c17cf129faa30",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "GET",
+            "statusCode": "200",
+            "mediaType": "text/plain",
+            "sourceFile": "src/app/livez/route.ts"
+          }
+        ],
         "centralResponseHints": [],
         "resolvedImports": [],
         "resolvedImportsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",

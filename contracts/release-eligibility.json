@@ -191,8 +191,8 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/1f68220059737de8adba7998ebf2979c877a1c65eeca8489f2f73723dba13675.json",
-        "caseSha256": "3ada85e3c518f01d3e79071838f539f9c40d8cdc4ad2f45f5983e2ef3d5fea02",
+        "observedOutcome": "provenance/qualification/787df56b0fe23d61fa75bd30027de4847dd439aadc60fd32fb1741b2d17d5a32.json",
+        "caseSha256": "4bd28063db3997b4599a91d4ca0484538ee982a7149412a8973cec44e4944af7",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "ingressEvidence": {
@@ -703,8 +703,8 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/80d3669f1556b86e04546c2ebcaa7a533fb333183f44373334f3bcbd23b9ed33.json",
-        "caseSha256": "4c16d41df3aa088cfe1d41a974d6cd49a529dc3867d796ba777444daf3107a56",
+        "observedOutcome": "provenance/qualification/552c214b2c144746bf6cf89a491786674f75582589f1efa6deffbbd63e5e5057.json",
+        "caseSha256": "654029332f4e4d248f2c65df4011d1fbe95f290c62a91b50709dd51da4a59cae",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "ingressEvidence": {
@@ -1374,8 +1374,8 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/14d072b13a8f5c7ea655f36d163900bcedddd25738a667db59fdb7b4b141dcd8.json",
-        "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
+        "observedOutcome": "provenance/qualification/0fc637fce7e20fe92a2b9c74db8c780aaf4172aa5f79c4defcf121e4f2bd8cad.json",
+        "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
         "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
       },
       "ingressEvidence": {
@@ -5515,8 +5515,8 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/70daf095f50b3f1fd7410a45df74db94a14709e70c6dfe56de159ddcf76cc6f6.json",
-        "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
+        "observedOutcome": "provenance/qualification/066e4a7cd85a51abd05c7c5e62d739c4b893b1637a50f1f81b52ec198c351d31.json",
+        "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
         "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
       },
       "ingressEvidence": {
@@ -6032,8 +6032,8 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/f397d20d3a0e8b2d57ebe3d4236e8d1ae58e4c8b0f1a5587d1a749c43df6caf8.json",
-        "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
+        "observedOutcome": "provenance/qualification/52677f5bdf9ee2b08e5de9eb2ec67a3d03ca845c9d39e67bf26cea558fdfa7bc.json",
+        "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
         "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
       },
       "ingressEvidence": {

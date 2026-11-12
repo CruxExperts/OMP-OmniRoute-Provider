@@ -69,6 +69,128 @@ describe("source response hint collector", () => {
     ]);
   });
 
+  test("distinguishes bodyless HEAD from a literal GET through a returned local helper", () => {
+    const source = parseFixture(`
+      const LIVE_BODY = "ok\\n";
+      function createLiveResponse(method: string) {
+        return new Response(method === "HEAD" ? null : LIVE_BODY, {
+          status: 200, headers: { "Content-Type": "text/plain; charset=utf-8", "Content-Length": String(LIVE_BODY.length), "Cache-Control": "no-store" },
+        });
+      }
+      export function GET() { return createLiveResponse("GET"); }
+      export function HEAD() { return createLiveResponse("HEAD"); }
+      export function POST() { return Response.json({ ok: true }, { status: 201 }); }
+    `);
+    const hint = { statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts" };
+    expect(collectSourceResponseEvidence(source, "GET", "GET", "fixture.ts").literalResponses).toEqual([
+      { ...hint, method: "GET", body: "nonempty" },
+    ]);
+    expect(collectSourceResponseEvidence(source, "HEAD", "HEAD", "fixture.ts").literalResponses).toEqual([
+      { ...hint, method: "HEAD", body: "empty" },
+    ]);
+    const post = collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts");
+    expect(post.literalResponses).toEqual([]);
+    expect(post.jsonResponses).toEqual([{ method: "POST", statusCode: "201", mediaType: "application/json", sourceFile: "fixture.ts" }]);
+  });
+
+  test("does not guess dynamic constructor status or media and preserves an unresolved body", () => {
+    const source = parseFixture(`
+      export function GET(status: number) { return new Response("ok", { status, headers: { "Content-Type": "text/plain" } }); }
+      export function POST(type: string) { return new Response("ok", { status: 200, headers: { "Content-Type": type } }); }
+      export function PUT(options: object) { return new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" }, ...options }); }
+      export function PATCH(method: string) { return helper(method); }
+      function helper(method: string) { return new Response(method === "HEAD" ? null : "ok", { status: 200, headers: { "Content-Type": "text/plain" } }); }
+    `);
+    for (const method of ["GET", "POST", "PUT"] as const) {
+      expect(collectSourceResponseEvidence(source, method, method, "fixture.ts").literalResponses).toEqual([]);
+    }
+    expect(collectSourceResponseEvidence(source, "PATCH", "PATCH", "fixture.ts").literalResponses).toEqual([
+      { method: "PATCH", statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts", body: "unknown" },
+    ]);
+  });
+
+  test("does not infer constructor evidence from shadowed or unreturned helpers", () => {
+    const source = parseFixture(`
+      function helper(method: string) { return new Response("ok", { status: 200, headers: { "Content-Type": "text/plain" } }); }
+      export function GET(helper: () => Response) { return helper(); }
+      export function POST() { helper("GET"); return Response.json({}); }
+      export function HEAD(Response: typeof globalThis.Response) { return new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } }); }
+    `);
+    for (const method of ["GET", "POST", "HEAD"] as const) {
+      expect(collectSourceResponseEvidence(source, method, method, "fixture.ts").literalResponses).toEqual([]);
+    }
+  });
+
+  test("prunes unreachable conditional response and helper branches for bound method arguments", () => {
+    const source = parseFixture(`
+      export function GET() { return conditional("GET"); }
+      export function HEAD() { return viaHelper("HEAD"); }
+      export function POST() { return statements("POST"); }
+      function conditional(method: string) {
+        return method === "POST"
+          ? new Response("created", { status: 201, headers: { "Content-Type": "text/plain" } })
+          : new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      function viaHelper(method: string) { return method === "GET" ? created() : empty(); }
+      function created() { return new Response("created", { status: 201, headers: { "Content-Type": "text/plain" } }); }
+      function empty() { return new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } }); }
+      function statements(method: string) {
+        if (method === "POST") return empty();
+        return created();
+      }
+    `);
+    for (const method of ["GET", "HEAD", "POST"] as const) {
+      expect(collectSourceResponseEvidence(source, method, method, "fixture.ts").literalResponses).toEqual([
+        { method, statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts", body: "empty" },
+      ]);
+    }
+  });
+
+  test("does not bind positional helper arguments across a spread", () => {
+    const source = parseFixture(`
+      export function GET() { return helper(...["x", "HEAD"], "GET"); }
+      function helper(ignored: string, method: string) {
+        return new Response(method === "HEAD" ? null : "ok", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+    `);
+    expect(collectSourceResponseEvidence(source, "GET", "GET", "fixture.ts").literalResponses).toEqual([
+      { method: "GET", statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts", body: "unknown" },
+    ]);
+  });
+
+  test("invalidates method bindings assigned by for-of or for-in", () => {
+    const source = parseFixture(`
+      export function GET() { return ofHelper("GET"); }
+      export function POST() { return inHelper("GET"); }
+      function ofHelper(method: string) {
+        for (method of ["HEAD"]) {}
+        return new Response(method === "HEAD" ? null : "ok", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      function inHelper(method: string) {
+        for (method in { HEAD: true }) {}
+        return new Response(method === "HEAD" ? null : "ok", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+    `);
+    for (const method of ["GET", "POST"] as const) {
+      expect(collectSourceResponseEvidence(source, method, method, "fixture.ts").literalResponses).toEqual([
+        { method, statusCode: "200", mediaType: "text/plain", sourceFile: "fixture.ts", body: "unknown" },
+      ]);
+    }
+  });
+
+  test("does not use stale method arguments after an expression-bodied helper assigns them", () => {
+    const source = parseFixture(`
+      export function GET() { return helper("GET"); }
+      const helper = (method: string) => (method = "HEAD") === "HEAD"
+        ? (method === "HEAD" ? actual() : wrong()) : empty();
+      function actual() { return new Response("actual", { status: 201, headers: { "Content-Type": "text/plain" } }); }
+      function wrong() { return new Response("wrong", { status: 202, headers: { "Content-Type": "text/plain" } }); }
+      function empty() { return new Response(null, { status: 200, headers: { "Content-Type": "text/plain" } }); }
+    `);
+    const responses = collectSourceResponseEvidence(source, "GET", "GET", "fixture.ts").literalResponses;
+    expect(responses).toContainEqual({ method: "GET", statusCode: "201", mediaType: "text/plain", sourceFile: "fixture.ts", body: "nonempty" });
+  });
+
   test("follows returned local helpers and conditional helper paths but skips nested unreturned functions", () => {
     const source = parseFixture(`
       import { NextResponse } from "next/server";

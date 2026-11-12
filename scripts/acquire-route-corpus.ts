@@ -663,8 +663,8 @@ function exportedMethods(file: string, stack = new Set<string>()): { direct: str
 }
 
 /**
- * Preserve directly returned literal JSON and recognized returned-guard responses per exported method.
- * This conservative inventory does not infer dynamic factories or unknown helper results.
+ * Preserve returned literal response content and recognized returned-guard responses per exported method.
+ * Empty and unresolved constructor bodies cannot be represented by the current response-hint schema.
  */
 function sourceJsonResponses(file: string, exportName: string, publicMethod: HttpMethod, stack = new Set<string>()): SourceJsonResponse[] {
   const absolute = resolve(file);
@@ -704,11 +704,12 @@ function sourceJsonResponses(file: string, exportName: string, publicMethod: Htt
   const add = (hint: SourceJsonResponse): void => {
     results.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
   };
-  let evidence: SourceResponseEvidence = { jsonResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [] };
+  let evidence: SourceResponseEvidence = { jsonResponses: [], literalResponses: [], returnedImportedCalls: [], returnedImportedResponseMembers: [], returnedLocalCalls: [], returnedLocalInvocations: [] };
   if (!localAliasAmbiguous) {
     evidence = collectSourceResponseEvidence(source, localHandlerName ?? exportName, publicMethod, rel(absolute));
   }
   for (const hint of evidence.jsonResponses) add(hint);
+  for (const { body, ...hint } of evidence.literalResponses) if (body === "nonempty" && publicMethod !== "HEAD") add(hint);
 
   for (const imported of importedExports) {
     for (const hint of sourceJsonResponses(imported.path, imported.sourceName, publicMethod, nextStack)) add(hint);

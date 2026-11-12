@@ -23,9 +23,9 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "14d5e38a184b7aed4e9a65271216096af223b311d410adbbf4e03eb3424d1583",
+    "eligibilitySha256": "463dde03f281cf51a660dbdb93709499fcd9532be7706fa49f33b3bfa48bcf92",
     "manifest": "provenance/route-sources.json",
-    "manifestSha256": "4e0d8e83abcc82357e1759cad44348d3f71d00107693d18d13be05249aeed2d2",
+    "manifestSha256": "488497bd136c5f05f2b8782aab4cae82fefdeca986abf59317655bd9fc067585",
     "sourceCorpusFileCount": 4806
   },
   "operations": [
@@ -28576,7 +28576,7 @@
         "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
+          "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
         }
@@ -29275,7 +29275,7 @@
         "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
+          "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
         }
@@ -29729,7 +29729,7 @@
         "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "209ad59872720079614483b62c08eafa7987b923ad95099d931ba31af5f7b0b6",
+          "caseSha256": "32638a4f4ee857b9f45e26b269f44cf07e5f768e5d1befa189e3d85c23066953",
           "id": "test/admin-agent-skills-source.test.ts",
           "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
         }
@@ -59570,7 +59570,7 @@
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "text/html"
       },
       "method": "GET",
       "mutationSafety": null,
@@ -59598,7 +59598,7 @@
         "specificationDocumented": true
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "text/html",
         "schema": null,
         "statusCodes": [
           "200",
@@ -59608,8 +59608,17 @@
         ],
         "variants": [
           {
-            "content": [],
+            "content": [
+              {
+                "mediaType": "text/html",
+                "schema": null,
+                "sourceFile": "src/app/api/docs/route.ts"
+              }
+            ],
             "headers": {},
+            "sourceFiles": [
+              "src/app/api/docs/route.ts"
+            ],
             "statusCode": "200"
           },
           {
@@ -59692,6 +59701,11 @@
       },
       "specification": {
         "discrepancies": [
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/api/docs/route.ts establishes HTTP 200 with text/html; this source-derived status/media variant is preserved alongside OpenAPI declarations."
+          },
           {
             "authority": "source",
             "code": "source-response-status-or-media-not-documented",
@@ -65084,7 +65098,7 @@
         "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "3ada85e3c518f01d3e79071838f539f9c40d8cdc4ad2f45f5983e2ef3d5fea02",
+          "caseSha256": "4bd28063db3997b4599a91d4ca0484538ee982a7149412a8973cec44e4944af7",
           "id": "test/admin-json-health-source.test.ts",
           "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
         }
@@ -65317,7 +65331,7 @@
         "ingressSha256": "9d328e8eb6c1d07dd9b7273edc3937105b78e23ae90b875485f77fa55b5ac457",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "4c16d41df3aa088cfe1d41a974d6cd49a529dc3867d796ba777444daf3107a56",
+          "caseSha256": "654029332f4e4d248f2c65df4011d1fbe95f290c62a91b50709dd51da4a59cae",
           "id": "test/admin-degradation.test.ts",
           "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
         }
@@ -148803,7 +148817,7 @@
       },
       "mediaType": {
         "request": null,
-        "response": null
+        "response": "text/plain"
       },
       "method": "GET",
       "mutationSafety": null,
@@ -148831,10 +148845,27 @@
         "specificationDocumented": false
       },
       "response": {
-        "mediaType": null,
+        "mediaType": "text/plain",
         "schema": null,
-        "statusCodes": [],
-        "variants": []
+        "statusCodes": [
+          "200"
+        ],
+        "variants": [
+          {
+            "content": [
+              {
+                "mediaType": "text/plain",
+                "schema": null,
+                "sourceFile": "src/app/livez/route.ts"
+              }
+            ],
+            "headers": {},
+            "sourceFiles": [
+              "src/app/livez/route.ts"
+            ],
+            "statusCode": "200"
+          }
+        ]
       },
       "retry": {
         "allowed": false,
@@ -148858,6 +148889,11 @@
             "authority": "source",
             "code": "undocumented-source-operation",
             "detail": "Exported handler method is absent from the pinned OpenAPI specification; request/response behavior remains unqualified."
+          },
+          {
+            "authority": "source",
+            "code": "source-response-status-or-media-not-documented",
+            "detail": "src/app/livez/route.ts establishes HTTP 200 with text/plain; this source-derived status/media variant is preserved alongside OpenAPI declarations."
           }
         ],
         "documented": false,

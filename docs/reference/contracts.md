@@ -26,6 +26,13 @@ is verified by digest; the collector checks the captured source bytes against
 that archive. A refreshed source inventory does not itself qualify operations
 or make receipts from an earlier source current.
 
+Literal `Response` constructors can contribute status and media evidence through
+returned local helpers with unambiguous literal arguments. Mutable bindings,
+spread arguments and unresolved response bodies do not establish content.
+Method-specific conditions are resolved only from unchanged literal bindings.
+Bodyless HEAD evidence is not serialized as response content; supporting its
+headers and empty entity requires an explicit contract rather than a GET alias.
+
 For private repair research only, source preparation accepts the explicit
 `--derivation-record PATH --repair-repository PATH --derived-output PATH` options
 together. The private record and repair repository are required. Preparation
@@ -154,8 +161,8 @@ source-bound handler receipt and the ingress export are required for eligibility
 The pinned `/livez` GET and HEAD source observations distinguish the exact GET
 text body from HEAD's empty body while retaining its advertised content length.
 They do not establish framework ingress or anonymous access. Both operations
-remain unqualified: source response extraction must recognize the local response
-factory, and HEAD additionally needs explicit bodyless client transport support.
+remain unqualified pending independent ingress and eligibility evidence. HEAD
+additionally needs explicit bodyless response contracts and client transport.
 
 The agent-skills catalog, detail, and coverage candidates use source-bound handlers
 and the pinned catalog against a disposable skills directory. Tests cover query and
