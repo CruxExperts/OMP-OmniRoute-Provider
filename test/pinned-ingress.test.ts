@@ -582,6 +582,16 @@ with tempfile.TemporaryDirectory() as temp:
  try: m.write_failure(output, hashes, 'build', 'RuntimeError', 1)
  except FileExistsError: pass
  else: raise AssertionError('existing artifact overwritten')
+ (root/'failure.json').unlink()
+ (output/'cold-lifecycle.private').write_text('Error: Database health check already in progress\nprivate-canary /path token')
+ m.write_failure(output, hashes, 'coldLifecycle', 'CalledProcessError', 1)
+ lifecycle = json.loads((root/'failure.json').read_text())
+ assert lifecycle['lifecyclePhase']=='cold' and lifecycle['lifecycleSignals']==['health-check-in-progress']
+ assert 'private-canary' not in json.dumps(lifecycle) and '/path' not in json.dumps(lifecycle)
+ (output/'warm-lifecycle.private').write_text('ERR_MODULE_NOT_FOUND: /private/secret')
+ assert m.lifecycle_failure_signals(output, 'warmLifecycle') == ['module-resolution']
+ (output/'warm-lifecycle.private').unlink(); (output/'warm-lifecycle.private').symlink_to(state)
+ assert m.lifecycle_failure_signals(output, 'warmLifecycle') == []
  (root/'failure.json').unlink(); hashes['changed'] = 'b'*64
  try: m.write_failure(output, {'tracked':'a'*64}, 'export', 'RuntimeError', None)
  except RuntimeError: pass

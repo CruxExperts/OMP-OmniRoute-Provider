@@ -851,7 +851,7 @@ def provision(material):
     identity_path.write_text(json.dumps(identity, indent=2) + '\n')
     identity_path.chmod(0o600)
 
-FAILURE_STAGES = ('preflight', 'materialize', 'provision', 'build', 'authHTTP', 'pinnedHTTP', 'export')
+FAILURE_STAGES = ('preflight', 'materialize', 'provision', 'build', 'authHTTP', 'pinnedHTTP', 'coldLifecycle', 'warmLifecycle', 'export')
 FAILURE_CLASSES = ('RuntimeError', 'CalledProcessError', 'TimeoutExpired', 'OSError', 'ValueError', 'KeyError', 'Other')
 WORKER_STAGE = 'preflight'
 
@@ -906,6 +906,32 @@ def compiler_failure_signals(output):
     return sorted(signals)
 
 
+def lifecycle_failure_signals(output, stage):
+    """Map bounded private phase output to fixed, non-sensitive diagnostic categories."""
+    phase = {'coldLifecycle': 'cold', 'warmLifecycle': 'warm'}.get(stage)
+    if phase is None:
+        return []
+    path = output / (phase + '-lifecycle.private')
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > 2 * 1024**2:
+        return []
+    text = path.read_text(encoding='utf-8', errors='replace').lower()
+    markers = {
+        'module-resolution': ('err_module_not_found', 'cannot find module', 'err_package_path_not_exported'),
+        'worker-failure': ('health worker resolution mismatch', 'health worker result missing', 'database health worker is missing', 'database health worker failed', 'database health worker timed out', 'database health worker exited without a result', 'database health worker communication failed'),
+        'health-check-in-progress': ('database health check already in progress',),
+        'migration-safety': ('migrationsafetyaborterror',),
+        'database-initialization': ('database is not initialized', 'database not initialized', 'sqlite_error', 'sqlite_cantopen', 'sqlite_busy'),
+        'read-only-filesystem': ('erofs:', 'read-only file system'),
+        'permission-denied': ('eacces:', 'eperm:'),
+        'settings-persistence': ('settings persistence failed',),
+        'database-lifecycle': ('cold database already exists', 'warm database missing'),
+        'phase-isolation': ('lifecycle isolation or phase mismatch',),
+        'migration-metadata': ('migration metadata missing', 'empty migration ledger'),
+        'driver-or-ping': ('core driver or ping failed',),
+    }
+    return sorted(name for name, patterns in markers.items() if any(pattern in text for pattern in patterns))
+
+
 def write_failure(output, hashes, stage, exception_class, returncode):
     require(stage in FAILURE_STAGES and exception_class in FAILURE_CLASSES, 'invalid failure classification')
     require(returncode is None or (type(returncode) is int and -255 <= returncode <= 255 and returncode != 0), 'invalid failure return code')
@@ -919,6 +945,9 @@ def write_failure(output, hashes, stage, exception_class, returncode):
         'trackedInputsSha256': tracked}
     if stage == 'build':
         artifact['compilerSignals'] = compiler_failure_signals(output)
+    if stage in ('coldLifecycle', 'warmLifecycle'):
+        artifact['lifecyclePhase'] = 'cold' if stage == 'coldLifecycle' else 'warm'
+        artifact['lifecycleSignals'] = lifecycle_failure_signals(output, stage)
     fd = os.open(output.parent / 'failure.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as destination:
         json.dump(artifact, destination, indent=2)
@@ -998,8 +1027,8 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
 }"""
     run_bounded(isolate + ['/runtime/node', '--input-type=module', '-e', import_check], Path('/work/startup-imports.private'), deadline, env)
     run_bounded(isolate + ['/runtime/node', '--import', 'tsx/esm', '--test', 'tests/unit/db-async-fresh-startup.test.ts'], Path('/work/startup-regression.private'), deadline, env)
-    worker_stage('pinnedHTTP')
     for phase in ('cold', 'warm'):
+        worker_stage('coldLifecycle' if phase == 'cold' else 'warmLifecycle')
         run_bounded(isolate + ['/runtime/node', str(runner), phase], Path('/work/' + phase + '-lifecycle.private'), deadline, env)
     save(Path('/work/result.json'), {'status': 'research-observed', 'qualification': False, 'scenario': 'actual-core-cold-warm'})
 

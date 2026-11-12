@@ -90,6 +90,11 @@ an operation can join `lifecycleEvidence`. Runtime eligibility compares the resu
 derived database-dependent operation. Shared recomputation is cached only under
 the complete verified input-byte digest and checked for drift before reuse.
 
+Hosted ingress and lifecycle stages retain their outputs independently. A failed
+lifecycle exports only its cold/warm phase and fixed diagnostic categories, never
+raw database contents or private process logs. A successful ingress run does not
+stand in for the failed lifecycle prerequisite.
+
 The closure also includes numbered SQL migrations discovered at runtime by the
 pinned database migration runner. They are opaque source bytes, verified against
 the same archive and included in the route and framework digests. External

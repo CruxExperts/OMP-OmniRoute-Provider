@@ -72,8 +72,6 @@ jobs:
           python3 scripts/prepare-upstream.py
           python3 scripts/pinned-ingress.py --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --stage-dir "$RUNNER_TEMP/pinned-ingress" --approve-node-archive-sha256 "$APPROVED_NODE_ARCHIVE_SHA256" > "$RUNNER_TEMP/pinned-ingress-paths.json"
           python3 scripts/pinned-ingress.py --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --node "$RUNNER_TEMP/pinned-ingress/node" --source-archive "$RUNNER_TEMP/pinned-ingress/source.tar.gz" --dependency-dir "$RUNNER_TEMP/pinned-ingress/dependencies" --output-dir "$RUNNER_TEMP/pinned-ingress"
-          mkdir -m 700 "$RUNNER_TEMP/pinned-lifecycle"
-          python3 scripts/pinned-ingress.py --real-core --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --node "$RUNNER_TEMP/pinned-ingress/node" --source-archive "$RUNNER_TEMP/pinned-ingress/source.tar.gz" --dependency-dir "$RUNNER_TEMP/pinned-ingress/dependencies" --output-dir "$RUNNER_TEMP/pinned-lifecycle"
       - name: Retain the sanitized ingress observation
         if: ${{ inputs.mode != 'preflight-only' }}
         run: |
@@ -90,6 +88,12 @@ jobs:
           path: ${{ runner.temp }}/pinned-ingress/ingress-run-*/export/observed-outcomes.json
           if-no-files-found: error
           retention-days: 14
+      - name: Run the isolated core lifecycle prerequisite
+        if: ${{ inputs.mode != 'preflight-only' }}
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/pinned-lifecycle"
+          python3 scripts/pinned-ingress.py --real-core --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --node "$RUNNER_TEMP/pinned-ingress/node" --source-archive "$RUNNER_TEMP/pinned-ingress/source.tar.gz" --dependency-dir "$RUNNER_TEMP/pinned-ingress/dependencies" --output-dir "$RUNNER_TEMP/pinned-lifecycle"
       - name: Upload sanitized core lifecycle observation
         if: ${{ inputs.mode != 'preflight-only' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -104,6 +108,14 @@ jobs:
         with:
           name: cruxomni-ingress-failure
           path: ${{ runner.temp }}/pinned-ingress/failure.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload sanitized core failure classification when present
+        if: ${{ always() && inputs.mode != 'preflight-only' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cruxomni-core-lifecycle-failure
+          path: ${{ runner.temp }}/pinned-lifecycle/failure.json
           if-no-files-found: ignore
           retention-days: 14
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
