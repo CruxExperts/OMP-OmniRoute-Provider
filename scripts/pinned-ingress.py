@@ -356,6 +356,17 @@ def put(root, name, data, executable=False):
         stream.write(data)
     target.chmod(0o755 if executable else 0o644)
 
+def replace_policy_control(root, name, original_sha256, data):
+    """Replace only an authenticated materialized route with a policy control."""
+    require(name in POLICY_SOURCES and isinstance(original_sha256, str) and re.fullmatch(r'[0-9a-f]{64}', original_sha256), 'unapproved policy control: ' + name)
+    parts = safe_parts(name)
+    target = root.joinpath(*parts)
+    for parent in (root, *[root.joinpath(*parts[:index]) for index in range(1, len(parts))]):
+        require(parent.is_dir() and not parent.is_symlink(), 'unsafe policy control parent: ' + name)
+    require(target.is_file() and not target.is_symlink() and file_sha(target) == original_sha256, 'policy source mismatch: ' + name)
+    target.write_bytes(data)
+    target.chmod(0o644)
+
 
 def disk_usage(root):
     total = 0
@@ -563,8 +574,11 @@ def materialize(real_core=False):
     (app / 'next-env.d.ts').touch()
     if not real_core:
         shutil.copyfile('/work/fixture/next.config.mjs', app / 'next.config.mjs')
-        for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts', *POLICY_SOURCES):
-            put(app, route, Path('/work/fixture/routes/management.ts').read_bytes())
+        control = Path('/work/fixture/routes/management.ts').read_bytes()
+        for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts'):
+            put(app, route, control)
+        for route in POLICY_SOURCES:
+            replace_policy_control(app, route, support[route], control)
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
     return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA, **source_identity}

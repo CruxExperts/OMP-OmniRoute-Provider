@@ -114,6 +114,33 @@ assert module.safe_parts('node_modules/example/package.json') == ('node_modules'
   expect(result.status).toBe(0);
 });
 
+test("policy controls replace only verified existing source files", () => {
+  const code = String.raw`
+import importlib.util,pathlib,sys,tempfile
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+with tempfile.TemporaryDirectory() as d:
+ root=pathlib.Path(d); route=m.POLICY_SOURCES[0]; source=b'authenticated source'; control=b'control'
+ m.put(root,route,source); path=root/route; expected=m.sha(source)
+ def rejects(name,digest):
+  try: m.replace_policy_control(root,name,digest,control)
+  except RuntimeError: return
+  raise AssertionError('invalid policy source accepted')
+ rejects(route,'0'*64); assert path.read_bytes()==source
+ path.write_bytes(b'tampered'); rejects(route,expected); assert path.read_bytes()==b'tampered'
+ path.unlink(); rejects(route,expected)
+ path.symlink_to(root/'missing'); rejects(route,expected); path.unlink()
+ m.put(root,route,source)
+ try: m.put(root,route,control)
+ except RuntimeError: pass
+ else: raise AssertionError('duplicate archive path accepted')
+ rejects('src/app/api/unapproved/route.ts',expected); assert path.read_bytes()==source
+ m.replace_policy_control(root,route,expected,control); assert path.read_bytes()==control
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
 test("dependency materialization enforces exact bytes and safe file identity", () => {
   const dir = mkdtempSync(join(tmpdir(), "pinned-ingress-dependency-"));
   try {
