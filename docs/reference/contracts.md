@@ -101,6 +101,13 @@ Native family observation staging also includes the upstream-locked
 `bottleneck@2.19.5` rate limiter with exact archive integrity. It has no runtime
 dependencies and runs only inside the existing isolated test environment; this
 does not add a client dependency, Redis service, lifecycle script, or host install.
+The native family graph additionally binds the exact upstream-locked MCP, provider,
+validation, compression, and browser-library import closure in the test manifest.
+The isolated staging does not download browser binaries or models, execute package
+lifecycle scripts, or grant external networking. Locked Hono dependencies carry
+disclosed routing/request-handling advisories; this isolated research allowance
+is not approval to deploy them or a production dependency-security claim. Native
+key creation uses a fixture-only secret, never inherited production credentials.
 
 Hosted ingress and lifecycle stages retain their outputs independently. A failed
 lifecycle exports only its cold/warm phase, fixed diagnostic categories, the last

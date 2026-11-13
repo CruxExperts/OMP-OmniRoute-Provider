@@ -280,7 +280,7 @@ def stage(root, approval):
     dependencies = root / 'dependencies'
     dependencies.mkdir(mode=0o700)
     manifest = json.loads((FIXTURE / 'dependencies.json').read_text())
-    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 268, 'dependency manifest mismatch')
+    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 400, 'dependency manifest mismatch')
     seen = {}
     total = 0
     for item in manifest['packages']:
@@ -453,7 +453,7 @@ def expected_core_lifecycle_input_key(archive, node, dependency_dir, bwrap, root
     require(dependency_dir.is_dir() and not dependency_dir.is_symlink(), 'dependency directory unavailable')
     validate_bwrap(bwrap)
     manifest = bounded_json(FIXTURE / 'dependencies.json')
-    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 268, 'dependency manifest mismatch')
+    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 400, 'dependency manifest mismatch')
     dependencies = {}
     for item in manifest['packages']:
         raw = verified_dependency(dependency_dir, item)
@@ -1083,7 +1083,7 @@ def core_lifecycle(material, deadline):
     worker_source = 'src/lib/db/healthCheckWorker.ts'
     recipe = 'scripts/build/colocate-standalone.mjs'
     require(len(migrations) == 222 and worker_source in source and recipe in source, 'pinned migration or worker source closure missing')
-    env = {'PATH': '/runtime', 'HOME': '/work/home', 'TMPDIR': '/work/tmp', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'NODE_ENV': 'production', 'DATA_DIR': '/work/data', 'INGRESS_APPROVED_SANDBOX': '1'}
+    env = {'PATH': '/runtime', 'HOME': '/work/home', 'TMPDIR': '/work/tmp', 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'NODE_ENV': 'production', 'DATA_DIR': '/work/data', 'INGRESS_APPROVED_SANDBOX': '1', 'API_KEY_SECRET': 'research-only-native-key-secret-never-for-production'}
     esbuild = '/work/app/node_modules/@esbuild/linux-x64/bin/esbuild'
     common = ['--bundle', '--platform=node', '--packages=external', '--format=esm']
     worker_stage('build')
