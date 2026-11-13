@@ -573,6 +573,16 @@
       "url": "https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.11.20.tgz"
     },
     {
+      "location": "node_modules/bottleneck",
+      "name": "bottleneck",
+      "version": "2.19.5",
+      "integrity": "sha512-VHiNCbI1lKdl44tGrhNfU3lup0Tj/ZBMJB5/2ZbNXRCPuRCO7ed2mgcK4r17y+KB2EfuYuRaVlwNbAeaWGSpbw==",
+      "sha256": "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060",
+      "bytes": 122422,
+      "file": "c9320b01c11db76ceaedddc10ba101c26ad825e6a36c7a3d0ba7c135a952d79e.tgz",
+      "url": "https://registry.npmjs.org/bottleneck/-/bottleneck-2.19.5.tgz"
+    },
+    {
       "location": "node_modules/buffer-crc32",
       "name": "buffer-crc32",
       "version": "1.0.0",

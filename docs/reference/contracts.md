@@ -97,6 +97,11 @@ initializers, so that transformed entry is not accepted as source behavior.
 Cold execution also observes a harmless CLI-version setting through its actual
 runtime getter after `updateSettings`; both phases reject runtime reload failures.
 
+Native family observation staging also includes the upstream-locked
+`bottleneck@2.19.5` rate limiter with exact archive integrity. It has no runtime
+dependencies and runs only inside the existing isolated test environment; this
+does not add a client dependency, Redis service, lifecycle script, or host install.
+
 Hosted ingress and lifecycle stages retain their outputs independently. A failed
 lifecycle exports only its cold/warm phase, fixed diagnostic categories, the last
 allowlisted await checkpoint, and recognized public module identities. Raw
