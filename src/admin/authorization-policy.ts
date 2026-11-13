@@ -1,7 +1,7 @@
 import type { OMAAccessTokenScope } from "./registry.ts";
 
-// Mirrors pinned OmniRoute v3.8.52 `src/server/authz/accessScopes.ts`.
-// Commit ad6f33f66bda34eba98645d3bfdabbde294bc843; SHA-256 8cadf0203b349cec4eee5f4a00c418fea3b9f27acc9c4ce7bc244aa44e1a2d75.
+// Mirrors pinned OmniRoute v3.8.53 `src/server/authz/accessScopes.ts`.
+// Commit 191dce8d534ceb56c28a08e71381284a9a87838f; SHA-256 8cfacb4aeba07b3b9b7817792bccdf7e5b6d686404c128ddaf39ff9009888b58.
 //
 // MIT License
 // Copyright (c) 2026 diegosouzapw
@@ -35,7 +35,9 @@ const ADMIN_SCOPE_PREFIXES: readonly string[] = [
 const ADMIN_MUTATION_PREFIXES: readonly string[] = [
   "/api/providers",
   "/api/cli-tools/apply",
+  "/api/keys",
 ];
+const ADMIN_MUTATION_EXACT_PATHS: readonly string[] = ["/api/settings", "/api/settings/require-login", "/api/settings/system-prompt"];
 
 function matchesPrefix(path: string, prefixes: readonly string[]): boolean {
   for (const prefix of prefixes) {
@@ -48,8 +50,11 @@ export function requiredOmaScope(method: string, path: string): OMAAccessTokenSc
   const verb = (method || "GET").toUpperCase();
   const route = path || "/";
   if (matchesPrefix(route, ADMIN_SCOPE_PREFIXES)) return "admin";
+  if (matchesPrefix(route, ["/api/keys"]) && /\/reveal\/?$/.test(route)) return "admin";
 
   const mutation = !READ_METHODS.has(verb);
   if (mutation && matchesPrefix(route, ADMIN_MUTATION_PREFIXES)) return "admin";
+  const exactRoute = route.length > 1 && route.endsWith("/") ? route.slice(0, -1) : route;
+  if (mutation && ADMIN_MUTATION_EXACT_PATHS.includes(exactRoute)) return "admin";
   return mutation ? "write" : "read";
 }

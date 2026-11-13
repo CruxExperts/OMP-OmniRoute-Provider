@@ -47,6 +47,8 @@
 
 import { FALLBACK_CHAIN_DELETE, FALLBACK_CHAIN_POST, validateFallbackChainRequest } from "./source-fallback-chains.ts";
 import { comboSourceValidatorBinding, isComboRequestValidatorId, validateComboRequest, type ComboSourceRequestValidatorId } from "./source-combos.ts";
+import { validateKeyRequest } from "./source-keys.ts";
+import { validateProxyRequest } from "./source-proxies.ts";
 import type { AdminMethod } from "./types.ts";
 
 
@@ -59,6 +61,11 @@ const SOURCE_REQUEST_VALIDATOR_BINDINGS = Object.freeze({
   "omniroute-v3.8.52.provider-create": Object.freeze({ methods: Object.freeze(["POST"] as const), pathTemplate: "/api/providers" }),
   "omniroute-v3.8.52.fallback-chains.register": Object.freeze({ methods: Object.freeze(["POST"] as const), pathTemplate: "/api/fallback/chains" }),
   "omniroute-v3.8.52.fallback-chains.remove": Object.freeze({ methods: Object.freeze(["DELETE"] as const), pathTemplate: "/api/fallback/chains" }),
+  "omniroute-v3.8.53.keys.create": Object.freeze({ methods: Object.freeze(["POST"] as const), pathTemplate: "/api/keys" }),
+  "omniroute-v3.8.53.keys.update": Object.freeze({ methods: Object.freeze(["PATCH"] as const), pathTemplate: "/api/keys/{id}" }),
+  "omniroute-v3.8.53.proxies.create": Object.freeze({ methods: Object.freeze(["POST"] as const), pathTemplate: "/api/settings/proxies" }),
+  "omniroute-v3.8.53.proxies.update": Object.freeze({ methods: Object.freeze(["PATCH"] as const), pathTemplate: "/api/settings/proxies" }),
+  "omniroute-v3.8.53.proxies.assign": Object.freeze({ methods: Object.freeze(["PUT"] as const), pathTemplate: "/api/settings/proxies/assignments" }),
 }) satisfies Readonly<Record<string, SourceRequestValidatorBinding>>;
 
 export type SourceRequestValidatorId = keyof typeof SOURCE_REQUEST_VALIDATOR_BINDINGS | ComboSourceRequestValidatorId;
@@ -697,6 +704,8 @@ export function sourceRequestIssue(
   body: unknown,
 ): SourceRequestIssue | undefined {
   if (isComboRequestValidatorId(id)) return validateComboRequest(id, body);
+  if (id === "omniroute-v3.8.53.keys.create" || id === "omniroute-v3.8.53.keys.update") return validateKeyRequest(id, body);
+  if (id === "omniroute-v3.8.53.proxies.create" || id === "omniroute-v3.8.53.proxies.update" || id === "omniroute-v3.8.53.proxies.assign") return validateProxyRequest(id, body);
   if (id === "omniroute-v3.8.52.fallback-chains.register" || id === "omniroute-v3.8.52.fallback-chains.remove") {
     const result = validateFallbackChainRequest(
       id === "omniroute-v3.8.52.fallback-chains.register" ? FALLBACK_CHAIN_POST : FALLBACK_CHAIN_DELETE,

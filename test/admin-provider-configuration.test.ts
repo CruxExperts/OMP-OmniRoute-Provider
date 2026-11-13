@@ -42,8 +42,8 @@ const REQUIRED_CASES: Readonly<Record<ProviderConfigurationOperationId, readonly
   [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "private-only-target-drift", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
   [DELETE_INTERCEPTION]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
   [GET_PARAM_FILTERS]: ["source-defaults-and-provider-scope", "management-auth-guard", "storage-error"],
-  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
-  [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
+  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply", "global-impact-and-drift", "global-ambiguous-no-replay"],
+  [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply", "global-impact-and-drift", "global-ambiguous-no-replay"],
 };
 
 type Observation = {
@@ -852,6 +852,69 @@ describe("pinned provider configuration management semantics", () => {
     expect(fixture.count(DELETE_PARAM_FILTERS) - ambiguousDispatchesBefore).toBe(1);
     expect(fixture.paramFilters("provider-b")).toEqual({ block: [], allow: [], autoLearn: false });
     mark(DELETE_PARAM_FILTERS, "ambiguous-no-replay");
+  });
+
+  test("global filter mutations affect recovery for two providers and reject global row drift", async () => {
+    const fixture = new ProviderConfigurationFixture({
+      paramFilters: {
+        "provider-a": { block: [], allow: [], autoLearn: false },
+        "provider-b": { block: [], allow: [], autoLearn: false },
+      },
+    });
+    const harness = setup(fixture);
+    for (const provider of ["provider-a", "provider-b"]) {
+      expect(await fixture.recoverUnsupportedParameter(provider, "fixture_before")).toEqual({ status: 400, retries: 0 });
+    }
+
+    const put = await harness.executor.plan(PUT_PARAM_FILTERS, { path: { id: "__global__" }, body: { autoLearn: true } });
+    expect(JSON.stringify(put.preview)).toContain("all providers");
+    expect((await confirmedApply(harness.executor, put.planId)).status).toBe("applied");
+    for (const provider of ["provider-a", "provider-b"]) {
+      expect(await fixture.recoverUnsupportedParameter(provider, "fixture_enabled")).toEqual({ status: 200, retries: 1 });
+    }
+
+    for (const operationId of [PUT_PARAM_FILTERS, DELETE_PARAM_FILTERS] as const) {
+      const plan = await harness.executor.plan(operationId, {
+        path: { id: "__global__" },
+        ...(operationId === PUT_PARAM_FILTERS ? { body: { autoLearn: false } } : {}),
+      });
+      const changed = await directRequest(fixture, PUT_PARAM_FILTERS, "__global__", "Bearer fixture-management-key", { autoLearn: true, block: [operationId] });
+      expect(changed.status).toBe(200);
+      const writes = fixture.count(operationId);
+      await expect(confirmedApply(harness.executor, plan.planId)).rejects.toMatchObject({ code: "target-drift" });
+      expect(fixture.count(operationId)).toBe(writes);
+    }
+
+    const remove = await harness.executor.plan(DELETE_PARAM_FILTERS, { path: { id: "__global__" } });
+    expect(JSON.stringify(remove.preview)).toContain("all providers");
+    expect((await confirmedApply(harness.executor, remove.planId)).status).toBe("applied");
+    for (const provider of ["provider-a", "provider-b"]) {
+      expect(await fixture.recoverUnsupportedParameter(provider, "fixture_after")).toEqual({ status: 400, retries: 0 });
+    }
+    for (const operationId of [PUT_PARAM_FILTERS, DELETE_PARAM_FILTERS] as const) mark(operationId, "global-impact-and-drift");
+  });
+
+  test("lost global mutation responses stay unknown and are never replayed", async () => {
+    for (const operationId of [PUT_PARAM_FILTERS, DELETE_PARAM_FILTERS] as const) {
+      const fixture = new ProviderConfigurationFixture({ paramFilters: { "__global__": { block: [], allow: [], autoLearn: operationId === DELETE_PARAM_FILTERS } } });
+      const harness = setup(fixture);
+      const plan = await harness.executor.plan(operationId, {
+        path: { id: "__global__" },
+        ...(operationId === PUT_PARAM_FILTERS ? { body: { autoLearn: true } } : {}),
+      });
+      const before = fixture.count(operationId);
+      const hold = fixture.holdNextMutationResponse(operationId === PUT_PARAM_FILTERS ? "PUT" : "DELETE");
+      const abort = new AbortController();
+      const pending = confirmedApply(harness.executor, plan.planId, abort.signal);
+      await hold.received;
+      abort.abort();
+      const result = await pending;
+      hold.release();
+      expect(result.status).toBe("unknown");
+      expect(fixture.count(operationId) - before).toBe(1);
+      expect(fixture.hasStoredConfiguration("param-filters", "__global__")).toBe(operationId === PUT_PARAM_FILTERS);
+      mark(operationId, "global-ambiguous-no-replay");
+    }
   });
 
   test("an intervening source write invalidates prepared DELETE in both families before dispatch", async () => {

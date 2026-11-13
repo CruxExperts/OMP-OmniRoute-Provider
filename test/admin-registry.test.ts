@@ -299,6 +299,8 @@ test("liveness eligibility requires matching ingress evidence in the document an
   const qualified = authority.getOperation(health.operationId)!;
   const receipt = qualified.qualification!;
   const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = receipt.binding;
+  const sourceIdentity = binding.sourceDerivation ? { sourceDerivation: binding.sourceDerivation, effectiveTreeSha256: binding.effectiveTreeSha256 } : {};
+  const upstream = binding.sourceDerivation ? { id: "omniroute", qualification_source: { kind: "signed-derivation", ...binding.sourceDerivation } } : { id: "omniroute" };
   const { ingressSha256, ...proof } = authority.getEligibility(health.operationId);
   const entry = {
     ...proof, operationId: "GET /livez", binding, contract: operationSourceContract(qualified),
@@ -316,12 +318,12 @@ test("liveness eligibility requires matching ingress evidence in the document an
       await mkdir(join(root, "src/admin"), { recursive: true });
       await mkdir(join(root, "contracts"));
       await mkdir(join(root, "provenance"));
-      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute" }] }));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [upstream] }));
       const readerPath = join(root, "src/admin/eligibility.ts");
       await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
       await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({
         schemaVersion: 3, recordKind: "omniroute-release-eligibility", release: { commit: receipt.releaseCommit },
-        default: { status: "unavailable", reason: "Synthetic unit document." }, operations: [record],
+        default: { status: "unavailable", reason: "Synthetic unit document." }, ...sourceIdentity, operations: [record],
       }));
       // Each isolated root has its own document; a static import would reuse the default module cache.
       const reader = await import(pathToFileURL(readerPath).href) as typeof EligibilityReader;
@@ -485,6 +487,8 @@ test("archived qualification records cannot enable the new mutation contract", a
   const qualified = authority.getOperation(descriptor.operationId)!;
   const receipt = qualified.qualification!;
   const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = receipt.binding;
+  const sourceIdentity = binding.sourceDerivation ? { sourceDerivation: binding.sourceDerivation, effectiveTreeSha256: binding.effectiveTreeSha256 } : {};
+  const upstream = binding.sourceDerivation ? { id: "omniroute", qualification_source: { kind: "signed-derivation", ...binding.sourceDerivation } } : { id: "omniroute" };
   const entry = {
     ...authority.getEligibility(descriptor.operationId), binding,
     contract: operationSourceContract(qualified),
@@ -504,13 +508,13 @@ test("archived qualification records cannot enable the new mutation contract", a
       await mkdir(join(root, "src/admin"), { recursive: true });
       await mkdir(join(root, "contracts"));
       await mkdir(join(root, "provenance"));
-      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute" }] }));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [upstream] }));
       const readerPath = join(root, "src/admin/eligibility.ts");
       await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
       await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({
         schemaVersion, recordKind: "omniroute-release-eligibility",
         release: { commit: receipt.releaseCommit },
-        default: { status: "unavailable", reason: "Synthetic unit document." }, operations: [record],
+        default: { status: "unavailable", reason: "Synthetic unit document." }, ...sourceIdentity, operations: [record],
       }));
       const reader = await import(pathToFileURL(readerPath).href) as typeof import("../src/admin/eligibility.ts");
       expect(reader.eligibilityFor(descriptor.operationId, reader.createEligibilityIndex()).status).toBe(expected);

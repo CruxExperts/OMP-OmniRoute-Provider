@@ -78,7 +78,7 @@ def acquisition_preflight():
     for executable in ('/usr/bin/dpkg-query', '/usr/bin/dpkg', '/usr/bin/dpkg-deb'):
         require(os.access(executable, os.X_OK), 'missing prerequisite executable: ' + executable)
     for package, minimum in (('libc6', '2.38'), ('libcap2', '1:2.10'), ('libselinux1', '3.1~')):
-        result = subprocess.run(['/usr/bin/dpkg-query', '-W', '-f=${Status}\t${Version}', package], capture_output=True, text=True, timeout=15)
+        result = subprocess.run(['/usr/bin/dpkg-query', '-W', '-f=${Status}\t${Version}', package + ':amd64'], capture_output=True, text=True, timeout=15)
         fields = result.stdout.strip().split('\t')
         require(result.returncode == 0 and len(fields) == 2 and fields[0] == 'install ok installed', 'required installed library unavailable: ' + package)
         result = subprocess.run(['/usr/bin/dpkg', '--compare-versions', fields[1], 'ge', minimum], timeout=15)

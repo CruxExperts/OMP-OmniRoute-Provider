@@ -24,8 +24,11 @@ export function assertSafetyReadRequest(proof: OperationReadCompleteness, descri
     throw new RegistryError("invalid-inventory", "safety read completeness is not source qualified", descriptor.operationId);
   }
   if (proof.kind === "unpaginated-list") {
-    if (descriptor.pagination.mode !== "offset" || !sourceUnpaginatedListProofMatches(descriptor.operationId, proof)
-      || Object.hasOwn(input.query, "limit") || Object.hasOwn(input.query, "offset")) {
+    const intrinsicProxyList = descriptor.pagination.mode === "none"
+      && (descriptor.operationId === "GET /api/settings/proxies" || descriptor.operationId === "GET /api/settings/proxies/assignments");
+    if ((!intrinsicProxyList && descriptor.pagination.mode !== "offset") || !sourceUnpaginatedListProofMatches(descriptor.operationId, proof)
+      || Object.hasOwn(input.query, "limit") || Object.hasOwn(input.query, "offset")
+      || (intrinsicProxyList && Object.keys(input.query).length !== 0)) {
       throw new RegistryError("invalid-inventory", "safety list read is paginated or not source bound", descriptor.operationId);
     }
   }
@@ -44,7 +47,9 @@ export function assertSafetyReadResponse(proof: OperationReadCompleteness, descr
   const identities = new Set<string>();
   for (const row of rows) {
     const parts = proof.identityPaths.map(path => field(row, path));
-    if (parts.some(part => typeof part !== "string" || part.length === 0)) throw new RegistryError("invalid-inventory", "safety list identity is invalid", descriptor.operationId);
+    const proxyAssignmentId = descriptor.operationId === "GET /api/settings/proxies/assignments"
+      && proof.identityPaths.length === 1 && proof.identityPaths[0]?.length === 1 && proof.identityPaths[0][0] === "id";
+    if (parts.some(part => proxyAssignmentId ? typeof part !== "number" || !Number.isSafeInteger(part) || part < 1 : typeof part !== "string" || part.length === 0)) throw new RegistryError("invalid-inventory", "safety list identity is invalid", descriptor.operationId);
     const identity = canonicalizeJson(parts);
     if (identities.has(identity)) throw new RegistryError("invalid-inventory", "safety list identity is duplicated", descriptor.operationId);
     identities.add(identity);

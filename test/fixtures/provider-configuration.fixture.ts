@@ -7,6 +7,8 @@ import { sourceNormalizationBinding, sourceStateViewBinding, type SourceStateVie
 import {
   createPinnedManagementAuthorization,
   type PinnedManagementAuthorization,
+  loadPinnedModule,
+  loadExtractedPinnedDeclarations,
 } from "./pinned-handler.fixture.ts";
 import {
   createPinnedProviderConfigurationHandlers,
@@ -235,9 +237,11 @@ function sourceContract(operationId: ProviderConfigurationOperationId): Provider
     : SUCCESS_SCHEMA;
   const confirmation = read
     ? { required: false, reason: "Source-defined provider configuration read; management authentication is required." }
-    : !write
-      ? { required: true, reason: "Deletes only this provider's configuration row. The matching GET returns defaults for both an absent row and a persisted empty row, so deletion cannot be reconciled from the public response; one human-approved attempt is allowed, and an ambiguous result remains unknown without replay." }
-      : { required: true, reason: "Upserts this provider's complete configuration row after source validation; apply requires human confirmation and target-state revalidation." };
+    : family === "param-filters"
+      ? { required: true, reason: `Changes the selected configuration row; the special id __global__ controls auto-learning for all providers, not just one provider. ${write ? "PUT replaces the complete row." : "DELETE removes the row; an ambiguous response remains unknown without replay."} Apply requires confirmation and target-state revalidation.` }
+      : !write
+        ? { required: true, reason: "Deletes only this provider's configuration row. The matching GET returns defaults for both an absent row and a persisted empty row, so deletion cannot be reconciled from the public response; one human-approved attempt is allowed, and an ambiguous result remains unknown without replay." }
+        : { required: true, reason: "Upserts this provider's complete configuration row after source validation; apply requires human confirmation and target-state revalidation." };
   const pathBoundRequest = constrainProviderPath(template.request, family);
   const request = write ? putRequest(pathBoundRequest, family) : pathBoundRequest;
   const reconciliation = write ? updateRelation(family) : null;
@@ -249,7 +253,7 @@ function sourceContract(operationId: ProviderConfigurationOperationId): Provider
         "The server provides no atomic conditional write; another client can change this configuration after the final read.",
       ],
       observations: [{
-        name: "provider-configuration",
+        name: family === "param-filters" ? "selected-provider-or-global-configuration" : "provider-configuration",
         read: updateRelation(family).targetRead,
         readCompleteness: {
           kind: "single-response",
@@ -319,7 +323,7 @@ export class ProviderConfigurationFixture {
   #failNextWrite = false;
   #readFaultArmed = false;
   #handlers: PinnedProviderConfigurationHandlers;
-  #nextDeleteHold: DeleteHold | undefined;
+  #nextMutationHold: { method: "PUT" | "DELETE"; hold: DeleteHold } | undefined;
   authRequired = true;
 
   constructor(seed: ProviderConfigurationFixtureSeed = {}) {
@@ -383,17 +387,21 @@ export class ProviderConfigurationFixture {
     this.#failNextWrite = true;
   }
 
-  holdNextDeleteResponse(): DeleteHold {
-    let receivedResolve!: () => void;
-    let releaseResolve!: () => void;
+  holdNextMutationResponse(method: "PUT" | "DELETE"): DeleteHold {
+    const received = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
     const hold: DeleteHold = {
-      received: new Promise<void>(resolve => { receivedResolve = resolve; }),
-      wait: new Promise<void>(resolve => { releaseResolve = resolve; }),
-      release: () => releaseResolve(),
-      notifyReceived: () => receivedResolve(),
+      received: received.promise,
+      wait: released.promise,
+      release: released.resolve,
+      notifyReceived: received.resolve,
     };
-    this.#nextDeleteHold = hold;
+    this.#nextMutationHold = { method, hold };
     return hold;
+  }
+
+  holdNextDeleteResponse(): DeleteHold {
+    return this.holdNextMutationResponse("DELETE");
   }
 
   interception(providerId: string): JsonValue {
@@ -402,6 +410,35 @@ export class ProviderConfigurationFixture {
 
   paramFilters(providerId: string): JsonValue {
     return serializableJson(this.#handlers.getParamFilterConfig(providerId)) ?? { block: [], allow: [], autoLearn: false };
+  }
+
+  async recoverUnsupportedParameter(provider: string, parameter: string): Promise<{ status: number; retries: number }> {
+    const persistence = loadPinnedModule("src/lib/db/paramFilters.ts", specifier => {
+      if (specifier === "./core") return { getDbInstance: () => this.#database };
+      throw new Error(`Unapproved param-filter import: ${specifier}`);
+    });
+    const noImports = (specifier: string): never => { throw new Error(`Unapproved recovery dependency import: ${specifier}`); };
+    const strips = loadPinnedModule("open-sse/config/providerFieldStrips.ts", noImports);
+    const kimi = loadPinnedModule("open-sse/utils/kimiK31.ts", noImports);
+    const constants = loadExtractedPinnedDeclarations(["open-sse/config/constants.ts"], ["HTTP_STATUS"], noImports);
+    const recovery = loadPinnedModule("open-sse/executors/base/fieldDowngradeRecovery.ts", specifier => {
+      if (specifier === "@/lib/db/paramFilters") return persistence;
+      if (specifier === "../../config/constants.ts") return constants;
+      if (specifier === "../../utils/kimiK31.ts") return kimi;
+      if (specifier === "../../config/providerFieldStrips.ts") return strips;
+      throw new Error(`Unapproved recovery import: ${specifier}`);
+    });
+    const run = recovery.applyFieldDowngradeRecovery;
+    if (typeof run !== "function") throw new Error("Pinned recovery function is missing");
+    let retries = 0;
+    const result = await run({
+      response: new Response(`Unsupported parameter: ${parameter}`, { status: 400 }),
+      url: "https://fixture.invalid/chat", provider, model: "fixture-model",
+      body: { [parameter]: 1 }, fetchOptions: {},
+      fetchFn: async () => { retries++; return new Response("ok", { status: 200 }); },
+      serializeBody: (body: unknown) => JSON.stringify(body), strippedFields: new Set(),
+    }) as Response;
+    return { status: result.status, retries };
   }
 
   hasStoredConfiguration(family: ConfigFamily, providerId: string): boolean {
@@ -448,13 +485,11 @@ export class ProviderConfigurationFixture {
         { centralAuthRequired: this.authRequired, handlerAuthRequired: this.authRequired },
         forwarded => handler[method](forwarded, { params: Promise.resolve({ id: providerId }) }),
       );
-      if (method === "DELETE" && response.status === 200) {
-        const hold = this.#nextDeleteHold;
-        this.#nextDeleteHold = undefined;
-        if (hold) {
-          hold.notifyReceived();
-          await hold.wait;
-        }
+      if ((method === "PUT" || method === "DELETE") && response.status === 200 && this.#nextMutationHold?.method === method) {
+        const { hold } = this.#nextMutationHold;
+        this.#nextMutationHold = undefined;
+        hold.notifyReceived();
+        await hold.wait;
       }
       return response;
     } finally {

@@ -34,12 +34,15 @@
  */
 
 import { isDeepStrictEqual } from "node:util";
+import { KEY_GRANTS_PREFLIGHT, keyGrantsPreflightMatches, keyGrantsPreflightSnapshot, KEY_POLICY_PREFLIGHT, keyPolicyPreflightMatches, keyPolicyPreflightSnapshot, normalizeKeyRequest } from "./source-keys.ts";
+import { PROXY_USAGE_PREFLIGHT, proxyUsagePreflightInput, proxyUsagePreflightMatches, proxyUsagePreflightSnapshot } from "./source-proxies.ts";
 import type { AdminMethod, JsonValue } from "./types.ts";
 import { normalizeModelCapabilityOverrideRequest } from "./source-model-capability-overrides.ts";
 import { FALLBACK_CHAIN_GET, FALLBACK_CHAIN_POST, FALLBACK_CHAIN_DELETE, FALLBACK_CHAIN_RELATION_VIEW_BINDING, fallbackChainTargetSnapshot, normalizeFallbackChainPayload, type FallbackChainRelationViewId } from "./source-fallback-chains.ts";
 import type { ValidatedOperationInput } from "./registry.ts";
 import {
   comboPreflightSnapshot,
+  comboPreflightReadInput,
   comboPreflightViewMatches,
   isComboPreflightViewId,
   type ComboPreflightViewId,
@@ -98,6 +101,8 @@ const SOURCE_STATE_VIEW_BINDINGS: Readonly<Record<SourceStateViewId, SourceState
 
 const SOURCE_NORMALIZATION_BINDINGS = Object.freeze({
   ...SOURCE_STATE_VIEW_BINDINGS,
+  "omniroute-v3.8.53.keys.create": Object.freeze({ pathTemplate: "/api/keys", methods: Object.freeze(["POST"] as const), section: "body" }),
+  "omniroute-v3.8.53.keys.update": Object.freeze({ pathTemplate: "/api/keys/{id}", methods: Object.freeze(["PATCH"] as const), section: "body" }),
   "omniroute-v3.8.52.model-capability-overrides.patch": Object.freeze({
     pathTemplate: "/api/model-capability-overrides",
     methods: Object.freeze(["PATCH"] as const),
@@ -124,7 +129,7 @@ export function sourceStateViewBinding(id: unknown): SourceStateViewBinding | un
 }
 
 export type ProviderCcAliasRelationViewId = "omniroute-v3.8.52.provider-cc-alias.selected-override";
-export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ComboPreflightViewId | ModelComboMappingRelationViewId | ProviderCcAliasRelationViewId;
+export type SourceRelationViewId = FallbackChainRelationViewId | ComboSourceRelationViewId | ComboPreflightViewId | ModelComboMappingRelationViewId | ProviderCcAliasRelationViewId | typeof KEY_GRANTS_PREFLIGHT | typeof KEY_POLICY_PREFLIGHT | typeof PROXY_USAGE_PREFLIGHT;
 
 const PROVIDER_CC_ALIAS_GET = "GET /api/providers/{id}/cc-alias";
 const PROVIDER_CC_ALIAS_PUT = "PUT /api/providers/{id}/cc-alias";
@@ -250,6 +255,9 @@ export function sourceRelationViewMatches(
 /** A preflight projection binds the mutation and read, without claiming a postcondition. */
 export function sourcePreflightViewMatches(id: unknown, operationId: string, targetReadId: unknown): boolean {
   if (isComboPreflightViewId(id)) return comboPreflightViewMatches(id, operationId, targetReadId);
+  if (id === KEY_GRANTS_PREFLIGHT) return keyGrantsPreflightMatches(id, operationId, targetReadId);
+  if (id === KEY_POLICY_PREFLIGHT) return keyPolicyPreflightMatches(id, operationId, targetReadId);
+  if (id === PROXY_USAGE_PREFLIGHT) return proxyUsagePreflightMatches(id, operationId, targetReadId);
   if (isComboRelationViewId(id)) {
     const binding = COMBO_RELATION_BINDINGS[id];
     return binding.operationIds.includes(operationId) && binding.targetReadId === targetReadId;
@@ -267,14 +275,28 @@ export function sourcePreflightViewMatches(id: unknown, operationId: string, tar
     && targetReadId === FALLBACK_CHAIN_GET;
 }
 
+export function sourcePreflightReadInput(view: unknown, payload: ValidatedOperationInput, input: ValidatedOperationInput): ValidatedOperationInput {
+  return proxyUsagePreflightInput(view, payload, comboPreflightReadInput(view, payload, input));
+}
+
 /** The pinned collection handler returns every SQLite row when neither pagination key is supplied. */
 export function sourceUnpaginatedListProofMatches(operationId: string, proof: unknown, mutationOperationId?: string): boolean {
   if (!isRecord(proof)) return false;
+  const proxyMutations = ["POST /api/settings/proxies", "PATCH /api/settings/proxies", "DELETE /api/settings/proxies", "PUT /api/settings/proxies/assignments"];
+  if (operationId === "GET /api/settings/proxies" && (mutationOperationId === undefined || proxyMutations.includes(mutationOperationId))) {
+    return proof.kind === "unpaginated-list" && isDeepStrictEqual(proof.itemsPath, ["items"])
+      && isDeepStrictEqual(proof.totalPath, ["total"]) && isDeepStrictEqual(proof.identityPaths, [["id"]]);
+  }
+  if (operationId === "GET /api/settings/proxies/assignments" && (mutationOperationId === undefined || proxyMutations.includes(mutationOperationId))) {
+    return proof.kind === "unpaginated-list" && isDeepStrictEqual(proof.itemsPath, ["items"])
+      && isDeepStrictEqual(proof.totalPath, ["total"]) && isDeepStrictEqual(proof.identityPaths, [["id"]]);
+  }
   const comboMutations = ["POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}",
     "DELETE /api/combos/{id}", "POST /api/combos/duplicate", "POST /api/combos/import", "POST /api/combos/reorder", "POST /api/combos/test"];
   const mappingMutations = ["POST /api/model-combo-mappings", "DELETE /api/model-combo-mappings/{id}"];
-  const items = operationId === "GET /api/combos" ? "combos" : operationId === "GET /api/model-combo-mappings" ? "mappings" : undefined;
-  const allowed = operationId === "GET /api/combos" ? comboMutations : mappingMutations;
+  const keyMutations = ["POST /api/keys", "PATCH /api/keys/{id}", "DELETE /api/keys/{id}", "DELETE /api/combos/{id}", "POST /api/combos/import"];
+  const items = operationId === "GET /api/combos" ? "combos" : operationId === "GET /api/model-combo-mappings" ? "mappings" : operationId === "GET /api/keys" ? "keys" : undefined;
+  const allowed = operationId === "GET /api/combos" ? comboMutations : operationId === "GET /api/keys" ? keyMutations : mappingMutations;
   return items !== undefined && (mutationOperationId === undefined || allowed.includes(mutationOperationId))
     && proof.kind === "unpaginated-list"
     && isDeepStrictEqual(proof.itemsPath, [items])
@@ -284,6 +306,9 @@ export function sourceUnpaginatedListProofMatches(operationId: string, proof: un
 
 export function sourceRelationSnapshot(id: SourceRelationViewId, payload: ValidatedOperationInput, response: unknown): JsonValue {
   if (isComboPreflightViewId(id)) return comboPreflightSnapshot(id, response, payload);
+  if (id === KEY_GRANTS_PREFLIGHT) return keyGrantsPreflightSnapshot(response);
+  if (id === KEY_POLICY_PREFLIGHT) return keyPolicyPreflightSnapshot(response);
+  if (id === PROXY_USAGE_PREFLIGHT) return proxyUsagePreflightSnapshot(payload, response);
   if (isComboRelationViewId(id)) return comboRelationSnapshot(id, payload, response);
   if (isModelComboMappingRelationViewId(id)) return modelComboMappingRelationSnapshot(id, payload, response);
   switch (id) {
@@ -303,6 +328,9 @@ export function sourceRelationExpectedPayload(
   originalSnapshot: JsonValue,
 ): ValidatedOperationInput {
   if (isComboPreflightViewId(id)) throw new TypeError("preflight views do not define reconciliation outcomes");
+  if (id === KEY_GRANTS_PREFLIGHT) throw new TypeError("preflight views do not define reconciliation outcomes");
+  if (id === KEY_POLICY_PREFLIGHT) throw new TypeError("preflight views do not define reconciliation outcomes");
+  if (id === PROXY_USAGE_PREFLIGHT) throw new TypeError("preflight views do not define reconciliation outcomes");
   if (isComboRelationViewId(id)) return comboRelationExpectedPayload(id, payload, originalSnapshot);
   if (isModelComboMappingRelationViewId(id)) return modelComboMappingRelationExpectedPayload(id, payload, originalSnapshot);
   switch (id) {
@@ -462,6 +490,7 @@ function normalizeParamFilterRule(value: JsonValue): JsonValue {
 export function normalizeSourceRequest(id: SourceNormalizationId, value: JsonValue): JsonValue {
   if (isComboNormalizationId(id)) return normalizeComboRequest(id, value);
   if (isModelComboMappingRequestCodecId(id)) return normalizeModelComboMappingRequest(id, value);
+  if (id === "omniroute-v3.8.53.keys.create" || id === "omniroute-v3.8.53.keys.update") return normalizeKeyRequest(id, value);
   if (id === "omniroute-v3.8.52.model-capability-overrides.patch") {
     const result = normalizeModelCapabilityOverrideRequest(value);
     if (!result.ok) throw new Error("source model-capability override request is invalid");

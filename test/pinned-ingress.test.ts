@@ -214,6 +214,42 @@ else: raise AssertionError('oversized download accepted')
   }
 });
 
+test("bubblewrap acquisition preflight checks native packages on multiarch hosts", () => {
+  const code = String.raw`
+import importlib.util,sys,types
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.sys.platform='linux'; m.os.uname=lambda: types.SimpleNamespace(machine='x86_64'); m.os.access=lambda *args: True
+installed={'libc6:amd64':'2.39', 'libcap2:amd64':'1:2.66', 'libselinux1:amd64':'3.5'}
+minima={'libc6:amd64':'2.38', 'libcap2:amd64':'1:2.10', 'libselinux1:amd64':'3.1~'}
+queries=[]; comparisons=[]; mode='ok'
+def run(args, **kwargs):
+ if args[0] == '/usr/bin/dpkg-query':
+  package=args[-1]; queries.append(package)
+  # An unqualified multiarch query can concatenate amd64 and i386 records.
+  if ':' not in package: return types.SimpleNamespace(returncode=0, stdout='install ok installed\t2.39install ok installed\t2.39')
+  if mode == 'missing' and package == 'libc6:amd64': return types.SimpleNamespace(returncode=1, stdout='')
+  if mode == 'duplicate' and package == 'libc6:amd64': return types.SimpleNamespace(returncode=0, stdout='install ok installed\t2.39install ok installed\t2.39')
+  return types.SimpleNamespace(returncode=0, stdout='install ok installed\t'+installed[package])
+ assert args[0:2] == ['/usr/bin/dpkg','--compare-versions'] and args[3] == 'ge'
+ comparisons.append((args[2],args[4])); return types.SimpleNamespace(returncode=1 if mode == 'old' else 0)
+m.subprocess.run=run
+m.acquisition_preflight()
+assert queries == list(installed)
+assert comparisons == [(installed[p],minima[p]) for p in installed]
+for mode in ('missing','duplicate','old'):
+ try: m.acquisition_preflight()
+ except RuntimeError: pass
+ else: raise AssertionError('accepted '+mode)
+m.os.uname=lambda: types.SimpleNamespace(machine='aarch64')
+try: m.acquisition_preflight()
+except RuntimeError as e: assert 'Linux x86_64' in str(e)
+else: raise AssertionError('accepted unknown architecture')
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
+  expect(result.status).toBe(0);
+});
+
 test("bubblewrap staging rejects missing approval, unsafe paths, tampering, and oversized output", () => {
   const dir = mkdtempSync(join(tmpdir(), "pinned-bwrap-"));
   try {

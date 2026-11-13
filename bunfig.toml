@@ -1,0 +1,4 @@
+[test]
+# Portable upstream repair regressions run separately with their source runtime.
+# Do not discover them as Bun client tests from provenance/derivations/.
+root = "./test"

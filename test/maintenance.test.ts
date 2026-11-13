@@ -103,13 +103,17 @@ test("duplicate owned records fail closed and untrusted issue text is never used
 
 test("OmniRoute observations use the validated canonical repository while provenance stays pinned", async () => {
   const repositories: string[] = [];
-  const result = await collectFindings(resolve(import.meta.dir, ".."), {
+  const result = await withMaintenanceRoot(provenance => {
+    const upstream = provenance.upstreams.find(item => item.id === "omniroute") as { release?: { tag: string } } | undefined;
+    if (!upstream?.release) throw new Error("Fixture has no OmniRoute release");
+    upstream.release.tag = "v1.0.0";
+  }, root => collectFindings(root, {
     async releaseTag(repository) {
       repositories.push(repository);
-      return repository === "cheaper-inference/OmniRoute" ? "v3.8.53" : "v18.12.5";
+      return repository === "cheaper-inference/OmniRoute" ? "v1.0.1" : "v18.12.5";
     },
     async checkGeneratedDocs() {},
-  });
+  }));
 
   expect(repositories).toEqual(["cheaper-inference/OmniRoute", "can1357/oh-my-pi"]);
   expect(result.collectionErrors).toEqual([]);

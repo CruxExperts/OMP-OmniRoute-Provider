@@ -202,6 +202,8 @@
         "omniroute-v3.8.52.combos.reorder",
         "omniroute-v3.8.52.combos.test",
         "omniroute-v3.8.52.combos.list-query",
+        "omniroute-v3.8.53.keys.create",
+        "omniroute-v3.8.53.keys.update",
         "omniroute-v3.8.53.model-combo-mappings.list-query",
         "omniroute-v3.8.53.model-combo-mappings.create",
         "omniroute-v3.8.53.model-combo-mappings.update"
@@ -250,7 +252,12 @@
             "omniroute-v3.8.52.combos.update",
             "omniroute-v3.8.52.combos.duplicate",
             "omniroute-v3.8.52.combos.reorder",
-            "omniroute-v3.8.52.combos.test"
+            "omniroute-v3.8.52.combos.test",
+            "omniroute-v3.8.53.keys.create",
+            "omniroute-v3.8.53.keys.update",
+            "omniroute-v3.8.53.proxies.create",
+            "omniroute-v3.8.53.proxies.update",
+            "omniroute-v3.8.53.proxies.assign"
           ]
         },
         "sourceNormalizer": {"$ref": "#/$defs/sourceNormalization"}
@@ -652,6 +659,9 @@
                               "omniroute-v3.8.53.combos.selected-auto-preflight",
                               "omniroute-v3.8.53.combos.providers-preflight",
                               "omniroute-v3.8.52.provider-cc-alias.selected-override",
+                              "omniroute-v3.8.53.keys.grants-preflight",
+                              "omniroute-v3.8.53.keys.policy-preflight",
+                              "omniroute-v3.8.53.proxies.delete-usage-preflight",
                               "omniroute-v3.8.53.model-combo-mappings.create-reconcile",
                               "omniroute-v3.8.53.model-combo-mappings.update-reconcile",
                               "omniroute-v3.8.53.model-combo-mappings.delete-reconcile"

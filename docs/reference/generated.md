@@ -37,7 +37,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/a2a | 0 | 6 | 0 |
 | api/acp | 0 | 3 | 0 |
 | api/admin | 0 | 3 | 0 |
-| api/agent-skills | 0 | 5 | 0 |
+| api/agent-skills | 3 | 2 | 0 |
 | api/analytics | 0 | 3 | 0 |
 | api/assess | 0 | 2 | 0 |
 | api/auth | 0 | 12 | 0 |
@@ -48,7 +48,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/cli-tools | 0 | 79 | 0 |
 | api/cloud | 0 | 5 | 0 |
 | api/codex | 0 | 2 | 0 |
-| api/combos | 0 | 15 | 0 |
+| api/combos | 6 | 9 | 0 |
 | api/compliance | 0 | 1 | 0 |
 | api/compression | 0 | 7 | 0 |
 | api/conductor | 0 | 5 | 0 |
@@ -62,7 +62,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/discovery | 0 | 5 | 0 |
 | api/docs | 0 | 2 | 0 |
 | api/evals | 0 | 7 | 0 |
-| api/fallback | 0 | 3 | 0 |
+| api/fallback | 1 | 2 | 0 |
 | api/files | 0 | 2 | 0 |
 | api/free-models | 0 | 1 | 0 |
 | api/free-provider-rankings | 0 | 2 | 0 |
@@ -71,13 +71,13 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/github-skills | 0 | 2 | 0 |
 | api/guardrails | 0 | 4 | 0 |
 | api/headroom | 0 | 3 | 0 |
-| api/health | 0 | 3 | 0 |
+| api/health | 2 | 1 | 0 |
 | api/init | 0 | 1 | 0 |
 | api/intelligence | 0 | 3 | 0 |
 | api/internal | 0 | 1 | 0 |
 | api/issue-agent | 0 | 2 | 0 |
 | api/jobs | 0 | 5 | 0 |
-| api/keys | 0 | 21 | 0 |
+| api/keys | 1 | 20 | 0 |
 | api/local | 0 | 3 | 0 |
 | api/log-export | 0 | 9 | 0 |
 | api/logs | 0 | 5 | 0 |
@@ -85,8 +85,8 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/memory | 0 | 12 | 0 |
 | api/middleware | 0 | 5 | 0 |
 | api/modality-bridge | 0 | 6 | 0 |
-| api/model-capability-overrides | 0 | 3 | 0 |
-| api/model-combo-mappings | 0 | 5 | 0 |
+| api/model-capability-overrides | 1 | 2 | 0 |
+| api/model-combo-mappings | 5 | 0 | 0 |
 | api/models | 0 | 9 | 0 |
 | api/monitoring | 0 | 4 | 0 |
 | api/network | 0 | 1 | 0 |
@@ -99,9 +99,9 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/pricing | 0 | 9 | 0 |
 | api/provider-metrics | 0 | 1 | 0 |
 | api/provider-models | 0 | 6 | 0 |
-| api/provider-nodes | 0 | 5 | 0 |
+| api/provider-nodes | 1 | 4 | 0 |
 | api/provider-stats | 0 | 1 | 0 |
-| api/providers | 0 | 77 | 0 |
+| api/providers | 8 | 69 | 0 |
 | api/proxy-fallback | 0 | 1 | 0 |
 | api/quota | 0 | 19 | 0 |
 | api/radar | 0 | 26 | 0 |
@@ -115,7 +115,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/services | 0 | 76 | 0 |
 | api/session-pools | 0 | 2 | 0 |
 | api/sessions | 0 | 1 | 0 |
-| api/settings | 0 | 151 | 0 |
+| api/settings | 1 | 150 | 0 |
 | api/shutdown | 0 | 1 | 0 |
 | api/skills | 0 | 13 | 0 |
 | api/storage | 0 | 1 | 0 |
@@ -142,5 +142,5 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | dashboard/providers | 0 | 7 | 0 |
 | docs/api | 0 | 0 | 1 |
 | healthz | 0 | 2 | 0 |
-| livez | 0 | 2 | 0 |
+| livez | 2 | 0 | 0 |
 | readyz | 0 | 2 | 0 |

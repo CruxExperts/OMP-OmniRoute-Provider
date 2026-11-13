@@ -3,7 +3,7 @@ import { getOperation, type OperationDescriptor, type JsonSchema } from "../../s
 import type { OperationSourceContract } from "../../src/admin/eligibility.ts";
 import type { CompatibleProviderNode, ReasoningEffortOverrideValue } from "../../src/admin/source-model-capability-overrides.ts";
 import { MODEL_CAPABILITY_OVERRIDE_PATCH_NORMALIZER } from "../../src/admin/source-model-capability-overrides.ts";
-import { createPinnedManagementAuthorization, loadPinnedAccessTokenAuth, loadPinnedModule, providerAliasFromPinnedRegistry } from "./pinned-handler.fixture.ts";
+import { createPinnedManagementAuthorization, loadPinnedAccessTokenAuth, loadPinnedModule, providerAliasFromPinnedRegistry, withPinnedSourceSnapshot } from "./pinned-handler.fixture.ts";
 import { operationContractTemplate } from "../../scripts/generate-contracts.ts";
 
 export const MODEL_CAPABILITY_OVERRIDE_OPERATION_IDS = [
@@ -391,7 +391,7 @@ export class ModelCapabilityOverridesFixture {
     for (const row of options.contexts ?? []) this.#contexts.set(compositeKey(row.provider, row.modelId, "context_length"), structuredClone(row));
     for (const entry of options.apiKeys ?? []) this.#apiKeys.set(entry.key, [...entry.scopes]);
     for (const entry of options.omaTokens ?? []) this.#omaTokens.set(entry.token, entry.scope);
-    this.#authorization = createPinnedManagementAuthorization({
+    this.#authorization = withPinnedSourceSnapshot(() => createPinnedManagementAuthorization({
       isDashboardSession: token => this.#dashboardCookies.has(token)
         || [...this.#dashboardCookies].some(cookie => cookie.split(";").some(segment => segment.trim() === `auth_token=${token}`)),
       verifyAccessToken: token => {
@@ -409,8 +409,8 @@ export class ModelCapabilityOverridesFixture {
         return scopes ? { id: "fixture-key", scopes: [...scopes] } : null;
       },
       internalServiceToken: TRUSTED_LOCAL_SERVICE_TOKEN,
-    });
-    this.#handlers = this.#createPinnedHandlers();
+    }));
+    this.#handlers = withPinnedSourceSnapshot(() => this.#createPinnedHandlers());
     this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => this.handle(request) });
   }
 

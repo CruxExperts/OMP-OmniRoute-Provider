@@ -146,6 +146,9 @@ reference evidence belongs in `provenance/qualification/`, named by its canonica
 content digest. Active eligibility records bind the exact handler, import closure,
 framework context, contract, test source closure, and observed result. A changed
 source, test, contract, or outcome invalidates the previous qualification.
+Each producer records a required case as complete only after every assertion
+establishing that case has passed. Cleanup hooks can run after a failed test;
+an early completion mark must not authorize a receipt for an unfinished proof.
 
 The test fingerprint includes the complete `package.json` and available Bun
 lockfiles, as well as the local import closure. Version and tested-host metadata
@@ -430,6 +433,12 @@ scope and observed state in the confirmation. This does not excuse an unfinished
 client read, a failed available read, or omitted observable routing dependencies.
 A missing target row cannot prove that all dependent cleanup succeeded.
 
+The pinned proxy-assignment store maps a missing table to an empty successful
+read. A complete `items`/`total` response proves response coverage, not that the
+underlying table exists. Bind the observable assignment rows and disclose this
+source visibility limit; never present an empty result as independent proof of
+store health or complete cleanup, and retain unknown settlement when necessary.
+
 For example, a metrics reset can cover all counters for the selected combo even
 when upstream omits some counter values from its GET response. Read and bind the
 exposed metrics, disclose that hidden counters are also cleared, and retain an
@@ -457,6 +466,28 @@ omitted pagination inputs, a raw row count matching the source's total, unique
 identities, and bounded response size before selecting a target. It does not
 implement page traversal. Incomplete, duplicate, oversized, or paginated results
 cannot be used to approve a mutation or establish absence.
+
+Key and proxy source fixtures use the same executor and version 3 safety contract.
+Key output is limited to identifiers and effective combo grants; schema-declared
+noncredential policy fields remain private confirmation inputs. Creation never
+publishes its one-time raw key through that projection. Key deletion also affects
+operator-only budget and cost history, so management-key observations cannot prove
+those dependent records were absent or removed; settlement remains unknown.
+
+Proxy preflight binds source-visible registry and assignment state separately from
+public output. Exact source-qualified unpaginated reads require empty collection
+queries, matching totals and unique identities, including finite numeric assignment
+IDs. A delete-specific read injects `whereUsed=1` only for its closed source view.
+Masked credentials and unexposed rotation cursors remain visibility limits, not
+claims of complete cleanup. These synthetic fixture authorities are not release
+receipts and do not remove any operation's qualification hold.
+
+Provider parameter-filter mutations can select the reserved `__global__` row.
+Its auto-learning policy affects all providers, not only the path's apparent
+provider identifier. Confirmations disclose this scope; selected-row preflight
+rechecks the global row before dispatch. Independent source-handler cases exercise
+the downstream recovery branch for two providers, global-row drift, and lost
+responses without replay. This reread is not an atomic lock against other writers.
 
 An empty active eligibility list is a valid fail-closed development state. It does
 not satisfy release acceptance. Historical qualification is retained separately

@@ -4,6 +4,31 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Align scoped authorization with the pinned 3.8.53 key, reveal, and settings
+  policy. Exercise key and proxy lifecycles with private target bindings, exact
+  complete-list proofs, cancellation, credential rotation, and no replay after
+  uncertain writes; these synthetic tests do not grant release eligibility.
+- Qualify the isolated native handler dependency closure without adding client
+  runtime dependencies or browser downloads. Preserve disclosed dependency risk
+  and separate cold/warm observations from operation receipts.
+- Query native-architecture libraries explicitly during helper staging so
+  multiarch package installations cannot concatenate incompatible status records.
+- Restrict Bun discovery to the client test directory; portable upstream startup
+  regressions retain their separate Node and native database qualification path.
+  Keep maintenance repository-routing checks independent of the current pin.
+- Disclose the all-provider effect of the reserved parameter-filter identifier
+  `__global__`. Exercise the upstream recovery branch for two providers, reject
+  changed global-row previews, and keep lost mutation responses unknown without
+  replaying them.
+- Restore current-source provider-node and provider-alias reads only after joining
+  their independently observed handlers to exact ingress and cold/warm database
+  evidence. Provider collection writes remain unavailable pending their complete
+  cross-store effect and settlement proofs.
+- Produce source-bound key inventory and proxy assignment read observations with
+  current response and query provenance. Distinguish missing-table empty success
+  from ordinary storage errors, and disclose that structural response completeness
+  does not independently establish healthy storage or successful cascading cleanup.
+
 - Expand isolated management-policy observations to 39 exact family method/path
   cases with independent read/write/admin token outcomes. Keep policy controls,
   native cold/warm family persistence observations, and operation qualification

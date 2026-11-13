@@ -241,10 +241,9 @@ const REQUIRED_CASES: Readonly<Record<typeof PROVIDER_FAMILY_OPERATION_IDS[numbe
   [DELETE_PROVIDERS]: ["human-delete", "validation", "conditional-management-auth"],
 };
 
-// No operation is eligible for an outcome artifact until independent ingress
-// and the cold database lifecycle effects are qualified. Writes remain held.
+// Writes remain held until their independent effect and safety evidence is qualified.
 const HELD_SOURCE_ONLY_OPERATION_IDS = new Set<string>([
-  GET_PROVIDERS, POST_PROVIDERS, PATCH_PROVIDERS, DELETE_PROVIDERS,
+  POST_PROVIDERS, PATCH_PROVIDERS, DELETE_PROVIDERS,
 ]);
 
 const completedCases = new Map<string, Set<string>>();
