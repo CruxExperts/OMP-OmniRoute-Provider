@@ -1,0 +1,103 @@
+{
+  "status": "research-observed",
+  "qualification": false,
+  "boundary": "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.",
+  "inputSha256": {
+    "test/pinned-ingress.test.ts": "da11c79232617d2cfaba4c7181c1c76c0bebcbb9c6e32d85b75f328e8f5631af",
+    "test/pinned-ingress.test.ts.inputs.json": "40ba8823786e00794e7f3c498f4e7b73ce5b152396f688a7e5cfb42fd894426d",
+    ".github/workflows/qualification.yml": "8b7dce5f39e1418c7357014a5894b21e8c0eac401a9305cb8136a5a6261a4dfe",
+    ".github/crux-experts-release-signing-key.asc": "7cb100f640dfa00deb6c12b7dbc5ed974319d3275e92d203743b7c5b37b97523",
+    "provenance/upstreams.json": "c010fed3ca945d22f2ac2498981ebb1e29134b4add4a6f15e0c8ae002150f609",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json.asc": "8e1a50fd30bb3cb81ae68c0bf0dfd48c01a6c1e5fad4c3db62a954c67dd57a8c",
+    "provenance/derivations/omniroute-3.8.53-startup/files/src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd",
+    "provenance/derivations/omniroute-3.8.53-startup/files/tests/unit/db-async-fresh-startup.test.ts": "9e9811c881d6919970aa8cba69babd2c989590a994a3a80f39a2993b155673fa",
+    "provenance/derivations/omniroute-3.8.53-startup/files/changelog.d/fixes/async-fresh-database-startup.md": "2b254dccffe5de0de1f1622031403e0e191a319943fe8221f92e24e494f4d905",
+    "scripts/prepare-upstream.py": "d7a6fa052315e0a6b09e109e7618be312f3f91762561ef5098a51aa3e9f07e53",
+    "scripts/pinned-ingress.py": "38c12d63a066914e47ab20d376f34cbe24fdcf5901a2ff7359f8bd71b382d3fc",
+    "scripts/pinned-ingress-driver.mjs": "9e687dcd6a1fdae3bd921dbf65d1c9dd73f59e405c7530ebff19238db5532cb8",
+    "test/fixtures/pinned-ingress/alias-map.json": "60407ee079bd32b41cdc2cfb3446ac534ce96eb0a3192b75e88f58df869aa734",
+    "test/fixtures/pinned-ingress/backend/core.ts": "b297d100fc39da0ba30efcfa020722cec6c11d6c0ad98e30c52cba2d9a0eaa1b",
+    "test/fixtures/pinned-ingress/backend/settings.ts": "0f50d7add65bb63371059a1501e04b8cd7c9dd4012389ac65f3f1d8a43d70bfb",
+    "test/fixtures/pinned-ingress/database-lifecycle.mjs": "9619dcf57f6b05850c791dd859d2228909d38322cce6f49a5af7113227814bad",
+    "test/fixtures/pinned-ingress/dependencies.json": "bcead4fd3aef29cb5c84ea6221951f5439a02f1b21b4a70c7b1cda5017c92a93",
+    "test/fixtures/pinned-ingress/driver.mjs": "81f63b70fbb9231c574c623a8eb595df48a22ff2f0e180a1b3417041dada887b",
+    "test/fixtures/pinned-ingress/extracted/auth.ts": "7b0d42ab6aeae64260a89afd5bcd0b06c6d8da4c445cbaa6d71c32115850f9c7",
+    "test/fixtures/pinned-ingress/extracted/degradation-control.ts": "8a1568d22b55491fa476fbcd1a7e4bc4ed42d4c425c0fda52a70685c37bf781b",
+    "test/fixtures/pinned-ingress/extracted/feature-flag-cache.ts": "dd1e50f30a3523cfb78ffbff3d71e526f26874b9fa93e78860fcd43078da14e7",
+    "test/fixtures/pinned-ingress/extracted/runtime-settings.ts": "e07414a99f9c97ddd402cabfa3f25382ff8e8a33593be2971fa0fd3864af1d3a",
+    "test/fixtures/pinned-ingress/extracted/shutdown.ts": "f6191212cb27a5e6119959bebbd25bc451fc16cd71eb50543d9f89bceb7b3753",
+    "test/fixtures/pinned-ingress/extracted/sync.ts": "114aa1fae5a4b335f6cb32819ecf52a3bee97b179a5655ca08cfb9100167e508",
+    "test/fixtures/pinned-ingress/initialize.mjs": "c12112dd6f50cb21b05d26cf9b7207407c334e055fa1af742355323e03cc7283",
+    "test/fixtures/pinned-ingress/next.config.mjs": "e83738e7a4c573be4cc27da9ae58c0a9f925e531edd7e0850f544fa3afaabd96",
+    "test/fixtures/pinned-ingress/routes/management.ts": "83d15ec044f2a9c1838a25c02149f96902ab93c3fe10dbb6246bc44f848f51aa",
+    "test/fixtures/pinned-ingress/runtime.json": "9360df4ecbefd7a12b62f1dcd8999057cdadbaf43f0208c501413f5dd1ea4f53",
+    "test/fixtures/pinned-ingress/source-manifest.json": "1e51a0b5e36ad5cce469a7e896c01511251b4856a43a03228763e6155170d801"
+  },
+  "identity": {
+    "sourceArchiveSha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
+    "nodeSha256": "62d66443847de1f527f74afe715900b12884ace52136dc9cd8e91e61acc2f527",
+    "workerSourceSha256": "184dfa905c1cfbec32e7fc9864076541cb5482f8757e9c0c15a03f978422cda7",
+    "productionRecipeSha256": "7316ffc401bf4ab79908b7cb324de41aae617eeb06bb673cb2bd802a0920acbb",
+    "workerBuildArguments": [
+      "--bundle",
+      "--platform=node",
+      "--packages=external",
+      "--format=esm"
+    ],
+    "workerOutputSha256": "866a8efd23bda1fc249c55d6dd97ba2aaa27c64bac6df929c85a589bdc4b09b5",
+    "runnerSourceSha256": "9619dcf57f6b05850c791dd859d2228909d38322cce6f49a5af7113227814bad",
+    "runnerArguments": [
+      "/runtime/node",
+      "--import",
+      "tsx/esm",
+      "/work/app/src/lib/db/pinnedLifecycleFixture.mjs"
+    ],
+    "sourceDerivation": {
+      "record": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+      "sha256": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+    },
+    "effectiveTreeSha256": "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851",
+    "sourceFilesManifestSha256": "0b50aa9024d58dfa327f894749be5c63eec00c97e329961ef24f5b520f2f4eee",
+    "migrationSqlManifestSha256": "4e0756de624795b1d620a14e09192d5737bd5c6183a381a470bdb295c955add9",
+    "sourceFileCount": 6756,
+    "migrationSqlCount": 222
+  },
+  "isolation": {
+    "network": "private-loopback-only",
+    "capabilities": "dropped",
+    "source": "read-only",
+    "processes": "separate-cold-warm",
+    "startupRegressions": "passed"
+  },
+  "cold": {
+    "phase": "cold",
+    "driver": "node:sqlite",
+    "ping": true,
+    "healthWorker": true,
+    "healthy": true,
+    "settingsPersisted": true,
+    "runtimeSettingApplied": true,
+    "hotReloadFailure": false,
+    "databaseExistedBefore": false,
+    "tableCount": 145,
+    "migrationCount": 222,
+    "tableSha256": "c89da18f911cdc57db54361bd597869072fede63d6ca5fe98b4314619cbe9d8a",
+    "migrationSha256": "ac6fdf704a5fdbda32588fae2bc6abe96b044612ad946bba648b253f8f638f8b"
+  },
+  "warm": {
+    "phase": "warm",
+    "driver": "node:sqlite",
+    "ping": true,
+    "healthWorker": true,
+    "healthy": true,
+    "settingsPersisted": true,
+    "runtimeSettingApplied": false,
+    "hotReloadFailure": false,
+    "databaseExistedBefore": true,
+    "tableCount": 145,
+    "migrationCount": 222,
+    "tableSha256": "c89da18f911cdc57db54361bd597869072fede63d6ca5fe98b4314619cbe9d8a",
+    "migrationSha256": "ac6fdf704a5fdbda32588fae2bc6abe96b044612ad946bba648b253f8f638f8b"
+  }
+}

@@ -42,7 +42,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   const declaration = JSON.parse(readFileSync(resolve(root, declarationPath), "utf8")) as { files: string[] };
   const sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
   const publicCase = (name: string, bypass: string) => ({ name, input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } });
-  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 }));
+  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes", "/api/model-capability-overrides"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: 200, writeScopeStatus: 200, adminScopeStatus: 200 }));
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
     source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256, sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 },
@@ -52,13 +52,13 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     publicHealthHttp: { method: "GET", path: "/api/health", anonymous: true, status: 200, bodyKeys: ["status", "timestamp"], timestampFormatAndRequestWindowValid: true, cacheControl: "no-store, no-cache, must-revalidate", contentType: "application/json", routeClass: "PUBLIC", requestIdUuid: true, drain: { status: 503, code: "SERVICE_UNAVAILABLE", message: "Server is shutting down", requestIdUuid: true, correlationMatchesRequestId: true, retryAfter: "5", contentType: "application/json", routeClass: "PUBLIC", recoveryStatus: 200 }, cors: { configuredAllowedOrigin: "https://allowed.example", allowedOriginEchoed: true, unlistedOriginOmitted: true, credentialsOmitted: true } },
     sharedAuthentication: [publicCase("default-bypass-health", "source-default"), publicCase("disabled-bypass-health", "disabled")],
     publicHealthIpFilter: { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } },
-    readPolicy: policies,
-    modelCapabilityOverridesPolicy: { method: "GET", path: "/api/model-capability-overrides", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 },
+    familyPolicy: policies,
   };
   const cases = [
     ["GET /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
     ["GET /api/providers/{id}/cc-alias", "src/app/api/providers/[id]/cc-alias/route.ts"],
     ["GET /api/provider-nodes", "src/app/api/provider-nodes/route.ts"],
+    ["GET /api/model-capability-overrides", "src/app/api/model-capability-overrides/route.ts"],
   ] as const;
   function check(value: unknown, binding: OperationEvidenceBinding, operation: string, error?: RegExp) {
     const bytes = Buffer.from(JSON.stringify(value));
@@ -74,23 +74,15 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   for (const [index, [operation, route]] of cases.entries()) {
     const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route], sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
     check(artifact, binding, operation);
-    check({ ...artifact, readPolicy: undefined }, binding, operation, /read policy observation mismatch/);
-    check({ ...artifact, readPolicy: policies.filter((_, i) => i !== index) }, binding, operation, /read policy observation mismatch/);
-    check({ ...artifact, readPolicy: [...policies, policies[index]] }, binding, operation, /read policy observation mismatch/);
-    for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
-      check({ ...artifact, readPolicy: policies.map((policy, i) => i === index ? { ...policy, [key]: value } : policy) }, binding, operation, /read policy observation mismatch/);
+    check({ ...artifact, familyPolicy: undefined }, binding, operation, /familyPolicy/);
+    check({ ...artifact, familyPolicy: policies.filter((_, i) => i !== index) }, binding, operation, /family policy observation mismatch/);
+    check({ ...artifact, familyPolicy: [...policies, policies[index]] }, binding, operation, /family policy observation mismatch/);
+    for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["readScopeStatus", 403], ["writeScopeStatus", 403], ["adminScopeStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
+      check({ ...artifact, familyPolicy: policies.map((policy, i) => i === index ? { ...policy, [key]: value } : policy) }, binding, operation, /family policy observation mismatch/);
     }
     check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /source mismatch/);
     check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch/);
   }
-  const capabilityBinding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)["src/app/api/model-capability-overrides/route.ts"], sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
-  const capabilityOperation = "GET /api/model-capability-overrides";
-  check(artifact, capabilityBinding, capabilityOperation);
-  check({ ...artifact, modelCapabilityOverridesPolicy: undefined }, capabilityBinding, capabilityOperation, /capability policy observation mismatch/);
-  for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
-    check({ ...artifact, modelCapabilityOverridesPolicy: { ...artifact.modelCapabilityOverridesPolicy, [key]: value } }, capabilityBinding, capabilityOperation, /capability policy observation mismatch/);
-  }
-  check(artifact, { ...capabilityBinding, handlerSha256: "0".repeat(64) }, capabilityOperation, /source mismatch/);
 }, 120_000);
 
 test("ingress rejects an unapproved Node executable before starting the sandbox", () => {
@@ -712,11 +704,21 @@ with tempfile.TemporaryDirectory() as temp:
   rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response(value)})
  for method,path in [('GET','/api/model-combo-mappings'),('POST','/api/model-combo-mappings'),('GET','/api/model-combo-mappings/fixture-id'),('PUT','/api/model-combo-mappings/fixture-id'),('DELETE','/api/model-combo-mappings/fixture-id')]:
   rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
- for method,path in [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]:
-  rows.append({'case':method+' '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
- rows.append({'case':'GET /api/model-capability-overrides','denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
- for path in ('/api/fallback/chains','/api/providers/fixture-id/cc-alias','/api/provider-nodes'):
-  rows.append({'case':'GET '+path,'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'allowed':response({'fixture':'management-handler-reached'})})
+ family_methods = {
+  '/api/combos': ('GET','POST'), '/api/combos/fixture-id': ('GET','PUT','PATCH','DELETE'),
+  '/api/combos/auto': ('GET',), '/api/combos/builder/options': ('GET',), '/api/combos/metrics': ('GET','DELETE'),
+  '/api/combos/export': ('GET',), '/api/combos/import': ('POST',), '/api/combos/duplicate': ('POST',),
+  '/api/combos/reorder': ('POST',), '/api/combos/test': ('POST',), '/api/fallback/chains': ('GET','POST','DELETE'),
+  '/api/model-capability-overrides': ('GET','PATCH','DELETE'), '/api/provider-nodes': ('GET','POST'),
+  '/api/providers': ('GET','POST','PATCH','DELETE'), '/api/providers/fixture-id/cc-alias': ('GET','PUT'),
+  '/api/providers/fixture-id/interception-rules': ('GET','PUT','DELETE'), '/api/providers/fixture-id/param-filters': ('GET','PUT','DELETE'),
+  '/api/keys': ('GET',), '/api/keys/fixture-id': ('GET',), '/api/settings/proxies/assignments': ('GET',), '/api/models': ('GET',),
+ }
+ for path,methods in family_methods.items():
+  for method in methods:
+   mutation = method != 'GET'; admin = mutation and (path == '/api/providers' or path.startswith('/api/providers/'))
+   observed = lambda status: {'status':status,'routeClass':'MANAGEMENT',**({'body':{'fixture':'management-handler-reached'}} if status == 200 else {})}
+   rows.append({'case':method+' '+path,'denied':observed(401),'invalid':observed(401),'allowed':observed(200),'readScope':observed(403 if mutation else 200),'writeScope':observed(403 if admin else 200),'adminScope':observed(200)})
  live = {'status':200,'body':'ok\n','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None}
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}, 'livenessHead':{name:{**live,'body':''} for name in ('anonymous','invalidCredential','session')}}
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
@@ -732,13 +734,12 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
  assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
- assert [(item['method'],item['path']) for item in exported['comboPolicy']] == [('GET','/api/combos'),('GET','/api/combos/fixture-id'),('GET','/api/combos/auto'),('GET','/api/combos/builder/options'),('GET','/api/combos/metrics'),('DELETE','/api/combos/metrics')]
- assert exported['modelCapabilityOverridesPolicy'] == {'method':'GET','path':'/api/model-capability-overrides','routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200}
- assert [item['path'] for item in exported['readPolicy']] == ['/api/fallback/chains','/api/providers/fixture-id/cc-alias','/api/provider-nodes']
- assert all(item == {'method':'GET','path':item['path'],'routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200} for item in exported['readPolicy'])
- assert any('not the pinned handlers or their semantics' in limitation for limitation in exported['limitations'])
- assert any('does not execute the capability overrides handler' in limitation for limitation in exported['limitations'])
- assert any('does not execute combo handlers' in limitation for limitation in exported['limitations'])
+ assert len(exported['familyPolicy']) == 39
+ family = {item['method']+' '+item['path']:item for item in exported['familyPolicy']}
+ assert family['POST /api/providers']['readScopeStatus'] == 403 and family['POST /api/providers']['writeScopeStatus'] == 403 and family['POST /api/providers']['adminScopeStatus'] == 200
+ assert family['POST /api/provider-nodes']['readScopeStatus'] == 403 and family['POST /api/provider-nodes']['writeScopeStatus'] == 200
+ assert family['GET /api/providers']['readScopeStatus'] == 200
+ assert all(key not in exported for key in ('comboPolicy','modelCapabilityOverridesPolicy','readPolicy'))
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
@@ -803,7 +804,6 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['results'] = rows[:-1]; put('data/pinned-ingress-observations.json',ingress); rejected()
  ingress['results'] = rows; rows[5]['recovered']['status'] = 503; put('data/pinned-ingress-observations.json',ingress); rejected()
  rows[5]['recovered']['status'] = 200
- rows[14], rows[15] = rows[15], rows[14]; put('data/pinned-ingress-observations.json',ingress); rejected(); rows[14], rows[15] = rows[15], rows[14]
  rows.append(rows[-1]); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.pop()
  for mapping in rows[8:]:
   for endpoint,key,bad in [('denied','status',200),('invalid','status',200),('allowed','status',403),('denied','routeClass','PUBLIC'),('invalid','routeClass','PUBLIC'),('allowed','routeClass','PUBLIC')]:
@@ -811,6 +811,11 @@ with tempfile.TemporaryDirectory() as temp:
   original = mapping['case']; mapping['case'] = 'GET /api/wrong'; put('data/pinned-ingress-observations.json',ingress); rejected(); mapping['case'] = original
  for row in rows[10:]:
   original = row['allowed']['body']; row['allowed']['body'] = {'fixture':'wrong'}; put('data/pinned-ingress-observations.json',ingress); rejected(); row['allowed']['body'] = original
+ for row in rows[15:]:
+  for branch in ('readScope','writeScope','adminScope'):
+   original = row.pop(branch); put('data/pinned-ingress-observations.json',ingress); rejected(); row[branch] = original
+   original = row[branch]['status']; row[branch]['status'] = 401; put('data/pinned-ingress-observations.json',ingress); rejected(); row[branch]['status'] = original
+   original = row[branch]['routeClass']; row[branch]['routeClass'] = 'PUBLIC'; put('data/pinned-ingress-observations.json',ingress); rejected(); row[branch]['routeClass'] = original
  for name in m.POLICY_SOURCES:
   original = identity['addedSourceSha256'][name]; identity['addedSourceSha256'][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][name] = original
  original = degradation['summary']['body']; degradation['summary']['body'] = body; put('data/pinned-ingress-observations.json',ingress); rejected(); degradation['summary']['body'] = original
@@ -883,6 +888,30 @@ with tempfile.TemporaryDirectory() as d:
  except RuntimeError: pass
  else: raise AssertionError('oversized lifecycle log accepted')
  identity['workerOutputSha256']=h; put('core-identity.json',identity)
+ success={'status':200,'body':{'success':True}}
+ def reply(body): return {'status':200,'body':body}
+ provider={'phase':'cold','results':[
+  {'route':'interception-rules','before':reply({}),'applied':success,'after':reply({'interceptSearch':True}),'deleted':success,'restored':reply({})},
+  {'route':'param-filters','before':reply({'block':[],'allow':[],'autoLearn':False}),'applied':success,'after':reply({'block':['temperature'],'allow':[],'autoLearn':False}),'deleted':success,'restored':reply({'block':[],'allow':[],'autoLearn':False})},
+  {'route':'cc-alias','before':reply({'provider':None,'models':{}}),'applied':success,'after':reply({'provider':'on','models':{}})}]}
+ pwarm=reply({'provider':'on','models':{}})
+ collection={'getStatus':200,'patchStatus':200,'patchCount':1,'patchedActive':True,'deleteStatus':200,'deleteCount':1,'deletedAbsent':True,'nodeGetStatus':200,'nodeCount':0}
+ node={'status':201,'persisted':True,'prefix':'native-fixture-node'}
+ cases=[('GET /api/keys',200),('GET /api/keys/{id}',200),('GET /api/settings/proxies/assignments',200),('GET /api/v1/management/proxies/assignments',200),('GET /api/v1/management/proxies/assignments',400),('GET /api/models',200),('GET /api/models',400),('POST /api/combos',201),('GET /api/settings/proxies/assignments',200),('GET /api/v1/management/proxies/assignments',200),('POST /api/combos',201),('PATCH /api/combos/{id}',200),('PUT /api/combos/{id}',200),('GET /api/combos/{id}',200),('GET /api/combos',200),('POST /api/combos/reorder',200),('GET /api/combos/export',200),('POST /api/combos/import',200),('POST /api/combos/import',400),('DELETE /api/combos/{id}',200),('GET /api/settings/proxies/assignments',200),('GET /api/keys/{id}',200),('POST /api/combos/import',200),('GET /api/combos/auto',200),('GET /api/combos/builder/options',200),('POST /api/combos/duplicate',201),('GET /api/combos/metrics',200),('DELETE /api/combos/metrics',200),('POST /api/combos/duplicate',422),('POST /api/combos/test',404)]
+ combo={'phase':'cold','driver':'node:sqlite','observations':[{'operation':op,'status':status,'mediaType':'application/json'} for op,status in cases],'grantAfterDelete':['combo/*'],'deletedAbsent':True,'importedPersisted':True,'exportSecretAbsent':True}
+ cwarm={'phase':'warm','driver':'node:sqlite','importedPersisted':True,'deletedAbsent':True}
+ for name,value in [('provider-lifecycle.json',provider),('provider-warm.json',pwarm),('provider-collection-lifecycle.json',collection),('provider-node-create.json',node),('cold-combo-lifecycle.json',combo),('warm-combo-lifecycle.json',cwarm)]: put(name,value)
+ def reject_without_export():
+  reject()
+  assert not (p/'export').exists(), 'invalid observation left partial success artifacts'
+ provider['results'][0]['after']['body']={}; put('provider-lifecycle.json',provider); reject_without_export()
+ provider['results'][0]['after']['body']={'interceptSearch':True}; put('provider-lifecycle.json',provider)
+ put('provider-warm.json',reply({'provider':None,'models':{}})); reject_without_export(); put('provider-warm.json',pwarm)
+ collection['deletedAbsent']=False; put('provider-collection-lifecycle.json',collection); reject_without_export(); collection['deletedAbsent']=True; put('provider-collection-lifecycle.json',collection)
+ node['persisted']=False; put('provider-node-create.json',node); reject_without_export(); node['persisted']=True; put('provider-node-create.json',node)
+ combo['observations'][0]['status']=500; put('cold-combo-lifecycle.json',combo); reject_without_export(); combo['observations'][0]['status']=200; put('cold-combo-lifecycle.json',combo)
+ cwarm['importedPersisted']=False; put('warm-combo-lifecycle.json',cwarm); reject_without_export(); cwarm['importedPersisted']=True; put('warm-combo-lifecycle.json',cwarm)
+ (p/'provider-node-create.json').unlink(); reject_without_export(); put('provider-node-create.json',node)
  m.export_core_lifecycle(p,{})
  result=json.loads((p/'export/core-lifecycle.json').read_text())
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
@@ -893,6 +922,9 @@ with tempfile.TemporaryDirectory() as d:
  assert result['cold']['hotReloadFailure'] is False and result['warm']['hotReloadFailure'] is False
  assert result['cold']['tableSha256']==result['warm']['tableSha256'] and result['cold']['migrationSha256']==result['warm']['migrationSha256']
  assert result['isolation']=={'network':'private-loopback-only','capabilities':'dropped','source':'read-only','processes':'separate-cold-warm','startupRegressions':'passed'}
+ for name in ('provider-lifecycle.json','provider-collection-lifecycle.json','provider-node-create.json','combo-lifecycle.json'):
+  artifact=json.loads((p/'export'/name).read_text())
+  assert artifact['qualification'] is False and 'private-canary' not in json.dumps(artifact)
 `;
   const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
   expect(result.stderr).toBe("");

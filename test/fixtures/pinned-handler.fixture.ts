@@ -54,7 +54,48 @@ export interface PinnedManagementAuthorization {
   ): Promise<Response>;
 }
 
+let cachedManifest: { digest: string; value: SourceManifest } | undefined;
+let sourceSnapshotDepth = 0;
+
+/** Verify a synchronous transaction's file bytes at both boundaries. */
+export function withStableManifestBytes<T>(path: string, action: () => T): T {
+  const digest = () => createHash("sha256").update(readFileSync(path)).digest("hex");
+  const before = digest();
+  try {
+    const result = action();
+    if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result && typeof result.then === "function") {
+      throw new Error("Pinned source snapshot cannot escape asynchronously");
+    }
+    return result;
+  } finally {
+    if (digest() !== before) throw new Error("Pinned source manifest changed during snapshot");
+  }
+}
+
+/** Scope only synchronous fixture graph construction, never a running handler. */
+export function withPinnedSourceSnapshot<T>(action: () => T): T {
+  if (sourceSnapshotDepth > 0) {
+    const result = action();
+    if (result !== null && (typeof result === "object" || typeof result === "function") && "then" in result && typeof result.then === "function") {
+      throw new Error("Pinned source snapshot cannot escape asynchronously");
+    }
+    return result;
+  }
+  return withStableManifestBytes(MANIFEST_PATH, () => {
+    manifest();
+    sourceSnapshotDepth++;
+    try { return action(); } finally { sourceSnapshotDepth--; }
+  });
+}
+
+
 function manifest(): SourceManifest {
+  if (sourceSnapshotDepth > 0 && cachedManifest) return cachedManifest.value;
+  const digest = createHash("sha256").update(readFileSync(MANIFEST_PATH)).digest("hex");
+  if (cachedManifest) {
+    if (cachedManifest.digest !== digest) throw new Error("Pinned source manifest changed after authentication");
+    return cachedManifest.value;
+  }
   const value = readRouteSources(MANIFEST_PATH);
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Pinned OmniRoute source manifest is not an object");
@@ -64,6 +105,8 @@ function manifest(): SourceManifest {
     throw new Error("Pinned OmniRoute handler fixture is bound to unexpected upstream source");
   }
   if (!Array.isArray(candidate.sourceCorpus?.files)) throw new Error("Pinned source manifest omitted corpus receipts");
+  if (createHash("sha256").update(readFileSync(MANIFEST_PATH)).digest("hex") !== digest) throw new Error("Pinned source manifest changed during authentication");
+  cachedManifest = { digest, value: candidate as SourceManifest };
   return candidate as SourceManifest;
 }
 
@@ -518,6 +561,17 @@ export function loadExtractedPinnedDeclarations(
     specifier => specifier === "zod" ? zod : restrictedRequire(specifier),
   );
 }
+// Compiled code is reusable, but exports and dependency bindings never are.
+// Every caller still authenticates its source bytes before reaching this cache.
+const compiledPinnedSources = new Map<string, string>();
+const pinnedCompilerOptions: ts.CompilerOptions = {
+  module: ts.ModuleKind.CommonJS,
+  target: ts.ScriptTarget.ES2022,
+  esModuleInterop: true,
+  importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove,
+};
+const pinnedCompilerIdentity = JSON.stringify({ version: ts.version, options: pinnedCompilerOptions });
+
 
 function executeCommonJs(
   path: string,
@@ -525,15 +579,15 @@ function executeCommonJs(
   restrictedRequire: PinnedRequire,
   dateConstructor: DateConstructor = globalThis.Date,
 ): PinnedExports {
-  const compiled = ts.transpileModule(source, {
-    fileName: path.replace(/\.mjs$/, ".js"),
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-      esModuleInterop: true,
-      importsNotUsedAsValues: ts.ImportsNotUsedAsValues.Remove,
-    },
-  }).outputText;
+  const key = createHash("sha256").update(pinnedCompilerIdentity).update("\0").update(path).update("\0").update(source).digest("hex");
+  let compiled = compiledPinnedSources.get(key);
+  if (compiled === undefined) {
+    compiled = ts.transpileModule(source, {
+      fileName: path.replace(/\.mjs$/, ".js"),
+      compilerOptions: pinnedCompilerOptions,
+    }).outputText;
+    compiledPinnedSources.set(key, compiled);
+  }
   const module = { exports: {} as PinnedExports };
   const scopedRequire = (specifier: string): unknown => {
     if (specifier === "zod") return zod;

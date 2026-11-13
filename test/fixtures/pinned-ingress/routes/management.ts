@@ -4,4 +4,5 @@ export const dynamic = "force-dynamic";
 export async function GET() { return NextResponse.json({ fixture: "management-handler-reached" }); }
 export const POST = GET;
 export const PUT = GET;
+export const PATCH = GET;
 export const DELETE = GET;

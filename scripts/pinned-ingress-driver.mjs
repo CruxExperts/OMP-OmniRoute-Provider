@@ -1,5 +1,5 @@
 // Executed only inside the reviewed private, loopback-only ingress sandbox.
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
@@ -17,7 +17,8 @@ const cookie = `auth_token=${payload}.${createHmac('sha256', secret).update(payl
 const db = new DatabaseSync(`${dir}/metrics.sqlite`);
 db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_input INTEGER, tokens_cache_read INTEGER, tokens_cache_creation INTEGER);
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
-const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true }, tokens: [] };
+const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
+const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true }, tokens: Object.entries(scopedTokens).map(([scope, token]) => ({ id: `fixture-${scope}`, token_hash: createHash('sha256').update(token).digest('hex'), token_prefix: 'oma_live_fixtu', name: `fixture-${scope}`, scope, created_at: '2025-01-01T00:00:00.000Z', last_used_at: null, expires_at: null, revoked_at: null })) };
 await writeFile(`${dir}/state.json`, JSON.stringify(state), { mode: 0o600 });
 await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
@@ -169,30 +170,60 @@ try {
     assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT'), `mapping-policy:${method}:${path}`);
     results.push({ case: `${method} ${path}`, denied, invalid, allowed });
   }
-  // These routes are reachability controls, not the pinned combo handlers.
-  for (const [method, path] of [['GET', '/api/combos'], ['GET', '/api/combos/fixture-id'], ['GET', '/api/combos/auto'], ['GET', '/api/combos/builder/options'], ['GET', '/api/combos/metrics'], ['DELETE', '/api/combos/metrics']]) {
+  // These exact method/path cases observe policy reachability, not actual handlers.
+  const familyPolicyCases = [
+    ['DELETE', '/api/combos/metrics'],
+    ['DELETE', '/api/combos/fixture-id'],
+    ['DELETE', '/api/fallback/chains'],
+    ['DELETE', '/api/model-capability-overrides'],
+    ['DELETE', '/api/providers'],
+    ['DELETE', '/api/providers/fixture-id/interception-rules'],
+    ['DELETE', '/api/providers/fixture-id/param-filters'],
+    ['GET', '/api/combos'],
+    ['GET', '/api/combos/fixture-id'],
+    ['GET', '/api/combos/auto'],
+    ['GET', '/api/combos/builder/options'],
+    ['GET', '/api/combos/export'],
+    ['GET', '/api/combos/metrics'],
+    ['GET', '/api/keys'],
+    ['GET', '/api/keys/fixture-id'],
+    ['GET', '/api/models'],
+    ['GET', '/api/settings/proxies/assignments'],
+    ['GET', '/api/fallback/chains'],
+    ['GET', '/api/model-capability-overrides'],
+    ['GET', '/api/provider-nodes'],
+    ['GET', '/api/providers'],
+    ['GET', '/api/providers/fixture-id/cc-alias'],
+    ['GET', '/api/providers/fixture-id/interception-rules'],
+    ['GET', '/api/providers/fixture-id/param-filters'],
+    ['PATCH', '/api/combos/fixture-id'],
+    ['PATCH', '/api/model-capability-overrides'],
+    ['PATCH', '/api/providers'],
+    ['POST', '/api/combos'],
+    ['POST', '/api/combos/duplicate'],
+    ['POST', '/api/combos/import'],
+    ['POST', '/api/combos/reorder'],
+    ['POST', '/api/combos/test'],
+    ['POST', '/api/fallback/chains'],
+    ['POST', '/api/provider-nodes'],
+    ['POST', '/api/providers'],
+    ['PUT', '/api/combos/fixture-id'],
+    ['PUT', '/api/providers/fixture-id/cc-alias'],
+    ['PUT', '/api/providers/fixture-id/interception-rules'],
+    ['PUT', '/api/providers/fixture-id/param-filters'],
+  ];
+  for (const [method, path] of familyPolicyCases) {
     const denied = await request(path, method);
     const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
     const allowed = await request(path, method, { cookie });
-    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), `combo-policy:${method}:${path}`);
-    results.push({ case: `${method} ${path}`, denied, invalid, allowed });
-  }
-  // This GET is a policy reachability control, not the pinned capability handler.
-  {
-    const path = '/api/model-capability-overrides';
-    const denied = await request(path);
-    const invalid = await request(path, 'GET', { authorization: `Bearer ${invalidCredential}` });
-    const allowed = await request(path, 'GET', { cookie });
-    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), 'capability-policy:GET');
-    results.push({ case: `GET ${path}`, denied, invalid, allowed });
-  }
-  // These GET routes observe policy reachability only, not pinned handlers.
-  for (const path of ['/api/fallback/chains', '/api/providers/fixture-id/cc-alias', '/api/provider-nodes']) {
-    const denied = await request(path);
-    const invalid = await request(path, 'GET', { authorization: `Bearer ${invalidCredential}` });
-    const allowed = await request(path, 'GET', { cookie });
-    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), `read-policy:GET:${path}`);
-    results.push({ case: `GET ${path}`, denied, invalid, allowed });
+    const readScope = await request(path, method, { authorization: `Bearer ${scopedTokens.read}` });
+    const writeScope = await request(path, method, { authorization: `Bearer ${scopedTokens.write}` });
+    const adminScope = await request(path, method, { authorization: `Bearer ${scopedTokens.admin}` });
+    const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+    const adminRequired = mutation && (path === '/api/providers' || path.startsWith('/api/providers/'));
+    assert(readScope.status === (mutation ? 403 : 200) && writeScope.status === (adminRequired ? 403 : 200) && adminScope.status === 200 && [readScope, writeScope, adminScope].every(response => response.routeClass === 'MANAGEMENT') && [readScope, writeScope, adminScope].every(response => !Object.values(scopedTokens).some(token => response.text.includes(token))), `family-scopes:${method}:${path}`);
+    assert(denied.status === 401 && invalid.status === 401 && allowed.status === 200 && allowed.body?.fixture === 'management-handler-reached' && [denied, invalid, allowed].every(response => response.routeClass === 'MANAGEMENT') && !JSON.stringify(invalid.body).includes(invalidCredential), `family-policy:${method}:${path}`);
+    results.push({ case: `${method} ${path}`, denied, invalid, allowed, readScope, writeScope, adminScope });
   }
   assert((await stat(`${dir}/events.jsonl`)).size <= 1048576, 'event-limit');
   const events = (await readFile(`${dir}/events.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));

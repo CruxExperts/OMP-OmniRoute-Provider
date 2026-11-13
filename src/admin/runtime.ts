@@ -201,7 +201,9 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
     assertSafetyReadRequest(proof, adapter.descriptor, input);
     const response = await dispatch(requestFor(adapter, auth.endpoint, input), { auth, retryAllowed: false, maxAttempts: 1, ...(signal ? { signal } : {}) });
     assertSafetyReadResponse(proof, adapter.descriptor, response);
-    return projectRelationSnapshot(relation, adapter.projectTarget(response), payload);
+    const importPreflight = relation.sourceView === "omniroute-v3.8.53.combos.import-preflight"
+      && adapter.descriptor.operationId === "GET /api/combos";
+    return projectRelationSnapshot(relation, importPreflight ? response : adapter.projectTarget(response), payload);
   };
   const executor = createAdminExecutor({ registry, dispatch, resolveAuth,
     readTarget: async target => {

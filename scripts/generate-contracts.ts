@@ -10,6 +10,7 @@ import { sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewM
 import { requiredOmaScope } from "../src/admin/authorization-policy.ts";
 import { sourceRequestValidatorBinding } from "../src/admin/source-validation.ts";
 import { isSecretOutputField } from "../src/admin/registry.ts";
+import { FAMILY_INGRESS_OPERATIONS, operationRequiresIngressEvidence } from "../src/admin/eligibility.ts";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type RecordValue = Record<string, unknown>;
@@ -322,20 +323,9 @@ print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sh
   return structuredClone(value);
 }
 
-const COMBO_POLICY_SOURCES: Readonly<Record<string, string>> = {
-  "GET /api/combos": "src/app/api/combos/route.ts",
-  "GET /api/combos/{id}": "src/app/api/combos/[id]/route.ts",
-  "GET /api/combos/auto": "src/app/api/combos/auto/route.ts",
-  "GET /api/combos/builder/options": "src/app/api/combos/builder/options/route.ts",
-  "GET /api/combos/metrics": "src/app/api/combos/metrics/route.ts",
-  "DELETE /api/combos/metrics": "src/app/api/combos/metrics/route.ts",
-};
-
-const READ_POLICY_SOURCES: Readonly<Record<string, string>> = {
-  "GET /api/fallback/chains": "src/app/api/fallback/chains/route.ts",
-  "GET /api/providers/{id}/cc-alias": "src/app/api/providers/[id]/cc-alias/route.ts",
-  "GET /api/provider-nodes": "src/app/api/provider-nodes/route.ts",
-};
+const FAMILY_POLICY_SOURCES: Readonly<Record<string, string>> = Object.fromEntries(FAMILY_INGRESS_OPERATIONS.map(operationId => [
+  operationId, `src/app${operationId.slice(operationId.indexOf(" ") + 1).replace("{id}", "[id]")}/route.ts`,
+]));
 
 /** Validate the retained research export separately from the handler receipt. */
 export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding, operationId: string = "GET /api/health"): void {
@@ -365,7 +355,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
   const livenessSource = (operationId === "GET /livez" || operationId === "HEAD /livez") ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || (livenessSource !== undefined ? livenessSource.originalSha256 : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : operationId === "GET /api/model-capability-overrides" ? added["src/app/api/model-capability-overrides/route.ts"] : Object.hasOwn(COMBO_POLICY_SOURCES, operationId) ? added[COMBO_POLICY_SOURCES[operationId]!] : Object.hasOwn(READ_POLICY_SOURCES, operationId) ? added[READ_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
+    || source.archiveSha256 !== manifest.archiveSha256 || (livenessSource !== undefined ? livenessSource.originalSha256 : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
     || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
     throw new Error(`${label} source mismatch`);
   }
@@ -448,22 +438,14 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedPolicy = { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
     if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} mapping policy observation mismatch`);
   }
-  if (Object.hasOwn(COMBO_POLICY_SOURCES, operationId)) {
+  if (Object.hasOwn(FAMILY_POLICY_SOURCES, operationId)) {
     const [method, template] = operationId.split(" ");
     const path = template!.replace("{id}", "fixture-id");
-    const rows = requireArray(artifact.comboPolicy, `${label}.comboPolicy`).filter(row => isRecord(row) && row.method === method && row.path === path);
-    const expectedPolicy = { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
-    if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} combo policy observation mismatch`);
-  }
-  if (operationId === "GET /api/model-capability-overrides") {
-    const expectedPolicy = { method: "GET", path: "/api/model-capability-overrides", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
-    if (!isRecord(artifact.modelCapabilityOverridesPolicy) || canonicalJson(toJson(artifact.modelCapabilityOverridesPolicy, label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} capability policy observation mismatch`);
-  }
-  if (Object.hasOwn(READ_POLICY_SOURCES, operationId)) {
-    const path = operationId.slice(4).replace("{id}", "fixture-id");
-    const rows = Array.isArray(artifact.readPolicy) ? artifact.readPolicy.filter(row => isRecord(row) && row.method === "GET" && row.path === path) : [];
-    const expectedPolicy = { method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
-    if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} read policy observation mismatch`);
+    const rows = requireArray(artifact.familyPolicy, `${label}.familyPolicy`).filter(row => isRecord(row) && row.method === method && row.path === path);
+    const mutation = method !== "GET";
+    const adminRequired = mutation && (path === "/api/providers" || path.startsWith("/api/providers/"));
+    const expectedPolicy = { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: mutation ? 403 : 200, writeScopeStatus: adminRequired ? 403 : 200, adminScopeStatus: 200 };
+    if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} family policy observation mismatch`);
   }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
@@ -1521,7 +1503,7 @@ function validateEligibility(
   if (requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`) !== expectedOutcomeSha256) {
     throw new Error(`eligibility observed outcome digest mismatch: ${operationId}`);
   }
-  if (operationId === "GET /livez" || operationId === "HEAD /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId)) {
+  if (operationRequiresIngressEvidence(operationId)) {
     const ingress = requireRecord(record.ingressEvidence, `${operationId}.eligibility.ingressEvidence`);
     if (typeof ingress.artifact !== "string" || !/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(ingress.artifact)) {
       throw new Error(`eligibility ingress artifact must be retained in provenance: ${operationId}`);
@@ -2298,7 +2280,7 @@ function makeOperation(
         caseSha256: requireString(test.caseSha256, `${operationId}.eligibility.test.caseSha256`),
         outcomeSha256: requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`),
       },
-      ...(operationId === "GET /livez" || operationId === "HEAD /livez" || operationId === "GET /api/health" || operationId === "GET /api/health/degradation" || operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId) || Object.hasOwn(COMBO_POLICY_SOURCES, operationId) || Object.hasOwn(READ_POLICY_SOURCES, operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
+      ...(operationRequiresIngressEvidence(operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
       ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
     };
   }

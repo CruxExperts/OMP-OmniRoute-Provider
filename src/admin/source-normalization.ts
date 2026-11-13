@@ -271,7 +271,7 @@ export function sourcePreflightViewMatches(id: unknown, operationId: string, tar
 export function sourceUnpaginatedListProofMatches(operationId: string, proof: unknown, mutationOperationId?: string): boolean {
   if (!isRecord(proof)) return false;
   const comboMutations = ["POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}",
-    "DELETE /api/combos/{id}", "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test"];
+    "DELETE /api/combos/{id}", "POST /api/combos/duplicate", "POST /api/combos/import", "POST /api/combos/reorder", "POST /api/combos/test"];
   const mappingMutations = ["POST /api/model-combo-mappings", "DELETE /api/model-combo-mappings/{id}"];
   const items = operationId === "GET /api/combos" ? "combos" : operationId === "GET /api/model-combo-mappings" ? "mappings" : undefined;
   const allowed = operationId === "GET /api/combos" ? comboMutations : mappingMutations;

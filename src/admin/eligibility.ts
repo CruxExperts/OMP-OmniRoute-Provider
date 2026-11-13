@@ -72,8 +72,28 @@ export interface EligibilityVerification {
 const DEFAULT_REASON = "No exact pinned-source and observed behavior evidence is recorded for this operation in the release eligibility contract.";
 const CONTRACT_FIELDS = ["request", "auth", "response", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "reconciliation", "mutationSafety"] as const;
 const HASH_FIELDS = ["requestSchemaSha256", "authSha256", "responseProjectionSha256", "operationSemanticsSha256", "routeImportsSha256", "frameworkContextSha256", "mutationSafetySha256"] as const;
-const COMBO_POLICY_OPERATIONS: Readonly<Record<string, true>> = { "GET /api/combos": true, "GET /api/combos/{id}": true, "GET /api/combos/auto": true, "GET /api/combos/builder/options": true, "GET /api/combos/metrics": true, "DELETE /api/combos/metrics": true };
-const READ_POLICY_OPERATIONS: Readonly<Record<string, true>> = { "GET /api/fallback/chains": true, "GET /api/providers/{id}/cc-alias": true, "GET /api/provider-nodes": true };
+export const FAMILY_INGRESS_OPERATIONS: readonly string[] = Object.freeze([
+  "DELETE /api/combos/metrics", "DELETE /api/combos/{id}", "DELETE /api/fallback/chains",
+  "DELETE /api/model-capability-overrides", "DELETE /api/providers",
+  "DELETE /api/providers/{id}/interception-rules", "DELETE /api/providers/{id}/param-filters",
+  "GET /api/combos", "GET /api/combos/{id}", "GET /api/combos/auto", "GET /api/combos/builder/options",
+  "GET /api/combos/export", "GET /api/combos/metrics", "GET /api/fallback/chains",
+  "GET /api/model-capability-overrides", "GET /api/provider-nodes", "GET /api/providers",
+  "GET /api/providers/{id}/cc-alias", "GET /api/providers/{id}/interception-rules", "GET /api/providers/{id}/param-filters",
+  "GET /api/keys", "GET /api/keys/{id}", "GET /api/models", "GET /api/settings/proxies/assignments",
+  "PATCH /api/combos/{id}", "PATCH /api/model-capability-overrides", "PATCH /api/providers",
+  "POST /api/combos", "POST /api/combos/duplicate", "POST /api/combos/import", "POST /api/combos/reorder",
+  "POST /api/combos/test", "POST /api/fallback/chains", "POST /api/provider-nodes", "POST /api/providers",
+  "PUT /api/combos/{id}", "PUT /api/providers/{id}/cc-alias", "PUT /api/providers/{id}/interception-rules", "PUT /api/providers/{id}/param-filters",
+]);
+const FAMILY_INGRESS_SET: ReadonlySet<string> = new Set(FAMILY_INGRESS_OPERATIONS);
+
+export function operationRequiresIngressEvidence(operationId: string): boolean {
+  return FAMILY_INGRESS_SET.has(operationId) || operationId === "GET /livez" || operationId === "HEAD /livez"
+    || operationId === "GET /api/health" || operationId === "GET /api/health/degradation"
+    || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId)
+    || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId);
+}
 let document: EligibilityDocument | undefined;
 function unavailable(operationId: string, reason = DEFAULT_REASON): OperationEligibilityRecord { return { operationId, status: "unavailable", reason }; }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
@@ -106,7 +126,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
   if (!record(test) || typeof test.id !== "string" || !/^test\/(?!.*(?:^|\/)\.\.(?:\/|$))[^\\]+$/.test(test.id) || !sha(test.caseSha256, 64) || !sha(test.outcomeSha256, 64)) return undefined;
   if (typeof test.observedOutcome !== "string" || !/^provenance\/qualification\/[a-f0-9]{64}\.json$/.test(test.observedOutcome)) return undefined;
   const ingress = value.ingressEvidence;
-  if (value.operationId === "GET /livez" || value.operationId === "HEAD /livez" || value.operationId === "GET /api/health" || value.operationId === "GET /api/health/degradation" || value.operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(value.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(value.operationId) || Object.hasOwn(COMBO_POLICY_OPERATIONS, value.operationId) || Object.hasOwn(READ_POLICY_OPERATIONS, value.operationId)) {
+  if (operationRequiresIngressEvidence(value.operationId)) {
     if (!record(ingress) || !sha(ingress.sha256, 64) || ingress.artifact !== `provenance/qualification/ingress-${ingress.sha256}.json`) return undefined;
   } else if (ingress !== undefined) return undefined;
   const lifecycle = value.lifecycleEvidence;
@@ -170,7 +190,7 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
     || qualification.binding.handlerSha256 !== source.sha256 || qualification.binding.handlerGitBlobSha !== source.gitBlobSha
     || item.test.id !== qualification.test.id || item.test.caseSha256 !== qualification.test.caseSha256 || item.test.outcomeSha256 !== qualification.test.outcomeSha256
     || !sha(item.test.caseSha256, 64) || !sha(item.test.outcomeSha256, 64)) return false;
-  if (item.operationId === "GET /livez" || item.operationId === "HEAD /livez" || item.operationId === "GET /api/health" || item.operationId === "GET /api/health/degradation" || item.operationId === "GET /api/model-capability-overrides" || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(item.operationId) || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(item.operationId) || Object.hasOwn(COMBO_POLICY_OPERATIONS, item.operationId) || Object.hasOwn(READ_POLICY_OPERATIONS, item.operationId)) {
+  if (operationRequiresIngressEvidence(item.operationId)) {
     if (!sha(item.ingressSha256, 64) || item.ingressSha256 !== qualification.ingressSha256) return false;
   } else if (item.ingressSha256 !== undefined || qualification.ingressSha256 !== undefined) return false;
   if (binding.databaseInitializationRequired === true) {

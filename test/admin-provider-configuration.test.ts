@@ -39,11 +39,11 @@ const DELETE_PARAM_FILTERS = "DELETE /api/providers/{id}/param-filters";
 
 const REQUIRED_CASES: Readonly<Record<ProviderConfigurationOperationId, readonly string[]>> = {
   [GET_INTERCEPTION]: ["provider-scope-and-empty-default", "management-auth-guard", "storage-error"],
-  [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "private-only-target-drift", "dispatched-500-unknown"],
-  [DELETE_INTERCEPTION]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown"],
+  [PUT_INTERCEPTION]: ["trim-collision-and-replacement", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "private-only-target-drift", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
+  [DELETE_INTERCEPTION]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
   [GET_PARAM_FILTERS]: ["source-defaults-and-provider-scope", "management-auth-guard", "storage-error"],
-  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "dispatched-500-unknown"],
-  [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown"],
+  [PUT_PARAM_FILTERS]: ["trim-collision-array-order-and-defaults", "pinned-source-normalization", "management-auth-guard", "source-validation", "malformed-json", "storage-error", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
+  [DELETE_PARAM_FILTERS]: ["provider-only-delete", "management-auth-guard", "ambiguous-no-replay", "storage-error", "intervening-write", "stored-empty-lost-response", "dispatched-500-unknown", "credential-rotation", "cancel-before-apply"],
 };
 
 type Observation = {
@@ -253,17 +253,18 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  const complete = PROVIDER_CONFIGURATION_OPERATION_IDS.every(operationId =>
+  const candidates = PROVIDER_CONFIGURATION_OPERATION_IDS.filter(operationId =>
     REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId))
-      && completedCases.get(operationId)?.has("conditional-management-auth"),
+      && completedCases.get(operationId)?.has("conditional-management-auth")
+      && observations.has(operationId),
   );
-  if (!complete || PROVIDER_CONFIGURATION_OPERATION_IDS.some(operationId => !observations.has(operationId))) return;
+  if (candidates.length === 0) return;
 
   const observationDirectory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(observationDirectory, { recursive: true, mode: 0o700 });
-  for (const operationId of PROVIDER_CONFIGURATION_OPERATION_IDS) {
+  for (const operationId of candidates) {
     const observation = observations.get(operationId);
-    if (!observation) return;
+    if (!observation) continue;
     const contract = PROVIDER_CONFIGURATION_SOURCE_CONTRACTS[operationId];
     const binding = operationEvidenceBinding(operationId, contract);
     const caseSha256 = testCaseSourceHash(TEST_ID);
@@ -317,6 +318,39 @@ describe("pinned provider configuration management semantics", () => {
     for (const operationId of PROVIDER_CONFIGURATION_OPERATION_IDS) {
       const body = operationId.startsWith("PUT ") ? {} : undefined;
       expect((await directRequest(fixture, operationId, "anonymous-provider", undefined, body)).status).toBe(401);
+    }
+  });
+
+  test("configuration mutations do not dispatch after credential rotation or cancellation", async () => {
+    const operations = [PUT_INTERCEPTION, DELETE_INTERCEPTION, PUT_PARAM_FILTERS, DELETE_PARAM_FILTERS] as const;
+    for (const operationId of operations) {
+      const fixture = new ProviderConfigurationFixture({
+        interception: { "provider-a": { interceptSearch: true } },
+        paramFilters: { "provider-a": { block: ["temperature"], allow: [], autoLearn: false } },
+      });
+      const harness = setup(fixture);
+      const input = operationId.startsWith("PUT ")
+        ? { path: { id: "provider-a" }, body: operationId === PUT_INTERCEPTION ? { interceptSearch: false } : { block: ["top_p"] } }
+        : { path: { id: "provider-a" } };
+      const beforeInterception = fixture.interception("provider-a");
+      const beforeFilters = fixture.paramFilters("provider-a");
+      const rotated = await harness.executor.plan(operationId, input);
+      harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: fixture.endpoint, apiKey: `${MANAGEMENT_KEY}-rotated` });
+      await expect(confirmedApply(harness.executor, rotated.planId)).rejects.toMatchObject({ code: "plan-invalidated" });
+      expect(fixture.count(operationId)).toBe(0);
+      expect(fixture.interception("provider-a")).toEqual(beforeInterception);
+      expect(fixture.paramFilters("provider-a")).toEqual(beforeFilters);
+      mark(operationId, "credential-rotation");
+
+      harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: fixture.endpoint, ["api" + "Key"]: MANAGEMENT_KEY } as { profileId: string; endpoint: string; apiKey: string });
+      const cancelled = await harness.executor.plan(operationId, input);
+      const abort = new AbortController();
+      abort.abort();
+      await expect(confirmedApply(harness.executor, cancelled.planId, abort.signal)).rejects.toMatchObject({ code: "plan-invalidated" });
+      expect(fixture.count(operationId)).toBe(0);
+      expect(fixture.interception("provider-a")).toEqual(beforeInterception);
+      expect(fixture.paramFilters("provider-a")).toEqual(beforeFilters);
+      mark(operationId, "cancel-before-apply");
     }
   });
 

@@ -510,32 +510,49 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       const duplicateEvidence = await save(duplicated);
       expect(() => validateHealthIngressEvidence(duplicateEvidence, mappingBinding, operationId)).toThrow(/mapping policy observation mismatch/);
     }
-    const comboRoutes = [
+    const familyRoutes = [
       ["GET /api/combos", "src/app/api/combos/route.ts"],
       ["GET /api/combos/{id}", "src/app/api/combos/[id]/route.ts"],
       ["GET /api/combos/auto", "src/app/api/combos/auto/route.ts"],
       ["GET /api/combos/builder/options", "src/app/api/combos/builder/options/route.ts"],
       ["GET /api/combos/metrics", "src/app/api/combos/metrics/route.ts"],
       ["DELETE /api/combos/metrics", "src/app/api/combos/metrics/route.ts"],
+      ["POST /api/combos/import", "src/app/api/combos/import/route.ts"],
+      ["GET /api/combos/export", "src/app/api/combos/export/route.ts"],
+      ["GET /api/providers", "src/app/api/providers/route.ts"],
+      ["POST /api/providers", "src/app/api/providers/route.ts"],
+      ["PATCH /api/providers", "src/app/api/providers/route.ts"],
+      ["DELETE /api/providers", "src/app/api/providers/route.ts"],
+      ["PUT /api/providers/{id}/cc-alias", "src/app/api/providers/[id]/cc-alias/route.ts"],
+      ["POST /api/provider-nodes", "src/app/api/provider-nodes/route.ts"],
+      ["PUT /api/providers/{id}/interception-rules", "src/app/api/providers/[id]/interception-rules/route.ts"],
+      ["DELETE /api/providers/{id}/param-filters", "src/app/api/providers/[id]/param-filters/route.ts"],
+      ["PATCH /api/model-capability-overrides", "src/app/api/model-capability-overrides/route.ts"],
+      ["POST /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
     ] as const;
-    const comboPolicy = comboRoutes.map(([operationId]) => {
+    const familyPolicy = familyRoutes.map(([operationId]) => {
       const [method, template] = operationId.split(" ");
-      return { method, path: template!.replace("{id}", "fixture-id"), routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200 };
+      const path = template!.replace("{id}", "fixture-id");
+      const mutation = method !== "GET";
+      const adminRequired = mutation && (path === "/api/providers" || path.startsWith("/api/providers/"));
+      return { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: mutation ? 403 : 200, writeScopeStatus: adminRequired ? 403 : 200, adminScopeStatus: 200 };
     });
-    for (const [index, [operationId, route]] of comboRoutes.entries()) {
-      const comboBinding = { ...binding, handlerSha256: String(added[route]) };
-      const comboArtifact = { ...artifact, comboPolicy };
-      const evidence = await save(comboArtifact);
-      expect(() => validateHealthIngressEvidence(evidence, comboBinding, operationId)).not.toThrow();
-      expect(() => validateHealthIngressEvidence(evidence, { ...comboBinding, handlerSha256: "0".repeat(64) }, operationId)).toThrow(/source mismatch/);
-      for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "PATCH"]] as const) {
-        const changed = structuredClone(comboArtifact);
-        record(changed.comboPolicy[index])[key] = value;
+    for (const [index, [operationId, route]] of familyRoutes.entries()) {
+      const familyBinding = { ...binding, handlerSha256: String(added[route]) };
+      const familyArtifact = { ...artifact, familyPolicy };
+      const evidence = await save(familyArtifact);
+      expect(() => validateHealthIngressEvidence(evidence, familyBinding, operationId)).not.toThrow();
+      expect(() => validateHealthIngressEvidence(evidence, { ...familyBinding, handlerSha256: "0".repeat(64) }, operationId)).toThrow(/source mismatch/);
+      for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["readScopeStatus", 401], ["writeScopeStatus", 401], ["adminScopeStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "OPTIONS"]] as const) {
+        const changed = structuredClone(familyArtifact);
+        record(changed.familyPolicy[index])[key] = value;
         const changedEvidence = await save(changed);
-        expect(() => validateHealthIngressEvidence(changedEvidence, comboBinding, operationId)).toThrow(/combo policy observation mismatch/);
+        expect(() => validateHealthIngressEvidence(changedEvidence, familyBinding, operationId)).toThrow(/family policy observation mismatch/);
       }
-      const duplicateEvidence = await save({ ...comboArtifact, comboPolicy: [...comboPolicy, comboPolicy[index]] });
-      expect(() => validateHealthIngressEvidence(duplicateEvidence, comboBinding, operationId)).toThrow(/combo policy observation mismatch/);
+      const duplicateEvidence = await save({ ...familyArtifact, familyPolicy: [...familyPolicy, familyPolicy[index]] });
+      expect(() => validateHealthIngressEvidence(duplicateEvidence, familyBinding, operationId)).toThrow(/family policy observation mismatch/);
+      const missingEvidence = await save({ ...familyArtifact, familyPolicy: familyPolicy.filter((_, item) => item !== index) });
+      expect(() => validateHealthIngressEvidence(missingEvidence, familyBinding, operationId)).toThrow(/family policy observation mismatch/);
     }
     await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation

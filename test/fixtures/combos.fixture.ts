@@ -15,12 +15,15 @@ import { createPinnedFixtureDate } from "./pinned-handler.fixture.ts";
 import type { PinnedManagementAuthorization, PinnedExports } from "./pinned-handler.fixture.ts";
 
 export { COMBO_OPERATION_IDS };
+export const PORTABLE_COMBO_OPERATION_IDS = ["GET /api/combos/export", "POST /api/combos/import"] as const;
+const FIXTURE_OPERATION_IDS = [...COMBO_OPERATION_IDS, ...PORTABLE_COMBO_OPERATION_IDS] as const;
 
 export const COMBO_ROUTE = "/api/combos";
 export const COMBO_ROUTE_SOURCE_FILES = [
   "src/app/api/combos/route.ts", "src/app/api/combos/[id]/route.ts", "src/app/api/combos/auto/route.ts",
   "src/app/api/combos/builder/options/route.ts", "src/app/api/combos/metrics/route.ts",
   "src/app/api/combos/duplicate/route.ts", "src/app/api/combos/reorder/route.ts", "src/app/api/combos/test/route.ts",
+  "src/app/api/combos/export/route.ts", "src/app/api/combos/import/route.ts",
 ] as const;
 export const COMBO_AUTH_SOURCE_FILES = [
   "src/proxy.ts", "src/server/authz/classify.ts", "src/server/authz/pipeline.ts", "src/server/authz/policies/management.ts",
@@ -202,6 +205,10 @@ const DELETE_METRICS_SCHEMA: JsonSchema = jsonObject({ success: { const: true },
 const REORDER_SCHEMA: JsonSchema = jsonObject({ combos: { type: "array", items: COMBO_SCHEMA } }, ["combos"]);
 const ERROR_SCHEMA: JsonSchema = jsonObject({ error: { oneOf: [{ type: "string", maxLength: 2000 }, jsonObject({ message: { type: "string", maxLength: 2000 }, code: str(120), correlation_id: str(200) })] },
   details: { type: "string", maxLength: 2000 } }, ["error"]);
+const PORTABLE_COMBO_SCHEMA = jsonObject({ ...COMBO_CREATE_INPUT_FIELDS, models: { type: "array", maxItems: 1000, items: COMBO_STEP_SCHEMA } }, ["name", "models"]);
+const PORTABLE_EXPORT_SCHEMA = jsonObject({ _meta: jsonObject({ version: { const: "omniroute-combos-v1" }, exportedAt: { type: "string", format: "date-time" } }, ["version", "exportedAt"]), combos: { type: "array", maxItems: 5000, items: PORTABLE_COMBO_SCHEMA } }, ["_meta", "combos"]);
+const PORTABLE_IMPORT_SCHEMA = jsonObject({ _meta: jsonObject({ version: { const: "omniroute-combos-v1" } }, ["version"]), mode: { enum: ["merge", "replace"] }, combos: { type: "array", minItems: 1, maxItems: 500, items: PORTABLE_COMBO_SCHEMA } }, ["combos"]);
+const PORTABLE_IMPORT_RESULT_SCHEMA = jsonObject({ mode: { enum: ["merge", "replace"] }, created: stringArray(500, 100), skipped: stringArray(500, 100), removed: integer(0), warnings: stringArray(5000, 2000) }, ["mode", "created", "skipped", "removed", "warnings"]);
 
 function routeSourceFile(operationId: string): string {
   const routeFiles: Readonly<Record<string, string>> = {
@@ -218,12 +225,13 @@ function routeSourceFile(operationId: string): string {
     "POST /api/combos/duplicate": COMBO_ROUTE_SOURCE_FILES[5],
     "POST /api/combos/reorder": COMBO_ROUTE_SOURCE_FILES[6],
     "POST /api/combos/test": COMBO_ROUTE_SOURCE_FILES[7],
+    "GET /api/combos/export": COMBO_ROUTE_SOURCE_FILES[8], "POST /api/combos/import": COMBO_ROUTE_SOURCE_FILES[9],
   };
   const sourceFile = routeFiles[operationId];
   if (!sourceFile) throw new Error(`combo handler is not source-bound: ${operationId}`);
   return sourceFile;
 }
-const HANDLER_GUARDS: Readonly<Record<typeof COMBO_OPERATION_IDS[number], "requireManagementAuth">> = Object.freeze({
+const HANDLER_GUARDS: Readonly<Record<typeof FIXTURE_OPERATION_IDS[number], "requireManagementAuth">> = Object.freeze({
   "GET /api/combos": "requireManagementAuth", "POST /api/combos": "requireManagementAuth",
   "GET /api/combos/{id}": "requireManagementAuth", "PUT /api/combos/{id}": "requireManagementAuth",
   "PATCH /api/combos/{id}": "requireManagementAuth", "DELETE /api/combos/{id}": "requireManagementAuth",
@@ -231,8 +239,9 @@ const HANDLER_GUARDS: Readonly<Record<typeof COMBO_OPERATION_IDS[number], "requi
   "GET /api/combos/metrics": "requireManagementAuth", "DELETE /api/combos/metrics": "requireManagementAuth",
   "POST /api/combos/duplicate": "requireManagementAuth", "POST /api/combos/reorder": "requireManagementAuth",
   "POST /api/combos/test": "requireManagementAuth",
+  "GET /api/combos/export": "requireManagementAuth", "POST /api/combos/import": "requireManagementAuth",
 });
-const HANDLER_STATUS_CODES: Readonly<Record<typeof COMBO_OPERATION_IDS[number], readonly string[]>> = Object.freeze({
+const HANDLER_STATUS_CODES: Readonly<Record<typeof FIXTURE_OPERATION_IDS[number], readonly string[]>> = Object.freeze({
   "GET /api/combos": ["200", "400", "500"], "POST /api/combos": ["201", "400", "500"],
   "GET /api/combos/{id}": ["200", "404", "500"], "PUT /api/combos/{id}": ["200", "400", "404", "409", "500"],
   "PATCH /api/combos/{id}": ["200", "400", "404", "409", "500"], "DELETE /api/combos/{id}": ["200", "404", "409", "500"],
@@ -240,6 +249,7 @@ const HANDLER_STATUS_CODES: Readonly<Record<typeof COMBO_OPERATION_IDS[number], 
   "GET /api/combos/metrics": ["200", "500"], "DELETE /api/combos/metrics": ["200", "500"],
   "POST /api/combos/duplicate": ["201", "400", "422", "500"], "POST /api/combos/reorder": ["200", "400", "500"],
   "POST /api/combos/test": ["200", "400", "404", "500"],
+  "GET /api/combos/export": ["200", "500"], "POST /api/combos/import": ["200", "400", "500"],
 });
 function queryParameter(name: string, schema: JsonSchema, operationId: string, required = false) {
   return { name, in: "query" as const, required, style: "form", explode: true, allowReserved: false, schema, inputAllowed: true, sourceFile: routeSourceFile(operationId) };
@@ -298,6 +308,7 @@ const RESPONSE_SCHEMAS: Readonly<Record<string, JsonSchema>> = {
   "POST /api/combos/duplicate": DUPLICATE_COMBO_SCHEMA,
   "POST /api/combos/reorder": REORDER_SCHEMA,
   "POST /api/combos/test": TEST_RESULT_SCHEMA,
+  "GET /api/combos/export": PORTABLE_EXPORT_SCHEMA, "POST /api/combos/import": PORTABLE_IMPORT_RESULT_SCHEMA,
 };
 const SOURCE_VALIDATORS: Readonly<Record<string, ComboSourceRequestValidatorId>> = {
   "POST /api/combos": "omniroute-v3.8.52.combos.create",
@@ -353,6 +364,10 @@ function contractFor(operationId: string): OperationSourceContract {
   const querySchema = QUERY_SCHEMAS[operationId];
   const validator = SOURCE_VALIDATORS[operationId];
   let request = base.request;
+  if (operationId === "POST /api/combos/import") {
+    const body = request.body;
+    request = { ...request, body: { ...body, required: true, mediaType: "application/json", schema: PORTABLE_IMPORT_SCHEMA, contentVariants: [{ mediaType: "application/json", schema: PORTABLE_IMPORT_SCHEMA }] } };
+  }
   if (validator) {
     const schema = operationId === "POST /api/combos/duplicate" ? jsonObject({ name: { type: "string", minLength: 1 }, strategy: { type: "string", enum: STRATEGY_ENUM } }, ["name"])
       : operationId === "POST /api/combos/reorder" ? jsonObject({ comboIds: { type: "array", minItems: 1, maxItems: 1000, items: { type: "string", minLength: 1, maxLength: 200 } } }, ["comboIds"])
@@ -387,7 +402,7 @@ function contractFor(operationId: string): OperationSourceContract {
   const collectionRead = {
     operationId: "GET /api/combos", inputs: [],
     snapshot: { kind: "collection" as const, identity: [{ name: "id", path: ["id"] }], state: [{ name: "name", path: ["name"] }] },
-    sourceView: "omniroute-v3.8.53.combos.collection-preflight" as const,
+    sourceView: operationId === "POST /api/combos/import" ? "omniroute-v3.8.53.combos.import-preflight" as const : "omniroute-v3.8.53.combos.collection-preflight" as const,
   };
   const collectionObservation = {
     name: "complete-combo-collection", read: collectionRead,
@@ -426,6 +441,7 @@ function contractFor(operationId: string): OperationSourceContract {
         "The collection and catalog reads are not an atomic lock against other writers; hidden settings and external service state can change after confirmation.",
         "Cloud sync settings and effects are not exposed by these reads; the handler may sync changes to cloud when enabled.",
         ...(operationId === "DELETE /api/combos/{id}" ? ["Deletion also revokes matching API key grants and clears proxy assignments; those hidden stores are not exposed by the combo collection."] : []),
+        ...(operationId === "POST /api/combos/import" ? ["Replace may revoke API-key grants and clear proxy assignments for removed names; the combo collection alone does not observe those dependent stores."] : []),
         ...((isTest || operationId === "POST /api/combos/duplicate") ? ["Catalogs omit credential values and may not expose all routing, capability, or internal key state; provider state can change after confirmation."] : []),
       ] };
   const contract: OperationSourceContract = { ...base, request, auth: operationAuth(base.auth, operationId), sideEffect: isRead ? "read" : "mutation",
@@ -444,9 +460,9 @@ function contractFor(operationId: string): OperationSourceContract {
   return contract;
 }
 
-export const COMBO_SOURCE_CONTRACTS: Readonly<Record<typeof COMBO_OPERATION_IDS[number], OperationSourceContract>> = Object.freeze(Object.fromEntries(COMBO_OPERATION_IDS.map(id => [id, contractFor(id)])) as Record<typeof COMBO_OPERATION_IDS[number], OperationSourceContract>);
+export const COMBO_SOURCE_CONTRACTS: Readonly<Record<typeof FIXTURE_OPERATION_IDS[number], OperationSourceContract>> = Object.freeze(Object.fromEntries(FIXTURE_OPERATION_IDS.map(id => [id, contractFor(id)])) as Record<typeof FIXTURE_OPERATION_IDS[number], OperationSourceContract>);
 export function buildComboFixtureRegistry() {
-  const descriptors: OperationDescriptor[] = COMBO_OPERATION_IDS.map(operationId => {
+  const descriptors: OperationDescriptor[] = FIXTURE_OPERATION_IDS.map(operationId => {
     const source = getOperation(operationId);
     if (!source) throw new Error(`pinned combo operation is absent: ${operationId}`);
     const contract = COMBO_SOURCE_CONTRACTS[operationId];
@@ -541,6 +557,15 @@ export class CombosHttpFixture {
   setBreakerState(state: "CLOSED" | "OPEN"): void { this.#breakerState = state; }
   setCapabilityDrift(value: boolean): void { this.#capabilityDrift = value; }
   get counts(): Readonly<Record<string, number>> { return Object.fromEntries(this.#counts); }
+  seedComboGrants(id: string, grants: readonly string[]): void {
+    this.#storage.db.prepare("INSERT INTO api_keys (id, name, key, created_at, allowed_combos) VALUES (?, ?, ?, ?, ?)")
+      .run(id, id, `fixture-grant-${id}`, FIXTURE_CLOCK_TIME, JSON.stringify(grants));
+  }
+  comboGrants(id: string): unknown {
+    const row = this.#storage.db.prepare("SELECT allowed_combos FROM api_keys WHERE id = ?").get(id);
+    if (!row || typeof row !== "object" || !("allowed_combos" in row) || typeof row.allowed_combos !== "string") throw new Error(`Missing fixture grant ${id}`);
+    return JSON.parse(row.allowed_combos);
+  }
   rejectNextProbe(model: string): void {
     if (!model.trim()) throw new Error("A probe model id is required for the controlled fixture failure");
     this.#rejectedProbeModels.add(model);
@@ -597,10 +622,12 @@ export class CombosHttpFixture {
     else if (path === "/api/combos/metrics") route = this.#routes["src/app/api/combos/metrics/route.ts"];
     else if (path === "/api/combos/duplicate") route = this.#routes["src/app/api/combos/duplicate/route.ts"];
     else if (path === "/api/combos/reorder") route = this.#routes["src/app/api/combos/reorder/route.ts"];
+    else if (path === "/api/combos/export") route = this.#routes["src/app/api/combos/export/route.ts"];
+    else if (path === "/api/combos/import") route = this.#routes["src/app/api/combos/import/route.ts"];
     else if (path === "/api/combos/test") route = this.#routes["src/app/api/combos/test/route.ts"];
     else {
       const item = /^\/api\/combos\/([^/]+)$/.exec(path);
-      if (item && !["auto", "metrics", "duplicate", "reorder", "test"].includes(item[1]!)) {
+      if (item && !["auto", "metrics", "duplicate", "reorder", "test", "export", "import"].includes(item[1]!)) {
         route = this.#routes["src/app/api/combos/[id]/route.ts"];
         handlerName = "item";
         let id: string;

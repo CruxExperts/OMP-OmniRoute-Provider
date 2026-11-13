@@ -4,6 +4,17 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Expand isolated management-policy observations to 39 exact family method/path
+  cases with independent read/write/admin token outcomes. Keep policy controls,
+  native cold/warm family persistence observations, and operation qualification
+  receipts separate; no additional operation is qualified by this change alone.
+- Bind portable combo import confirmation to complete private row digests before
+  public projection, including hidden and passthrough state without displaying it.
+  Preserve required dependency reads and unknown settlement for unproven effects.
+- Validate complete native lifecycle observations before writing any success
+  export. Keep synthetic test authority bound to the current derived source and
+  isolated from release qualification.
+
 - Add a signed portable startup-repair capsule with exact official-base and
   before/after file identities. Clean preparation verifies the owner signature
   without a private repair checkout and preserves the official extraction.

@@ -1,5 +1,7 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
   operationEvidenceBinding,
@@ -17,6 +19,7 @@ import {
   type ProviderNodeFixture,
 } from "./fixtures/provider-nodes.fixture.ts";
 import { ProviderNodesFixture } from "./fixtures/pinned-provider-nodes.fixture.ts";
+import { loadExtractedPinnedDeclarations, withStableManifestBytes } from "./fixtures/pinned-handler.fixture.ts";
 
 const TEST_ID = "test/admin-provider-nodes.test.ts";
 const PROFILE_ID = "provider-nodes-source-fixture";
@@ -159,6 +162,42 @@ afterAll(async () => {
   };
   await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson(artifact)}\n`, { mode: 0o600 });
   testOutcomeHash(PROVIDER_NODES_OPERATION_ID, TEST_ID, caseSha256, operationBinding, PROVIDER_NODES_SOURCE_CONTRACT, artifactPath);
+});
+
+test("a synchronous manifest snapshot rejects changed bytes and asynchronous escape", () => {
+  const directory = mkdtempSync(resolve(tmpdir(), "pinned-manifest-test-"));
+  const file = resolve(directory, "manifest.json");
+  try {
+    writeFileSync(file, "original");
+    expect(() => withStableManifestBytes(file, () => {
+      writeFileSync(file, "modified");
+      return "must not escape";
+    })).toThrow("Pinned source manifest changed during snapshot");
+    writeFileSync(file, "original");
+    expect(() => withStableManifestBytes(file, () => Promise.resolve())).toThrow("cannot escape asynchronously");
+    expect(withStableManifestBytes(file, () => "stable")).toBe("stable");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("cached pinned compilation keeps source variants and fixture databases independent", async () => {
+  const first = new ProviderNodesFixture([nodeSeed("first")]);
+  const second = new ProviderNodesFixture([nodeSeed("second")]);
+  fixtures.push(first, second);
+  expect((await first.state()).map(row => row.id)).toEqual(["first"]);
+  expect((await second.state()).map(row => row.id)).toEqual(["second"]);
+  first.failList();
+  expect((await second.state()).map(row => row.id)).toEqual(["second"]);
+
+  const source = ["src/lib/db/caseMapping.ts"];
+  const rejectImport = (specifier: string): never => { throw new Error(`unexpected import: ${specifier}`); };
+  const snake = loadExtractedPinnedDeclarations(source, ["toSnakeCase"], rejectImport);
+  const camel = loadExtractedPinnedDeclarations(source, ["toCamelCase"], rejectImport);
+  expect((snake.toSnakeCase as (value: string) => string)("firstValue")).toBe("first_value");
+  expect((camel.toCamelCase as (value: string) => string)("second_value")).toBe("secondValue");
+  expect(snake.toCamelCase).toBeUndefined();
+  expect(camel.toSnakeCase).toBeUndefined();
 });
 
 test("provider-nodes GET projects source responses with credential-sensitive fields removed", async () => {

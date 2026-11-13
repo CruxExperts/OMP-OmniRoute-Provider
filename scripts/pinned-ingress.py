@@ -372,7 +372,9 @@ def disk_usage(root):
 
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
-POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts')
+POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
+POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
+POLICY_SOURCES += ('src/app/api/keys/route.ts', 'src/app/api/keys/[id]/route.ts', 'src/app/api/settings/proxies/assignments/route.ts', 'src/app/api/models/route.ts')
 LIVE_ROUTE = 'src/app/livez/route.ts'
 
 def sha(data):
@@ -493,7 +495,7 @@ def materialize(real_core=False):
                 continue
             name = '/'.join(parts[1:])
             lifecycle_source = real_core and name.startswith(('src/', 'open-sse/', 'packages/')) and name.endswith(('.ts', '.tsx', '.js', '.mjs', '.cjs', '.json', '.sql'))
-            if name not in selected and name not in additional and name not in wanted and not (name.startswith('scripts/build/') and name.endswith(('.mjs', '.cjs'))) and not name.startswith('src/i18n/') and name != 'config/cli-tools-manifest.json' and not lifecycle_source:
+            if name not in selected and name not in additional and name not in wanted and name not in POLICY_SOURCES and not (name.startswith('scripts/build/') and name.endswith(('.mjs', '.cjs'))) and not name.startswith('src/i18n/') and name != 'config/cli-tools-manifest.json' and not lifecycle_source:
                 continue
             require(member.isfile() and member.size <= 2 * 1024 * 1024 and name not in seen, 'invalid source member: ' + name)
             seen.add(name)
@@ -510,7 +512,7 @@ def materialize(real_core=False):
                 require(data == effective_data, 'effective source differs from base: ' + name)
             support[name] = digest(effective_data)
             put(app, 'next.config.upstream.mjs' if name == 'next.config.mjs' else name, effective_data)
-    require(set(selected) <= seen and set(additional) <= seen and wanted <= seen, 'missing source closure')
+    require(set(selected) <= seen and set(additional) <= seen and wanted <= seen and set(POLICY_SOURCES) <= seen, 'missing source closure')
     if real_core:
         regression = 'tests/unit/db-async-fresh-startup.test.ts'
         require(regression in changed, 'signed startup regression missing')
@@ -1136,9 +1138,68 @@ def export_core_lifecycle(output, hashes):
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
     public_identity['sourceFileCount'] = len(source)
     public_identity['migrationSqlCount'] = len(migrations)
+    provider = bounded_json(output / 'provider-lifecycle.json')
+    warm_provider = bounded_json(output / 'provider-warm.json')
+    require(isinstance(provider, dict) and set(provider) == {'phase', 'results'} and provider['phase'] == 'cold'
+            and isinstance(provider['results'], list) and len(provider['results']) == 3, 'invalid provider lifecycle')
+    expected = [
+        ('interception-rules', {}, {'interceptSearch': True}),
+        ('param-filters', {'block': [], 'allow': [], 'autoLearn': False}, {'block': ['temperature'], 'allow': [], 'autoLearn': False}),
+        ('cc-alias', {'provider': None, 'models': {}}, {'provider': 'on', 'models': {}}),
+    ]
+    for value, (route, before, after) in zip(provider['results'], expected):
+        fields = {'route', 'before', 'applied', 'after'} | (set() if route == 'cc-alias' else {'deleted', 'restored'})
+        require(isinstance(value, dict) and set(value) == fields and value['route'] == route
+                and value['before'] == {'status': 200, 'body': before}
+                and value['applied'] == {'status': 200, 'body': {'success': True}}
+                and value['after'] == {'status': 200, 'body': after}, 'provider effect mismatch: ' + route)
+        if route != 'cc-alias':
+            require(value['deleted'] == {'status': 200, 'body': {'success': True}}
+                    and value['restored'] == {'status': 200, 'body': before}, 'provider delete mismatch: ' + route)
+    require(warm_provider == {'status': 200, 'body': {'provider': 'on', 'models': {}}}, 'provider warm persistence mismatch')
+    collection = bounded_json(output / 'provider-collection-lifecycle.json')
+    require(isinstance(collection, dict) and set(collection) == {'getStatus', 'patchStatus', 'patchCount', 'patchedActive', 'deleteStatus', 'deleteCount', 'deletedAbsent', 'nodeGetStatus', 'nodeCount'}
+            and all(collection[key] == 200 for key in ('getStatus', 'patchStatus', 'deleteStatus', 'nodeGetStatus'))
+            and collection['patchCount'] == collection['deleteCount'] == 1 and collection['patchedActive'] is True
+            and collection['deletedAbsent'] is True and type(collection['nodeCount']) is int and 0 <= collection['nodeCount'] <= 10000, 'provider collection lifecycle mismatch')
+    node_create = bounded_json(output / 'provider-node-create.json')
+    require(node_create == {'status': 201, 'persisted': True, 'prefix': 'native-fixture-node'}, 'provider node creation mismatch')
+    combo_cold = bounded_json(output / 'cold-combo-lifecycle.json')
+    combo_warm = bounded_json(output / 'warm-combo-lifecycle.json')
+    expected_combo = [
+        ('GET /api/keys', 200), ('GET /api/keys/{id}', 200), ('GET /api/settings/proxies/assignments', 200),
+        ('GET /api/v1/management/proxies/assignments', 200), ('GET /api/v1/management/proxies/assignments', 400),
+        ('GET /api/models', 200), ('GET /api/models', 400), ('POST /api/combos', 201),
+        ('GET /api/settings/proxies/assignments', 200), ('GET /api/v1/management/proxies/assignments', 200),
+        ('POST /api/combos', 201), ('PATCH /api/combos/{id}', 200), ('PUT /api/combos/{id}', 200),
+        ('GET /api/combos/{id}', 200), ('GET /api/combos', 200), ('POST /api/combos/reorder', 200),
+        ('GET /api/combos/export', 200), ('POST /api/combos/import', 200), ('POST /api/combos/import', 400),
+        ('DELETE /api/combos/{id}', 200), ('GET /api/settings/proxies/assignments', 200), ('GET /api/keys/{id}', 200),
+        ('POST /api/combos/import', 200), ('GET /api/combos/auto', 200), ('GET /api/combos/builder/options', 200),
+        ('POST /api/combos/duplicate', 201), ('GET /api/combos/metrics', 200), ('DELETE /api/combos/metrics', 200),
+        ('POST /api/combos/duplicate', 422), ('POST /api/combos/test', 404),
+    ]
+    require(isinstance(combo_cold, dict) and set(combo_cold) == {'phase', 'driver', 'observations', 'grantAfterDelete', 'deletedAbsent', 'importedPersisted', 'exportSecretAbsent'}
+            and combo_cold['phase'] == 'cold' and combo_cold['driver'] == 'node:sqlite'
+            and combo_cold['grantAfterDelete'] == ['combo/*'] and combo_cold['deletedAbsent'] is True
+            and combo_cold['importedPersisted'] is True and combo_cold['exportSecretAbsent'] is True
+            and combo_cold['observations'] == [{'operation': operation, 'status': status, 'mediaType': 'application/json'} for operation, status in expected_combo], 'combo cold lifecycle mismatch')
+    require(combo_warm == {'phase': 'warm', 'driver': 'node:sqlite', 'importedPersisted': True, 'deletedAbsent': True}, 'combo warm lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
     save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1]})
+    save(export / 'provider-lifecycle.json', {'status': 'research-observed', 'qualification': False,
+         'boundary': 'Pinned handlers and source stores in the real cold core with authentication disabled; separate warm alias read. No ingress or executor qualification.',
+         'inputSha256': hashes, 'identity': public_identity, 'cold': provider['results'], 'warmAlias': warm_provider})
+    save(export / 'provider-collection-lifecycle.json', {'status': 'research-observed', 'qualification': False,
+         'boundary': 'Direct source store seed, handlers and read-back in the real cold core; no POST handler, ingress or executor qualification.',
+         'inputSha256': hashes, 'identity': public_identity, 'cold': collection})
+    save(export / 'provider-node-create.json', {'status': 'research-observed', 'qualification': False,
+         'boundary': 'Direct node handler and source-store read-back in the real cold core; no ingress or executor qualification.',
+         'inputSha256': hashes, 'identity': public_identity, 'cold': node_create})
+    save(export / 'combo-lifecycle.json', {'status': 'research-observed', 'qualification': False,
+         'boundary': 'Pinned combo handlers and stores in the real cold core with a separate warm read; not an ingress or executor qualification.',
+         'inputSha256': hashes, 'identity': public_identity, 'cold': combo_cold, 'warm': combo_warm})
 
 
 def worker(real_core=False):
@@ -1367,7 +1428,27 @@ def export_observations(output, hashes):
     require(set(ingress['livenessHead']) == {'anonymous', 'invalidCredential', 'session'}, 'liveness HEAD cases mismatch')
     require(all(ingress['livenessHead'][name] == expected_live_head for name in ('anonymous', 'invalidCredential', 'session')), 'liveness HEAD response mismatch')
     rows = ingress['results']
-    require(len(rows) == 25 and [r['case'] for r in rows] == ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id', 'GET /api/combos', 'GET /api/combos/fixture-id', 'GET /api/combos/auto', 'GET /api/combos/builder/options', 'GET /api/combos/metrics', 'DELETE /api/combos/metrics', 'GET /api/model-capability-overrides', 'GET /api/fallback/chains', 'GET /api/providers/fixture-id/cc-alias', 'GET /api/provider-nodes'], 'ingress cases incomplete')
+    prefix_cases = ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id']
+    family_cases = [
+        'DELETE /api/combos/metrics', 'DELETE /api/combos/fixture-id', 'DELETE /api/fallback/chains',
+        'DELETE /api/model-capability-overrides', 'DELETE /api/providers',
+        'DELETE /api/providers/fixture-id/interception-rules', 'DELETE /api/providers/fixture-id/param-filters',
+        'GET /api/combos', 'GET /api/combos/fixture-id', 'GET /api/combos/auto', 'GET /api/combos/builder/options',
+        'GET /api/combos/export', 'GET /api/combos/metrics', 'GET /api/fallback/chains',
+        'GET /api/model-capability-overrides', 'GET /api/provider-nodes', 'GET /api/providers',
+        'GET /api/providers/fixture-id/cc-alias', 'GET /api/providers/fixture-id/interception-rules',
+        'GET /api/providers/fixture-id/param-filters', 'PATCH /api/combos/fixture-id',
+        'PATCH /api/model-capability-overrides', 'PATCH /api/providers', 'POST /api/combos',
+        'POST /api/combos/duplicate', 'POST /api/combos/import', 'POST /api/combos/reorder',
+        'POST /api/combos/test', 'POST /api/fallback/chains', 'POST /api/provider-nodes', 'POST /api/providers',
+        'GET /api/keys', 'GET /api/keys/fixture-id', 'GET /api/settings/proxies/assignments', 'GET /api/models',
+        'PUT /api/combos/fixture-id', 'PUT /api/providers/fixture-id/cc-alias',
+        'PUT /api/providers/fixture-id/interception-rules', 'PUT /api/providers/fixture-id/param-filters',
+    ]
+    require(isinstance(rows, list) and all(isinstance(row, dict) and isinstance(row.get('case'), str) for row in rows), 'invalid ingress cases')
+    by_case = {row['case']: row for row in rows}
+    require(len(by_case) == len(rows) and set(by_case) == set(prefix_cases + family_cases), 'ingress cases incomplete')
+    rows = [by_case[case] for case in prefix_cases]
     health = []
     for row, path in zip(rows[:2], ('/api/health', '/api/health/ping')):
         response, body = row['response'], row['response']['body']
@@ -1412,19 +1493,23 @@ def export_observations(output, hashes):
         denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
         require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'mapping policy outcome mismatch')
         mapping_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
-    combo_policy = []
-    for row, method, path in zip(rows[15:21], ('GET', 'GET', 'GET', 'GET', 'GET', 'DELETE'), ('/api/combos', '/api/combos/fixture-id', '/api/combos/auto', '/api/combos/builder/options', '/api/combos/metrics', '/api/combos/metrics')):
+    family_policy = []
+    for case in family_cases:
+        row = by_case[case]
+        method, path = case.split(' ', 1)
+        require(set(row) == {'case', 'denied', 'invalid', 'allowed', 'readScope', 'writeScope', 'adminScope'}, 'family policy case shape mismatch: ' + case)
         denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
-        require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'combo policy outcome mismatch')
-        combo_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
-    denied, invalid, allowed = rows[21]['denied'], rows[21]['invalid'], rows[21]['allowed']
-    require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'capability policy outcome mismatch')
-    capability_policy = {'method': 'GET', 'path': '/api/model-capability-overrides', 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']}
-    read_policy = []
-    for row, path in zip(rows[22:25], ('/api/fallback/chains', '/api/providers/fixture-id/cc-alias', '/api/provider-nodes')):
-        denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
-        require(denied['status'] == 401 and invalid['status'] == 401 and allowed['status'] == 200 and allowed['body'] == {'fixture': 'management-handler-reached'} and all(item['routeClass'] == 'MANAGEMENT' for item in (denied, invalid, allowed)), 'read policy outcome mismatch')
-        read_policy.append({'method': 'GET', 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'authorizedStatus': allowed['status']})
+        read_scope, write_scope, admin_scope = row['readScope'], row['writeScope'], row['adminScope']
+        mutation = method not in ('GET', 'HEAD', 'OPTIONS')
+        admin_required = mutation and (path == '/api/providers' or path.startswith('/api/providers/'))
+        require(all(isinstance(item, dict) and item.get('routeClass') == 'MANAGEMENT' for item in (denied, invalid, allowed, read_scope, write_scope, admin_scope))
+                and denied.get('status') == 401 and invalid.get('status') == 401 and allowed.get('status') == 200
+                and allowed.get('body') == {'fixture': 'management-handler-reached'}
+                and read_scope.get('status') == (403 if mutation else 200)
+                and write_scope.get('status') == (403 if admin_required else 200) and admin_scope.get('status') == 200
+                and all(item.get('body') == {'fixture': 'management-handler-reached'} for item in (read_scope, write_scope, admin_scope) if item.get('status') == 200), 'family policy outcome mismatch: ' + case)
+        family_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': 401, 'invalidCredentialStatus': 401, 'authorizedStatus': 200,
+                              'readScopeStatus': read_scope['status'], 'writeScopeStatus': write_scope['status'], 'adminScopeStatus': admin_scope['status']})
     require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
     fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
     require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
@@ -1463,12 +1548,8 @@ def export_observations(output, hashes):
     artifact['agentSkills'] = skills
     artifact['agentSkillsReads'] = skills_reads
     artifact['modelComboMappingPolicy'] = mapping_policy
-    artifact['comboPolicy'] = combo_policy
-    artifact['modelCapabilityOverridesPolicy'] = capability_policy
-    artifact['readPolicy'] = read_policy
-    artifact['limitations'].append('Fallback chains, provider cc-alias and provider nodes ingress exercises management policy using reachability controls, not the pinned handlers or their semantics.')
-    artifact['limitations'].append('Capability overrides ingress exercises policy with a reachability control at the exact GET path; it does not execute the capability overrides handler or establish write safety.')
-    artifact['limitations'].append('Combo ingress exercises policy with a reachability control at the exact method and path; it does not execute combo handlers or cold database initialization.')
+    artifact['familyPolicy'] = family_policy
+    artifact['limitations'].append('Family policy uses exact method/path reachability controls with scoped tokens, not the pinned handlers, persistence, API-key scope alternatives, or executor safety.')
     artifact['limitations'].append('Mapping ingress exercises policy with a reachability control at the exact method and path; it does not execute mapping handlers or cold database initialization.')
     artifact['limitations'].append('Agent-skills ingress coverage observes management denial and a dashboard-session query, not every credential alternative or hosted failures.')
     artifact['limitations'].append('Degradation handler failure was not induced; fixture signals control only the disposable in-process source registry.')

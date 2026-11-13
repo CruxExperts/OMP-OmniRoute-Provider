@@ -5,6 +5,7 @@
  * These helpers are deliberately pure. The existing registry/executor owns
  * transport, authorization, planning, confirmation, dispatch, and reconciliation.
  */
+import { createHash } from "node:crypto";
 import type { AdminMethod, JsonObject, JsonValue } from "./types.ts";
 import type { SourceRequestIssue } from "./source-validation.ts";
 import type { ValidatedOperationInput } from "./registry.ts";
@@ -42,15 +43,16 @@ export type ComboSourceRelationViewId =
   | "omniroute-v3.8.52.combos.metrics-reset-reconcile";
 export type ComboPreflightViewId = "omniroute-v3.8.53.combos.collection-preflight"
   | "omniroute-v3.8.53.combos.auto-preflight" | "omniroute-v3.8.53.combos.selected-auto-preflight"
-  | "omniroute-v3.8.53.combos.providers-preflight";
+  | "omniroute-v3.8.53.combos.providers-preflight" | "omniroute-v3.8.53.combos.import-preflight";
 
 export function isComboPreflightViewId(value: unknown): value is ComboPreflightViewId {
   return value === "omniroute-v3.8.53.combos.collection-preflight"
     || value === "omniroute-v3.8.53.combos.auto-preflight" || value === "omniroute-v3.8.53.combos.selected-auto-preflight"
-    || value === "omniroute-v3.8.53.combos.providers-preflight";
+    || value === "omniroute-v3.8.53.combos.providers-preflight" || value === "omniroute-v3.8.53.combos.import-preflight";
 }
 
 export function comboPreflightViewMatches(id: ComboPreflightViewId, operationId: string, readId: unknown): boolean {
+  if (id === "omniroute-v3.8.53.combos.import-preflight") return operationId === "POST /api/combos/import" && readId === "GET /api/combos";
   if (id === "omniroute-v3.8.53.combos.collection-preflight") return readId === "GET /api/combos" && [
     "POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}", "DELETE /api/combos/{id}",
     "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test",
@@ -256,6 +258,12 @@ function json(value: unknown, depth = 0): JsonValue {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, json(child, depth + 1)]));
   }
   throw new TypeError("combo value is not JSON");
+}
+
+function canonicalComboValue(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) return value.map(canonicalComboValue);
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonicalComboValue(value[key]!)]));
+  return value;
 }
 
 function issue(field: string, reason: string): SourceRequestIssue {
@@ -666,6 +674,15 @@ export function comboPreflightReadInput(view: unknown, payload: ValidatedOperati
 export function comboPreflightSnapshot(id: ComboPreflightViewId, response: unknown, payload?: ValidatedOperationInput): JsonValue {
   if (response === null || typeof response !== "object" || Array.isArray(response)) throw new TypeError("combo preflight response is invalid");
   const value = response as Record<string, unknown>;
+  if (id === "omniroute-v3.8.53.combos.import-preflight") {
+    if (!Array.isArray(value.combos)) throw new TypeError("combo import collection is invalid");
+    if (value.combos.some(row => row === null || typeof row !== "object" || Array.isArray(row))) throw new TypeError("combo import row is invalid");
+    return relationDocument("collection", rowsOfCombos(response).map(row => {
+      if (typeof row.id !== "string" || !row.id || typeof row.name !== "string" || !row.name) throw new TypeError("combo import identity is invalid");
+      const digest = createHash("sha256").update(JSON.stringify(canonicalComboValue(json(row)))).digest("hex");
+      return relationEntry({ id: row.id }, { stateSha256: digest });
+    }));
+  }
   if (id === "omniroute-v3.8.53.combos.collection-preflight") {
     return relationDocument("collection", rowsOfCombos(response).map(row => {
       if (typeof row.id !== "string" || typeof row.name !== "string") throw new TypeError("combo collection identity is invalid");

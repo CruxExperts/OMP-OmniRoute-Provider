@@ -376,6 +376,14 @@ proxy assignments, or all provider state. Mutations retain unknown settlement
 where hidden effects cannot be independently observed. The loopback probe fixture
 does not qualify a real charged provider request or restore active eligibility.
 
+Portable combo import uses a separate exact `import-preflight` view of the bounded
+complete collection. It hashes each raw private row before public projection, so
+hidden-state, passthrough configuration, and otherwise undisplayed field changes
+invalidate confirmation without disclosing those fields in the preview. The
+view is valid only for the import mutation and its collection read. It is not
+proof of key-grant or proxy cleanup; those independent reads and effect
+observations remain necessary before import eligibility can be restored.
+
 Pinned-source checks show that selected and default auto-combo GET responses do
 not include the capability resolution used by duplicate POST. Changing model
 capabilities can change the duplicate's normalized weights without changing
@@ -383,23 +391,23 @@ either GET response. These reads therefore do not establish capability-resolved
 duplicate-target equivalence; duplicate qualification must not rely on that
 assumption.
 
-The ingress producer separately records six exact combo method/path cases:
-collection, item, auto, builder options, metrics read, and metrics reset. These
-use the existing management reachability control in place of each route body.
-They bind original source digests and prove framework policy routing only;
-the actual handler outcomes must come from the independent pinned combo suite.
-Changing the producer invalidates every receipt bound to its prior input bytes.
+The ingress producer records 39 exact family method/path cases across combos,
+capability overrides, fallback chains, provider connections, provider nodes,
+provider configuration, aliases, and supporting key/model/proxy reads. Each
+uses a management reachability control instead of the route body. The export's
+`familyPolicy` records anonymous and invalid-token denial, an authorized session,
+and read/write/admin token outcomes for each exact method and path. Provider
+connection mutations require admin scope; provider-node mutations require write
+scope. A read token or sibling route never certifies a mutation's authorization.
 
-The capability-overrides GET ingress observation likewise covers management-policy
-denial and authorized reachability through a replacement control. It does not
-execute the real handler, establish persistence behavior, or qualify PATCH or
-DELETE; independent source-handler observations remain required.
-
-Fallback-chain, provider-node, and provider cc-alias GET controls use the same
-policy-only boundary with separate original route digests and exact paths.
-The cc-alias handler's own management-auth check still requires independent
-handler evidence. None of these controls proves database initialization or
-durable state, and none authorizes a sibling write operation.
+These controls bind original route and policy digests, not handler semantics or
+durable effects. The existing native cold/warm runner also exercises source
+provider and combo handlers and stores against the initialized real database.
+Its allowlisted family exports remain research observations, separate from both
+ingress and operation-specific executor safety receipts. Direct handler execution
+disables authentication only in the disposable database; it cannot establish
+production authorization. Shared producer changes invalidate every receipt bound
+to their previous input bytes. No family observation alone restores eligibility.
 
 Approval-state checks and outcome reconciliation have separate responsibilities.
 Read and bind the relevant target state that upstream exposes, even when a

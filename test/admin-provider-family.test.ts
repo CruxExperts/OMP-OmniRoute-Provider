@@ -273,17 +273,17 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  const artifactCandidates = PROVIDER_FAMILY_OPERATION_IDS.filter(operationId => !HELD_SOURCE_ONLY_OPERATION_IDS.has(operationId));
-  if (artifactCandidates.length === 0) return;
-  const complete = artifactCandidates.every(operationId =>
-    REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId)),
+  const artifactCandidates = PROVIDER_FAMILY_OPERATION_IDS.filter(operationId =>
+    !HELD_SOURCE_ONLY_OPERATION_IDS.has(operationId)
+      && REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId))
+      && operationObservations.has(operationId),
   );
-  if (!complete) return;
+  if (artifactCandidates.length === 0) return;
   const observationDirectory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(observationDirectory, { recursive: true, mode: 0o700 });
   for (const operationId of artifactCandidates) {
     const observation = operationObservations.get(operationId);
-    if (!observation) return;
+    if (!observation) continue;
     const binding = operationEvidenceBinding(operationId, PROVIDER_FAMILY_SOURCE_CONTRACTS[operationId]);
     const caseSha256 = testCaseSourceHash(TEST_ID);
     const artifactPath = outcomeArtifactPath(operationId);

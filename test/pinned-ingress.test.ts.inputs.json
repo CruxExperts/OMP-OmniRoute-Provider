@@ -15,6 +15,7 @@
     "test/fixtures/pinned-ingress/alias-map.json",
     "test/fixtures/pinned-ingress/backend/core.ts",
     "test/fixtures/pinned-ingress/backend/settings.ts",
+    "test/fixtures/pinned-ingress/combo-lifecycle.mjs",
     "test/fixtures/pinned-ingress/database-lifecycle.mjs",
     "test/fixtures/pinned-ingress/dependencies.json",
     "test/fixtures/pinned-ingress/driver.mjs",

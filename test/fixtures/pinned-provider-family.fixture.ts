@@ -5,6 +5,7 @@ import {
   createPinnedFixtureDate,
   loadPinnedModule,
   readPinnedSource,
+  withPinnedSourceSnapshot,
   type PinnedExports,
   type PinnedManagementAuthorization,
 } from "./pinned-handler.fixture.ts";
@@ -629,8 +630,8 @@ function providerRow(connection: ProviderConnectionFixture, now: string): Record
 
 export class ProviderFamilyFixture {
   readonly #database = new Database(":memory:");
-  readonly #authorization: PinnedManagementAuthorization;
-  readonly #route: ProviderRoute;
+  #authorization!: PinnedManagementAuthorization;
+  #route!: ProviderRoute;
   readonly #server: Bun.Server<undefined>;
   readonly effects: ProviderFamilyEffects = { backups: [], cacheInvalidations: [], audits: [], testRequests: [], cloudSyncRequests: [], modelSyncRequests: [], updates: [] };
   readonly #counts = { get: 0, patch: 0, post: 0, delete: 0 };
@@ -641,6 +642,8 @@ export class ProviderFamilyFixture {
   constructor(connections: readonly ProviderConnectionFixture[], options: { clock?: () => string } = {}) {
     const now = options.clock?.() ?? new Date().toISOString();
     const date = sourceDate(now);
+    try {
+    withPinnedSourceSnapshot(() => {
     this.#database.exec(extractedCoreSchema());
     const sourceDb = createNodeSqliteBindingAdapter(this.#database);
     const schemaColumns = loadPinnedModule("src/lib/db/schemaColumns.ts", () => ({}), { date });
@@ -662,6 +665,11 @@ export class ProviderFamilyFixture {
         : token === "fixture-no-manage" ? { id: "provider-family-read", scopes: ["read"] } : null,
     });
     this.#route = loadProviderRoute(store, this.#database, this.#authorization, this.effects, date);
+    });
+    } catch (error) {
+      this.#database.close();
+      throw error;
+    }
     const insert = this.#database.prepare(`INSERT INTO provider_connections (
       id, provider, auth_type, name, priority, is_active, api_key, access_token, refresh_token, id_token,
       provider_specific_data, test_status, created_at, updated_at

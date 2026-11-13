@@ -58,6 +58,7 @@ export interface ComboStore {
   readonly updateCombo: (id: string, data: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
   readonly deleteCombo: (id: string) => Promise<boolean>;
   readonly reorderCombos: (ids: string[]) => Promise<Record<string, unknown>[]>;
+  readonly importCombos: (entries: Record<string, unknown>[], options: { replaceVisible: boolean }) => Promise<{ created: Record<string, unknown>[]; removed: number }>;
 }
 
 export interface PinnedComboMetrics {
@@ -187,6 +188,7 @@ export function createPinnedSqliteComboStore(
   }, { date: fixtureDate });
   const legacySync = {
     getCombosCount: repository.getCombosCount as () => number,
+    importComboBatch: repository.importComboBatch,
   };
   const facade = loadPinnedModule("src/lib/db/combos.ts", specifier => {
     if (specifier === "./backup") return { backupDbFile: (reason: string) => { effects.backupReasons.push(reason); } };
@@ -198,6 +200,7 @@ export function createPinnedSqliteComboStore(
     if (specifier === "./reasoningRoutingRules") return {
       invalidateReasoningRoutingRuleCache: () => { effects.reasoningCacheInvalidations.push(1); },
     };
+    if (specifier === "./apiKeys") return { clearApiKeyCaches: () => { effects.apiKeyCacheInvalidations.push(1); } };
     if (specifier === "./repositories/routingConfigRepositories") {
       return { routingConfigRepositories: { combos: repository.sqliteComboRepository, legacySync } };
     }
@@ -233,6 +236,7 @@ export function createPinnedSqliteComboStore(
     createCombo: facade.createCombo as ComboStore["createCombo"],
     updateCombo: facade.updateCombo as ComboStore["updateCombo"],
     deleteCombo: facade.deleteCombo as ComboStore["deleteCombo"],
+    importCombos: facade.importCombos as ComboStore["importCombos"],
     reorderCombos: facade.reorderCombos as ComboStore["reorderCombos"],
   };
   return {
@@ -587,7 +591,14 @@ function loadComboRoutes(options: {
   includeSecondModel: boolean;
 }): { routes: PinnedComboHandlers["routes"]; metrics: PinnedComboMetrics } {
   const { authorization, store } = options;
-  const next = { NextResponse: nextResponse };
+  class FixtureNextResponse extends Response {
+    static override json(body: unknown, init?: ResponseInit): FixtureNextResponse {
+      const headers = new Headers(init?.headers);
+      if (!headers.has("content-type")) headers.set("content-type", "application/json");
+      return new FixtureNextResponse(JSON.stringify(body), { ...init, headers });
+    }
+  }
+  const next = { NextResponse: FixtureNextResponse };
   const steps = loadPinnedModule("src/lib/combos/steps.ts", () => {
     throw new Error("Pinned combo-step normalizer has no runtime imports");
   });
@@ -648,6 +659,7 @@ function loadComboRoutes(options: {
     createCombo: store.createCombo,
     updateCombo: store.updateCombo,
     deleteCombo: store.deleteCombo,
+    importCombos: store.importCombos,
     reorderCombos: store.reorderCombos,
   };
   const common: Record<string, unknown> = {
@@ -753,6 +765,20 @@ function loadComboRoutes(options: {
     };
     throw new Error(`Unapproved pinned stale-combo-reference import: ${specifier}`);
   });
+  const portable = loadPinnedModule("src/lib/combos/portable.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/services/combo/comboStructure.ts" || specifier === "@omniroute/open-sse/services/combo/comboPredicates.ts") return structure;
+    if (specifier === "@omniroute/open-sse/services/providerAlias.ts") return loadPinnedModule("open-sse/services/providerAlias.ts", name => {
+      if (name === "../config/providerModels.ts") return { PROVIDER_ID_TO_ALIAS: {} };
+      throw new Error(`Unapproved provider-alias import: ${name}`);
+    });
+    if (specifier === "@omniroute/open-sse/utils/error.ts") return { sanitizeErrorMessage: (message: string) => message };
+    if (specifier === "@/lib/combos/compositeTiers") return compositeTiers;
+    if (specifier === "@/lib/combos/deadConfigKeys") return deadKeys;
+    if (specifier === "@/lib/combos/steps") return steps;
+    if (specifier === "@/shared/validation/schemas") return schema;
+    if (specifier === "@/shared/utils/noAuthProviders") return { isNoAuthProviderKey: () => false };
+    throw new Error(`Unapproved pinned portable combo import: ${specifier}`);
+  });
   const sourceModuleMap: Record<string, PinnedExports> = {
     "src/app/api/combos/route.ts": loadRoute("src/app/api/combos/route.ts"),
     "src/app/api/combos/[id]/route.ts": loadRoute("src/app/api/combos/[id]/route.ts", {
@@ -766,6 +792,16 @@ function loadComboRoutes(options: {
       "@omniroute/open-sse/services/autoCombo/virtualFactory": virtualFactory,
     }),
     "src/app/api/combos/builder/options/route.ts": loadRoute("src/app/api/combos/builder/options/route.ts", { "@/lib/combos/builderOptions": builderOptions, "@/lib/combos/staleModelRefs": staleModelRefs }),
+    "src/app/api/combos/import/route.ts": loadRoute("src/app/api/combos/import/route.ts", {
+      "@/lib/db/providers": { getProviderConnections: async () => [fixtureProviderConnection] },
+      "@/lib/combos/portable": portable,
+      "@omniroute/open-sse/utils/error.ts": { sanitizeErrorMessage: (message: string) => message },
+    }),
+    "src/app/api/combos/export/route.ts": loadRoute("src/app/api/combos/export/route.ts", {
+      "@/lib/db/settings": { getSettings: async () => ({ hidePaidModels: false }) },
+      "@/lib/combos/portable": portable,
+      "@/app/api/settings/export-json/route": { filterPaidComboSteps: () => { throw new Error("Paid-model filtering is outside this fixture"); } },
+    }),
     "src/app/api/combos/metrics/route.ts": loadRoute("src/app/api/combos/metrics/route.ts", { "@omniroute/open-sse/services/comboMetrics.ts": metrics }),
     "src/app/api/combos/duplicate/route.ts": loadRoute("src/app/api/combos/duplicate/route.ts", {
       "@/lib/combos/snapshotWeights": loadPinnedModule("src/lib/combos/snapshotWeights.ts", () => { throw new Error("Pinned snapshot weight normalizer has no runtime imports"); }),
