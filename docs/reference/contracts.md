@@ -91,8 +91,9 @@ derived database-dependent operation. Shared recomputation is cached only under
 the complete verified input-byte digest and checked for drift before reuse.
 
 Hosted ingress and lifecycle stages retain their outputs independently. A failed
-lifecycle exports only its cold/warm phase and fixed diagnostic categories, never
-raw database contents or private process logs. A successful ingress run does not
+lifecycle exports only its cold/warm phase, fixed diagnostic categories, the last
+allowlisted await checkpoint, and recognized public module identities. Raw
+database contents and private process logs are never exported. A successful ingress run does not
 stand in for the failed lifecycle prerequisite.
 
 The closure also includes numbered SQL migrations discovered at runtime by the

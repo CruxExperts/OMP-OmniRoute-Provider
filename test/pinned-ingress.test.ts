@@ -588,6 +588,24 @@ with tempfile.TemporaryDirectory() as temp:
  lifecycle = json.loads((root/'failure.json').read_text())
  assert lifecycle['lifecyclePhase']=='cold' and lifecycle['lifecycleSignals']==['health-check-in-progress']
  assert 'private-canary' not in json.dumps(lifecycle) and '/path' not in json.dumps(lifecycle)
+ (output/'app').mkdir(); (output/'app/package.json').write_text(json.dumps({'dependencies':{'sql.js':'1'}}))
+ (output/'core-identity.json').write_text(json.dumps({'sourceFilesSha256':{'src/lib/db/core.ts':'a'*64,'../private/secret':'b'*64}}))
+ (output/'lifecycle-progress.json').write_text(json.dumps({'phase':'cold','stage':'before-initialize'}))
+ (output/'cold-lifecycle.private').write_text("Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'sql.js' imported from /private/secret\nCannot find module '/work/app/src/lib/db/core.ts'\nCannot find module '/work/app/../private/secret'\nCannot find package 'private-canary'\nWarning: unsettled top-level await\n")
+ assert m.lifecycle_failure_signals(output, 'coldLifecycle') == ['module-resolution','unsettled-top-level-await']
+ diagnostics = m.lifecycle_diagnostics(output, 'coldLifecycle')
+ assert diagnostics == {'checkpoint':'before-initialize','moduleErrors':['/work/app/src/lib/db/core.ts','sql.js'],'moduleErrorCodes':['ERR_MODULE_NOT_FOUND']}
+ assert 'private' not in json.dumps(diagnostics)
+ (root/'failure.json').unlink()
+ m.write_failure(output, hashes, 'coldLifecycle', 'CalledProcessError', 13)
+ exported = json.loads((root/'failure.json').read_text())
+ assert exported['lifecycleDiagnostics'] == diagnostics and exported['exitCode'] == 13
+ assert 'private' not in json.dumps(exported)
+ assert m.lifecycle_diagnostics(output, 'warmLifecycle')['checkpoint'] is None
+ (output/'lifecycle-progress.json').write_text(json.dumps({'phase':'cold','stage':'private-canary'}))
+ assert m.lifecycle_diagnostics(output, 'coldLifecycle')['checkpoint'] is None
+ (output/'lifecycle-progress.json').unlink(); (output/'lifecycle-progress.json').symlink_to(state)
+ assert m.lifecycle_diagnostics(output, 'coldLifecycle')['checkpoint'] is None
  (output/'warm-lifecycle.private').write_text('ERR_MODULE_NOT_FOUND: /private/secret')
  assert m.lifecycle_failure_signals(output, 'warmLifecycle') == ['module-resolution']
  (output/'warm-lifecycle.private').unlink(); (output/'warm-lifecycle.private').symlink_to(state)

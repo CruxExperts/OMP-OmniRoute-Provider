@@ -926,10 +926,65 @@ def lifecycle_failure_signals(output, stage):
         'settings-persistence': ('settings persistence failed',),
         'database-lifecycle': ('cold database already exists', 'warm database missing'),
         'phase-isolation': ('lifecycle isolation or phase mismatch',),
+        'unsettled-top-level-await': ('warning: unsettled top-level await', 'warning: detected unsettled top-level await'),
         'migration-metadata': ('migration metadata missing', 'empty migration ledger'),
         'driver-or-ping': ('core driver or ping failed',),
     }
     return sorted(name for name, patterns in markers.items() if any(pattern in text for pattern in patterns))
+
+
+LIFECYCLE_CHECKPOINTS = frozenset(('before-files', 'before-initialize', 'after-initialize',
+    'before-worker', 'after-worker', 'before-settings-read', 'after-settings-read',
+    'before-settings-write', 'after-settings-write', 'before-settings-verify',
+    'after-settings-verify', 'before-close', 'after-close'))
+MODULE_ERROR_CODES = frozenset(('MODULE_NOT_FOUND', 'ERR_MODULE_NOT_FOUND',
+    'ERR_PACKAGE_PATH_NOT_EXPORTED', 'ERR_UNSUPPORTED_DIR_IMPORT'))
+
+
+def lifecycle_diagnostics(output, stage):
+    """Export only checkpoint and known public module identities, never child messages."""
+    phase = {'coldLifecycle': 'cold', 'warmLifecycle': 'warm'}.get(stage)
+    result = {'checkpoint': None, 'moduleErrors': [], 'moduleErrorCodes': []}
+    if phase is None:
+        return result
+    try:
+        progress = bounded_json(output / 'lifecycle-progress.json')
+        if (isinstance(progress, dict) and set(progress) == {'phase', 'stage'}
+                and progress['phase'] == phase and progress['stage'] in LIFECYCLE_CHECKPOINTS):
+            result['checkpoint'] = progress['stage']
+    except (OSError, ValueError, TypeError, RuntimeError):
+        pass
+    path = output / (phase + '-lifecycle.private')
+    if not path.is_file() or path.is_symlink() or path.stat().st_size > 2 * 1024**2:
+        return result
+    try:
+        manifest = bounded_json(FIXTURE / 'dependencies.json')
+        packages = {item['name'] for item in manifest['packages']}
+        package = bounded_json(output / 'app/package.json')
+        for key in ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'):
+            dependencies = package.get(key, {})
+            if isinstance(dependencies, dict):
+                packages.update(dependencies)
+        sources = bounded_json(FIXTURE / 'source-manifest.json')
+        names = set(sources['selectedFiles']) | set(sources['additionalFiles'])
+        paths = {'/work/app/' + name for name in names
+                 if isinstance(name, str) and re.fullmatch(r'[A-Za-z0-9_./@+-]{1,512}', name)
+                 and not name.startswith('/') and all(part not in ('', '.', '..') for part in name.split('/'))}
+        paths.update(('/work/app/src/lib/db/pinned-lifecycle.mjs', '/work/app/src/lib/db/healthCheckWorker.js'))
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        return result
+    text = path.read_text(encoding='utf-8', errors='replace')
+    targets = re.findall(r"(?:Cannot find (?:module|package)|Package subpath) ['\"]([^'\"\r\n]{1,512})['\"]", text)
+    codes = sorted({code for code in MODULE_ERROR_CODES if re.search(r'(?<![A-Z_])' + code + r'(?![A-Z_])', text)})
+    modules = set()
+    for target in targets:
+        if target.startswith('file://'):
+            target = target[7:]
+        if target in paths or target in packages or target in ('node:sqlite', 'bun:sqlite'):
+            modules.add(target)
+    result['moduleErrors'] = sorted(modules)[:16]
+    result['moduleErrorCodes'] = codes
+    return result
 
 
 def write_failure(output, hashes, stage, exception_class, returncode):
@@ -948,6 +1003,7 @@ def write_failure(output, hashes, stage, exception_class, returncode):
     if stage in ('coldLifecycle', 'warmLifecycle'):
         artifact['lifecyclePhase'] = 'cold' if stage == 'coldLifecycle' else 'warm'
         artifact['lifecycleSignals'] = lifecycle_failure_signals(output, stage)
+        artifact['lifecycleDiagnostics'] = lifecycle_diagnostics(output, stage)
     fd = os.open(output.parent / 'failure.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as destination:
         json.dump(artifact, destination, indent=2)
