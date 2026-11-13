@@ -287,7 +287,7 @@ export function sourceUnpaginatedListProofMatches(operationId: string, proof: un
     return proof.kind === "unpaginated-list" && isDeepStrictEqual(proof.itemsPath, ["items"])
       && isDeepStrictEqual(proof.totalPath, ["total"]) && isDeepStrictEqual(proof.identityPaths, [["id"]]);
   }
-  if (operationId === "GET /api/settings/proxies/assignments" && (mutationOperationId === undefined || proxyMutations.includes(mutationOperationId))) {
+  if (operationId === "GET /api/settings/proxies/assignments" && (mutationOperationId === undefined || proxyMutations.includes(mutationOperationId) || mutationOperationId === "DELETE /api/combos/{id}")) {
     return proof.kind === "unpaginated-list" && isDeepStrictEqual(proof.itemsPath, ["items"])
       && isDeepStrictEqual(proof.totalPath, ["total"]) && isDeepStrictEqual(proof.identityPaths, [["id"]]);
   }

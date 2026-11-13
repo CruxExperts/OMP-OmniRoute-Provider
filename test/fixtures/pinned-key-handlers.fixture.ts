@@ -6,12 +6,12 @@ import { KEY_POLICY_FIELDS } from "../../src/admin/source-keys.ts";
 import { projectKeyGrant, projectKeyGrantPage, projectCompleteKeyGrants } from "./keys.fixture.ts";
 
 /** Disposable SQLite only: route and apiKeys SQL are the receipt-verified source. */
-export function createPinnedKeyHandlers() {
-  const db = new Database(":memory:");
+export function createPinnedKeyHandlers(sharedDb?: Database) {
+  const db = sharedDb ?? new Database(":memory:");
   try {
   const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(readPinnedSource("src/lib/db/core.ts"))?.[1];
   if (!schema) throw new Error("Pinned core schema unavailable");
-  for (const table of ["api_keys", "domain_budgets", "domain_cost_history"]) {
+  if (!sharedDb) for (const table of ["api_keys", "domain_budgets", "domain_cost_history"]) {
     const sql = new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\s*\\([\\s\\S]*?\\n\\s*\\);`, "i").exec(schema)?.[0];
     if (!sql) throw new Error(`Pinned schema omitted ${table}`);
     db.exec(sql);
@@ -179,10 +179,10 @@ export function createPinnedKeyHandlers() {
       return { status: response.status, data: projected };
     },
     dropKeyTable() { db.exec("DROP TABLE api_keys"); },
-    close() { db.close(); },
+    close() { if (!sharedDb) db.close(); },
   };
   } catch (error) {
-    db.close();
+    if (!sharedDb) db.close();
     throw error;
   }
 }

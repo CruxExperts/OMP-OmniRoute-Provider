@@ -28,6 +28,21 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   current response and query provenance. Distinguish missing-table empty success
   from ordinary storage errors, and disclose that structural response completeness
   does not independently establish healthy storage or successful cascading cleanup.
+- Share the actual SQLite store across combo, key, and assignment source fixtures
+  so deletion previews observe real dependent rows and reject changed grants or
+  assignments. Keep deletion held while its observable cloud-state dependency
+  cannot be safely read without potential onboarding writes.
+- Exercise actual settings GET initialization writes and reject malformed cloud
+  flags rather than coercing them. Expand isolated policy observations to exact
+  settings and proxy collection GET routes; policy reachability is not handler
+  or operation qualification.
+- Give source-backed fixture tests a bounded 20-second default so cold graph
+  authentication and SQLite migrations do not trigger the five-second unit-test
+  deadline and cancel otherwise valid administration scenarios.
+- Recognize JSON response media through bounded local header factories without
+  guessing dynamic header keys or content types. Reject case-insensitive duplicate
+  content-type keys, whose actual Headers values would be combined rather than
+  overwritten. Source corpus refresh remains a separate exact-input operation.
 
 - Expand isolated management-policy observations to 39 exact family method/path
   cases with independent read/write/admin token outcomes. Keep policy controls,

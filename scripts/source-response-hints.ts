@@ -418,6 +418,77 @@ function reassignedBindings(source: ts.SourceFile): Set<string> {
 }
 
 
+// Resolve only local header factories whose returned keys are statically bounded.
+// Unknown values are harmless unless they belong to Content-Type.
+function headerFactoryMediaType(input: ts.Expression, shadowed: ReadonlySet<string>): string | undefined {
+  const call = unwrapExpression(input);
+  if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || shadowed.has(call.expression.text)) return undefined;
+  const source = call.getSourceFile();
+  const name = call.expression.text;
+  const declarations = localFunctionDeclarations(source).get(name);
+  if (declarations?.length !== 1 || topLevelBindingCounts(source).get(name) !== 1 || reassignedBindings(source).has(name)) return undefined;
+  const factory = declarations[0]!;
+  if (factory.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+    || ("asteriskToken" in factory && factory.asteriskToken) || !factory.body) return undefined;
+  const statement = ts.isBlock(factory.body) && factory.body.statements.length === 1 ? factory.body.statements[0] : undefined;
+  const returned = ts.isBlock(factory.body) ? statement && ts.isReturnStatement(statement) ? statement.expression : undefined : factory.body;
+  if (!returned) return undefined;
+  const constants = new Map<string, ts.Expression>();
+  const counts = topLevelBindingCounts(source);
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)
+      || statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+      const name = declaration.name.text;
+      if (counts.get(name) === 1 && !factory.parameters.some(parameter => bindingNames(parameter.name).includes(name))) {
+        constants.set(name, declaration.initializer);
+      }
+    }
+  }
+  const safeConstant = (name: string): boolean => {
+    let safe = true;
+    const visit = (node: ts.Node): void => {
+      if (ts.isIdentifier(node) && node.text === name
+        && !(ts.isVariableDeclaration(node.parent) && node.parent.name === node)
+        && !(ts.isSpreadAssignment(node.parent) && node.parent.expression === node)) safe = false;
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return safe;
+  };
+  let mediaType = "application/json";
+  let seenContentType = false;
+  const active = new Set<string>();
+  const inspect = (input: ts.Expression): boolean => {
+    const value = unwrapExpression(input);
+    if (ts.isIdentifier(value)) {
+      const initializer = constants.get(value.text);
+      if (!initializer || active.has(value.text) || !safeConstant(value.text)) return false;
+      active.add(value.text);
+      const valid = inspect(initializer);
+      active.delete(value.text);
+      return valid;
+    }
+    if (!ts.isObjectLiteralExpression(value)) return false;
+    for (const property of value.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        if (!inspect(property.expression)) return false;
+      } else if (ts.isPropertyAssignment(property)) {
+        const key = ts.isIdentifier(property.name) || ts.isStringLiteral(property.name) ? property.name.text : undefined;
+        if (key === undefined) return false;
+        if (key.toLowerCase() === "content-type") {
+          if (seenContentType || !ts.isStringLiteralLike(property.initializer)) return false;
+          seenContentType = true;
+          mediaType = property.initializer.text.split(";", 1)[0]!.trim().toLowerCase();
+        }
+      } else return false;
+    }
+    return true;
+  };
+  return inspect(returned) ? mediaType : undefined;
+}
+
 function collectHandlerEvidence(
   handler: Handler,
   sourceFile: string,
@@ -556,7 +627,12 @@ function collectHandlerEvidence(
           status = Number(property.initializer.text);
         }
         if (name === "headers") {
-          if (!ts.isObjectLiteralExpression(property.initializer)) return;
+          if (!ts.isObjectLiteralExpression(property.initializer)) {
+            const inferred = headerFactoryMediaType(property.initializer, shadowed);
+            if (inferred === undefined) return;
+            mediaType = inferred;
+            continue;
+          }
           for (const header of property.initializer.properties) {
             if (!ts.isPropertyAssignment(header)) return;
             const headerKey = header.name;

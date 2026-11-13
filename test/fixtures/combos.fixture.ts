@@ -5,6 +5,12 @@ import { requiredOmaScope } from "../../src/admin/authorization-policy.ts";
 import { canonicalizeJson, getOperation, type JsonSchema, type OperationAdapter, type OperationDescriptor, type OperationResponseVariant } from "../../src/admin/registry.ts";
 import type { JsonObject, JsonValue } from "../../src/admin/types.ts";
 import { fixtureRegistry } from "./admin-qualification.fixture.ts";
+import { KEY_GRANTS_PREFLIGHT } from "../../src/admin/source-keys.ts";
+import { KEY_SOURCE_CONTRACTS } from "./keys.fixture.ts";
+import { buildProxyFixtureRegistry } from "./proxies.fixture.ts";
+import { createPinnedKeyHandlers } from "./pinned-key-handlers.fixture.ts";
+import { createPinnedProxyHandlers } from "./pinned-proxy-handlers.fixture.ts";
+import { createPinnedSettingsFixture } from "./pinned-settings.fixture.ts";
 import {
   COMBO_OPERATION_IDS,
   comboRelationSnapshot, comboRelationExpectedPayload, comboSourceRelationViewMatches,
@@ -429,6 +435,10 @@ function contractFor(operationId: string): OperationSourceContract {
       }
     : { kind: "required" as const, observations: [
         collectionObservation,
+        ...(operationId === "DELETE /api/combos/{id}" ? [
+          { name: "complete-key-grants", read: { operationId: "GET /api/keys", inputs: [], sourceView: KEY_GRANTS_PREFLIGHT, snapshot: { kind: "collection" as const, collectionPath: ["keys"], identity: [{ name: "id", path: ["id"] }], state: [{ name: "allowedCombos", path: ["allowedCombos"] }] } }, readCompleteness: { kind: "unpaginated-list" as const, sourceReason: "The source returns the complete key inventory without pagination inputs.", itemsPath: ["keys"], totalPath: ["total"], identityPaths: [["id"]] } },
+          { name: "complete-proxy-assignments", read: { operationId: "GET /api/settings/proxies/assignments", inputs: [], snapshot: { kind: "collection" as const, collectionPath: ["items"], identity: [{ name: "id", path: ["id"] }], state: [{ name: "scope", path: ["scope"] }, { name: "scopeId", path: ["scopeId"] }, { name: "proxyId", path: ["proxyId"] }] } }, readCompleteness: { kind: "unpaginated-list" as const, sourceReason: "The source returns its assignment list without pagination; missing tables can also appear empty.", itemsPath: ["items"], totalPath: ["total"], identityPaths: [["id"]] } },
+        ] : []),
         ...((operationId === "PUT /api/combos/{id}" || operationId === "PATCH /api/combos/{id}") && targetRelation
           ? [{ name: "selected-combo", read: targetRelation.targetRead,
               readCompleteness: { kind: "single-response" as const, sourceReason: "The item GET returns the selected combo in one response." } }] : []),
@@ -439,8 +449,8 @@ function contractFor(operationId: string): OperationSourceContract {
         ] : []),
       ], visibilityLimits: [
         "The collection and catalog reads are not an atomic lock against other writers; hidden settings and external service state can change after confirmation.",
-        "Cloud sync settings and effects are not exposed by these reads; the handler may sync changes to cloud when enabled.",
-        ...(operationId === "DELETE /api/combos/{id}" ? ["Deletion also revokes matching API key grants and clears proxy assignments; those hidden stores are not exposed by the combo collection."] : []),
+        "Cloud sync may run after the local write. The available settings GET can itself initialize security settings, so it is not automatically read here; cloud-enabled state and remote settlement remain unknown, including after HTTP 200.",
+        ...(operationId === "DELETE /api/combos/{id}" ? ["A missing proxy assignment table is returned as an empty list; inventory shape cannot prove store health or certain absence. Rotation cursors, cache state and cleanup effects are not completely observable by these reads."] : []),
         ...(operationId === "POST /api/combos/import" ? ["Replace may revoke API-key grants and clear proxy assignments for removed names; the combo collection alone does not observe those dependent stores."] : []),
         ...((isTest || operationId === "POST /api/combos/duplicate") ? ["Catalogs omit credential values and may not expose all routing, capability, or internal key state; provider state can change after confirmation."] : []),
       ] };
@@ -470,6 +480,12 @@ export function buildComboFixtureRegistry() {
     return { ...source, ...contract, mediaType: { request: contract.request.body?.mediaType ?? null, response: contract.response.mediaType },
       coverage: { status: "invokable", adapterId: `typed.fixture.${name}`, reason: null } };
   });
+  const keys = getOperation("GET /api/keys");
+  if (!keys) throw new Error("pinned key inventory operation is absent");
+  const keyContract = KEY_SOURCE_CONTRACTS["GET /api/keys"];
+  descriptors.push({ ...keys, ...keyContract, mediaType: { request: null, response: keyContract.response.mediaType }, coverage: { status: "invokable", adapterId: "typed.fixture.get.api.keys", reason: null } });
+  const assignments = buildProxyFixtureRegistry().require("GET /api/settings/proxies/assignments").descriptor;
+  descriptors.push({ ...assignments, coverage: { status: "invokable", adapterId: "typed.fixture.get.api.settings.proxies.assignments", reason: null } });
   return fixtureRegistry(descriptors);
 }
 export function comboAdapterDescriptor(adapter: OperationAdapter) {
@@ -513,6 +529,9 @@ export class CombosHttpFixture {
   readonly endpoint: string;
   readonly #auth: PinnedManagementAuthorization;
   readonly #storage: PinnedComboStoreRuntime;
+  readonly #keyReads: { request: (method: "GET", path: string, options: { token: string }) => Promise<{ status: number; data: unknown }> };
+  readonly #proxyReads: { request: (method: "GET", path: string, options: { token: string; assignmentProof: boolean }) => Promise<{ status: number; data: unknown }> };
+  readonly #settingsReads: { handle: (token?: string) => Promise<Response> };
   readonly #handlers: ReturnType<typeof createPinnedComboHandlers>;
   readonly #routes: Readonly<Record<string, PinnedExports>>;
   readonly #counts = new Map<string, number>();
@@ -529,6 +548,9 @@ export class CombosHttpFixture {
       uuid: fixtureUuid,
       date: fixtureDate,
     });
+    this.#keyReads = createPinnedKeyHandlers(this.#storage.db);
+    this.#proxyReads = createPinnedProxyHandlers(this.#storage.db);
+    this.#settingsReads = createPinnedSettingsFixture(this.#storage.db);
     this.#server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: request => this.#handle(request) });
     this.endpoint = this.#server.url.origin;
     this.#handlers = createPinnedComboHandlers({
@@ -561,6 +583,16 @@ export class CombosHttpFixture {
     this.#storage.db.prepare("INSERT INTO api_keys (id, name, key, created_at, allowed_combos) VALUES (?, ?, ?, ?, ?)")
       .run(id, id, `fixture-grant-${id}`, FIXTURE_CLOCK_TIME, JSON.stringify(grants));
   }
+  setComboGrants(id: string, grants: readonly string[]): void {
+    this.#storage.db.prepare("UPDATE api_keys SET allowed_combos = ? WHERE id = ?").run(JSON.stringify(grants), id);
+  }
+  clearComboAssignment(id: string): void {
+    this.#storage.db.prepare("DELETE FROM proxy_assignments WHERE scope = 'combo' AND scope_id = ?").run(id);
+  }
+  setCloudEnabled(enabled: boolean): void {
+    this.#storage.db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('settings', 'cloudEnabled', ?)").run(JSON.stringify(enabled));
+  }
+  readCloudSetting(): Promise<Response> { return this.#settingsReads.handle("fixture-manage"); }
   comboGrants(id: string): unknown {
     const row = this.#storage.db.prepare("SELECT allowed_combos FROM api_keys WHERE id = ?").get(id);
     if (!row || typeof row !== "object" || !("allowed_combos" in row) || typeof row.allowed_combos !== "string") throw new Error(`Missing fixture grant ${id}`);
@@ -592,6 +624,13 @@ export class CombosHttpFixture {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method.toUpperCase();
+    if (method === "GET" && (path === "/api/keys" || path === "/api/settings/proxies/assignments")) {
+      const token = request.headers.get("authorization") === "Bearer fixture-combos-manage" ? "fixture-manage" : "fixture-low";
+      const result = path === "/api/keys"
+        ? await this.#keyReads.request("GET", `${path}${url.search}`, { token })
+        : await this.#proxyReads.request("GET", `${path}${url.search}`, { token, assignmentProof: true });
+      return jsonResponse(result.data, result.status);
+    }
     if ((path === "/v1/chat/completions" || path === "/v1/embeddings") && method === "POST") {
       this.#count(method, path);
       if (request.headers.get("authorization") !== "Bearer fixture-internal-api-key"

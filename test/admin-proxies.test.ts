@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
 import { createPinnedProxyHandlers } from "./fixtures/pinned-proxy-handlers.fixture.ts";
-import { buildProxyFixtureRegistry, HELD_SOURCE_ONLY_OPERATION_IDS, PROXY_OPERATION_IDS } from "./fixtures/proxies.fixture.ts";
+import { buildProxyFixtureRegistry, HELD_SOURCE_ONLY_OPERATION_IDS, PROXY_OPERATION_IDS, projectProxyList, projectProxyListProof } from "./fixtures/proxies.fixture.ts";
 import { sourcePreflightReadInput, sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot } from "../src/admin/relations.ts";
 import { canonicalizeJson, getOperation, type OperationDescriptor } from "../src/admin/registry.ts";
@@ -18,9 +18,12 @@ const assignments = `${collection}/assignments`;
 const assignmentReadId = "GET /api/settings/proxies/assignments";
 const assignmentCases = new Set<string>();
 let assignmentObservation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
+const collectionReadId = "GET /api/settings/proxies";
+const collectionCases = new Set<string>();
+let collectionObservation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
 
 afterAll(async () => {
-  if (!assignmentObservation || !["complete-inventory", "filtering", "auth-denial", "handler-error", "missing-table-fallback"].every(value => assignmentCases.has(value))) return;
+  if (!assignmentObservation || !["complete-inventory", "filtering", "auth-denial", "handler-error", "missing-table-fallback", "completeness-proof"].every(value => assignmentCases.has(value))) return;
   const descriptor = buildProxyFixtureRegistry().require(assignmentReadId).descriptor;
   const { request, auth, response, secrets, sideEffect, pagination, streaming, confirmation, retry, reconciliation, mutationSafety } = descriptor;
   const contract = { request, auth, response, secrets, sideEffect, pagination, streaming, confirmation, retry, reconciliation, mutationSafety };
@@ -31,6 +34,35 @@ afterAll(async () => {
   await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
   await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: assignmentReadId, testId, caseSha256, binding, observation: assignmentObservation })}\n`, { mode: 0o600 });
   testOutcomeHash(assignmentReadId, testId, caseSha256, binding, contract, artifactPath);
+});
+
+afterAll(async () => {
+  if (!collectionObservation || !["inventory", "auth-denial", "lookup", "projection-errors", "completeness-proof", "storage-failure"].every(value => collectionCases.has(value))) return;
+  const descriptor = buildProxyFixtureRegistry().require(collectionReadId).descriptor;
+  const { request, auth, response, secrets, sideEffect, pagination, streaming, confirmation, retry, reconciliation, mutationSafety } = descriptor;
+  const contract = { request, auth, response, secrets, sideEffect, pagination, streaming, confirmation, retry, reconciliation, mutationSafety };
+  const testId = "test/admin-proxies.test.ts";
+  const binding = operationEvidenceBinding(collectionReadId, contract);
+  const caseSha256 = testCaseSourceHash(testId);
+  const artifactPath = outcomeArtifactPath(collectionReadId);
+  await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+  await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: collectionReadId, testId, caseSha256, binding, observation: collectionObservation })}\n`, { mode: 0o600 });
+  testOutcomeHash(collectionReadId, testId, caseSha256, binding, contract, artifactPath);
+});
+
+test("proxy collection reports missing and incompatible storage as failures", async () => {
+  for (const damage of ["dropProxyTable", "breakProxySchema"] as const) {
+    const fixture = createPinnedProxyHandlers();
+    try {
+      fixture[damage]();
+      const response = await fixture.request("GET", collection, admin);
+      expect(response).toEqual({ status: 500, data: null });
+      const descriptor = buildProxyFixtureRegistry().require(collectionReadId).descriptor;
+      const proof = { kind: "unpaginated-list" as const, sourceReason: "The pinned route returns all rows from its SQLite list without pagination.", itemsPath: ["items"], totalPath: ["total"], identityPaths: [["id"]] };
+      expect(() => assertSafetyReadResponse(proof, descriptor, response.data)).toThrow();
+    } finally { fixture.close(); }
+  }
+  collectionCases.add("storage-failure");
 });
 
 test("proxy assignment inventory reports a storage failure", async () => {
@@ -68,6 +100,9 @@ test("pinned proxy handlers persist and project CRUD and complete assignment sta
     assignmentCases.add("auth-denial");
     expect((await fixture.request("PUT", assignments, { token: "oma_fixture-read", body: { scope: "global", proxyId: null } })).status).toBe(403);
     expect((await fixture.request("GET", collection)).status).toBe(401);
+    expect((await fixture.request("GET", collection, { token: "fixture-low" })).status).toBe(403);
+    expect((await fixture.request("GET", collection, { token: "oma_fixture-invalid" })).status).toBe(401);
+    collectionCases.add("auth-denial");
     expect((await fixture.request("POST", collection, { body: { name: "denied" } })).status).toBe(401);
     expect((await fixture.request("POST", collection, { ...admin, rawBody: "{" })).status).toBe(400);
     expect((await fixture.request("POST", collection, { ...admin, body: { name: "bad", host: "fixture.invalid", port: 0 } })).status).toBe(400);
@@ -120,6 +155,30 @@ test("pinned proxy handlers persist and project CRUD and complete assignment sta
     expect(second.status).toBe(201);
     if (!second.data || !("id" in second.data) || typeof second.data.id !== "string") throw new Error("Missing second proxy ID");
     const secondId = second.data.id;
+    const beforeCollection = await fixture.request("GET", collection, { ...admin, proxyProof: true });
+    const publicCollection = await fixture.request("GET", collection, admin);
+    const afterCollection = await fixture.request("GET", collection, { ...admin, proxyProof: true });
+    expect(beforeCollection.status).toBe(200);
+    expect(publicCollection.status).toBe(200);
+    expect(afterCollection).toEqual(beforeCollection);
+    expect(publicCollection.data).toEqual({ items: expect.arrayContaining([
+      { id, name: "updated fixture", type: "http", status: "active" },
+      { id: secondId, name: "second fixture", type: "http", status: "active" },
+    ]), total: 2 });
+    expect(beforeCollection.data).toEqual({ items: expect.arrayContaining([
+      expect.objectContaining({ id, host: "fixture.invalid", port: 8080 }),
+      expect.objectContaining({ id: secondId, host: "other.invalid", port: 8081 }),
+    ]), total: 2 });
+    const inventoryProof = { kind: "unpaginated-list" as const, sourceReason: "The pinned route returns all rows from its SQLite list without pagination.", itemsPath: ["items"], totalPath: ["total"], identityPaths: [["id"]] };
+    expect(() => assertSafetyReadResponse(inventoryProof, buildProxyFixtureRegistry().require(collectionReadId).descriptor, beforeCollection.data)).not.toThrow();
+    for (const secret of ["fixture.invalid", "other.invalid", "fixture-user", "fixture-secret", "private-marker"]) {
+      expect(JSON.stringify(publicCollection.data)).not.toContain(secret);
+    }
+    expect(JSON.stringify(beforeCollection.data)).not.toContain("fixture-secret");
+    expect(JSON.stringify(beforeCollection.data)).not.toContain("fixture-user");
+    expect(JSON.stringify(beforeCollection.data)).not.toContain("private-marker");
+    collectionObservation = { before: beforeCollection.data, after: afterCollection.data, result: { status: publicCollection.status, body: publicCollection.data } };
+    collectionCases.add("inventory");
     expect((await fixture.request("PUT", assignments, { ...admin, body: { scope: "combo", scopeId: "combo-a", proxyId: secondId } })).status).toBe(200);
     expect((await fixture.request("GET", `${assignments}?scope=combo&scopeId=combo-a`, admin)).data).toEqual({ items: [{ scope: "combo", scopeId: "combo-a", proxyId: secondId }], total: 1 });
     expect((await fixture.request("GET", `${collection}?id=${encodeURIComponent(id)}&whereUsed=1`, admin)).data).toEqual({ count: 0, assignmentCount: 0, accountReferenceCount: 0, assignments: [], accountReferences: [] });
@@ -130,6 +189,8 @@ test("pinned proxy handlers persist and project CRUD and complete assignment sta
     expect((await fixture.request("DELETE", `${collection}?id=${encodeURIComponent(secondId)}`, admin)).status).toBe(200);
     expect((await fixture.request("GET", collection, admin)).data).toEqual({ items: [], total: 0 });
     expect((await fixture.request("GET", `${collection}?id=${encodeURIComponent(id)}`, admin)).status).toBe(404);
+    expect((await fixture.request("GET", `${collection}?id=missing`, admin)).status).toBe(404);
+    collectionCases.add("lookup");
   } finally { fixture.close(); }
 });
 
@@ -150,6 +211,27 @@ test("proxy completeness proof is exact and rejects missing or duplicate assignm
     expect(() => assertSafetyReadResponse(proof, descriptor, { items, total: items.length })).toThrow();
   }
   expect(() => assertSafetyReadResponse(proof, descriptor, { items: [{ id: 1 }], total: 2 })).toThrow();
+  assignmentCases.add("completeness-proof");
+});
+
+test("proxy collection completeness and projections reject malformed inventories", () => {
+  const descriptor = buildProxyFixtureRegistry().require(collectionReadId).descriptor;
+  const proof = { kind: "unpaginated-list" as const, sourceReason: "The pinned route returns all rows from its SQLite list without pagination.", itemsPath: ["items"], totalPath: ["total"], identityPaths: [["id"]] };
+  expect(sourceUnpaginatedListProofMatches(collectionReadId, proof, "DELETE /api/settings/proxies")).toBe(true);
+  expect(() => assertSafetyReadRequest(proof, descriptor, { path: {}, query: {} })).not.toThrow();
+  expect(() => assertSafetyReadRequest(proof, descriptor, { path: {}, query: { id: "proxy-1" } })).toThrow();
+  expect(() => assertSafetyReadRequest(proof, descriptor, { path: {}, query: { whereUsed: "1" } })).toThrow();
+  expect(() => assertSafetyReadResponse(proof, descriptor, { items: [{ id: "proxy-1" }, { id: "proxy-2" }], total: 2 })).not.toThrow();
+  for (const items of [[{}], [{ id: "" }], [{ id: "proxy-1" }, { id: "proxy-1" }]]) {
+    expect(() => assertSafetyReadResponse(proof, descriptor, { items, total: items.length })).toThrow();
+  }
+  expect(() => assertSafetyReadResponse(proof, descriptor, { items: [{ id: "proxy-1" }], total: 2 })).toThrow();
+  collectionCases.add("completeness-proof");
+  for (const value of [null, {}, { items: [], total: 1 }, { items: [{}], total: 1 }]) {
+    expect(() => projectProxyList(value)).toThrow();
+    expect(() => projectProxyListProof(value)).toThrow();
+  }
+  collectionCases.add("projection-errors");
 });
 
 test("delete usage preflight binds only the exact operation and rejects incomplete account evidence", () => {

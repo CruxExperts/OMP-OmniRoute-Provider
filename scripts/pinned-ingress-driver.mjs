@@ -188,6 +188,8 @@ try {
     ['GET', '/api/keys'],
     ['GET', '/api/keys/fixture-id'],
     ['GET', '/api/models'],
+    ['GET', '/api/settings'],
+    ['GET', '/api/settings/proxies'],
     ['GET', '/api/settings/proxies/assignments'],
     ['GET', '/api/fallback/chains'],
     ['GET', '/api/model-capability-overrides'],

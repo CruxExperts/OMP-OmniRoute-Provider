@@ -439,6 +439,13 @@ underlying table exists. Bind the observable assignment rows and disclose this
 source visibility limit; never present an empty result as independent proof of
 store health or complete cleanup, and retain unknown settlement when necessary.
 
+The pinned settings GET is not universally side-effect-free: with an initial
+password configured and onboarding incomplete, its store reader persists
+`setupComplete` and `requireLogin`. Do not silently use it as an automatic cloud
+state preflight or relabel it as a read in a synthetic descriptor. The source
+fixture records those initialization effects; dependent mutations remain held
+until a source-correct observation path is available.
+
 For example, a metrics reset can cover all counters for the selected combo even
 when upstream omits some counter values from its GET response. Read and bind the
 exposed metrics, disclose that hidden counters are also cleared, and retain an

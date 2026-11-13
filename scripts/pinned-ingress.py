@@ -386,6 +386,7 @@ POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/mode
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
 POLICY_SOURCES += ('src/app/api/keys/route.ts', 'src/app/api/keys/[id]/route.ts', 'src/app/api/settings/proxies/assignments/route.ts', 'src/app/api/models/route.ts')
+POLICY_SOURCES += ('src/app/api/settings/route.ts', 'src/app/api/settings/proxies/route.ts')
 LIVE_ROUTE = 'src/app/livez/route.ts'
 
 def sha(data):
@@ -1456,6 +1457,7 @@ def export_observations(output, hashes):
         'POST /api/combos/duplicate', 'POST /api/combos/import', 'POST /api/combos/reorder',
         'POST /api/combos/test', 'POST /api/fallback/chains', 'POST /api/provider-nodes', 'POST /api/providers',
         'GET /api/keys', 'GET /api/keys/fixture-id', 'GET /api/settings/proxies/assignments', 'GET /api/models',
+        'GET /api/settings', 'GET /api/settings/proxies',
         'PUT /api/combos/fixture-id', 'PUT /api/providers/fixture-id/cc-alias',
         'PUT /api/providers/fixture-id/interception-rules', 'PUT /api/providers/fixture-id/param-filters',
     ]

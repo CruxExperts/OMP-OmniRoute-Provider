@@ -6,16 +6,16 @@ import { createPinnedManagementAuthorization, loadExtractedPinnedDeclarations, l
 import { projectAssignment, projectAssignmentProof, projectAssignments, projectProxy, projectProxyList, projectProxyListProof, projectProxyProof, projectProxyUsage } from "./proxies.fixture.ts";
 
 /** Receipt-verified route and store, with SQLite and bounded infrastructure edges. */
-export function createPinnedProxyHandlers() {
-  const db = new Database(":memory:");
+export function createPinnedProxyHandlers(sharedDb?: Database) {
+  const db = sharedDb ?? new Database(":memory:");
   const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(readPinnedSource("src/lib/db/core.ts"))?.[1];
   if (!schema) throw new Error("Pinned core schema unavailable");
-  for (const table of ["key_value", "provider_connections"]) {
+  if (!sharedDb) for (const table of ["key_value", "provider_connections"]) {
     const sql = new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\s*\\([\\s\\S]*?\\n\\s*\\);`, "i").exec(schema)?.[0];
     if (!sql) throw new Error(`Pinned schema omitted ${table}`);
     db.exec(sql);
   }
-  for (const migration of [
+  if (!sharedDb) for (const migration of [
     "src/lib/db/migrations/004_proxy_registry.sql",
     "src/lib/db/migrations/017_version_manager_upstream_proxy.sql",
     "src/lib/db/migrations/040_oneproxy_proxy_fields.sql",
@@ -103,6 +103,8 @@ export function createPinnedProxyHandlers() {
     },
     dropAssignmentTable() { db.exec("DROP TABLE proxy_assignments"); },
     breakAssignmentSchema() { db.exec("DROP TABLE proxy_assignments; CREATE TABLE proxy_assignments (id INTEGER PRIMARY KEY)"); },
-    close() { db.close(); },
+    dropProxyTable() { db.exec("DROP TABLE proxy_registry"); },
+    breakProxySchema() { db.exec("DROP TABLE proxy_registry; CREATE TABLE proxy_registry (id TEXT PRIMARY KEY)"); },
+    close() { if (!sharedDb) db.close(); },
   };
 }

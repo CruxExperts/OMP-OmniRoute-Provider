@@ -776,6 +776,7 @@ with tempfile.TemporaryDirectory() as temp:
   '/api/providers': ('GET','POST','PATCH','DELETE'), '/api/providers/fixture-id/cc-alias': ('GET','PUT'),
   '/api/providers/fixture-id/interception-rules': ('GET','PUT','DELETE'), '/api/providers/fixture-id/param-filters': ('GET','PUT','DELETE'),
   '/api/keys': ('GET',), '/api/keys/fixture-id': ('GET',), '/api/settings/proxies/assignments': ('GET',), '/api/models': ('GET',),
+  '/api/settings': ('GET',), '/api/settings/proxies': ('GET',),
  }
  for path,methods in family_methods.items():
   for method in methods:
@@ -797,11 +798,13 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
  assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
- assert len(exported['familyPolicy']) == 39
+ assert len(exported['familyPolicy']) == 41
  family = {item['method']+' '+item['path']:item for item in exported['familyPolicy']}
  assert family['POST /api/providers']['readScopeStatus'] == 403 and family['POST /api/providers']['writeScopeStatus'] == 403 and family['POST /api/providers']['adminScopeStatus'] == 200
  assert family['POST /api/provider-nodes']['readScopeStatus'] == 403 and family['POST /api/provider-nodes']['writeScopeStatus'] == 200
  assert family['GET /api/providers']['readScopeStatus'] == 200
+ for path in ('/api/settings','/api/settings/proxies'):
+  assert family['GET '+path] == {'method':'GET','path':path,'routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200,'readScopeStatus':200,'writeScopeStatus':200,'adminScopeStatus':200}
  assert all(key not in exported for key in ('comboPolicy','modelCapabilityOverridesPolicy','readPolicy'))
  assert '198.51.100.' not in json.dumps(exported)
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])

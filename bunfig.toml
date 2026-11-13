@@ -2,3 +2,5 @@
 # Portable upstream repair regressions run separately with their source runtime.
 # Do not discover them as Bun client tests from provenance/derivations/.
 root = "./test"
+# Source-backed SQLite fixtures authenticate and load the full pinned graph.
+timeout = 20000

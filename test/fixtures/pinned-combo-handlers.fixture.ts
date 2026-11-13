@@ -118,8 +118,12 @@ export function createPinnedSqliteComboStore(
   if (!comboTable) throw new Error("Receipt-verified upstream core schema omitted the combos table");
   const apiKeyTable = schema && /CREATE TABLE IF NOT EXISTS api_keys\s*\([\s\S]*?\n\s*\);/i.exec(schema)?.[0];
   if (!apiKeyTable) throw new Error("Receipt-verified upstream core schema omitted the api_keys table");
+  const settingsTable = schema && /CREATE TABLE IF NOT EXISTS key_value\s*\([\s\S]*?\n\s*\);/i.exec(schema)?.[0];
+  if (!settingsTable) throw new Error("Receipt-verified upstream core schema omitted the key_value table");
   db.exec(comboTable);
   db.exec(apiKeyTable);
+  db.exec(settingsTable);
+  db.prepare("INSERT INTO key_value (namespace, key, value) VALUES ('settings', 'cloudEnabled', ?)").run("false");
   db.exec(readPinnedSource("src/lib/db/migrations/052_api_key_combo_throttle.sql"));
   db.exec(readPinnedSource("src/lib/db/migrations/005_combo_agent_fields.sql"));
   db.exec(readPinnedSource("src/lib/db/migrations/004_proxy_registry.sql"));
@@ -249,6 +253,7 @@ export function createPinnedSqliteComboStore(
         const data = JSON.parse(row.data) as Record<string, unknown>;
         return { ...data, id: row.id, sortOrder: row.sort_order, context_cache_protection: row.context_cache_protection === 1 };
       }),
+      keyGrants: db.prepare("SELECT id, allowed_combos FROM api_keys ORDER BY id").all(),
       proxyAssignments: db.prepare("SELECT scope, scope_id, proxy_id, position FROM proxy_assignments ORDER BY id").all(),
       proxyRotations: db.prepare("SELECT scope, scope_id, cursor FROM proxy_scope_rotation ORDER BY scope, scope_id").all(),
       effects: structuredClone(effects),

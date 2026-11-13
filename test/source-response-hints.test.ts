@@ -56,6 +56,68 @@ describe("source response hint collector", () => {
     expect(collectSourceResponseEvidence(source, "POST", "POST", "fixture.ts").jsonResponses).toEqual([]);
     expect(collectSourceResponseEvidence(source, "PUT", "PUT", "fixture.ts").jsonResponses).toEqual([]);
   });
+  test("identifies JSON through a bounded local headers factory without guessing other returns", () => {
+    const source = parseFixture(`
+      import { NextResponse } from "next/server";
+      const BASE_HEADERS = { "Cache-Control": "no-store" } as const;
+      function headersFor(revision: number) {
+        return { ...BASE_HEADERS, ETag: String(revision) };
+      }
+      export function GET(authorized: boolean, unknown: boolean, safeSettings: object, revision: number) {
+        if (!authorized) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+        if (unknown) return externalResponse();
+        return NextResponse.json({ ...safeSettings, revision }, { headers: headersFor(revision) });
+      }
+    `);
+
+    const evidence = collectSourceResponseEvidence(source, "GET", "GET", "settings.ts");
+    expect(evidence.jsonResponses).toEqual([
+      { method: "GET", statusCode: "200", mediaType: "application/json", sourceFile: "settings.ts" },
+      { method: "GET", statusCode: "401", mediaType: "application/json", sourceFile: "settings.ts" },
+    ]);
+    expect(evidence.unresolvedReturn).toBe(true);
+  });
+
+  test("refuses factories with unknown header keys, escaped constants, or dynamic status", () => {
+    const source = parseFixture(`
+      const BASE = { "Cache-Control": "no-store" };
+      mutate(BASE);
+      function escaped() { return { ...BASE }; }
+      function dynamic(headers: object) { return { ...headers }; }
+      function contentType(value: string) { return { "Content-Type": value }; }
+      function safe() { return { ETag: "one" }; }
+      export function GET() { return Response.json({}, { headers: escaped() }); }
+      export function POST(headers: object) { return Response.json({}, { headers: dynamic(headers) }); }
+      export function PUT(value: string) { return Response.json({}, { headers: contentType(value) }); }
+      export function PATCH(status: number) { return Response.json({}, { status, headers: safe() }); }
+    `);
+
+    for (const method of ["GET", "POST", "PUT", "PATCH"] as const) {
+      expect(collectSourceResponseEvidence(source, method, method, "fixture.ts").jsonResponses).toEqual([]);
+    }
+  });
+
+  test("rejects case-insensitive duplicate content types in factories and spreads", () => {
+    const base = { "Content-Type": "text/plain" };
+    const direct = { "Content-Type": "text/plain", "content-type": "application/json" };
+    const spread = { ...base, "content-type": "application/json" };
+    expect(Response.json({}, { headers: direct }).headers.get("content-type")).toBe("text/plain, application/json");
+    expect(Response.json({}, { headers: spread }).headers.get("content-type")).toBe("text/plain, application/json");
+
+    const source = parseFixture(`
+      const BASE = { "Content-Type": "text/plain" };
+      function direct() { return { "Content-Type": "text/plain", "content-type": "application/json" }; }
+      function spread() { return { ...BASE, "content-type": "application/json" }; }
+      export function GET() { return Response.json({}, { headers: direct() }); }
+      export function POST() { return Response.json({}, { headers: spread() }); }
+    `);
+    for (const method of ["GET", "POST"] as const) {
+      const evidence = collectSourceResponseEvidence(source, method, method, "fixture.ts");
+      expect(evidence.jsonResponses).toEqual([]);
+      expect(evidence.unresolvedReturn).toBe(true);
+    }
+  });
+
 
   test("preserves directly returned literal status and content type", () => {
     const source = parseFixture(`

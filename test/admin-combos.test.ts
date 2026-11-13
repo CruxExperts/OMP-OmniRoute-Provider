@@ -36,7 +36,8 @@ const QUALIFIABLE_READ_OPERATIONS = [
   "GET /api/combos/auto", "GET /api/combos/builder/options", "GET /api/combos/metrics",
 ] as const;
 const SOURCE_QUALIFIABLE_RESET_OPERATIONS = ["DELETE /api/combos/metrics"] as const;
-const QUALIFIABLE_OPERATIONS = [...QUALIFIABLE_READ_OPERATIONS, ...SOURCE_QUALIFIABLE_RESET_OPERATIONS] as const;
+const QUALIFIABLE_OPERATIONS = [...QUALIFIABLE_READ_OPERATIONS, ...SOURCE_QUALIFIABLE_RESET_OPERATIONS, "DELETE /api/combos/{id}"] as const;
+const HELD_SOURCE_ONLY_OPERATION_IDS: Readonly<Record<string, true>> = { "DELETE /api/combos/{id}": true };
 const PREFLIGHT_MUTATIONS = [
   "POST /api/combos", "PUT /api/combos/{id}", "PATCH /api/combos/{id}", "DELETE /api/combos/{id}",
   "POST /api/combos/duplicate", "POST /api/combos/reorder", "POST /api/combos/test",
@@ -178,8 +179,8 @@ afterEach(async () => {
 });
 afterAll(async () => {
   const complete = QUALIFIABLE_OPERATIONS.filter(operationId => {
-    const requiredCases = operationId === "DELETE /api/combos/metrics" ? [...REQUIRED_CASES, ...RESET_REQUIRED_CASES] : REQUIRED_CASES;
-    return requiredCases.every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId);
+    const requiredCases = operationId === "DELETE /api/combos/metrics" ? [...REQUIRED_CASES, ...RESET_REQUIRED_CASES] : operationId === "DELETE /api/combos/{id}" ? [...REQUIRED_CASES, "grant-assignment-drift", "incomplete-inventory", "delete-safety", "dependent-cleanup"] : REQUIRED_CASES;
+    return !Object.hasOwn(HELD_SOURCE_ONLY_OPERATION_IDS, operationId) && requiredCases.every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId);
   });
   if (complete.length === 0) return;
   const directory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
@@ -259,6 +260,87 @@ test("combo delete handler revokes persisted scoped grants and preserves wildcar
   expect(harness.dispatchCount("DELETE /api/combos/{id}")).toBe(1);
   expect(persistedCombos(pair.route).some(row => row.id === "seed-delete")).toBe(false);
   expect(pair.route.comboGrants("scoped")).toEqual(["combo/*", "Other"]);
+  const state = pair.route.state;
+  expect(isRecord(state) && state.proxyAssignments).toEqual([]);
+  expect(isRecord(state) && state.proxyRotations).toEqual([]);
+  mark("DELETE /api/combos/{id}", "dependent-cleanup");
+});
+
+test("combo delete binds actual key grants and proxy assignments before dispatch", async () => {
+  const pair = startFixture();
+  pair.route.seedComboGrants("drift", ["Delete", "combo/*"]);
+  const harness = createHarness(pair);
+  const operation = "DELETE /api/combos/{id}";
+  const input = { path: { id: "seed-delete" } };
+  const keyPlan = await harness.executor.plan(operation, input);
+  expect(keyPlan.preview.visibilityLimits?.join(" ")).toContain("missing proxy assignment table");
+  pair.route.setComboGrants("drift", ["Delete", "Other", "combo/*"]);
+  await expect(harness.executor.apply(keyPlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(harness.dispatchCount(operation)).toBe(0);
+  const proxyPlan = await harness.executor.plan(operation, input);
+  pair.route.clearComboAssignment("seed-delete");
+  await expect(harness.executor.apply(proxyPlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "target-drift" });
+  expect(harness.dispatchCount(operation)).toBe(0);
+  // Direct source observation only: GET settings is not safe as an automatic
+  // preflight because getSettings can initialize security settings.
+  const initial = await pair.route.readCloudSetting();
+  expect(initial.status).toBe(200);
+  expect(await initial.json()).toMatchObject({ cloudEnabled: false });
+  pair.route.setCloudEnabled(true);
+  const changed = await pair.route.readCloudSetting();
+  expect(changed.status).toBe(200);
+  expect(await changed.json()).toMatchObject({ cloudEnabled: true });
+  const enabledPlan = await harness.executor.plan(operation, input);
+  expect(enabledPlan.preview.visibilityLimits?.join(" ")).toContain("remote settlement remain unknown");
+  expect(harness.dispatchCount(operation)).toBe(0);
+  expect(persistedCombo(pair.route, "seed-delete").name).toBe("Delete");
+  mark(operation, "grant-assignment-drift");
+});
+
+test("combo delete rejects incomplete dependent inventories", async () => {
+  const pair = startFixture();
+  let incomplete = "GET /api/keys";
+  const harness = createHarness(pair, { safetyResponse: (id, data) => {
+    if (id === incomplete && isRecord(data) && typeof data.total === "number") return { ...data, total: data.total + 1 };
+    return data;
+  } });
+  const operation = "DELETE /api/combos/{id}";
+  const proof = { kind: "unpaginated-list", itemsPath: ["items"], totalPath: ["total"], identityPaths: [["id"]] };
+  expect(sourceUnpaginatedListProofMatches("GET /api/settings/proxies/assignments", proof, operation)).toBe(true);
+  expect(sourceUnpaginatedListProofMatches("GET /api/settings/proxies/assignments", proof, "POST /api/combos")).toBe(false);
+  expect(sourceUnpaginatedListProofMatches("GET /api/settings/proxies/assignments", { ...proof, identityPaths: [["scope"]] }, operation)).toBe(false);
+  for (const id of ["GET /api/keys", "GET /api/settings/proxies/assignments"]) {
+    incomplete = id;
+    await expect(harness.executor.plan(operation, { path: { id: "seed-delete" } })).rejects.toThrow();
+  }
+  expect(harness.dispatchCount(operation)).toBe(0);
+  mark(operation, "incomplete-inventory");
+});
+
+test("combo delete cancellation, expiry, rotation and lost response never replay", async () => {
+  const pair = startFixture();
+  let now = 1000;
+  const harness = createHarness(pair, { now: () => now });
+  const operation = "DELETE /api/combos/{id}";
+  const input = { path: { id: "seed-delete" } };
+  const cancelled = await harness.executor.plan(operation, input);
+  const abort = new AbortController(); abort.abort();
+  await expect(harness.executor.apply(cancelled.planId, { confirmed: true, signal: abort.signal })).rejects.toMatchObject({ code: "plan-invalidated" });
+  const expired = await harness.executor.plan(operation, input);
+  now = expired.expiresAt;
+  await expect(harness.executor.apply(expired.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-expired" });
+  const rotated = await harness.executor.plan(operation, input);
+  harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: pair.route.endpoint, apiKey: "fixture-rotated" });
+  await expect(harness.executor.apply(rotated.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-invalidated" });
+  expect(harness.dispatchCount(operation)).toBe(0);
+  harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: pair.route.endpoint, ["api" + "Key"]: MANAGE_KEY } as Parameters<AdminExecutor["bindCredential"]>[0]);
+  const uncertain = await harness.executor.plan(operation, input);
+  harness.loseNextResponse(operation);
+  expect((await harness.executor.apply(uncertain.planId, { confirmed: true })).status).toBe("unknown");
+  await expect(harness.executor.apply(uncertain.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+  expect(harness.dispatchCount(operation)).toBe(1);
+  expect(persistedCombos(pair.route).some(row => row.id === "seed-delete")).toBe(false);
+  mark(operation, "delete-safety");
 });
 
 test("combo handlers reject missing targets and invalid mutation inputs without writes", async () => {
@@ -458,7 +540,7 @@ test("selected auto materialization drift blocks duplicate and test without prob
   expect(harness.dispatchCount("POST /api/combos/duplicate")).toBe(0);
   expect(harness.dispatchCount("POST /api/combos/test")).toBe(0);
   expect(pair.route.counts["POST /v1/chat/completions"] ?? 0).toBe(0);
-});
+}, 20_000);
 
 test("selected auto reads do not observe capability-resolved duplicate weights", async () => {
   const pair = startFixture({ includeSecondModel: true });
@@ -604,10 +686,12 @@ describe("pinned OmniRoute v3.8.53 combo operation semantics", () => {
     mark("PUT /api/combos/{id}", "authorized-source-http-semantics");
     markObserved(harness, "PUT /api/combos/{id}", before);
 
+    pair.route.seedComboGrants("receipt-grant", ["Delete", "combo/delete", "combo/*", "Other"]);
     before = pair.route.state;
     const deleted = await apply(harness, "DELETE /api/combos/{id}", { path: { id: "seed-delete" } });
     expect(deleted.status).toBe("unknown"); expect(harness.dispatchCount("DELETE /api/combos/{id}")).toBe(1);
     expect(persistedCombos(pair.route).some(row => row.id === "seed-delete")).toBe(false);
+    expect(pair.route.comboGrants("receipt-grant")).toEqual(["combo/*", "Other"]);
     const deletedState = pair.route.state;
     expect(isRecord(deletedState) && deletedState.proxyAssignments).toEqual([]);
     expect(isRecord(deletedState) && deletedState.proxyRotations).toEqual([]);
