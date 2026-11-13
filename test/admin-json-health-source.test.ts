@@ -6,20 +6,25 @@ import { canonicalizeJson, projectResponse } from "../src/admin/registry.ts";
 import { buildLivenessFixtureRegistry, JSON_HEALTH_IDS, jsonHealthContract, jsonHealthDescriptor, LIVENESS_ID, LIVENESS_TEST_ID, PinnedJsonHealthFixture, startPinnedLivenessHttp } from "./fixtures/pinned-health.fixture.ts";
 
 let livenessObservation: { before: null; after: null; result: { status: number; body: unknown } } | undefined;
+let pingObservation: { before: null; after: null; result: { status: number; body: unknown } } | undefined;
 let databaseIndependenceObserved = false;
 let safeProjectionObserved = false;
 let healthRoutesObserved = false;
 let unexpectedPingFailureObserved = false;
 
 afterAll(async () => {
-  if (!livenessObservation || !databaseIndependenceObserved || !safeProjectionObserved || !healthRoutesObserved || !unexpectedPingFailureObserved) return;
-  const contract = jsonHealthContract(LIVENESS_ID);
-  const binding = operationEvidenceBinding(LIVENESS_ID, contract);
-  const caseSha256 = testCaseSourceHash(LIVENESS_TEST_ID);
-  const artifactPath = outcomeArtifactPath(LIVENESS_ID);
-  await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
-  await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: LIVENESS_ID, testId: LIVENESS_TEST_ID, caseSha256, binding, observation: livenessObservation })}\n`, { mode: 0o600 });
-  testOutcomeHash(LIVENESS_ID, LIVENESS_TEST_ID, caseSha256, binding, contract, artifactPath);
+  if (!databaseIndependenceObserved || !safeProjectionObserved || !healthRoutesObserved || !unexpectedPingFailureObserved) return;
+  const observations = [[LIVENESS_ID, livenessObservation], [JSON_HEALTH_IDS[1], pingObservation]] as const;
+  for (const [id, observation] of observations) {
+    if (!observation) continue;
+    const contract = jsonHealthContract(id);
+    const binding = operationEvidenceBinding(id, contract);
+    const caseSha256 = testCaseSourceHash(LIVENESS_TEST_ID);
+    const artifactPath = outcomeArtifactPath(id);
+    await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+    await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: id, testId: LIVENESS_TEST_ID, caseSha256, binding, observation })}\n`, { mode: 0o600 });
+    testOutcomeHash(id, LIVENESS_TEST_ID, caseSha256, binding, contract, artifactPath);
+  }
 });
 
 
@@ -62,6 +67,7 @@ function expectTimestamp(value: unknown, before: number, after: number): void {
 
 test("pinned JSON health routes report liveness and SQLite responsiveness without claiming ingress qualification", async () => {
   const fixture = new PinnedJsonHealthFixture();
+  let observedPing: typeof pingObservation;
   try {
     for (const id of JSON_HEALTH_IDS) {
       const descriptor = jsonHealthDescriptor(id);
@@ -86,12 +92,14 @@ test("pinned JSON health routes report liveness and SQLite responsiveness withou
         const schemaAfter = fixture.db.query("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
         // The fixture supplies an already-open database; this does not cover cold initialization.
         expect(schemaAfter).toEqual(schemaBefore);
+        observedPing = { before: null, after: null, result: { status: response.status, body: { ...body, timestamp: "2026-01-01T00:00:00.000Z" } } };
       }
     }
     expect(fixture.db.query("SELECT 1 AS ok").get()).toEqual({ ok: 1 });
   } finally {
     fixture.close();
   }
+  pingObservation = observedPing;
   healthRoutesObserved = true;
 });
 

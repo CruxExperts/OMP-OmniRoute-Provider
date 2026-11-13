@@ -38,8 +38,8 @@ function state(fixture: CacheMetricsFixture): unknown {
 
 test("pinned cache metrics handlers aggregate history and deprecated reset leaves it unchanged", async () => {
   for (const id of CACHE_METRICS_IDS) {
-    expect(cacheMetricsContract(id).sideEffect).toBe("unknown");
-    expect(cacheMetricsContract(id).confirmation.required).toBe(true);
+    expect(cacheMetricsContract(id).sideEffect).toBe("read");
+    expect(cacheMetricsContract(id).confirmation.required).toBe(false);
   }
   const fixture = new CacheMetricsFixture();
   try {

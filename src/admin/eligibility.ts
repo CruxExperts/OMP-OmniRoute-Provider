@@ -92,6 +92,7 @@ const FAMILY_INGRESS_SET: ReadonlySet<string> = new Set(FAMILY_INGRESS_OPERATION
 export function operationRequiresIngressEvidence(operationId: string): boolean {
   return FAMILY_INGRESS_SET.has(operationId) || operationId === "GET /livez" || operationId === "HEAD /livez"
     || operationId === "GET /api/health" || operationId === "GET /api/health/degradation"
+    || operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics"
     || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId)
     || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId);
 }

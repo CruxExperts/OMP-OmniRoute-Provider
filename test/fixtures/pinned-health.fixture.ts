@@ -87,14 +87,15 @@ export function jsonHealthContract(id: JsonHealthId): OperationSourceContract {
   const success = ping ? pingResponse : liveResponse;
   return {
     ...template,
-    auth: ping ? { ...template.auth, sourcePolicy: { status: "unknown" } } : { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } },
+    auth: { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] } },
     response: { ...template.response, mediaType: "application/json", schema: ping ? { oneOf: [pingResponse, pingError] } : success,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({
         ...content, schema: variant.statusCode === "200" ? success : content.schema,
       })) })) },
-    secrets: { inputFields: [], outputFields: [] }, sideEffect: ping ? "mutation" : "read",
+    // pingDb only runs SELECT 1 after the shared database initialization path.
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
-    confirmation: ping ? { required: true, reason: "The database probe can initialize or recover the database and run migrations when the singleton is cold." } : { required: false, reason: "The pinned handlers only report liveness and database responsiveness." },
+    confirmation: ping ? { required: false, reason: "The probe performs SELECT 1 after shared database initialization, which is separately lifecycle-qualified." } : { required: false, reason: "The pinned handlers only report liveness and database responsiveness." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null, mutationSafety: null,
   };
 }

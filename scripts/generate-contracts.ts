@@ -354,8 +354,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
   const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
   const livenessSource = (operationId === "GET /livez" || operationId === "HEAD /livez") ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
+  const specialSource = operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+    : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
+  if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || (livenessSource !== undefined ? livenessSource.originalSha256 : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
+    || source.archiveSha256 !== manifest.archiveSha256 || (livenessSource !== undefined ? livenessSource.originalSha256 : specialSource !== undefined ? specialSource : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
     || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
     throw new Error(`${label} source mismatch`);
   }
@@ -407,6 +410,24 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (authentication.some(row => isRecord(row) && isRecord(row.input) && row.input.path === "/api/health" && row.name !== "default-bypass-health" && row.name !== "disabled-bypass-health")) throw new Error(`${label} unexpected health authentication observation`);
   const ipFilter = { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } };
   if (canonicalJson(toJson(artifact.publicHealthIpFilter, label)) !== canonicalJson(toJson(ipFilter, label))) throw new Error(`${label} IP filter observation mismatch`);
+  if (operationId === "GET /api/health/ping") {
+    const rows = requireArray(artifact.health, `${label}.health`).filter(row => isRecord(row) && row.method === "GET" && row.path === "/api/health/ping");
+    if (rows.length !== 1) throw new Error(`${label} ping observation missing or duplicated`);
+    const ping = requireRecord(rows[0], `${label}.ping`);
+    if (ping.status !== 200 || canonicalJson(toJson(ping.bodyKeys, label)) !== '["latencyMs","status","timestamp"]'
+      || typeof ping.timestamp !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(ping.timestamp)
+      || typeof ping.latencyMs !== "number" || !Number.isFinite(ping.latencyMs) || ping.latencyMs < 0
+      || typeof ping.cacheControl !== "string" || !ping.cacheControl.split(",").some(part => part.trim() === "no-store")) {
+      throw new Error(`${label} ping observation mismatch`);
+    }
+  }
+  if (operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") {
+    const method = operationId.slice(0, operationId.indexOf(" "));
+    const rows = requireArray(artifact.cacheMetrics, `${label}.cacheMetrics`).filter(row => isRecord(row) && row.method === method && row.path === "/api/settings/cache-metrics");
+    const expectedMetrics = { method, path: "/api/settings/cache-metrics", unauthenticatedStatus: 401, invalidTokenStatus: 401, sessionStatus: 200, selectedValues: { totalRequests: 3, requestsWithCacheControl: 2, totalInputTokens: 300, totalCachedTokens: 150, totalCacheCreationTokens: 10, alphaRequests: 2, directCachedTokens: 50 }, usageRowsAfter: 3 };
+    if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedMetrics, label))) throw new Error(`${label} cache metrics observation mismatch`);
+    if (method === "GET" && canonicalJson(toJson(artifact.missingUsageHistory, label)) !== canonicalJson(toJson({ status: 200, totalRequests: 0, totalCachedTokens: 0, providerCount: 0 }, label))) throw new Error(`${label} missing usage history observation mismatch`);
+  }
   if (operationId === "GET /livez") {
     const response = { status: 200, body: "ok\n", contentType: "text/plain; charset=utf-8", cacheControl: "no-store", contentLength: "3", routeClass: null };
     const expectedLiveness = { method: "GET", path: "/livez", matcher: "not-matched", proxyIdentity: { originalSha256: added["src/proxy.ts"], executedSha256: added["src/proxy.ts"] }, cases: { anonymous: response, invalidCredential: response, session: response } };

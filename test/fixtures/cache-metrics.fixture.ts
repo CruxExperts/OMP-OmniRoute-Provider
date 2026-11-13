@@ -43,9 +43,9 @@ export function cacheMetricsContract(id: CacheMetricsId): OperationSourceContrac
     } },
     response: { ...template.response, mediaType: "application/json", schema: combined,
       variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({ ...content, schema: variant.statusCode === "200" ? metrics : variant.statusCode === "500" ? routeError : { oneOf: [authError, centralError] } })) })) },
-    secrets: { inputFields: [], outputFields: [] }, sideEffect: "unknown",
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
-    confirmation: { required: true, reason: "The warm fixture observes reads only; cold database initialization can have additional effects and remains unqualified." },
+    confirmation: { required: false, reason: "Both handlers compute metrics from usage history; the deprecated reset does not modify it." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null, mutationSafety: null,
   };
 }

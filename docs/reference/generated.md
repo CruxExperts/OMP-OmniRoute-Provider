@@ -71,7 +71,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/github-skills | 0 | 2 | 0 |
 | api/guardrails | 0 | 4 | 0 |
 | api/headroom | 0 | 3 | 0 |
-| api/health | 2 | 1 | 0 |
+| api/health | 3 | 0 | 0 |
 | api/init | 0 | 1 | 0 |
 | api/intelligence | 0 | 3 | 0 |
 | api/internal | 0 | 1 | 0 |
@@ -115,7 +115,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/services | 0 | 76 | 0 |
 | api/session-pools | 0 | 2 | 0 |
 | api/sessions | 0 | 1 | 0 |
-| api/settings | 2 | 149 | 0 |
+| api/settings | 4 | 147 | 0 |
 | api/shutdown | 0 | 1 | 0 |
 | api/skills | 0 | 13 | 0 |
 | api/storage | 0 | 1 | 0 |

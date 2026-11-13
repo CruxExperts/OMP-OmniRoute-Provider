@@ -43,6 +43,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   guessing dynamic header keys or content types. Reject case-insensitive duplicate
   content-type keys, whose actual Headers values would be combined rather than
   overwritten. Source corpus refresh remains a separate exact-input operation.
+- Bind health ping and both cache-metrics methods to their exact independent
+  ingress observations, rejecting duplicate, wrong-method, altered, or mismatched
+  source evidence. The deprecated cache-metrics DELETE delegates to the getter
+  and leaves usage history unchanged; classify its observed behavior, not its verb.
 
 - Expand isolated management-policy observations to 39 exact family method/path
   cases with independent read/write/admin token outcomes. Keep policy controls,

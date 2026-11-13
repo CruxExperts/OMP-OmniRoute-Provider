@@ -20,6 +20,7 @@ import {
 } from "../scripts/generate-contracts.ts";
 import { decodeRouteSources, resolveQualificationSource } from "../scripts/route-source-store.ts";
 import { validateReleaseSourceIdentity } from "../scripts/release-gate.ts";
+import { operationRequiresIngressEvidence } from "../src/admin/eligibility.ts";
 import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures/fallback-chains.fixture.ts";
@@ -27,6 +28,11 @@ import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
 import { agentSkillsContract, agentSkillsReadContract, SKILLS_DETAIL_ID, SKILLS_COVERAGE_ID } from "./fixtures/pinned-agent-skills.fixture.ts";
 import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
+
+test("cache metrics and ping require exact ingress evidence", () => {
+  for (const id of ["GET /api/settings/cache-metrics", "DELETE /api/settings/cache-metrics", "GET /api/health/ping"]) expect(operationRequiresIngressEvidence(id)).toBe(true);
+  for (const id of ["POST /api/settings/cache-metrics", "HEAD /api/health/ping"]) expect(operationRequiresIngressEvidence(id)).toBe(false);
+});
 
 test("derived lifecycle research joins independent identities and cold/warm observations", () => {
   const binding = { sourceDerivation: { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) }, effectiveTreeSha256: "b".repeat(64) };
@@ -396,6 +402,37 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     const staleIngressSha256 = "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109";
     expect(() => validateHealthIngressEvidence({ artifact: `provenance/qualification/ingress-${staleIngressSha256}.json`, sha256: staleIngressSha256 }, degradationBinding, "GET /api/health/degradation")).toThrow(/input drift|source identity mismatch|declared inputs mismatch/);
     // Synthetic observations exercise validation only; they are not retained evidence.
+    const pingRow = { method: "GET", path: "/api/health/ping", status: 200, bodyKeys: ["latencyMs", "status", "timestamp"], timestamp: "2026-01-01T00:00:00.000Z", cacheControl: "no-store", latencyMs: 1 };
+    const pingBinding = { ...binding, handlerSha256: String(added["src/app/api/health/ping/route.ts"]) };
+    const pingArtifact = { ...artifact, health: [...artifact.health, pingRow] };
+    expect(() => validateHealthIngressEvidence(valid, pingBinding, "GET /api/health/ping")).toThrow(/ping observation/);
+    const pingEvidence = await save(pingArtifact);
+    expect(() => validateHealthIngressEvidence(pingEvidence, pingBinding, "GET /api/health/ping")).not.toThrow();
+    expect(() => validateHealthIngressEvidence(pingEvidence, { ...pingBinding, handlerSha256: "0".repeat(64) }, "GET /api/health/ping")).toThrow(/source mismatch/);
+    for (const rows of [[pingRow, pingRow], [{ ...pingRow, method: "POST" }], [{ ...pingRow, latencyMs: -1 }], [{ ...pingRow, status: 503 }], [{ ...pingRow, cacheControl: "public" }], [{ ...pingRow, bodyKeys: ["status"] }]]) {
+      const evidence = await save({ ...artifact, health: [...artifact.health, ...rows] });
+      expect(() => validateHealthIngressEvidence(evidence, pingBinding, "GET /api/health/ping")).toThrow(/ping observation/);
+    }
+    const values = { totalRequests: 3, requestsWithCacheControl: 2, totalInputTokens: 300, totalCachedTokens: 150, totalCacheCreationTokens: 10, alphaRequests: 2, directCachedTokens: 50 };
+    const cacheRow = (method: string) => ({ method, path: "/api/settings/cache-metrics", unauthenticatedStatus: 401, invalidTokenStatus: 401, sessionStatus: 200, selectedValues: values, usageRowsAfter: 3 });
+    const missingUsageHistory = { status: 200, totalRequests: 0, totalCachedTokens: 0, providerCount: 0 };
+    const cacheBinding = { ...binding, handlerSha256: String(added["src/app/api/settings/cache-metrics/route.ts"]) };
+    for (const method of ["GET", "DELETE"]) {
+      const id = `${method} /api/settings/cache-metrics`;
+      const row = cacheRow(method);
+      const cacheArtifact = { ...artifact, cacheMetrics: [row], missingUsageHistory };
+      const cacheEvidence = await save(cacheArtifact);
+      expect(() => validateHealthIngressEvidence(cacheEvidence, cacheBinding, id)).not.toThrow();
+      expect(() => validateHealthIngressEvidence(cacheEvidence, { ...cacheBinding, handlerSha256: "0".repeat(64) }, id)).toThrow(/source mismatch/);
+      for (const rows of [[], [row, row], [{ ...row, method: method === "GET" ? "DELETE" : "GET" }], [{ ...row, sessionStatus: 401 }], [{ ...row, selectedValues: { ...values, totalRequests: 2 } }]]) {
+        const evidence = await save({ ...cacheArtifact, cacheMetrics: rows });
+        expect(() => validateHealthIngressEvidence(evidence, cacheBinding, id)).toThrow(/cache metrics observation/);
+      }
+      if (method === "GET") {
+        const evidence = await save({ ...cacheArtifact, missingUsageHistory: { ...missingUsageHistory, totalRequests: 1 } });
+        expect(() => validateHealthIngressEvidence(evidence, cacheBinding, id)).toThrow(/missing usage history observation/);
+      }
+    }
     const livenessRoute = record(added["src/app/livez/route.ts"]);
     const livenessBinding = { ...binding, handlerSha256: String(livenessRoute.originalSha256) };
     const livenessResponse = { status: 200, body: "ok\n", contentType: "text/plain; charset=utf-8", cacheControl: "no-store", contentLength: "3", routeClass: null };
