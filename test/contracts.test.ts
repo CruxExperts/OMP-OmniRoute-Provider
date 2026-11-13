@@ -30,20 +30,30 @@ import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS
 
 test("derived lifecycle research joins independent identities and cold/warm observations", () => {
   const binding = { sourceDerivation: { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) }, effectiveTreeSha256: "b".repeat(64) };
-  const phase = (name: "cold" | "warm") => ({ phase: name, driver: "node:sqlite", ping: true, healthWorker: true, healthy: true, settingsPersisted: true, databaseExistedBefore: name === "warm", tableCount: 2, migrationCount: 3, tableSha256: "c".repeat(64), migrationSha256: "d".repeat(64) });
-  const expected = { identity: { ...binding, runnerOutputSha256: "e".repeat(64), workerOutputSha256: "f".repeat(64) }, inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm") };
-  const artifact = { status: "research-observed", qualification: false, boundary: "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.", ...structuredClone(expected) };
+  const phase = (name: "cold" | "warm") => ({ phase: name, driver: "node:sqlite", ping: true, healthWorker: true, healthy: true, settingsPersisted: true, databaseExistedBefore: name === "warm", runtimeSettingApplied: name === "cold", hotReloadFailure: false, tableCount: 2, migrationCount: 3, tableSha256: "c".repeat(64), migrationSha256: "d".repeat(64) });
+  const expected = { identity: { ...binding, runnerSourceSha256: "e".repeat(64), runnerArguments: ["/runtime/node", "--import", "tsx/esm", "/work/app/src/lib/db/pinnedLifecycleFixture.mjs"], workerOutputSha256: "f".repeat(64) }, inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm") };
+  // This exercises the join in isolation; it is not a producer receipt.
+  const artifact = { status: "research-observed", qualification: false, boundary: "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.", identity: structuredClone(expected.identity), inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm") };
   expect(() => validateCoreLifecycleObservation(artifact, binding, expected)).not.toThrow();
   for (const changed of [
     { ...artifact, qualification: true },
+    { ...artifact, identity: { ...artifact.identity, runnerArguments: [] } },
+    { ...artifact, identity: { ...artifact.identity, runnerSourceSha256: "0".repeat(64) } },
     { ...artifact, identity: { ...artifact.identity, runnerOutputSha256: "0".repeat(64) } },
     { ...artifact, identity: { ...artifact.identity, effectiveTreeSha256: "0".repeat(64) } },
     { ...artifact, inputSha256: {} },
     { ...artifact, isolation: { ...artifact.isolation, capabilities: "retained" } },
     { ...artifact, cold: { ...artifact.cold, databaseExistedBefore: true } },
+    { ...artifact, cold: { ...artifact.cold, runtimeSettingApplied: false } },
+    { ...artifact, cold: { ...artifact.cold, hotReloadFailure: true } },
+    { ...artifact, warm: { ...artifact.warm, hotReloadFailure: true } },
+    { ...artifact, warm: { ...artifact.warm, runtimeSettingApplied: true } },
     { ...artifact, warm: { ...artifact.warm, settingsPersisted: false } },
     { ...artifact, warm: { ...artifact.warm, migrationSha256: "0".repeat(64) } },
   ]) expect(() => validateCoreLifecycleObservation(changed, binding, expected)).toThrow();
+  // Even matching purported independent observations cannot legitimize a failed reload.
+  const failedReload = { ...artifact, cold: { ...artifact.cold, hotReloadFailure: true } };
+  expect(() => validateCoreLifecycleObservation(failedReload, binding, { ...expected, cold: failedReload.cold })).toThrow();
   expect(() => validateCoreLifecycleObservation(artifact, {}, expected)).toThrow();
   expect(() => validateCoreLifecycleEvidence({ artifact: `provenance/qualification/core-lifecycle-${"0".repeat(64)}.json`, sha256: "1".repeat(64) }, binding)).toThrow(/path mismatch/);
 });

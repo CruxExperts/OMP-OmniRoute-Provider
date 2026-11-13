@@ -534,6 +534,9 @@ export function validateCoreLifecycleObservation(value: unknown, binding: Pick<O
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
     || canonicalJson(toJson(identity.sourceDerivation, label)) !== canonicalJson(toJson(binding.sourceDerivation, label))
     || identity.effectiveTreeSha256 !== binding.effectiveTreeSha256) throw new Error(`${label} effective source mismatch`);
+  if (canonicalJson(toJson(identity.runnerArguments, label)) !== canonicalJson(["/runtime/node", "--import", "tsx/esm", "/work/app/src/lib/db/pinnedLifecycleFixture.mjs"])
+    || typeof identity.runnerSourceSha256 !== "string" || !/^[a-f0-9]{64}$/.test(identity.runnerSourceSha256)
+    || Object.hasOwn(identity, "runnerOutputSha256")) throw new Error(`${label} runner identity mismatch`);
   const isolation = { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" };
   if (canonicalJson(toJson(artifact.isolation, label)) !== canonicalJson(toJson(isolation, label))) throw new Error(`${label} isolation mismatch`);
   const expected = requireRecord(independentValue, `${label}.expected`);
@@ -544,9 +547,9 @@ export function validateCoreLifecycleObservation(value: unknown, binding: Pick<O
   for (const phase of ["cold", "warm"] as const) {
     const actual = requireRecord(artifact[phase], `${label}.${phase}`);
     const independent = requireRecord(expected[phase], `${label}.expected.${phase}`);
-    assertKeys(actual, `${label}.${phase}`, ["phase", "driver", "ping", "healthWorker", "healthy", "settingsPersisted", "databaseExistedBefore", "tableCount", "migrationCount", "tableSha256", "migrationSha256"]);
+    assertKeys(actual, `${label}.${phase}`, ["phase", "driver", "ping", "healthWorker", "healthy", "settingsPersisted", "databaseExistedBefore", "runtimeSettingApplied", "hotReloadFailure", "tableCount", "migrationCount", "tableSha256", "migrationSha256"]);
     if (actual.phase !== phase || actual.driver !== "node:sqlite" || actual.ping !== true || actual.healthWorker !== true
-      || typeof actual.healthy !== "boolean" || actual.settingsPersisted !== true || actual.databaseExistedBefore !== (phase === "warm")
+      || typeof actual.healthy !== "boolean" || actual.settingsPersisted !== true || actual.databaseExistedBefore !== (phase === "warm") || actual.runtimeSettingApplied !== (phase === "cold") || actual.hotReloadFailure !== false
       || !Number.isSafeInteger(actual.tableCount) || Number(actual.tableCount) <= 0 || !Number.isSafeInteger(actual.migrationCount) || Number(actual.migrationCount) <= 0
       || !/^[a-f0-9]{64}$/.test(String(actual.tableSha256)) || !/^[a-f0-9]{64}$/.test(String(actual.migrationSha256))) throw new Error(`${label} ${phase} observation mismatch`);
     const { healthy: _healthy, ...actualStable } = actual;

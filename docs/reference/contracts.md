@@ -90,6 +90,13 @@ an operation can join `lifecycleEvidence`. Runtime eligibility compares the resu
 derived database-dependent operation. Shared recomputation is cached only under
 the complete verified input-byte digest and checked for drift before reuse.
 
+The lifecycle entry runs as native source modules with the approved `tsx/esm`
+loader; only the health worker uses the production esbuild recipe. Bundling the
+whole lifecycle entry can transform a static ESM cycle into mutually awaiting
+initializers, so that transformed entry is not accepted as source behavior.
+Cold execution also observes a harmless CLI-version setting through its actual
+runtime getter after `updateSettings`; both phases reject runtime reload failures.
+
 Hosted ingress and lifecycle stages retain their outputs independently. A failed
 lifecycle exports only its cold/warm phase, fixed diagnostic categories, the last
 allowlisted await checkpoint, and recognized public module identities. Raw

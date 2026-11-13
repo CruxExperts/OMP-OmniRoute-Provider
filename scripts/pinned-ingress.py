@@ -1049,6 +1049,12 @@ def run_bounded(command, log_path, deadline, env):
             child.wait(timeout=10)
 
 
+def validate_lifecycle_log(path):
+    """Reject caught runtime reload failures in the bounded process output."""
+    require(path.stat().st_size <= 2 * 1024**2, 'lifecycle log exceeds output limit')
+    require(b'[HOT_RELOAD]' not in path.read_bytes(), 'runtime settings reload warning')
+
+
 def core_lifecycle(material, deadline):
     """Observe direct source DB initialization twice, without ingress overlays."""
     app = Path('/work/app')
@@ -1066,9 +1072,8 @@ def core_lifecycle(material, deadline):
     common = ['--bundle', '--platform=node', '--packages=external', '--format=esm']
     worker_stage('build')
     run_bounded([esbuild, worker_source, *common, '--outfile=src/lib/db/healthCheckWorker.js'], Path('/work/worker-build.private'), deadline, env)
-    runner = app / 'src/lib/db/pinned-lifecycle.mjs'
-    run_bounded([esbuild, str(entry), *common, '--outfile=' + str(runner)], Path('/work/lifecycle-build.private'), deadline, env)
-    identity = {'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA, 'sourceFilesSha256': source, 'migrationSqlSha256': migrations, 'workerSourceSha256': source[worker_source], 'productionRecipeSha256': source[recipe], 'workerBuildArguments': common, 'workerOutputSha256': file_sha(app / 'src/lib/db/healthCheckWorker.js'), 'runnerSourceSha256': file_sha(fixture), 'runnerOutputSha256': file_sha(runner)}
+    runner_arguments = ['/runtime/node', '--import', 'tsx/esm', '/work/app/src/lib/db/pinnedLifecycleFixture.mjs']
+    identity = {'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA, 'sourceFilesSha256': source, 'migrationSqlSha256': migrations, 'workerSourceSha256': source[worker_source], 'productionRecipeSha256': source[recipe], 'workerBuildArguments': common, 'workerOutputSha256': file_sha(app / 'src/lib/db/healthCheckWorker.js'), 'runnerSourceSha256': file_sha(fixture), 'runnerArguments': runner_arguments}
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1085,7 +1090,9 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
     run_bounded(isolate + ['/runtime/node', '--import', 'tsx/esm', '--test', 'tests/unit/db-async-fresh-startup.test.ts'], Path('/work/startup-regression.private'), deadline, env)
     for phase in ('cold', 'warm'):
         worker_stage('coldLifecycle' if phase == 'cold' else 'warmLifecycle')
-        run_bounded(isolate + ['/runtime/node', str(runner), phase], Path('/work/' + phase + '-lifecycle.private'), deadline, env)
+        log = Path('/work/' + phase + '-lifecycle.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, env)
+        validate_lifecycle_log(log)
     save(Path('/work/result.json'), {'status': 'research-observed', 'qualification': False, 'scenario': 'actual-core-cold-warm'})
 
 
@@ -1096,9 +1103,11 @@ def export_core_lifecycle(output, hashes):
     identity = bounded_json(output / 'core-identity.json')
     observations = []
     for phase, value in (('cold', cold), ('warm', warm)):
+        validate_lifecycle_log(output / (phase + '-lifecycle.private'))
         require(isinstance(value, dict) and value.get('phase') == phase and value.get('driver') == 'node:sqlite'
                 and value.get('ping') is True and value.get('healthWorker') is True
-                and type(value.get('healthy')) is bool and value.get('settingsMarker') == 'cold-written', 'lifecycle observations incomplete')
+                and type(value.get('healthy')) is bool and value.get('settingsMarker') == 'cold-written'
+                and value.get('runtimeSettingApplied') is (phase == 'cold'), 'lifecycle observations incomplete')
         tables, migrations = value.get('tables'), value.get('migrations')
         require(isinstance(tables, list) and 0 < len(tables) <= 4096 and all(isinstance(x, str) and re.fullmatch(r'[A-Za-z0-9_]{1,128}', x) for x in tables)
                 and '_omniroute_migrations' in tables and 'db_meta' in tables, 'invalid table observation')
@@ -1108,7 +1117,7 @@ def export_core_lifecycle(output, hashes):
             require(isinstance(entries, list) and len(entries) <= 4096 and all(isinstance(x, dict) and isinstance(x.get('name'), str) and x.get('kind') in ('file', 'directory') for x in entries), 'invalid file observation')
         existed = any(x['name'] == 'storage.sqlite' and x['kind'] == 'file' for x in value['before'])
         require(existed == (phase == 'warm') and any(x['name'] == 'storage.sqlite' and x['kind'] == 'file' for x in value['after']), 'database lifecycle mismatch')
-        observations.append({'phase': phase, 'driver': 'node:sqlite', 'ping': True, 'healthWorker': True, 'healthy': value['healthy'], 'settingsPersisted': True, 'databaseExistedBefore': existed, 'tableCount': len(tables), 'migrationCount': len(migrations), 'tableSha256': sha(json.dumps(tables, separators=(',', ':'), ensure_ascii=False).encode()), 'migrationSha256': sha(json.dumps(migrations, separators=(',', ':'), ensure_ascii=False).encode())})
+        observations.append({'phase': phase, 'driver': 'node:sqlite', 'ping': True, 'healthWorker': True, 'healthy': value['healthy'], 'settingsPersisted': True, 'runtimeSettingApplied': phase == 'cold', 'hotReloadFailure': False, 'databaseExistedBefore': existed, 'tableCount': len(tables), 'migrationCount': len(migrations), 'tableSha256': sha(json.dumps(tables, separators=(',', ':'), ensure_ascii=False).encode()), 'migrationSha256': sha(json.dumps(migrations, separators=(',', ':'), ensure_ascii=False).encode())})
     require(cold['migrations'] == warm['migrations'] and cold['tables'] == warm['tables'], 'warm lifecycle differs')
     require(isinstance(identity, dict) and identity.get('sourceArchiveSha256') == ARCHIVE_SHA and identity.get('nodeSha256') == NODE_SHA, 'lifecycle identity mismatch')
     expected_source = effective_source_identities(SOURCE)
@@ -1119,8 +1128,9 @@ def export_core_lifecycle(output, hashes):
     worker_source, recipe = 'src/lib/db/healthCheckWorker.ts', 'scripts/build/colocate-standalone.mjs'
     require(identity.get('workerSourceSha256') == source.get(worker_source) and worker_source in source and identity.get('productionRecipeSha256') == source.get(recipe) and recipe in source, 'worker identity mismatch')
     arguments = ['--bundle', '--platform=node', '--packages=external', '--format=esm']
-    require(identity.get('workerBuildArguments') == arguments and all(isinstance(identity.get(k), str) and re.fullmatch(r'[0-9a-f]{64}', identity[k]) for k in ('workerOutputSha256', 'runnerSourceSha256', 'runnerOutputSha256')), 'invalid build identity')
-    public_identity = {k: identity[k] for k in ('sourceArchiveSha256', 'nodeSha256', 'workerSourceSha256', 'productionRecipeSha256', 'workerBuildArguments', 'workerOutputSha256', 'runnerSourceSha256', 'runnerOutputSha256')}
+    runner_arguments = ['/runtime/node', '--import', 'tsx/esm', '/work/app/src/lib/db/pinnedLifecycleFixture.mjs']
+    require(identity.get('workerBuildArguments') == arguments and identity.get('runnerArguments') == runner_arguments and 'runnerOutputSha256' not in identity and all(isinstance(identity.get(k), str) and re.fullmatch(r'[0-9a-f]{64}', identity[k]) for k in ('workerOutputSha256', 'runnerSourceSha256')), 'invalid build identity')
+    public_identity = {k: identity[k] for k in ('sourceArchiveSha256', 'nodeSha256', 'workerSourceSha256', 'productionRecipeSha256', 'workerBuildArguments', 'workerOutputSha256', 'runnerSourceSha256', 'runnerArguments')}
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())

@@ -4,6 +4,7 @@ import { readdir, stat, writeFile } from 'node:fs/promises';
 import { ensureDbInitialized, getDbInstance, pingDb, closeDbInstance, runManagedDbHealthCheck, DATA_DIR, SQLITE_FILE } from './core';
 import { getSettings, updateSettings } from './settings';
 import { resolveDbHealthWorker } from './healthCheckRunner';
+import { getCliVersionOverride } from '@omniroute/open-sse/config/cliVersions.ts';
 
 const phase = process.argv[2];
 if (!['cold', 'warm'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== '/work/data' || SQLITE_FILE !== '/work/data/storage.sqlite') throw new Error('lifecycle isolation or phase mismatch');
@@ -43,9 +44,11 @@ try {
   const initial = await getSettings();
   progress('after-settings-read');
   if (phase === 'cold') {
+    if (getCliVersionOverride('codex') !== null) throw new Error('unexpected initial runtime override');
     progress('before-settings-write');
-    await updateSettings({ pinnedLifecycleMarker: 'cold-written' });
+    await updateSettings({ pinnedLifecycleMarker: 'cold-written', cliVersionOverrides: { codex: '1.2.3' } });
     progress('after-settings-write');
+    if (getCliVersionOverride('codex') !== '1.2.3') throw new Error('runtime override was not applied');
   }
   progress('before-settings-verify');
   const persisted = await getSettings();
@@ -56,7 +59,7 @@ try {
   const migrations = db.prepare('SELECT version, name FROM _omniroute_migrations ORDER BY version').all();
   if (!migrations.length) throw new Error('empty migration ledger');
   const after = await files();
-  await writeFile(`/work/${phase}-lifecycle.json`, JSON.stringify({ phase, before, after, driver: db.driver, ping: true, healthWorker: true, healthy: health.isHealthy, settingsMarker: 'cold-written', tables, migrations }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+  await writeFile(`/work/${phase}-lifecycle.json`, JSON.stringify({ phase, before, after, driver: db.driver, ping: true, healthWorker: true, healthy: health.isHealthy, settingsMarker: 'cold-written', runtimeSettingApplied: phase === 'cold', tables, migrations }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
 } finally {
   progress('before-close');
   closeDbInstance();

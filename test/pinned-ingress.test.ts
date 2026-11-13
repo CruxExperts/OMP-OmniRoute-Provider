@@ -849,28 +849,48 @@ with tempfile.TemporaryDirectory() as d:
  source={f'src/lib/db/migrations/{i:03}_fixture.sql':h for i in range(222)}
  source.update({'src/lib/db/healthCheckWorker.ts':h,'scripts/build/colocate-standalone.mjs':h,'src/lib/db/core.ts':h})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
- identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerOutputSha256':h,'private':'private-canary'}
+ identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
- cold={**base,'phase':'cold','before':[]}; warm={**base,'phase':'warm','before':[db]}
+ cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
+ (p/'cold-lifecycle.private').write_text('normal output\n'); (p/'warm-lifecycle.private').write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  def reject():
   try: m.export_core_lifecycle(p,{})
   except (RuntimeError,ValueError,KeyError,TypeError): return
   raise AssertionError('invalid lifecycle accepted')
+ (p/'cold-lifecycle.private').write_text('[HOT_RELOAD] Failed to apply runtime settings\n')
+ put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity); reject()
+ (p/'cold-lifecycle.private').write_text('normal output\n')
  put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()
  warm['migrations']=cold['migrations']; warm['healthWorker']=False; put('warm-lifecycle.json',warm); reject()
  warm['healthWorker']=True; warm['before']=[]; put('warm-lifecycle.json',warm); reject()
  warm['before']=[db]; put('warm-lifecycle.json',warm)
  identity['workerOutputSha256']='private-canary'; put('core-identity.json',identity); reject()
+ identity['workerOutputSha256']=h; identity['runnerArguments']=['/runtime/node','bundled.mjs']; put('core-identity.json',identity); reject()
+ identity['runnerArguments']=['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs']; identity['runnerOutputSha256']=h; put('core-identity.json',identity); reject()
+ del identity['runnerOutputSha256']; cold['runtimeSettingApplied']=False; put('cold-lifecycle.json',cold); put('core-identity.json',identity); reject()
+ cold['runtimeSettingApplied']=True; put('cold-lifecycle.json',cold)
+ log=p/'lifecycle.private'; log.write_text('normal output\n'); m.validate_lifecycle_log(log)
+ log.write_text('[HOT_RELOAD] Failed to apply runtime settings after update\n')
+ try: m.validate_lifecycle_log(log)
+ except RuntimeError: pass
+ else: raise AssertionError('runtime reload warning accepted')
+ log.write_bytes(b'x'*(2*1024**2+1))
+ try: m.validate_lifecycle_log(log)
+ except RuntimeError: pass
+ else: raise AssertionError('oversized lifecycle log accepted')
  identity['workerOutputSha256']=h; put('core-identity.json',identity)
  m.export_core_lifecycle(p,{})
  result=json.loads((p/'export/core-lifecycle.json').read_text())
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
  assert result['cold']['databaseExistedBefore'] is False and result['warm']['databaseExistedBefore'] is True
  assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
+ assert result['identity']['runnerArguments']==identity['runnerArguments'] and 'runnerOutputSha256' not in result['identity']
+ assert result['cold']['runtimeSettingApplied'] is True and result['warm']['runtimeSettingApplied'] is False
+ assert result['cold']['hotReloadFailure'] is False and result['warm']['hotReloadFailure'] is False
  assert result['cold']['tableSha256']==result['warm']['tableSha256'] and result['cold']['migrationSha256']==result['warm']['migrationSha256']
  assert result['isolation']=={'network':'private-loopback-only','capabilities':'dropped','source':'read-only','processes':'separate-cold-warm','startupRegressions':'passed'}
 `;
