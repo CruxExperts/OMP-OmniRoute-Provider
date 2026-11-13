@@ -280,7 +280,7 @@ def stage(root, approval):
     dependencies = root / 'dependencies'
     dependencies.mkdir(mode=0o700)
     manifest = json.loads((FIXTURE / 'dependencies.json').read_text())
-    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 267, 'dependency manifest mismatch')
+    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 268, 'dependency manifest mismatch')
     seen = {}
     total = 0
     for item in manifest['packages']:
@@ -453,7 +453,7 @@ def expected_core_lifecycle_input_key(archive, node, dependency_dir, bwrap, root
     require(dependency_dir.is_dir() and not dependency_dir.is_symlink(), 'dependency directory unavailable')
     validate_bwrap(bwrap)
     manifest = bounded_json(FIXTURE / 'dependencies.json')
-    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 267, 'dependency manifest mismatch')
+    require(manifest['schemaVersion'] == 1 and manifest['platform'] == 'linux-x64-glibc' and len(manifest['packages']) == 268, 'dependency manifest mismatch')
     dependencies = {}
     for item in manifest['packages']:
         raw = verified_dependency(dependency_dir, item)
