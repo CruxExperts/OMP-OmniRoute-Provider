@@ -144,9 +144,9 @@
       "compatibility_role": "runtime host and SDK compatibility authority",
       "compatibility_review": {
         "source_tag": "v18.12.5",
-        "latest_tag": "v18.12.6",
+        "latest_tag": "v18.16.0",
         "decision": "retain-source-pin",
-        "evidence": "docs/reference/maintenance.md#omp-18126-compatibility-review"
+        "evidence": "docs/reference/maintenance.md#omp-18160-compatibility-review"
       },
       "release": {
         "tag": "v18.12.5",

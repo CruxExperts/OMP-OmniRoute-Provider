@@ -13,6 +13,7 @@ import {
   resolveEnvironmentEndpointPrefill,
   resolveEnvironmentBinding,
   savePendingConfig,
+  updateConfig,
 } from "./config.ts";
 import { requestJson, TransportError } from "./transport.ts";
 
@@ -412,6 +413,68 @@ export async function recoverPendingAfterPersistence(
     // fresh native login rather than allowing a later refresh to self-compare.
     clearPendingCandidate();
   }
+}
+
+/** Explicit recovery for a marker whose original in-memory key was lost. */
+export async function recoverPendingInteractively(options: {
+  credentials: Pick<AuthStorage["credentials"], "list">;
+  confirm(pending: PendingBinding): Promise<boolean>;
+  signal: AbortSignal;
+  isCurrent(): boolean;
+  request?: typeof requestJson;
+}): Promise<{ raw: number; usable: number }> {
+  const invalid = (): never => { throw new AuthError("persistence-failed", "Pending connection or saved native credential changed; sign in again."); };
+  const current = (): void => { checkCancelled(options.signal); if (!options.isCurrent()) invalid(); };
+  const readRow = () => {
+    const rows = options.credentials.list(PROVIDER_ID).filter(row => row.provider === PROVIDER_ID);
+    const row = rows[0];
+    if (rows.length !== 1 || !row || row.disabledCause !== null || row.credential.type !== "api_key" || !row.credential.key.trim()) {
+      throw new AuthError("persistence-failed", "Exactly one saved native API key is required; sign in again.");
+    }
+    return { id: row.id, key: row.credential.key };
+  };
+  current();
+  const initial = await loadConfig();
+  current();
+  if (initial.runtimeSource !== "native" || !initial.pending || initial.revision === undefined) invalid();
+  const pending = initial.pending!;
+  const row = readRow();
+  if (!(await loginStep(options.confirm(pending), options.signal))) throw new AuthError("cancelled", "Pending connection recovery cancelled.");
+  const recheck = async (): Promise<void> => {
+    current();
+    const latest = await loadConfig();
+    current();
+    if (latest.revision !== initial.revision || latest.runtimeSource !== "native" || latest.pending?.endpoint !== pending.endpoint || latest.pending.generation !== pending.generation || latest.pending.status !== pending.status) invalid();
+    const next = readRow();
+    if (next.id !== row.id || next.key !== row.key) invalid();
+    current();
+  };
+  await recheck();
+  const validation = await validateCandidate(pending.endpoint, row.key, options.request ?? requestJson, options.signal);
+  await recheck();
+  const committed = await commitPendingConfig(pending, { expectedRevision: initial.revision! });
+  try {
+    current();
+    const latest = await loadConfig();
+    current();
+    const finalRow = readRow();
+    if (latest.revision !== committed.revision || latest.pending || latest.runtimeSource !== "native" || latest.active?.endpoint !== pending.endpoint || latest.active.generation !== pending.generation || finalRow.id !== row.id || finalRow.key !== row.key) invalid();
+    current();
+  } catch (error) {
+    try {
+      await updateConfig(current => {
+        const restored = { ...current, pending };
+        if (initial.active) restored.active = initial.active;
+        else delete restored.active;
+        return restored;
+      }, { expectedRevision: committed.revision! });
+      throw Object.assign(new Error("Activation was reverted to pending because its binding changed", { cause: error }), { code: "activation-restored" });
+    } catch (restoreError) {
+      if (restoreError instanceof Error && "code" in restoreError && restoreError.code === "activation-restored") throw restoreError;
+      throw Object.assign(new Error("Activation was saved but its current binding could not be confirmed", { cause: error }), { code: "activation-uncertain" });
+    }
+  }
+  return validation;
 }
 
 export function nativeLoginConfig(options: NativeLoginOptions = {}): { oauth: NativeLoginProvider } {

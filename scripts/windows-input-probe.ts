@@ -1,0 +1,188 @@
+import { writeFileSync } from "node:fs";
+
+// This is a transport diagnostic, not a host smoke test or qualification evidence.
+const marker = "INPUT_PROBE:";
+const fixture = "/login";
+const maxBytes = 1024;
+const maxEvents = 128;
+type KeyEvent = { vk: number; uc: number; kd: number; cs: number };
+type ChildReport = { hex: string; events: KeyEvent[]; fixtureReceived: boolean; crReceived: boolean; truncated: boolean };
+
+function child(): void {
+  let raw = "";
+  let pending = "";
+  let decoded = "";
+  const events: KeyEvent[] = [];
+  let truncated = false;
+  let fixtureReceived = false;
+  let crReceived = false;
+  let finished = false;
+  let windowTimer: NodeJS.Timeout | undefined;
+  const previousRaw = process.stdin.isRaw;
+  const deadline = setTimeout(finish, 10_000);
+
+  function emit(value: object): void {
+    process.stdout.write(`${marker}${JSON.stringify(value)}\n`);
+  }
+  function cleanup(): void {
+    clearTimeout(deadline);
+    clearTimeout(windowTimer);
+    process.stdin.removeListener("data", onData);
+    process.stdout.write("\x1b[?9001l");
+    if (process.stdin.isTTY) process.stdin.setRawMode(previousRaw ?? false);
+    process.stdin.pause();
+  }
+  function finish(): void {
+    if (finished) return;
+    finished = true;
+    try {
+      const report: ChildReport = { hex: Buffer.from(raw, "latin1").toString("hex"), events, fixtureReceived, crReceived, truncated };
+      emit({ type: "result", report });
+    } finally {
+      cleanup();
+    }
+  }
+  function accept(code: number): void {
+    if (!fixtureReceived) {
+      decoded += String.fromCodePoint(code);
+      if (decoded.endsWith(fixture)) {
+        fixtureReceived = true;
+        emit({ type: "fixture" });
+        windowTimer = setTimeout(finish, 2_000);
+      }
+      decoded = decoded.slice(-fixture.length);
+    } else if (code === 13) {
+      crReceived = true;
+    }
+  }
+  function onData(bytes: Buffer): void {
+    // Only retain fixture characters and Win32 input protocol syntax. Unexpected
+    // input is excluded rather than potentially recording unrelated typed data.
+    const text = bytes.toString("latin1");
+    for (const char of text) {
+      if (!/[\x1b\[\]_;0-9/login\r\n]/.test(char)) {
+        truncated = true;
+        continue;
+      }
+      if (raw.length < maxBytes) raw += char;
+      else truncated = true;
+      pending += char;
+    }
+    while (pending.length > 0) {
+      if (pending.startsWith("\x1b")) {
+        const match = /^\x1b\[(\d+);(\d+);(\d+);(\d+);(\d+);(\d+)_/.exec(pending);
+        if (!match) {
+          if (pending.length > 80 || !/^\x1b(?:\[[0-9;]*)?$/.test(pending)) {
+            pending = pending.slice(1);
+            truncated = true;
+            continue;
+          }
+          break;
+        }
+        const vk = Number(match[1]);
+        const uc = Number(match[3]);
+        const kd = Number(match[4]);
+        const cs = Number(match[5]);
+        if (events.length < maxEvents) events.push({ vk, uc, kd, cs });
+        else truncated = true;
+        if (kd === 1 && cs === 0) {
+          if (vk === 13) accept(13);
+          else if ((vk === 0 || vk === 231) && uc <= 0x10ffff) accept(uc);
+          else if (uc !== 13 && uc <= 0x10ffff) accept(uc);
+        }
+        pending = pending.slice(match[0].length);
+      } else {
+        accept(pending.charCodeAt(0));
+        pending = pending.slice(1);
+      }
+    }
+  }
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => {
+      cleanup();
+      process.kill(process.pid, signal);
+    });
+  }
+  try {
+    if (!process.stdin.isTTY) throw new Error("console input is not a TTY");
+    process.stdin.setRawMode(true);
+    process.stdin.on("data", onData);
+    process.stdin.resume();
+    process.stdout.write("\x1b[?9001h");
+    emit({ type: "ready" });
+  } catch {
+    finish();
+    process.exitCode = 1;
+  }
+}
+
+async function parent(output: string): Promise<void> {
+  let stage = "startup";
+  const observed: { report?: ChildReport } = {};
+  let timedOut = false;
+  let receivedSignal: NodeJS.Signals | undefined;
+  let buffer = "";
+  const terminal = new Bun.Terminal({
+    cols: 160,
+    rows: 50,
+    data(term, bytes) {
+      buffer = (buffer + Buffer.from(bytes).toString("utf8")).slice(-16_384);
+      let end: number;
+      while ((end = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, end);
+        buffer = buffer.slice(end + 1);
+        const start = line.indexOf(marker);
+        if (start < 0) continue;
+        try {
+          const message: unknown = JSON.parse(line.slice(start + marker.length).trim());
+          if (!message || typeof message !== "object" || !("type" in message)) continue;
+          if (message.type === "ready" && stage === "startup") {
+            stage = "fixture-sent";
+            term.write(fixture);
+          } else if (message.type === "fixture" && stage === "fixture-sent") {
+            stage = "cr-sent";
+            term.write("\r");
+          } else if (message.type === "result" && "report" in message) {
+            observed.report = message.report as ChildReport;
+          }
+        } catch {
+          // Ignore non-protocol terminal output; never persist it.
+        }
+      }
+    },
+  });
+  const proc = Bun.spawn([process.execPath, import.meta.path, "--child"], { terminal });
+  const forward = (signal: NodeJS.Signals): void => {
+    receivedSignal = signal;
+    proc.kill(signal);
+  };
+  const onInt = (): void => forward("SIGINT");
+  const onTerm = (): void => forward("SIGTERM");
+  process.once("SIGINT", onInt);
+  process.once("SIGTERM", onTerm);
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    proc.kill("SIGTERM");
+    setTimeout(() => proc.kill("SIGKILL"), 2_000).unref();
+  }, 15_000);
+  let exitCode: number;
+  try {
+    exitCode = await proc.exited;
+  } finally {
+    clearTimeout(deadline);
+    process.removeListener("SIGINT", onInt);
+    process.removeListener("SIGTERM", onTerm);
+    if (!terminal.closed) terminal.close();
+  }
+  const report = observed.report;
+  const success = !timedOut && !receivedSignal && exitCode === 0 && stage === "cr-sent" && report?.fixtureReceived === true && report.crReceived && !report.truncated;
+  writeFileSync(output, `${JSON.stringify({ diagnostic: "windows-input-transport", success, stage, timedOut, exitCode, report: report ?? null }, null, 2)}\n`);
+  if (receivedSignal) process.kill(process.pid, receivedSignal);
+  if (!success) process.exitCode = 1;
+}
+
+if (process.argv[2] === "--child") child();
+else if (process.platform !== "win32" || !process.argv[2] || process.argv.length !== 3) {
+  console.error("Usage on Windows: bun run scripts/windows-input-probe.ts <output.json>");
+  process.exitCode = 1;
+} else await parent(process.argv[2]);

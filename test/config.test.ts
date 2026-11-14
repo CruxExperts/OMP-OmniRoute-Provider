@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -167,12 +168,27 @@ test("profile writes use a private directory and atomic private file", async () 
   expect(staged.pending?.endpoint).toBe("http://127.0.0.1:20128");
   const directory = await stat(join(tempDir, "omniroute"));
   const file = await stat(getConfigPath());
-  expect(directory.mode & 0o777).toBe(0o700);
-  expect(file.mode & 0o777).toBe(0o600);
+  if (process.platform !== "win32") {
+    expect(directory.mode & 0o777).toBe(0o700);
+    expect(file.mode & 0o777).toBe(0o600);
+  }
   expect(JSON.parse(await readFile(getConfigPath(), "utf8"))).not.toHaveProperty("apiKey");
   await commitPendingConfig(staged.pending, staged.revision === undefined ? undefined : { expectedRevision: staged.revision });
   expect((await loadConfig()).active?.generation).toBe(1);
-});
+}, 60_000);
+
+test.skipIf(process.platform !== "win32")("Windows rejects broad directory and file ACL grants", async () => {
+  await isolated();
+  await savePendingConfig("https://gateway.example");
+  const directory = join(tempDir, "omniroute");
+  const icacls = join(process.env.SystemRoot || "C:\\Windows", "System32", "icacls.exe");
+  execFileSync(icacls, [getConfigPath(), "/grant", "*S-1-1-0:(F)"], { stdio: "ignore" });
+  await expectCode(loadConfig(), "insecure-permissions");
+  execFileSync(icacls, [getConfigPath(), "/remove:g", "*S-1-1-0"], { stdio: "ignore" });
+  expect((await loadConfig()).pending?.endpoint).toBe("https://gateway.example");
+  execFileSync(icacls, [directory, "/grant", "*S-1-1-0:(OI)(CI)(F)"], { stdio: "ignore" });
+  await expectCode(loadConfig(), "insecure-permissions");
+}, 60_000);
 
 test("corrupt files and stale revisions fail closed without replacement", async () => {
   await isolated();

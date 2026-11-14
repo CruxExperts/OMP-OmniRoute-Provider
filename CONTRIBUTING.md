@@ -112,7 +112,8 @@ or build OmniRoute's web application as an extension compatibility prerequisite.
 Useful focused areas include:
 
 - native sign-in cancellation, masked prompts, pending persistence, validated
-  restart recovery with fresh sign-in fallback, and explicit `/omniroute refresh`
+  restart recovery with fresh sign-in fallback, explicit `/omniroute recover`,
+  and `/omniroute refresh`
   (`/cruxomni refresh` remains an alias);
 - endpoint and credential generation changes, offline recovery, bounded body
   and JSON depth handling, redirect rejection, and notification transitions;

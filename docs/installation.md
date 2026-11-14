@@ -16,17 +16,17 @@ preserving model names and native credential identity.
 
 ## Install the GitHub release
 
-Install the pinned `1.0.3` GitHub source tag through OMP's native plugin installer:
+Install the pinned `1.0.5` GitHub source tag through OMP's native plugin installer:
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.5
 ```
 
 Restart OMP and run `/omniroute setup`. This command installs from GitHub; it does
 not use the npm registry. The release includes a `.tgz` package artifact for
 verification and tooling, but a raw tarball URL is not the documented OMP plugin
-install target. See the [release notes](../CHANGELOG.md#103--2026-10-23) for the
-provider selector label and the unchanged administration and platform limits.
+install target. See the [release notes](../CHANGELOG.md#104--2026-11-05) for
+recovery, compatibility, and the administration and platform limits.
 
 OMP supplies its SDK modules from the running host. Their package-manager peer
 entries are marked optional so installation does not download a second SDK;
@@ -101,11 +101,56 @@ presented as a healthy model list. After restart, a `validated` pending login
 is resumed only if OMP's currently selected native credential passes the
 protected check against the exact pending endpoint and the live catalog can be
 read. Missing, rejected, or unverified credentials remain unavailable and
-require a fresh sign-in; `/omniroute refresh` retries recovery or forces
-rediscovery of an active connection.
+require a fresh sign-in. An interrupted pending login whose original in-memory
+candidate is unavailable remains auth-only; use `/omniroute recover`
+interactively to confirm and revalidate a single saved native key, or sign in
+again. `/omniroute refresh` retries recovery or forces rediscovery of an active
+connection.
+Use `/omniroute` or the setup summary to inspect the selected native,
+environment, or legacy source. A native profile ignores runtime environment
+overrides and does not fall back to them. A partial environment pair must be
+completed or replaced through native setup. Catalog availability alone is not
+proof that the runtime key was accepted. OMP controls the model picker and JSON
+output; actionable startup diagnostics go to standard error.
 Automatic refreshes share one request and reuse a successful snapshot for
 30 seconds. Explicit refresh bypasses that freshness window but joins an
 already-running request.
+
+## Inference reconnect settings
+
+Configure these OMP plugin settings using the installed package identity, for
+example:
+
+```text
+omp plugin config set @cruxexperts/cruxomni-omp-client reconnectMaxAttempts 5
+omp plugin config set @cruxexperts/cruxomni-omp-client reconnectDelayMs 30000
+```
+
+`reconnectMaxAttempts` is an integer from 1 to 20 and defaults to 5 total
+attempts, including the initial request. Set it to `1` to disable retries.
+`reconnectDelayMs` is an integer from 1 to 300000 milliseconds and defaults to
+30000 milliseconds between attempts. Invalid runtime values fall back to the
+respective defaults. OMP merges global plugin settings with project overrides;
+project values take precedence. These are plugin settings, not credentials or
+fields in the provider's `config.json`.
+
+The connector buffers response text until generation succeeds, so live token
+streaming is not available. A recoverable interrupted stream starts a fresh
+generation; partial output from the failed attempt is discarded, and its tool
+calls are never started.
+
+The connector drains incoming events independently of OMP's response consumer
+and keeps the native response accumulator, rather than copying every growing
+partial response. A busy consumer therefore does not pause network intake.
+Successful output is delivered once, avoiding a burst of queued token updates.
+Memory use grows with the current response, not a second token-event history.
+This is asynchronous buffering, not a separate processing thread: a synchronous
+stall of the entire JavaScript event loop still delays parsing while the
+network stack buffers incoming bytes. It does not increase the model server's
+token generation rate.
+
+See [Troubleshooting and Recovery](troubleshooting.md#inference-connection-interrupted)
+for retry boundaries.
 
 ## Select a live model
 
@@ -120,7 +165,7 @@ the full `--model` selector supports deferred extension-model resolution.
 
 Startup waits up to 10 seconds for live discovery, including resolution of
 the remembered native credential. Only discovered chat models become selectable;
-metadata and pricing do not delay that publication or the first streamed reply.
+metadata and pricing do not delay that publication or the first reply.
 Their optional enrichment is cancelled when the connection changes. A metadata
 credential replacement or removal cancels its own pending metadata request and
 discards late results without resetting live-model discovery. Refresh explicitly

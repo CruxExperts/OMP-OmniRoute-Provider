@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, openSync, writeSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createConnection } from "node:net";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
@@ -143,7 +144,7 @@ function expectedAssets(provenance: JsonObject, testedVersions: string[], assetN
 
 function isWithin(root: string, candidate: string): boolean {
   const path = relative(resolve(root), resolve(candidate));
-  return path === "" || (!path.startsWith("..") && !isAbsolute(path));
+  return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -553,6 +554,25 @@ function hasNativeReadResult(body: JsonObject): boolean {
       && (typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? null)).includes(toolFileText);
   });
 }
+function nativeReadFailureSummary(body: JsonObject): string {
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const results = messages.filter((value): value is JsonObject => value !== null && typeof value === "object" && !Array.isArray(value) && (value as JsonObject).role === "tool");
+  const matching = results.filter(message => message.tool_call_id === toolReadCallId);
+  const shapes = messages.map(value => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return "non-object";
+    const message = value as JsonObject;
+    const role = ["system", "developer", "user", "assistant", "tool"].includes(String(message.role)) ? String(message.role) : "other";
+    return `${role}(tool_calls=${Array.isArray(message.tool_calls) ? message.tool_calls.length : 0},content=${Array.isArray(message.content) ? "array" : typeof message.content})`;
+  });
+  const contents = results.map(message => typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? null));
+  const category = contents.some(text => /no result provided|\baborted\b/i.test(text)) ? "synthetic-or-aborted"
+    : contents.some(text => /validat|invalid|required|parse error/i.test(text)) ? "validation"
+      : contents.some(text => /denied|permission|approval/i.test(text)) ? "permission"
+        : contents.some(text => /not found|no such file/i.test(text)) ? "not-found"
+          : contents.some(text => text.includes(toolFileText)) ? "result-under-different-id" : "other-or-absent";
+  return `tool results: ${results.length}; matching call ID: ${matching.length}; category: ${category}; message shapes: ${shapes.join(",")}`;
+}
+
 
 async function startFixtureServer(): Promise<FixtureServer> {
   const requests: FixtureRequest[] = [];
@@ -652,7 +672,7 @@ async function startFixtureServer(): Promise<FixtureServer> {
             const input = { [pathField]: toolRead.path, ...(Object.hasOwn(properties, "i") ? { i: "Read the disposable continuation fixture." } : {}) };
             fixtureReadToolStream(response, expectedModel, input);
           } else {
-            if (!hasNativeReadResult(requestJson)) throw new Error("native continuation omitted the actual file read result");
+            if (!hasNativeReadResult(requestJson)) throw new Error(`native continuation omitted the actual file read result (${nativeReadFailureSummary(requestJson)})`);
             fixtureChatCompletionStream(response, record, expectedModel, toolReplyText);
           }
           return;
@@ -749,9 +769,10 @@ type CommandOptions = {
   input?: string;
   inputSteps?: Array<{ afterMs: number; text: string }>;
   dialogue?: DialogueStep[];
+  diagnosticDispatch?: (phase: "rendered" | "dispatched") => Promise<void>;
 };
 
-export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number };
+export type DialogueStep = { when: RegExp | (() => RegExp); text: string | ((match: RegExpExecArray) => string); afterMs?: number; captureDuringDispatch?: boolean };
 
 /**
  * Drives prompt-based input without treating a prompt redraw as a new prompt
@@ -768,9 +789,16 @@ export function createDialogueScheduler(
   let cancelled = false;
   let buffer = "";
   let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  let dispatchStarted = false;
+  let pendingOutput = "";
+  let pendingIndex = 0;
 
   const observe = (chunk: string): boolean => {
-    if (pending || failed || cancelled || completed >= steps.length) return false;
+    if (failed || cancelled || completed >= steps.length) return false;
+    if (pending) {
+      if (dispatchStarted && steps[pendingIndex]?.captureDuringDispatch) pendingOutput = `${pendingOutput}${chunk}`.slice(-32_768);
+      return false;
+    }
     buffer = `${buffer}${chunk}`.slice(-32_768);
     const step = steps[completed]!;
     const when = typeof step.when === "function" ? step.when() : step.when;
@@ -781,8 +809,10 @@ export function createDialogueScheduler(
     pending = true;
     buffer = "";
     const index = completed;
+    pendingIndex = index;
     pendingTimer = setTimeout(() => {
       pendingTimer = undefined;
+      dispatchStarted = true;
       void Promise.resolve().then(() => dispatch(step, index, typeof step.text === "string" ? step.text : step.text(match))).then(() => {
         if (!cancelled) completed = index + 1;
       }).catch(error => {
@@ -792,7 +822,11 @@ export function createDialogueScheduler(
       }).finally(() => {
         if (!cancelled) {
           pending = false;
+          dispatchStarted = false;
           buffer = "";
+          const output = pendingOutput;
+          pendingOutput = "";
+          if (!failed && output) observe(output);
         }
       });
     }, step.afterMs ?? 100);
@@ -825,6 +859,9 @@ export function availableOperationMenuPattern(category: string, operationId: str
 export function nativePtyDialogueText(text: string): string {
   return text === "__ESC__" ? "\u001b" : text;
 }
+
+export const nativeLoginCommandRenderedPattern = /\/login[^\n]*\n[^\n]*\blogin\s+Login: choose provider/i;
+export const nativeLoginCommandCompletedPattern = /\/login[ \t]+\[provider\|redirect URL\]/i;
 
 export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
 export const nativeEnvironmentSwitchConfirmationPattern = /Use a native OmniRoute profile connection instead of the environment connection\?[\s\S]{0,1500}This OMP profile will use the endpoint and runtime key you enter\.\s*Environment variables remain unchanged; a missing native credential will fail closed\.[\s\S]{0,500}\byes\/no\b/i;
@@ -983,8 +1020,10 @@ async function runPtyCommand(binary: string, options: CommandOptions): Promise<C
         setTimeout(() => child?.kill("SIGTERM"), 6_000).unref();
         return;
       }
+      if (text === "\r" && options.diagnosticDispatch) await options.diagnosticDispatch("rendered").catch(() => undefined);
       if (terminal.closed) throw new Error("terminal closed before dialogue input was written");
       await writeInput(terminal, nativePtyDialogueText(text));
+      if (text === "\r" && options.diagnosticDispatch) await options.diagnosticDispatch("dispatched").catch(() => undefined);
     }, () => child?.kill("SIGTERM"));
   }
   child = Bun.spawn([binary], {
@@ -1049,14 +1088,125 @@ function requireJsonText(text: string, label: string): JsonObject {
   throw new Error(`${label} did not produce a JSON object`);
 }
 
+// Read only the pinned host's optional NDJSON interface. Responses are bounded
+// in memory and projected to an allowlist; raw component state is never saved.
+async function readTuiDebug(endpoint: string, op: "info" | "values"): Promise<JsonObject | undefined> {
+  const { promise, resolve: resolveRequest } = Promise.withResolvers<JsonObject | undefined>();
+  const socket = createConnection(endpoint);
+  let buffer = "";
+  let finished = false;
+  const finish = (value?: JsonObject): void => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    socket.destroy();
+    resolveRequest(value);
+  };
+  const timer = setTimeout(() => finish(), 1_000);
+  socket.on("error", () => finish());
+  socket.on("close", () => finish());
+  socket.on("connect", () => socket.write(`${JSON.stringify({ op })}\n`));
+  socket.on("data", chunk => {
+    buffer += chunk.toString();
+    if (buffer.length > 262_144) return finish();
+    const end = buffer.indexOf("\n");
+    if (end < 0) return;
+    try {
+      const value: unknown = JSON.parse(buffer.slice(0, end));
+      if (typeof value === "object" && value !== null && !Array.isArray(value) && (value as JsonObject).ok === true) return finish(value as JsonObject);
+    } catch { /* Unsupported or malformed protocol. */ }
+    finish();
+  });
+  return await promise;
+}
+
+async function observeTuiDebug(endpoint: string): Promise<JsonObject> {
+  const [info, values] = await Promise.all([readTuiDebug(endpoint, "info"), readTuiDebug(endpoint, "values")]);
+  const state: JsonObject = { interface: info ? "available" : "unavailable", submitReady: "unavailable" };
+  if (info) {
+    state.focus = info.focused === null ? "none" : typeof info.focused === "string" ? "present" : "unavailable";
+    state.altScreen = typeof info.alt_screen === "boolean" ? info.alt_screen : "unavailable";
+    state.overlays = typeof info.overlays === "number" && Number.isInteger(info.overlays) && info.overlays >= 0 && info.overlays <= 100 ? info.overlays : "unavailable";
+  }
+  state.editorCandidates = "unavailable";
+  state.focusMatchesEditor = "unavailable";
+  state.fixtureCommandMatched = "unavailable";
+  const valueMap = values?.values;
+  if (typeof valueMap === "object" && valueMap !== null && !Array.isArray(valueMap)) {
+    const editors = Object.entries(valueMap).filter(([, value]) => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+      const fields = value as JsonObject;
+      return typeof fields.textPreview === "string" && typeof fields.textLength === "number" &&
+        typeof fields.previewTruncated === "boolean" && typeof fields.cursorLine === "number" &&
+        typeof fields.cursorCol === "number" && typeof fields.lineCount === "number";
+    });
+    state.editorCandidates = editors.length;
+    const focused = info?.focused;
+    const focusedEditors = typeof focused === "string"
+      ? editors.filter(([key]) => key.startsWith(`${focused}[`) || key.startsWith(`${focused}#`))
+      : [];
+    if (focused === null) state.focusMatchesEditor = false;
+    else if (typeof focused === "string" && editors.length > 0) {
+      state.focusMatchesEditor = focusedEditors.length > 0;
+      state.focusMatchBasis = "component-kind-only";
+    }
+    const selected = focusedEditors.length === 1 ? focusedEditors[0] : editors.length === 1 ? editors[0] : undefined;
+    if (selected) {
+      const fields = selected[1] as JsonObject;
+      state.fixtureCommandMatched = fields.textPreview === "/login" && fields.textLength === 6 && !fields.previewTruncated;
+      state.draftLength = Number.isSafeInteger(fields.textLength) && (fields.textLength as number) >= 0 && (fields.textLength as number) <= 262_144 ? fields.textLength : "unavailable";
+      state.lineCount = Number.isSafeInteger(fields.lineCount) && (fields.lineCount as number) >= 0 && (fields.lineCount as number) <= 262_144 ? fields.lineCount : "unavailable";
+      const preview = fields.textPreview as string;
+      state.draftCategory = fields.previewTruncated || preview.length !== fields.textLength ? "unavailable"
+        : preview === "" ? "empty"
+        : preview === "/login" ? "exact-login"
+        : /^\/login\s+$/.test(preview) ? "login-trailing-whitespace"
+        : /^\/login\s+\[provider\|redirect URL\]$/.test(preview) ? "login-usage-placeholder"
+        : "other";
+    }
+  }
+  return state;
+}
+
 async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login\n", afterMs: 4_000 },
+    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
+    // Complete the visible command with Tab before submitting it with Enter.
+    { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
+    { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
     { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
     { when: /OmniRoute base URL/i, text: "\u001b", afterMs: 250 },
     { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
   ];
-  const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 30_000, dialogue });
+  const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
+  const endpoint = diagnosticPath ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
+  const observations: JsonObject = { rendered: "not-observed", dispatched: "not-observed", delayed: "not-observed" };
+  let result: CommandResult;
+  try {
+    result = await runPtyCommand(binary, {
+      cwd, env: endpoint ? { ...environment, OMP_TUI_DEBUG: endpoint } : environment, timeoutMs: 30_000, dialogue,
+      ...(endpoint ? { diagnosticDispatch: async phase => {
+        const started = Date.now();
+        observations[phase] = await observeTuiDebug(endpoint);
+        if (phase === "dispatched") {
+          // This diagnostic-only sample is taken at least one second after the PTY write.
+          const remaining = Math.max(0, 1_000 - (Date.now() - started));
+          if (remaining > 0) {
+            const { promise, resolve: done } = Promise.withResolvers<void>();
+            setTimeout(done, remaining);
+            await promise;
+          }
+          const elapsedMs = Date.now() - started;
+          observations.delayed = { elapsedAfterDispatchMs: elapsedMs, ...await observeTuiDebug(endpoint) };
+        }
+      } } : {}),
+    });
+  } finally {
+    if (diagnosticPath) {
+      await writeFile(diagnosticPath, `${JSON.stringify({ schemaVersion: 1, diagnostic: "native-login-debug", observations }, null, 2)}\n`, { mode: 0o600 }).catch(() => undefined);
+    }
+    if (endpoint && process.platform !== "win32") await rm(endpoint, { force: true }).catch(() => undefined);
+  }
   const output = stripVTControlCharacters(`${result.stdout}\n${result.stderr}`);
   const prompted = /OmniRoute base URL/i.test(output);
   const cancelled = result.dialogueCompleted === dialogue.length;
@@ -1100,7 +1250,11 @@ async function nativePromptSetup(
   const environmentRequestStart = environmentFixture.requests.length;
   let postSwitchEnvironmentRequestIndex: number | undefined;
   const dialogue: DialogueStep[] = [
-    { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login\n", afterMs: scripted ? 0 : 4_000 },
+    { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login", afterMs: scripted ? 0 : 4_000, captureDuringDispatch: !scripted },
+    ...(!scripted ? [
+      { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
+      { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
+    ] : []),
     { when: /Select provider to login[\s\S]*?Type to search/i, text: scripted ? "__OBSERVE_ONLY__" : "omniroute\n", afterMs: scripted ? 0 : 250 },
     { when: nativeEnvironmentSwitchConfirmationPattern, text: scripted ? "__OBSERVE_ONLY__" : "yes\n", afterMs: scripted ? 0 : 250 },
     { when: /OmniRoute base URL/i, text: scripted ? "__OBSERVE_ONLY__" : `${fixtureUrl}\n`, afterMs: scripted ? 0 : 250 },
@@ -1617,7 +1771,7 @@ export async function runSmoke(): Promise<SmokeResult> {
   const host = await verifiedBinary(expectedAssets(releaseArtifacts, compatibility.tested, await nativeAssetName()), compatibility.range);
   const binary = host.path;
   const configuredTempRoot = process.env.OMP_SMOKE_TEMP_ROOT;
-  let tempRoot = tmpdir();
+  let tempRoot = await realpath(tmpdir());
   if (configuredTempRoot !== undefined) {
     if (!isAbsolute(configuredTempRoot)) throw new Error("OMP_SMOKE_TEMP_ROOT must be an absolute isolated directory");
     const requestedRoot = resolve(configuredTempRoot);

@@ -1,9 +1,11 @@
 import type { ExtensionAPI, ExtensionContext, ProviderConfig } from "@oh-my-pi/pi-coding-agent";
+import { registerCustomApi, unregisterCustomApis, type Api } from "@oh-my-pi/pi-ai";
+import { randomUUID } from "node:crypto";
 import { getPluginSettings } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/loader";
 import { DISPLAY_NAME, PACKAGE_NAME, PROVIDER_LIST_NAME } from "./identity.ts";
 import { OptionalCredentials } from "./credentials.ts";
 import { createSetupWizard } from "./setup.ts";
-import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, resolveRuntimeCredential, resolveStartupRuntimeCredential, verifyStoredRuntimeCredential } from "./auth.ts";
+import { clearPendingCandidate, registerNativeLogin, recoverPendingAfterPersistence, recoverPendingInteractively, resolveRuntimeCredential, resolveStartupRuntimeCredential, verifyStoredRuntimeCredential } from "./auth.ts";
 import { allowsEnvironmentOptionalCredentials, commitPendingConfig, type PluginConfig, loadConfig, resolveEnvironmentBinding, updateConfig } from "./config.ts";
 import { projectCatalog, type CatalogOptions, type CatalogProjection } from "./catalog.ts";
 import { loadCatalogMetadata, getCatalogSourceStatus, type CatalogMetadataSnapshot } from "./catalog-sources.ts";
@@ -11,7 +13,8 @@ import { DiscoveryManager, type DiscoveryBinding, type HealthSnapshot } from "./
 import { readSellerPricing, PRICING_WARNING, type SellerPricing } from "./pricing.ts";
 import { requestJson, TransportError } from "./transport.ts";
 import type { AdminRuntime } from "./admin/runtime.ts";
-import { createBoundInferenceStream, OMNIROUTE_GUARDED_API } from "./inference.ts";
+import { createBoundInferenceStream, OMNIROUTE_GUARDED_API, parseReconnectSettings } from "./inference.ts";
+import { formatReadiness, type CredentialPresence, type ReadinessIssue } from "./readiness.ts";
 
 const PROVIDER_ID = "omniroute";
 const RUNTIME_ENV = "OMP_OMNIROUTE_API_KEY";
@@ -21,6 +24,13 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_JSON_DEPTH = 24;
 
 type ContextLike = ExtensionContext;
+
+// Extension instances can share a ModelRegistry, while their stream callbacks
+// live in the process-wide API registry. Keep each registry's live owners apart.
+type ProviderOwner = { current: ProviderConfig; restore(): void };
+const ownerKey = Symbol.for("cruxomni.provider-owners.v1");
+const processState = globalThis as typeof globalThis & { [ownerKey]?: WeakMap<object, ProviderOwner[]> };
+const owners = processState[ownerKey] ??= new WeakMap<object, ProviderOwner[]>();
 
 
 function safeDetail(error: unknown): string {
@@ -52,11 +62,12 @@ function providerConfig(
 	models: NonNullable<ProviderConfig["models"]> = [],
 	apiKeyEnvironment?: string,
 	streamSimple?: ProviderConfig["streamSimple"],
+	api: Api = OMNIROUTE_GUARDED_API,
 ): ProviderConfig {
 	const result: ProviderConfig = { oauth, models };
 	if (endpoint) {
 		result.baseUrl = baseApi(endpoint);
-		result.api = OMNIROUTE_GUARDED_API;
+		result.api = api;
 		result.authHeader = true;
 		if (apiKeyEnvironment) result.apiKey = apiKeyEnvironment;
 		if (streamSimple) result.streamSimple = streamSimple;
@@ -77,6 +88,7 @@ function envBinding(config: PluginConfig): { endpoint: string; credential: strin
 }
 
 export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promise<void> {
+	const guardedApi = `${OMNIROUTE_GUARDED_API}-${randomUUID()}` as Api;
 	let context: ContextLike | undefined;
 	let stopped = false;
 	let config: PluginConfig;
@@ -84,6 +96,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		config = await loadConfig();
 	} catch (error) {
 		const reason = safeDetail(error);
+		const issue = reason === "config-conflict" || reason === "corrupt-config" || reason === "insecure-permissions" ? reason : "config";
+		process.stderr.write(`omniroute: ${formatReadiness({ source: "unknown", environmentUrl: false, environmentKey: false, profileConfigured: false, pending: false, recoveryBlocked: false, credential: "unknown", issue, health: { state: "unconfigured", modelCount: 0, rawModelCount: 0, stale: false } })}\n`);
 		const diagnosticCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 			description: `${DISPLAY_NAME} configuration diagnostics`,
 			handler: async (_args, ctx) => notify(ctx, `${DISPLAY_NAME}: configuration blocked (${reason}). Repair the private omniroute/config.json in this OMP profile, then restart. No credentials or requests were sent.`, "warning"),
@@ -98,18 +112,26 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let pricingCurrent = false;
 	let latestProjection: CatalogProjection | undefined;
 	let transitionNotifications = true;
+	let reconnectSettings = parseReconnectSettings({});
 	let pendingCandidateKey: string | undefined;
 	let pendingCandidateEndpoint: string | undefined;
 	let runtimeEndpoint: string | undefined;
 	let runtimeEnvironment = false;
 	let providerRegistered = false;
+	let lastProviderConfig: ProviderConfig | undefined;
+	let registry: object | undefined;
+	let owner: ProviderOwner | undefined;
 	let publishedProjection: CatalogProjection | undefined;
 	let publishedGeneration = -1;
 	let publishedEndpoint: string | undefined;
 	let startupSignal: AbortSignal | undefined;
 	let startupAborter: AbortController | undefined;
 	let bindingSyncFlight: Promise<{ pendingValidated: boolean }> | undefined;
+	let recoveryAborter: AbortController | undefined;
+	let recoveryBlocked = false;
 	let credentialRevision = 0;
+	let credentialPresence: CredentialPresence = "unknown";
+	let readinessIssue: ReadinessIssue | undefined;
 	let observedAuthStorage: ContextLike["modelRegistry"]["authStorage"] | undefined;
 	let observedNativeKey: string | undefined;
 	let unsubscribeCredentials: (() => void) | undefined;
@@ -134,14 +156,28 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		if (signal.aborted) abort();
 		return promise;
 	};
-	const replaceProvider = (next: ProviderConfig, invalidate = false): void => {
-		if (!providerRegistered || invalidate) pi.unregisterProvider(PROVIDER_ID);
+	const installProvider = (next: ProviderConfig): void => {
 		pi.registerProvider(PROVIDER_ID, next);
+		// The host clears registrations by extension path when loading another
+		// session. Own this callback by instance so that cleanup stays isolated.
+		if (next.api && next.streamSimple) registerCustomApi(next.api, next.streamSimple, guardedApi);
+	};
+	const replaceProvider = (next: ProviderConfig, invalidate = false): void => {
+		lastProviderConfig = next;
+		if (owner && registry) {
+			owner.current = next;
+			const group = owners.get(registry)!;
+			group.splice(group.indexOf(owner), 1);
+			group.push(owner);
+		}
+		if (!providerRegistered || invalidate) pi.unregisterProvider(PROVIDER_ID);
+		installProvider(next);
 		providerRegistered = true;
 	};
 
 	const onSetupComplete = async (endpoint: string, candidateKey: string): Promise<void> => {
 		if (stopped) return;
+		recoveryBlocked = false;
 		// Activation still requires the native store to contain this candidate;
 		// the shared refresh leaves an unpersisted candidate auth-only.
 		pendingCandidateEndpoint = endpoint;
@@ -305,29 +341,41 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		const changed = snapshot.state !== lastNotifiedState;
 		lastNotifiedState = snapshot.state;
 		if (!changed || !transitionNotifications || stopped || snapshot.state === "unconfigured") return;
-		if (snapshot.state === "checking") {
-			notify(context, "omniroute: checking connection…", "info");
-			return;
-		}
-		const kind = snapshot.state === "ready" || snapshot.state === "no-models" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
-		notify(context, `omniroute: state ${snapshot.state}; chat models=${snapshot.modelCount}; live rows=${snapshot.rawModelCount}${snapshot.state === "no-models" ? "; no chat-compatible models" : ""}${snapshot.lastError ? `; detail=${snapshot.lastError}` : ""}`, kind);
+		const kind = snapshot.state === "checking" || snapshot.state === "ready" || snapshot.state === "no-models" ? "info" : snapshot.state === "unauthorized" ? "warning" : "error";
+		notify(context, `omniroute: ${readiness(snapshot)}`, kind);
 	}]);
+	function readiness(health = manager.status): string {
+		const environmentUrl = Boolean(process.env.OMP_OMNIROUTE_BASE_URL?.trim());
+		const environmentKey = Boolean(process.env.OMP_OMNIROUTE_API_KEY?.trim());
+		const source = config.runtimeSource === "native" ? "native" : environmentUrl || environmentKey ? "environment" : "legacy";
+		let credential: CredentialPresence = source === "environment" && environmentUrl && environmentKey ? "present" : credentialPresence;
+		if (source === "native" && context) {
+			try {
+				const rows = context.modelRegistry.authStorage.credentials.list(PROVIDER_ID).filter(row => row.provider === PROVIDER_ID);
+				credential = rows.length > 1 ? "multiple" : !rows[0] ? "missing" : rows[0].disabledCause !== null || rows[0].credential.type !== "api_key" || !rows[0].credential.key.trim() ? "unsupported" : "present";
+			} catch { credential = "unavailable"; }
+		}
+		return formatReadiness({ source, environmentUrl, environmentKey, profileConfigured: Boolean(config.active), pending: Boolean(config.pending && source !== "environment"), recoveryBlocked, credential, issue: readinessIssue, health });
+	}
 	const runtimeProviderConfig = (
 		endpoint?: string,
 		models?: CatalogProjection["models"],
 	): ProviderConfig => providerConfig(
 		oauth,
 		endpoint,
-		models?.map(model => ({ ...model, api: OMNIROUTE_GUARDED_API })),
+		models?.map(model => ({ ...model, api: guardedApi })),
 		runtimeEnvironment ? RUNTIME_ENV : undefined,
 		endpoint ? createBoundInferenceStream({
+			expectedApi: guardedApi,
 			expectedEndpoint: endpoint,
 			expectedGeneration: manager.currentBinding?.generation ?? manager.status.generation,
 			currentBinding: () => manager.currentBinding,
 			currentModelApi: id => manager.getModelApi(id),
 			currentSignal: () => manager.bindingSignal,
+			reconnectSettings: () => reconnectSettings,
 			stopped: () => stopped,
 		}) : undefined,
+		guardedApi,
 	);
 	// Cut over any previous package registration before startup discovery.
 	replaceProvider(providerConfig(oauth));
@@ -336,24 +384,24 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	let administrationEpoch = 0;
 	let administrationRetirement: Promise<void> = Promise.resolve();
 	const ensureAdministration = (): Promise<AdminRuntime | undefined> => {
-		if (stopped) return Promise.resolve(undefined);
+		if (stopped || recoveryBlocked) return Promise.resolve(undefined);
 		if (administration) return Promise.resolve(administration);
 		if (administrationFlight) return administrationFlight;
 		const epoch = administrationEpoch;
 		const flight = administrationRetirement.then(() => import("./admin/runtime.ts")).then(async ({ createAdminRuntime }) => {
-			if (stopped || epoch !== administrationEpoch) return undefined;
+			if (stopped || recoveryBlocked || epoch !== administrationEpoch) return undefined;
 			const created = createAdminRuntime({
 				pi,
 				credentials: optionalCredentials,
 				context: () => context,
 				binding: () => manager.currentBinding,
 				bindingSignal: () => manager.bindingSignal,
-				stopped: () => stopped,
+				stopped: () => stopped || recoveryBlocked,
 				onConfig: current => { config = current; },
 			});
 			try {
 				await created.synchronize();
-				if (stopped || epoch !== administrationEpoch) {
+				if (stopped || recoveryBlocked || epoch !== administrationEpoch) {
 					await created.shutdown();
 					return undefined;
 				}
@@ -376,6 +424,10 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		description: "Inspect, enable, and human-confirm optional OmniRoute operations",
 		handler: async (args, ctx) => {
 			setContext(ctx);
+			if (recoveryBlocked) {
+				notify(ctx, "omniroute operations unavailable: connection activation is unconfirmed; complete verified setup or recovery first.", "warning");
+				return;
+			}
 			try {
 				const source = await loadConfig();
 				config = source;
@@ -435,6 +487,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		};
 		unsubscribeCredentials = storage.credentials.onGeneration(() => {
 			if (stopped) return;
+			recoveryAborter?.abort();
 			// Optional-store changes revoke only their own authority. They must
 			// never cancel chat streams or invalidate the runtime discovery cache.
 			optionalReconciliation = optionalReconciliation.then(reconcileOptional, reconcileOptional);
@@ -458,10 +511,19 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	async function synchronizeBinding(ctx: ContextLike | undefined): Promise<{ pendingValidated: boolean }> {
 		const revision = credentialRevision;
 		let validConfiguration = false;
+		let phase: "config" | "credential" = "config";
 		try {
+			readinessIssue = undefined;
 			const previousActiveGeneration = config.active?.generation;
 			const loaded = await loadConfig();
 			config = loaded;
+			if (recoveryBlocked) {
+				runtimeEndpoint = undefined;
+				runtimeEnvironment = false;
+				manager.reset();
+				publishCurrent();
+				return { pendingValidated: false };
+			}
 			await synchronizeAdministration(config);
 			const environment = envBinding(config);
 			const pending = environment ? undefined : config.pending;
@@ -489,10 +551,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				&& loaded.runtimeSource === "native"
 				&& ctx !== undefined;
 			if ((!active && !pending) || (pending && !candidateMatchesPending && !recoverStoredPending)) {
+				credentialPresence = "unknown";
 				manager.setBinding(undefined, undefined);
 				publishCurrent();
 				return { pendingValidated: false };
 			}
+			phase = "credential";
 			const credential = environment?.credential ?? (ctx
 				? await resolveRuntimeCredential(ctx.modelRegistry, loaded)
 				: await resolveStartupRuntimeCredential(
@@ -500,6 +564,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					startupSignal ?? AbortSignal.timeout(10_000),
 					loaded,
 				));
+			credentialPresence = credential ? "present" : "missing";
+			phase = "config";
 			const confirmed = await loadConfig();
 			if (stopped || revision !== credentialRevision || loaded.revision !== confirmed.revision) {
 				validConfiguration = false;
@@ -588,6 +654,8 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			return { pendingValidated: false };
 		} catch (error) {
 			if (!stopped && revision === credentialRevision) {
+				const code = safeDetail(error);
+				readinessIssue = code === "environment-partial" ? "environment-partial" : code === "config-conflict" || code === "corrupt-config" || code === "insecure-permissions" ? code : phase === "credential" || code === "persistence-failed" ? "credential-lookup" : code === "invalid-endpoint" || code === "insecure-http" ? "environment-invalid" : validConfiguration ? "binding" : "config";
 				if (!validConfiguration) {
 					runtimeEndpoint = undefined;
 					runtimeEnvironment = false;
@@ -632,10 +700,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		}
 		try {
 			if (!synchronized.pendingValidated) await manager.refresh({ force: manual });
-			const result = manager.currentResult;
-			if (manual && result) notify(ctx, `omniroute: refreshed ${result.projection.models.length} chat models from ${result.projection.rows.size} live rows${result.stale ? " (stale same-generation rows)" : result.projection.models.length === 0 ? "; no chat-compatible models" : ""}`, result.stale ? "warning" : "info");
+			if (manual) notify(ctx, `omniroute: ${readiness()}`, manager.status.stale ? "warning" : "info");
 		} catch (error) {
-			if (manual) notify(ctx, `omniroute: refresh failed; no new catalog accepted (${safeDetail(error)})`, "warning");
+			if (manual) notify(ctx, `omniroute: ${readiness()}`, "warning");
 		}
 		await synchronizeAdministration(config);
 	}
@@ -643,9 +710,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const setup = createSetupWizard({
 		credentials: optionalCredentials,
 		refresh: ctx => refresh(ctx, true),
-		status: () => manager.status.state === "checking"
-			? `checking connection; metadata=${metadataState}; catalogs=${catalogStatus()}`
-			: `${manager.status.state}; chat models=${manager.status.modelCount}; live rows=${manager.status.rawModelCount}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
+		status: () => `${readiness()}; metadata=${metadataState}; catalogs=${catalogStatus()}`,
 		synchronizeAdmin: async ctx => {
 			setContext(ctx);
 			await synchronizeAdministration(await loadConfig());
@@ -654,13 +719,69 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const providerCommand: Parameters<ExtensionAPI["registerCommand"]>[1] = {
 		description: "Refresh or inspect OmniRoute provider state",
 		handler: async (args, ctx) => {
-			setContext(ctx);
-			observeCredentials(ctx);
 			const commandParts = args.trim().split(/\s+/);
 			const command = commandParts[0] ?? "status";
+			if (command === "recover" && (!ctx.hasUI || ctx.mode !== "tui")) {
+				notify(ctx, "omniroute: recovery requires an interactive OMP terminal; run /omniroute recover there, or sign in again.", "warning");
+				return;
+			}
+			setContext(ctx);
+			observeCredentials(ctx);
 			const typed = ctx;
 			if (command === "setup") await setup(typed);
 			else if (command === "refresh") await refresh(typed, true);
+			else if (command === "recover") {
+				while (bindingSyncFlight) {
+					const previous = bindingSyncFlight;
+					await previous.catch(() => undefined);
+					if (bindingSyncFlight === previous) bindingSyncFlight = undefined;
+				}
+				if (stopped) return;
+				const controller = new AbortController();
+				recoveryAborter = controller;
+				const revision = credentialRevision;
+				let validation: { raw: number; usable: number } | undefined;
+				const flight = (async () => {
+					validation = await recoverPendingInteractively({
+						credentials: ctx.modelRegistry.authStorage.credentials,
+						signal: controller.signal,
+						isCurrent: () => !stopped && credentialRevision === revision && recoveryAborter === controller,
+						confirm: pending => ctx.ui.confirm("Recover pending connection", `Verify the saved native key for ${pending.endpoint} in this OMP profile (generation ${pending.generation})? The saved key cannot prove it was the original candidate. This checks the key and live catalog before activation.`),
+					});
+					return { pendingValidated: false };
+				})();
+				bindingSyncFlight = flight;
+				try {
+					await flight;
+				} catch (error) {
+					const detail = safeDetail(error);
+					if (detail === "activation-uncertain") {
+						recoveryBlocked = true;
+						administrationEpoch++;
+						void administration?.disable().catch(() => undefined);
+						manager.reset();
+						runtimeEndpoint = undefined;
+						publishCurrent();
+					}
+					notify(ctx, detail === "activation-uncertain"
+						? "omniroute: activation was saved, but its current binding could not be confirmed; inspect setup and sign in again before use."
+						: detail === "activation-restored"
+						? "omniroute: binding changed during activation; the pending setup was restored. Sign in again or retry recovery."
+						: `omniroute: recovery not completed (${detail}); check the current setup and sign in again if the saved key cannot be verified.`, "warning");
+					return;
+				} finally {
+					if (bindingSyncFlight === flight) bindingSyncFlight = undefined;
+					if (recoveryAborter === controller) recoveryAborter = undefined;
+				}
+				if (!stopped) {
+					recoveryBlocked = false;
+					await refresh(ctx, false);
+					const state = manager.status.state;
+					notify(ctx, state === "ready" || state === "no-models"
+						? `omniroute: pending connection recovered; ${validation?.usable ?? 0} chat models from ${validation?.raw ?? 0} verified live rows; current state ${state}.`
+						: `omniroute: activation saved, but current discovery is ${state}; use /omniroute refresh to retry.`, state === "ready" || state === "no-models" ? "info" : "warning");
+				}
+			}
 			else if (command === "pricing") {
 				const file = config.pricingFile ?? process.env[PRICING_ENV]?.trim();
 				await loadPricing(file);
@@ -670,12 +791,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				else if (inspection) notify(ctx, `omniroute pricing ${modelId}: ${inspection.state}; fields=${JSON.stringify(inspection.fields)}; cost=${JSON.stringify(inspection.cost)}; reasons=${inspection.reasons.join(",")}; ${PRICING_WARNING}`);
 				else notify(ctx, `omniroute pricing: ${pricingCurrent ? "current file" : "unavailable"}; ${PRICING_WARNING}`);
 			} else {
-				const status: HealthSnapshot = manager.status;
-				if (status.state === "checking") {
-					notify(ctx, `omniroute: checking connection; catalogs=${catalogStatus()}`);
-					return;
-				}
-				notify(ctx, `omniroute: ${status.state}; chat models=${status.modelCount}; live rows=${status.rawModelCount}${status.state === "no-models" ? "; no chat-compatible models" : ""}${status.stale ? "; stale same-generation rows" : ""}${status.lastError ? `; detail=${status.lastError}` : ""}; catalogs=${catalogStatus()}`);
+				notify(ctx, `omniroute: ${readiness()}; catalogs=${catalogStatus()}`);
 			}
 		},
 	};
@@ -699,19 +815,52 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	pi.on("session_start", async (_event, ctx) => {
 		if (bindingSyncFlight) await bindingSyncFlight.catch(() => undefined);
 		stopped = false;
+		if (!owner) {
+			registry = ctx.modelRegistry;
+			owner = { current: lastProviderConfig ?? runtimeProviderConfig(), restore: () => installProvider(owner!.current) };
+			const group = owners.get(registry) ?? [];
+			group.push(owner);
+			owners.set(registry, group);
+		}
+		// Startup registrations may have been queued by the host and assigned its
+		// shared source path after our initial installation.
+		if (lastProviderConfig) installProvider(lastProviderConfig);
 		setContext(ctx);
 		transitionNotifications = false;
 		manager.resume();
 		await refresh(ctx, false);
 		const settings = typeof ctx.cwd === "string" ? await getPluginSettings(PACKAGE_NAME, ctx.cwd).catch(() => ({} as Record<string, unknown>)) : {};
+		reconnectSettings = parseReconnectSettings(settings);
 		transitionNotifications = settings.notifyTransitions !== false;
 		if (ctx.mode === "tui" && settings.showSetupInvitation !== false && !config.invitationDismissed && !config.active && !config.pending && !envBinding(config)) {
 			notify(ctx, `${DISPLAY_NAME}: connect your gateway with /omniroute setup. You can open setup at any time.`);
 			try { config = await updateConfig(current => ({ ...current, invitationDismissed: true })); } catch { /* A conflict never forces setup or overwrites another writer. */ }
 		}
 	});
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", async (_event, ctx) => {
+		if (stopped) return;
 		stopped = true;
+		recoveryAborter?.abort();
+		// Retire ownership before asynchronous administration cleanup can block or
+		// fail. A cancelled startup may have published without joining the group.
+		const retiringRegistry = registry ?? ctx?.modelRegistry;
+		const group = retiringRegistry ? owners.get(retiringRegistry) : undefined;
+		if (group && owner) {
+			const wasCurrent = group[group.length - 1] === owner;
+			const index = group.indexOf(owner);
+			if (index >= 0) group.splice(index, 1);
+			if (wasCurrent) {
+				pi.unregisterProvider(PROVIDER_ID);
+				group[group.length - 1]?.restore();
+			}
+			if (!group.length) owners.delete(retiringRegistry!);
+		} else if (retiringRegistry) {
+			pi.unregisterProvider(PROVIDER_ID);
+			group?.[group.length - 1]?.restore();
+		}
+		owner = undefined;
+		registry = undefined;
+		providerRegistered = false;
 		credentialRevision++;
 		startupAborter?.abort();
 		unsubscribeCredentials?.();
@@ -728,6 +877,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		transitionNotifications = false;
 		setContext(undefined);
 		manager.shutdown();
+		unregisterCustomApis(guardedApi);
 		optionalCredentials.clear();
 		administrationEpoch++;
 		const retired = administration;
@@ -740,8 +890,6 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		});
 		administrationRetirement = retirement.catch(() => undefined);
 		await retirement;
-		pi.unregisterProvider(PROVIDER_ID);
-		providerRegistered = false;
 	});
 	const controller = new AbortController();
 	startupAborter = controller;
@@ -749,6 +897,9 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 	const deadline = setTimeout(() => controller.abort(), 10_000);
 	try {
 		await refresh(undefined, false);
+		if (!stopped && ((config.pending && !runtimeEnvironment) || readinessIssue || recoveryBlocked || manager.status.state === "checking" || manager.status.state === "no-models" || manager.status.state === "unauthorized" || manager.status.state === "offline" || manager.status.state === "degraded" || (config.active && !manager.currentBinding))) {
+			process.stderr.write(`omniroute: ${readiness()}\n`);
+		}
 	} finally {
 		clearTimeout(deadline);
 		startupAborter = undefined;

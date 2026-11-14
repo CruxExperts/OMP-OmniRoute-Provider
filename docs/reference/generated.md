@@ -4,12 +4,12 @@
 
 ## Version and compatibility
 
-Source version: **1.0.3**. This identifies checkout source, not an npm publication or a completed platform qualification.
+Source version: **1.0.5**. This identifies checkout source, not an npm publication or a completed platform qualification.
 
 | Component | Declared source | Meaning |
 | --- | --- | --- |
 | OMP host | >=18.12.2 <19 | Declared compatible range |
-| OMP host test matrix | 18.12.2, 18.12.5, 18.12.6 | Requested test versions; require fresh release receipts |
+| OMP host test matrix | 18.12.2, 18.12.5, 18.12.6, 18.16.0 | Requested test versions; require fresh release receipts |
 | omniroute | v3.8.52 (ad6f33f66bda34eba98645d3bfdabbde294bc843) | Pinned provenance; latest release must be rechecked |
 | omp | v18.12.5 (d5cd750e41fede277f9eb933455da92a0738915e) | Pinned provenance; latest release must be rechecked |
 

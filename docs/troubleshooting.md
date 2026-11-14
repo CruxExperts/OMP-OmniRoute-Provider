@@ -51,6 +51,13 @@ optional environment credentials.
 
 Use `/omniroute` to inspect connection state. The former `/cruxomni`,
 `/cruxomni-admin`, and `/cruxomni-pricing` commands still work as aliases.
+Status, refresh, and the setup summary identify the selected source and explain
+pending activation, missing or ambiguous native credentials, and catalog
+failures. A public model catalog can succeed with an invalid key, so catalog
+readiness is not independent key verification. A native profile ignores runtime
+environment overrides; an environment connection requires both its URL and key.
+OMP owns its model picker and JSON output; actionable startup guidance appears
+on standard error and does not change either surface.
 
 ## Setup did not activate or remains auth-only
 
@@ -58,7 +65,14 @@ This means the protected key check, live catalog check, native persistence,
 readback, or activation did not complete. Setup does not save an offline or
 unverified connection. Correct the gateway or credential problem, then use
 OMP's native masked prompt and `/omniroute refresh`; do not test a new key
-against an old endpoint manually.
+against an old endpoint manually. A pending marker after process exit remains
+unusable until explicitly recovered or replaced. In an interactive OMP
+terminal, run `/omniroute recover` to confirm the pending endpoint and
+generation, then verify the one saved native key and live catalog. The saved
+key cannot prove it was the original candidate. Missing, ambiguous, changed,
+or rejected credentials require a fresh sign-in through OMP's masked prompt.
+Recovery does not use environment or legacy credential fallback. A valid empty
+catalog is accepted as a connection with no chat models.
 
 If the key check succeeds but setup reports no compatible chat models, the
 credential was verified and the current `/v1/models` response did not yield a
@@ -91,6 +105,10 @@ HTTP 401/403 removes runnable models and marks the connection unauthorized.
 Same-connection network, rate-limit or server failures can retain last-known
 models, explicitly marked stale.
 
+When a task subagent ends, the parent session retains its own active provider
+and connection. Each session's inference binding is isolated; a model retained
+from an ended session cannot use another session's credentials.
+
 Changing endpoints, replacing or removing the runtime credential, disabling
 the package, or ending the session cancels in-flight work. Cached model objects
 cannot authorize a request for an earlier connection. Old native dynamic-model
@@ -102,6 +120,24 @@ connection offline. Replacing or forgetting a metadata credential cancels only
 its pending metadata request; it does not reset the runtime connection. A late
 response from that credential is discarded. Run `/omniroute refresh` to retry with
 the current credential, and check the separate metadata diagnostics.
+
+## Inference connection interrupted
+
+Transient inference failures, including interrupted streams during gateway
+restarts, can trigger a fresh generation after a delay. Response text is held
+until generation succeeds; the connector does not stream live tokens. Partial
+output from failed attempts is discarded, and their tool calls are never started.
+By default, the client allows 5 total attempts, including the initial request,
+with 30000 milliseconds between attempts. Terminal failures are not retried.
+Cancellation or a connection binding change stops retries. No synthetic resume
+prompt is sent, and administration operations are not replayed. A fresh
+inference attempt does not guarantee exactly-once processing by the model
+server or restart the OMP process.
+
+Set `reconnectMaxAttempts` to `1` to disable retries, or adjust the attempt
+count and delay using the [plugin settings](installation.md#inference-reconnect-settings).
+After attempts are exhausted, investigate the gateway and connection before
+trying again.
 
 ## An optional catalog is unavailable or its fields are missing
 

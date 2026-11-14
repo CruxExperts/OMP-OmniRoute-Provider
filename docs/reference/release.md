@@ -37,14 +37,25 @@ monitoring, adds OMP 18.12.6 to the host smoke matrix, and refreshes contributor
 and installation guidance. Its OMP source and development SDK pins remain at
 18.12.5; compatibility testing does not assert a source upgrade. The reviewed
 maintenance decision remains valid only for that exact host/source pair and its
-supporting artifact record. Release acceptance requires the package job and all
-three host-smoke jobs, including 18.12.6, to pass for the final source commit.
+supporting artifact record. The 1.0.3 release required the package job and all
+three host-smoke jobs, including 18.12.6, to pass for its final source commit.
 The additional job has not been added to branch protection's required contexts.
+
+Version `1.0.4` adds explicit pending-connection recovery, session-safe
+inference bindings, source and catalog diagnostics, and OMP 18.16.0 host
+coverage while retaining the 18.12.5 source and SDK pins. The package job and
+all four host-smoke jobs must pass against the final source commit, and the
+final archive must receive its own verification before release. Publication
+requires those final receipts; the intermediate 18.16.0 smoke does not satisfy
+them. Distribution uses GitHub only, with no npm publication or global
+OMP installation. No inference or administration write is automatically
+replayed after an uncertain outcome.
 
 The 1.0.x release notes disclose the limited qualified operation set and
 platform evidence. Versions `1.0.2` and `1.0.3` carry no eight-platform qualification
 receipt: evidence for earlier source and package archives does not qualify a new
-archive. The operation eligibility guards stay enabled, and the current coverage
+archive. Version `1.0.4` likewise has no eight-platform qualification
+receipt. The operation eligibility guards stay enabled, and the current coverage
 limits must remain visible in release notes.
 
 These GitHub-only releases use the existing clean-source exporter, reviewed
@@ -58,6 +69,105 @@ The stricter fully qualified npm/GitHub workflow below remains unchanged. Do not
 rerun that workflow against the already published `v1.0.0` tag or replace its
 immutable version with different bytes. Later publications use a new version
 and the applicable qualification requirements.
+
+## 1.0.5 release candidate
+
+Version `1.0.5` adds buffered inference recovery with five total attempts and a
+30-second delay by default. Both settings are configurable. Incoming events are
+drained independently of the response consumer; failed partial generations and
+their speculative tool calls are discarded before a fresh attempt.
+
+Successful buffered messages publish their content lifecycle before the terminal
+event. A terminal-only tool message can be interpreted as an empty response by
+the host's replay-safe wrapper. Qualification must observe a real read result in
+the subsequent request, not merely the presence of a tool call in the final model
+message. Linux x64 glibc smoke against the pinned OMP `18.12.5` release asset
+observed that read and continuation after this repair; other platforms still
+require their own native results for the final archive.
+
+Archive verification compares canonical package-directory identities rather than
+lexical path spellings. This preserves destination and symlink checks while
+handling macOS temporary-directory aliases and native Windows normalization.
+
+Windows profile configuration requires a protected native access-control list,
+not POSIX file-mode bits. Only the current user, SYSTEM, and Administrators are
+trusted; inherited broad access and symbolic links remain rejected. Native
+Windows smoke must exercise this protection and the real login lifecycle.
+
+The login smoke completes `/login` with Tab and waits for the rendered argument
+hint before sending Enter. Native Windows observations showed that Enter on the
+open command completion changed `/login` to `/login ` without opening provider
+selection. Completing the command explicitly avoids treating that transition as
+submission; no extra Enter is sent blindly.
+
+When native Windows login stalls after command rendering, manually run
+`windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
+The transport jobs send only fixture `/login` text and one carriage return to an
+owned raw-mode console child, then upload bounded hexadecimal input and decoded
+key fields. The child restores its input mode before exiting. Missing input,
+timeout, or truncation fails the transport diagnostic. Separate native-host jobs
+use the existing package exporter and target preparation, with
+`OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH` enabling read-only observations around the real
+terminal Enter. Only allowlisted state is uploaded; raw editor values are not.
+Neither diagnostic replaces any native qualification result.
+
+Successful transport delivery alone does not prove that the host editor accepted
+or submitted the command. Actual-host diagnostics must retain real terminal input
+and distinguish editor focus and draft changes from submission readiness. The
+optional `OMP_TUI_DEBUG` interface can expose component state when supported by
+the exact host binary; an absent interface is an unavailable observation, not a
+passing result. Editor text and cursor observations do not establish that the
+host's startup submission gate is open. Never substitute injected debug keys or
+an instrumented replacement host for native release qualification.
+
+Diagnostic editor matching uses the returned state fields rather than compiled
+class names. A later read-only sample allows the host to process the single Enter;
+it does not send another key or prove that submission is enabled. Diagnostic
+sampling can perturb timing and must not be used as a qualification result.
+Draft observations expose only a fixed category, length, and line count, not raw
+text, distinguishing an emptied draft from a completed command with whitespace.
+
+The candidate is intended for the protected GitHub and npm publication workflow
+below. Prepared source, local checks, and refreshed operation evidence are not a
+publication receipt. Publication still requires complete operation coverage,
+eight native results for the same archive, verified signatures, and the protected
+`release` environment with its required reviewer and npm credential. Do not use
+the earlier GitHub-only distribution as an exception to those gates.
+
+The refreshed candidate inventory contains 25 invokable operations with reviewed
+fixture outcomes, 16 non-invokable entries, and 1,193 unqualified operations.
+Refreshing the existing outcomes does not qualify the remaining inventory.
+Those coverage gaps prevent protected publication until independently resolved.
+
+### Remaining qualification pipeline
+
+The remaining descriptors comprise 450 GET, 7 HEAD, 133 OPTIONS, 414 POST,
+62 PUT, 26 PATCH, and 101 DELETE operations. Generated unknown authorization
+and side-effect attributes are missing client qualification, not a claim that
+the server itself lacks access controls. Of these descriptors, 603 mutation
+entries also lack qualified preflight behavior and 222 have no OpenAPI mapping;
+these groups overlap.
+
+Process one source-owned route family at a time:
+
+1. Review its pinned handlers, imports, framework behavior, authorization, and
+   request/response contracts, including response redaction.
+2. Implement the client adapter and isolated backend fixtures, with explicit
+   side effects, mutation preflight, cancellation, and uncertain-outcome handling.
+3. Independently observe successful and denied requests, errors, target drift,
+   and mutation reconciliation against the pinned implementation. Expected
+   outcomes must not come from the helper generating the observed result.
+4. Review and bind the actual outcome to exact source and test bytes, regenerate
+   contracts, then run qualification freshness and contract verification.
+
+Advance only operations with that evidence. Do not substitute generated default
+attributes, broad route exclusions, or successful catalog reads for qualification.
+
+The protected environment must also allow the selected source branch or release
+tag. With self-review prevented, the account dispatching the publication cannot
+approve its own deployment; use a distinct authorized initiating account or a
+separately authorized reviewer. Provision `NPM_TOKEN` through GitHub environment
+secrets, never through release notes, issues, or committed configuration.
 
 ## Export a reviewed source snapshot
 
@@ -199,9 +309,12 @@ successful workflow run and all eight native job names.
 
 The two musl jobs rebuild the runtime from the immutable architecture-specific
 Bun 1.4.2 Alpine child-image digests and the frozen package list in
-`provenance/musl-runtime.json`. Each APK download must match its recorded URL,
-size, and SHA-256, and `apk verify` checks every package signature against the
-key in that exact base image. Image construction and package installation have
+`provenance/musl-runtime.json`. If the recorded Alpine URL returns HTTP 404,
+the job requests the same architecture and package filename from the Huawei
+Cloud Alpine mirror, which retains older package revisions. This mirror is not
+an immutable archive and availability is not guaranteed. Either source must
+match the recorded size and SHA-256; `apk verify` checks every package signature
+against the key in that exact base image. Image construction and package installation have
 network access disabled; package scripts are disabled and no repositories are
 configured. Before starting a runtime container, the job copies its installed
 APK database from a created, unstarted container and requires the exact

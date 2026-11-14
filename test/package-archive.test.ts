@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verifyPackage } from "../scripts/verify-package.ts";
+import { validateExtractedPackageRoot, verifyPackage } from "../scripts/verify-package.ts";
 
 const helper = join(import.meta.dir, "../scripts/package-archive.py");
 const roots: string[] = [];
@@ -74,6 +74,47 @@ describe("portable npm archive preflight", () => {
     const result = JSON.parse(extract(archive, destination)) as { root: string; entries: string[] };
     expect(result.entries).toEqual(["package.json", "src/index.ts"]);
     expect(await readFile(join(result.root, "src/index.ts"), "utf8")).toBe("export {};\n");
+  });
+
+  it("accepts the helper's canonical root through a symlinked destination ancestor", async () => {
+    if (process.platform === "win32") return; // Creating directory symlinks requires extra privileges on Windows.
+    const root = await temporary("cruxomni-archive-ancestor-");
+    const ancestor = join(root, "real");
+    const alias = join(root, "alias");
+    await mkdir(ancestor);
+    await symlink(ancestor, alias, "dir");
+    const archive = join(root, "valid.tgz");
+    const destination = join(alias, "extract");
+    makeTar(archive, [{ name: "package/package.json", content: "{}" }]);
+    const result = JSON.parse(extract(archive, destination)) as { root: string };
+    expect(result.root).not.toBe(join(destination, "package"));
+    expect(await validateExtractedPackageRoot(result.root, destination)).toBe(await realpath(join(destination, "package")));
+  });
+
+  it("accepts native Windows separator and case variants of the same directory", async () => {
+    if (process.platform !== "win32") return;
+    const root = await temporary("cruxomni-archive-case-");
+    const destination = join(root, "extract");
+    const expected = join(destination, "package");
+    await mkdir(expected, { recursive: true });
+    const alternate = expected.replace(/[a-zA-Z]/g, character =>
+      character === character.toLowerCase() ? character.toUpperCase() : character.toLowerCase()).replaceAll("\\", "/");
+    expect(await validateExtractedPackageRoot(alternate, destination)).toBe(await realpath(expected));
+  });
+
+  it("rejects a different existing extraction directory", async () => {
+    const root = await temporary("cruxomni-archive-wrong-root-");
+    const destination = join(root, "extract");
+    const expected = join(destination, "package");
+    const outside = join(root, "outside");
+    await mkdir(expected, { recursive: true });
+    await mkdir(outside);
+    await expect(validateExtractedPackageRoot(outside, destination)).rejects.toThrow("unexpected extraction directory");
+    if (process.platform !== "win32") {
+      const link = join(root, "package-link");
+      await symlink(expected, link, "dir");
+      await expect(validateExtractedPackageRoot(link, destination)).rejects.toThrow("ordinary package directory");
+    }
   });
 
   it("rejects traversal, links, duplicates, Windows ambiguity, and unallowlisted files before writing", async () => {
