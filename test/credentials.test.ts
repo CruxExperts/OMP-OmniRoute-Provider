@@ -3,19 +3,18 @@ import { mkdtemp, rm, readFile, writeFile, chmod } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverAuthStorage, z } from "@oh-my-pi/pi-coding-agent";
+import { discoverAuthStorage, z, type ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { OptionalCredentials, type CredentialStore } from "../src/credentials.ts";
 import type { AuthStorage, StoredAuthCredential } from "@oh-my-pi/pi-ai";
 import { getConfigPath, loadConfig, resolveEnvironmentBinding, setAgentDirResolverForTests, updateConfig } from "../src/config.ts";
 import { createAdminRuntime } from "../src/admin/runtime.ts";
 import register from "../src/index.ts";
-import type { ProviderConfig } from "@oh-my-pi/pi-coding-agent";
 import { getCustomApi, registerCustomApi, unregisterCustomApis } from "@oh-my-pi/pi-ai/api-registry";
 
 let directory: string | undefined;
-let cleanupIntegration: (() => void) | undefined;
+let cleanupIntegration: (() => void | Promise<void>) | undefined;
 afterEach(async () => {
-  cleanupIntegration?.();
+  await cleanupIntegration?.();
   setAgentDirResolverForTests(undefined);
   if (directory) await rm(directory, { recursive: true, force: true });
   directory = undefined;
@@ -58,7 +57,26 @@ interface IntegrationFixture {
   setModels(status: number, empty?: boolean): void;
 }
 
-function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFixture {
+type IntegrationFixtureOptions = {
+  authStatus?: number;
+  rejectedKeys?: readonly string[];
+  modelCatalog?: unknown;
+  modelStatus?: number;
+  authGate?: {
+    started: ReturnType<typeof Promise.withResolvers<void>>;
+    release: ReturnType<typeof Promise.withResolvers<void>>;
+  };
+  authGateAfterRequests?: number;
+  modelGate?: {
+    started: ReturnType<typeof Promise.withResolvers<void>>;
+    release: ReturnType<typeof Promise.withResolvers<void>>;
+  };
+  modelGateAfterRequests?: number;
+};
+
+function integrationFixture(options: IntegrationFixtureOptions | boolean = {}): IntegrationFixture {
+  const failDiscoveryAfterValidation = options === true;
+  const settings = typeof options === "boolean" ? {} : options;
   const requests: Array<{ path: string; authorization: string | null }> = [];
   let modelRequests = 0;
   let modelsStatus = 200;
@@ -70,13 +88,27 @@ function integrationFixture(failDiscoveryAfterValidation = false): IntegrationFi
       const url = new URL(request.url);
       const observed = { path: url.pathname, authorization: request.headers.get("authorization") };
       requests.push(observed);
+      if (url.pathname === "/api/cloud/auth") {
+        const authRequestCount = requests.filter(item => item.path === "/api/cloud/auth").length;
+        if (settings.authGate && authRequestCount > (settings.authGateAfterRequests ?? 0)) {
+          settings.authGate.started.resolve();
+          await settings.authGate.release.promise;
+        }
+        if (settings.authStatus && settings.authStatus !== 200) return new Response("unauthorized", { status: settings.authStatus });
+        if (settings.rejectedKeys?.some(key => observed.authorization === `Bearer ${key}`)) return new Response("unauthorized", { status: 401 });
+        return Response.json({ connections: [], modelAliases: {} });
+      }
       if (url.pathname === "/v1/models") {
+        const modelRequestCount = requests.filter(item => item.path === "/v1/models").length;
+        if (settings.modelGate && modelRequestCount > (settings.modelGateAfterRequests ?? 0)) {
+          settings.modelGate.started.resolve();
+          await settings.modelGate.release.promise;
+        }
         modelRequests++;
         if (failDiscoveryAfterValidation && modelRequests > 1) return new Response("unavailable", { status: 503 });
-        if (modelsStatus !== 200) return new Response("unavailable", { status: modelsStatus });
-        return Response.json({ data: emptyModels ? [] : [{ id: "fixture-model", owned_by: "fixture-owner" }] });
+        if (settings.modelStatus && settings.modelStatus !== 200) return new Response("catalog unavailable", { status: settings.modelStatus });
+        return Response.json(settings.modelCatalog ?? { data: emptyModels ? [] : [{ id: "fixture-model", owned_by: "fixture-owner" }] });
       }
-      if (url.pathname === "/api/cloud/auth") return Response.json({ connections: [], modelAliases: {} });
       if (url.pathname === "/v1/chat/completions" || url.pathname === "/v1/responses") return new Response("data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
       if (url.pathname === "/api/models/catalog") {
         metadataRequest.resolve(observed);
@@ -491,7 +523,7 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
   const toolNames = new Set<string>();
   const tools = new Map<string, { execute: (toolCallId: string, params: unknown, signal?: AbortSignal) => Promise<unknown> }>();
   const providerIds = new Set<string>();
-  const providerConfigs = new Map<string, { oauth?: { name?: string } }>();
+  const providerConfigs = new Map<string, ProviderConfig>();
   let activeTools: string[] = [];
   const api = {
     zod: z,
@@ -507,7 +539,7 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
     getAllTools() { return [...toolNames].map(name => ({ name })); },
     getActiveTools() { onGetActiveTools?.(); return [...activeTools]; },
     async setActiveTools(names: string[]) { await onSetActiveTools?.(names); activeTools = [...names]; },
-    registerProvider(id: string, config?: { oauth?: { name?: string } }) { providerIds.add(id); if (config) providerConfigs.set(id, config); },
+    registerProvider(id: string, config?: ProviderConfig) { providerIds.add(id); if (config) providerConfigs.set(id, config); },
     unregisterProvider(id: string) { providerIds.delete(id); providerConfigs.delete(id); },
     on(name: string, callback: (...args: never[]) => unknown) { events.set(name, callback); },
   };
@@ -523,6 +555,253 @@ function extensionHost(storage: AuthStorage, onSetActiveTools?: (names: string[]
   }) as never;
   return { api, commands, events, context, activeTools: () => [...activeTools], activeProviders: () => [...providerIds], providerConfigs, tools };
 }
+
+async function startPendingNativeRestart(
+  fixture: IntegrationFixture,
+  options: { status?: "validated" | "unverified"; runtimeKey?: string } = {},
+) {
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  cleanupIntegration = async () => {
+    await shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+    cleanupIntegration = undefined;
+  };
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_") || name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+    }
+    const storage = await discoverAuthStorage(directory!, { cwd: directory! });
+    nativeStorage = storage;
+    if (options.runtimeKey) {
+      await storage.credentials.set("omniroute", { type: "api_key", key: options.runtimeKey, source: "login" });
+    }
+    await updateConfig(current => ({
+      ...current,
+      runtimeSource: "native",
+      allowInsecureHttp: true,
+      active: { endpoint: fixture.endpoint, generation: 2 },
+      pending: { endpoint: fixture.endpoint, generation: 3, status: options.status ?? "validated" },
+      invitationDismissed: true,
+    }));
+
+    const host = extensionHost(storage);
+    await register(host.api as never);
+    shutdown = host.events.get("session_shutdown");
+    return { host, nativeStorage };
+  } catch (error) {
+    await cleanupIntegration?.();
+    throw error;
+  }
+}
+
+test("startup revalidates a persisted native credential for a validated pending binding", async () => {
+  const fixture = integrationFixture();
+  const runtimeKey = "fixture-restart-runtime-key";
+  const { host } = await startPendingNativeRestart(fixture, { runtimeKey });
+  try {
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect(await loadConfig()).toMatchObject({ active: { endpoint: fixture.endpoint, generation: 3 } });
+    expect((await loadConfig()).pending).toBeUndefined();
+    expect(fixture.requests).toContainEqual({ path: "/api/cloud/auth", authorization: `Bearer ${runtimeKey}` });
+    expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${runtimeKey}` });
+    expect(host.providerConfigs.get("omniroute")?.models).toHaveLength(1);
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("native sign-in persisted by OMP recovers after the extension restarts", async () => {
+  const modelGate = { started: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() };
+  const fixture = integrationFixture({ modelGate, modelGateAfterRequests: 1 });
+  const runtimeKey = "fixture-native-login-restart-key";
+  await isolated();
+  const originalEnvironment = { ...process.env };
+  let nativeStorage: AuthStorage | undefined;
+  let shutdown: (() => unknown) | undefined;
+  cleanupIntegration = async () => {
+    modelGate.release.resolve();
+    await shutdown?.();
+    nativeStorage?.close();
+    fixture.server.stop(true);
+    process.env = originalEnvironment;
+    cleanupIntegration = undefined;
+  };
+  try {
+    for (const name of Object.keys(process.env)) {
+      if (name.startsWith("OMP_OMNIROUTE_") || name.startsWith("OMP_AUTH_BROKER_")) delete process.env[name];
+    }
+    nativeStorage = await discoverAuthStorage(directory!, { cwd: directory! });
+    const initialHost = extensionHost(nativeStorage);
+    await register(initialHost.api as never);
+    shutdown = initialHost.events.get("session_shutdown");
+    await initialHost.events.get("session_start")!(undefined as never, initialHost.context() as never);
+
+    const login = initialHost.providerConfigs.get("omniroute")?.oauth?.login;
+    if (!login) throw new Error("native provider login was not registered");
+    const returnedKey = await login({
+      onAuth() {},
+      onPrompt: async options => options.secret
+        ? runtimeKey
+        : options.message.startsWith("Allow insecure remote HTTP") ? "yes" : fixture.endpoint,
+      onProgress() {},
+    });
+    if (typeof returnedKey !== "string") throw new Error("native login returned structured credentials");
+    expect(returnedKey).toBe(runtimeKey);
+    expect(await loadConfig()).toMatchObject({
+      runtimeSource: "native",
+      pending: { endpoint: fixture.endpoint, generation: 1, status: "validated" },
+    });
+
+    await nativeStorage.credentials.set("omniroute", { type: "api_key", key: returnedKey, source: "login" });
+    await modelGate.started.promise;
+    await shutdown?.();
+    modelGate.release.resolve();
+
+    const restartedHost = extensionHost(nativeStorage);
+    await register(restartedHost.api as never);
+    shutdown = restartedHost.events.get("session_shutdown");
+    await restartedHost.events.get("session_start")!(undefined as never, restartedHost.context() as never);
+
+    const restored = await loadConfig();
+    expect(restored).toMatchObject({ active: { endpoint: fixture.endpoint, generation: 1 } });
+    expect(restored.pending).toBeUndefined();
+    expect(fixture.requests).toContainEqual({ path: "/api/cloud/auth", authorization: `Bearer ${runtimeKey}` });
+    expect(restartedHost.providerConfigs.get("omniroute")?.models).toHaveLength(1);
+    expect(await readFile(getConfigPath(), "utf8")).not.toContain(runtimeKey);
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup leaves missing pending native credentials inactive", async () => {
+  const fixture = integrationFixture();
+  const { host } = await startPendingNativeRestart(fixture);
+  try {
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect((await loadConfig()).pending).toMatchObject({ generation: 3, status: "validated" });
+    expect(fixture.requests).toEqual([]);
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup does not recover an unverified pending native credential", async () => {
+  const fixture = integrationFixture();
+  const { host } = await startPendingNativeRestart(fixture, {
+    status: "unverified",
+    runtimeKey: "fixture-unverified-runtime-key",
+  });
+  try {
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect((await loadConfig()).pending).toMatchObject({ generation: 3, status: "unverified" });
+    expect(fixture.requests).toEqual([]);
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup keeps rejected persisted native credentials pending", async () => {
+  const fixture = integrationFixture({ authStatus: 401 });
+  const runtimeKey = "fixture-rejected-runtime-key";
+  const { host } = await startPendingNativeRestart(fixture, { runtimeKey });
+  try {
+    const notices: string[] = [];
+    await host.events.get("session_start")!(undefined as never, host.context({ notify(message: string) { notices.push(message); } }) as never);
+    expect((await loadConfig()).pending).toMatchObject({ generation: 3, status: "validated" });
+    expect(fixture.requests).toEqual([{ path: "/api/cloud/auth", authorization: `Bearer ${runtimeKey}` }]);
+    expect(host.providerConfigs.get("omniroute")?.models).toBeUndefined();
+    expect(notices.join(" ")).toContain("/omniroute setup to sign in again");
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup does not activate a pending credential when live catalog discovery fails", async () => {
+  const fixture = integrationFixture({ modelStatus: 503 });
+  const runtimeKey = "fixture-catalog-failure-runtime-key";
+  const { host } = await startPendingNativeRestart(fixture, { runtimeKey });
+  try {
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect((await loadConfig()).pending).toMatchObject({ generation: 3, status: "validated" });
+    expect(fixture.requests.some(request => request.path === "/api/cloud/auth" && request.authorization === `Bearer ${runtimeKey}`)).toBe(true);
+    expect(fixture.requests.some(request => request.path === "/v1/models" && request.authorization === `Bearer ${runtimeKey}`)).toBe(true);
+    expect(host.providerConfigs.get("omniroute")?.models).toBeUndefined();
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup rejects a native credential replacement during protected verification", async () => {
+  const authGate = { started: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() };
+  const previousKey = "fixture-previous-runtime-key";
+  const replacementKey = "fixture-replacement-runtime-key";
+  const fixture = integrationFixture({ authGate, rejectedKeys: [replacementKey] });
+  const { host, nativeStorage } = await startPendingNativeRestart(fixture, { runtimeKey: previousKey });
+  try {
+    const starting = host.events.get("session_start")!(undefined as never, host.context() as never);
+    await authGate.started.promise;
+    await nativeStorage!.credentials.set("omniroute", { type: "api_key", key: replacementKey, source: "login" });
+    authGate.release.resolve();
+    await starting;
+    await host.commands.get("omniroute")!.handler("refresh", host.context());
+
+    expect((await loadConfig()).pending).toMatchObject({ generation: 3, status: "validated" });
+    expect(fixture.requests.some(request => request.path === "/api/cloud/auth" && request.authorization === `Bearer ${previousKey}`)).toBe(true);
+    expect(fixture.requests.some(request => request.path === "/api/cloud/auth" && request.authorization === `Bearer ${replacementKey}`)).toBe(true);
+    expect(host.providerConfigs.get("omniroute")?.models).toBeUndefined();
+  } finally {
+    authGate.release.resolve();
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup activates a verified credential with an empty live catalog as no-models", async () => {
+  const fixture = integrationFixture({ modelCatalog: { data: [] } });
+  const runtimeKey = "fixture-empty-catalog-runtime-key";
+  const { host } = await startPendingNativeRestart(fixture, { runtimeKey });
+  try {
+    await host.events.get("session_start")!(undefined as never, host.context() as never);
+    expect(await loadConfig()).toMatchObject({ active: { endpoint: fixture.endpoint, generation: 3 } });
+    expect((await loadConfig()).pending).toBeUndefined();
+    expect(host.providerConfigs.get("omniroute")?.models).toHaveLength(0);
+    const notices: string[] = [];
+    await host.commands.get("omniroute")!.handler("status", host.context({ notify(message: string) { notices.push(message); } }));
+    expect(notices.join(" ")).toContain("no-models");
+  } finally {
+    await cleanupIntegration?.();
+  }
+});
+
+test("startup abandons pending recovery when the binding changes during credential verification", async () => {
+  const authGate = { started: Promise.withResolvers<void>(), release: Promise.withResolvers<void>() };
+  const fixture = integrationFixture({ authGate });
+  const runtimeKey = "fixture-racing-runtime-key";
+  const { host } = await startPendingNativeRestart(fixture, { runtimeKey });
+  try {
+    const starting = host.events.get("session_start")!(undefined as never, host.context() as never);
+    await authGate.started.promise;
+    await updateConfig(current => ({
+      ...current,
+      pending: { endpoint: "https://replacement.example", generation: 4, status: "validated" },
+    }));
+    authGate.release.resolve();
+    await starting;
+    expect(await loadConfig()).toMatchObject({
+      active: { endpoint: fixture.endpoint, generation: 2 },
+      pending: { endpoint: "https://replacement.example", generation: 4, status: "validated" },
+    });
+    expect(fixture.requests).toEqual([{ path: "/api/cloud/auth", authorization: `Bearer ${runtimeKey}` }]);
+    expect(host.providerConfigs.get("omniroute")?.models).toBeUndefined();
+  } finally {
+    authGate.release.resolve();
+    await cleanupIntegration?.();
+  }
+});
 
 test("overlapping shutdowns retire owners before delayed or rejected administration cleanup", async () => {
   await isolated();
@@ -899,7 +1178,7 @@ test("remembered metadata enrichment uses the persisted source binding through t
     expect(fixture.requests.some(request => request.authorization === `Bearer ${RUNTIME_KEY}` && request.path === "/api/models/catalog")).toBe(false);
     expect(fixture.requests.some(request => request.authorization === `Bearer ${METADATA_KEY}` && request.path === "/v1/models")).toBe(false);
   } finally {
-    cleanupIntegration?.();
+    await cleanupIntegration?.();
   }
 });
 
@@ -955,7 +1234,7 @@ test("native endpoint switching blocks optional environment secrets bound to a d
     expect(fixture.requests.some(request => request.authorization === "Bearer fixture-old-metadata-key" || request.authorization === "Bearer fixture-old-admin-key")).toBe(false);
     expect(process.env.OMP_OMNIROUTE_ADMIN_API_KEY).toBe("fixture-old-admin-key");
   } finally {
-    cleanupIntegration?.();
+    await cleanupIntegration?.();
   }
 });
 

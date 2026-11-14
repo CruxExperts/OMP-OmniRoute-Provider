@@ -63,13 +63,17 @@ on standard error and does not change either surface.
 
 This means the protected key check, live catalog check, native persistence,
 readback, or activation did not complete. A pending marker after process exit
-remains unusable until explicitly recovered or replaced. In an interactive
-OMP terminal, run `/omniroute recover` to confirm the pending endpoint and
-generation, then verify the one saved native key and live catalog. The saved
-key cannot prove it was the original candidate. Missing, ambiguous, changed,
-or rejected credentials require a fresh sign-in through OMP's masked prompt.
-Recovery does not use environment or legacy credential fallback. A valid empty
-catalog is accepted as a connection with no chat models.
+remains unusable until it is automatically revalidated with the persisted
+candidate or explicitly recovered. A validated pending marker can recover on
+refresh or restart only when the currently selected native credential matches
+the exact pending endpoint and the live catalog succeeds. When the original
+candidate is unavailable, run `/omniroute recover` in an interactive OMP
+terminal to confirm the pending endpoint and generation, then verify the one
+saved native key and live catalog. The saved key cannot prove it was the
+original candidate. Missing, ambiguous, changed, or rejected credentials
+require a fresh sign-in through OMP's masked prompt. Recovery does not use
+environment or legacy credential fallback. A valid empty catalog is accepted
+as a connection with no chat models.
 
 If the key check succeeds but setup reports no compatible chat models, the
 credential was verified and the current `/v1/models` response did not yield a

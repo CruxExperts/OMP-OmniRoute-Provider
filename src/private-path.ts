@@ -34,7 +34,7 @@ foreach ($target in $request.targets) {
 }
 `;
 const encodedWindowsScript = Buffer.from(windowsScript, "utf16le").toString("base64");
- 
+
 async function windowsAcl(targets: Array<{ path: string; directory: boolean }>, create = false): Promise<void> {
   const executable = join(process.env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const { promise, resolve, reject } = Promise.withResolvers<void>();
