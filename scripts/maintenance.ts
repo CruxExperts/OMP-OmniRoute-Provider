@@ -85,7 +85,7 @@ const upstreamsById: Record<string, { provenanceRepository: string; latestReposi
   omniroute: { provenanceRepository: "diegosouzapw/OmniRoute", latestRepository: "cheaper-inference/OmniRoute" },
 };
 
-const ompCompatibilityEvidence = "docs/reference/maintenance.md#omp-18126-compatibility-review";
+const ompCompatibilityEvidence = "docs/reference/maintenance.md#omp-18160-compatibility-review";
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)

@@ -1263,7 +1263,8 @@
   "recipe": {
     "version": 1,
     "downloadHosts": [
-      "dl-cdn.alpinelinux.org"
+      "dl-cdn.alpinelinux.org",
+      "repo.huaweicloud.com"
     ],
     "baseReferenceTemplate": "oven/bun@{baseManifestDigest}",
     "dockerBuildNetwork": "none",

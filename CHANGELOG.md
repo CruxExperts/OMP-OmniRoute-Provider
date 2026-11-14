@@ -2,7 +2,61 @@
 
 All notable changes to OMP OmniRoute Provider are recorded here.
 
-## Unreleased
+## 1.0.5 — 2026-11-10
+
+- Add configurable bounded fresh inference attempts for transient failures,
+  including gateway restarts. Cancellation and connection changes stop retries;
+  completed tool calls and administration operations are not replayed. The default is
+  five total attempts with a 30-second delay; both are configurable, and setting
+  `reconnectMaxAttempts` to `1` disables retries.
+  The connector holds response text until successful generation instead of
+  streaming live tokens. Failed partial output is discarded, and tool calls
+  from failed attempts are never started.
+- Drain incoming response events independently of the host consumer, retaining
+  the native response accumulator without a duplicate per-token event queue.
+  Deliver successful output once; reject truncated streams before retrying.
+- Preserve pinned Alpine runtime hashes when the original package URL is gone:
+  use a retained mirror only after an HTTP 404, and reject any byte or signature
+  mismatch. Align the release gate with eligibility schema 3 without relaxing
+  operation or platform qualification.
+- Canonicalize the native smoke temporary root before checking profile
+  containment, including systems whose default temporary path is a symlink.
+- Publish a complete native content lifecycle only after a buffered generation
+  succeeds. This prevents the host's empty-response recovery from discarding a
+  successful tool call and preserves the actual tool result in continuation.
+- Compare native canonical extraction paths across Python and JavaScript so
+  equivalent macOS temporary paths and Windows path spellings are accepted.
+  Wrong destinations and symlinked extracted package directories remain rejected.
+- Use native private Windows access-control lists for profile configuration,
+  retaining owner/trustee checks and file-identity checks instead of treating
+  Windows file modes as proof of privacy.
+- Complete the native login command with Tab, wait for its argument hint, then
+  submit with Enter. This distinguishes command completion from submission on
+  the pinned Windows host. Real provider selection and cancellation remain
+  required acceptance evidence.
+
+## 1.0.4 — 2026-11-05
+
+- Keep parent and task-subagent inference bindings isolated, and restore the
+  surviving provider when a shared session ends. Inference requests are not
+  automatically replayed after an uncertain outcome.
+- Recover an interrupted pending native connection only through explicit
+  interactive confirmation, protected key validation, and a fresh live catalog
+  check. Missing or ambiguous credentials require a fresh sign-in.
+- Add OMP 18.16.0 to the Linux x64 host test matrix while retaining the 18.12.5
+  source and SDK pins. This does not install or upgrade OMP globally.
+- Report the selected runtime source, pending activation, credential ambiguity,
+  and catalog readiness in status and setup. A public catalog response alone
+  does not prove a runtime key was accepted. OMP retains control of its model
+  picker and JSON output.
+- This GitHub-only patch does not publish
+  to npm, add administration operation qualification, or claim eight-platform
+  qualification. Administration writes are not automatically replayed after an
+  uncertain outcome.
+
+```text
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.4
+```
 
 - Recover a validated pending native connection after restart only when OMP's
   selected credential passes the protected endpoint check and live catalog

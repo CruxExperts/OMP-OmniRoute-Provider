@@ -1,6 +1,6 @@
 {
   "name": "@cruxexperts/cruxomni-omp-client",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "OMP OmniRoute Provider for Oh My Pi with guided setup, live discovery, and verified administration",
   "repository": {
     "type": "git",
@@ -57,6 +57,20 @@
         "type": "boolean",
         "default": true,
         "description": "Show provider connection state transitions"
+      },
+      "reconnectMaxAttempts": {
+        "type": "number",
+        "default": 5,
+        "min": 1,
+        "max": 20,
+        "description": "Total inference attempts including the initial request; use 1 to disable retries"
+      },
+      "reconnectDelayMs": {
+        "type": "number",
+        "default": 30000,
+        "min": 1,
+        "max": 300000,
+        "description": "Delay in milliseconds between inference retry attempts"
       }
     },
     "extensions": [
@@ -67,7 +81,8 @@
       "tested": [
         "18.12.2",
         "18.12.5",
-        "18.12.6"
+        "18.12.6",
+        "18.16.0"
       ]
     }
   },

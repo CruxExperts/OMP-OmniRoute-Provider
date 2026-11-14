@@ -372,7 +372,7 @@ function validateOperationCoverage(operationsRoot: Record<string, unknown>, elig
     const coverage = operation ? objectValue(operation.coverage, `${id} coverage`) : undefined;
     if (!coverage || coverage.status !== "invokable") throw new Error(`release eligibility records a non-invokable or unknown operation: ${id}`);
   }
-  if (eligibilityRoot.schemaVersion !== 2 || eligibilityRoot.recordKind !== "omniroute-release-eligibility") throw new Error("release eligibility contract identity is invalid");
+  if (eligibilityRoot.schemaVersion !== 3 || eligibilityRoot.recordKind !== "omniroute-release-eligibility") throw new Error("release eligibility contract identity is invalid");
   return { invokable, nonInvokable, unqualified };
 }
 

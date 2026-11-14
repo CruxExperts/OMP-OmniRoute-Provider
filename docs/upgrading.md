@@ -5,13 +5,27 @@ Use an exact released GitHub tag when upgrading. Check the release notes and the
 OMP profile using your normal private backup procedure before a migration.
 
 ```text
-omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.3
+omp plugin install https://github.com/CruxExperts/OMP-OmniRoute-Provider#v1.0.5
 ```
 
 Restart OMP, run `/omniroute`, and refresh discovery. The GitHub release does not imply npm publication. The package identity and
 `omniroute` provider identity remain stable. A client update does not update your
 OmniRoute server. Existing environment variable names and native runtime
 credential storage remain the configuration owners.
+
+An interrupted pending connection remains inactive after restart. Use
+`/omniroute recover` in an interactive OMP terminal to confirm and revalidate
+the saved native key, or sign in again. A native profile ignores runtime
+environment overrides; it does not fall back to them when its key is missing.
+Inference now permits bounded fresh attempts for transient failures, defaulting
+to five total attempts separated by 30 seconds. Both settings are configurable;
+set `reconnectMaxAttempts` to `1` to disable retries. See the
+[plugin settings](installation.md#inference-reconnect-settings) for defaults and
+limits. Completed tool calls and administration operations are not automatically replayed.
+Fresh attempts do not guarantee exactly-once model-server processing.
+The connector buffers response text until generation succeeds rather than
+streaming live tokens. A recoverable interrupted stream starts a fresh generation;
+failed partial output is discarded and its tool calls are never started.
 
 The plugin display name is **OMP OmniRoute Provider**; OMP's `/login` provider
 selector labels the entry **Crux OmniRoute Provider**. The provider ID remains

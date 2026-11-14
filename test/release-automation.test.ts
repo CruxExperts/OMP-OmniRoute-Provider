@@ -126,7 +126,7 @@ function qualificationOperation(id: string): Record<string, unknown> {
   };
 }
 
-async function fixtureRepo(options: { secondInvokable?: boolean; missingQualificationWorkflow?: boolean } = {}): Promise<string> {
+async function fixtureRepo(options: { secondInvokable?: boolean; missingQualificationWorkflow?: boolean; eligibilitySchemaVersion?: number } = {}): Promise<string> {
   const root = await temporaryDirectory("cruxomni-release-repo-");
   git(root, "init", "-b", "main");
   git(root, "config", "user.name", "Unsigned Fixture");
@@ -164,7 +164,7 @@ async function fixtureRepo(options: { secondInvokable?: boolean; missingQualific
     "tsconfig.json": "{}\n",
     ".omp-plugin/marketplace.json": `${JSON.stringify(marketplace, null, 2)}\n`,
     "contracts/operations.json": `${JSON.stringify({ operations }, null, 2)}\n`,
-    "contracts/release-eligibility.json": `${JSON.stringify({ schemaVersion: 2, recordKind: "omniroute-release-eligibility", operations: [qualificationOperation(invokableId)] }, null, 2)}\n`,
+    "contracts/release-eligibility.json": `${JSON.stringify({ schemaVersion: options.eligibilitySchemaVersion ?? 3, recordKind: "omniroute-release-eligibility", operations: [qualificationOperation(invokableId)] }, null, 2)}\n`,
     "src/index.ts": "export {};\n",
   };
   if (options.missingQualificationWorkflow) delete files[".github/workflows/qualification.yml"];
@@ -1080,6 +1080,14 @@ describe("release automation", () => {
     const uncountedJobs = structuredClone(metadata.jobs);
     delete (uncountedJobs as { total_count?: number }).total_count;
     expect(() => verifyQualificationRunMetadata({ ...metadata, jobs: uncountedJobs })).toThrow("jobs response is incomplete");
+  });
+
+  it("rejects unsupported release eligibility schema versions", async () => {
+    const root = await fixtureRepo({ eligibilitySchemaVersion: 2 });
+    const output = join(await temporaryDirectory("cruxomni-eligibility-version-"), "release");
+    await exportFixture(root, output);
+    const qualification = await qualificationFor(output, root, true);
+    await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("release eligibility contract identity is invalid");
   });
 
   it("blocks a short eligibility subset when any invokable source operation is missing evidence", async () => {

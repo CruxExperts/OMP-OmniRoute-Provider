@@ -5,6 +5,7 @@ import { chmod, mkdir, open, readFile, rename, stat, lstat, unlink } from "node:
 import { join } from "node:path";
 import { getAgentDir } from "@oh-my-pi/pi-utils";
 import type { CatalogSourceId } from "./catalog-sources.ts";
+import { createPrivateWindowsDirectory, verifyPrivateWindowsConfig, verifyPrivateWindowsPath } from "./private-path.ts";
 
 export const PROVIDER_ID = "omniroute";
 export const CONFIG_VERSION = 2 as const;
@@ -230,8 +231,9 @@ async function readRaw(allowOwnedLock = false): Promise<{ bytes: Uint8Array; rev
   const path = configPath();
   let before;
   try {
-    const directory = await lstat(join(agentDirResolver(), CONFIG_DIR_NAME));
-    if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077) !== 0) throw new ConfigError("insecure-permissions", "config directory must be private and not a symlink");
+    const directoryPath = join(agentDirResolver(), CONFIG_DIR_NAME);
+    const directory = await lstat(directoryPath);
+    if (!directory.isDirectory() || directory.isSymbolicLink() || (process.platform !== "win32" && (directory.mode & 0o077) !== 0)) throw new ConfigError("insecure-permissions", "config directory must be private and not a symlink");
     if (!allowOwnedLock) {
       try {
         await lstat(join(agentDirResolver(), CONFIG_DIR_NAME, ".config.lock"));
@@ -241,8 +243,16 @@ async function readRaw(allowOwnedLock = false): Promise<{ bytes: Uint8Array; rev
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
-    before = await lstat(path);
-    if (!before.isFile() || before.isSymbolicLink() || (before.mode & 0o077) !== 0) throw new ConfigError("insecure-permissions", "config must be a private regular file");
+    try { before = await lstat(path); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (before && (!before.isFile() || before.isSymbolicLink() || (process.platform !== "win32" && (before.mode & 0o077) !== 0))) throw new ConfigError("insecure-permissions", "config must be a private regular file");
+    if (process.platform === "win32") {
+      try { await verifyPrivateWindowsConfig(directoryPath, before ? path : undefined); }
+      catch (error) { throw new ConfigError("insecure-permissions", "config directory and file must have private ACLs", { cause: error }); }
+      const checked = await lstat(directoryPath);
+      if (!checked.isDirectory() || checked.isSymbolicLink() || directory.ino !== checked.ino || directory.dev !== checked.dev) throw new ConfigError("config-conflict", "config directory changed while inspecting");
+    }
+    if (!before) return undefined;
     if (before.size > MAX_CONFIG_BYTES) throw new ConfigError("corrupt-config", "config exceeds size limit");
   } catch (error) {
     if (error instanceof ConfigError) throw error;
@@ -251,8 +261,12 @@ async function readRaw(allowOwnedLock = false): Promise<{ bytes: Uint8Array; rev
   }
   let bytes: Uint8Array;
   try {
-    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try { bytes = await handle.readFile(); } finally { await handle.close(); }
+    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || before.ino !== opened.ino || before.dev !== opened.dev) throw new Error("config identity changed");
+      bytes = await handle.readFile();
+    } finally { await handle.close(); }
   } catch (error) {
     throw new ConfigError("config-conflict", "config changed while reading", { cause: error });
   }
@@ -307,7 +321,14 @@ function persisted(config: PluginConfig): PersistedConfig {
 async function writeConfig(next: PluginConfig, expectedRevision: string | null | undefined): Promise<PluginConfig> {
   await readSnapshot(); // Never repair invalid state implicitly.
   const dir = join(agentDirResolver(), CONFIG_DIR_NAME);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") {
+    try { await createPrivateWindowsDirectory(dir); }
+    catch (error) { throw new ConfigError("insecure-permissions", "unable to establish a private config directory", { cause: error }); }
+    const directory = await lstat(dir);
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new ConfigError("insecure-permissions", "config directory must be private and not a symlink");
+  } else {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+  }
   const lockPath = join(dir, ".config.lock");
   let lock;
   try { lock = await open(lockPath, "wx", 0o600); }
@@ -338,19 +359,28 @@ async function writeConfigUnlocked(next: PluginConfig, expectedRevision: string 
   const effectiveRevision = expectedRevision === undefined ? current.revision : expectedRevision ?? undefined;
   if (effectiveRevision !== current.revision) throw new ConfigError("config-conflict", "config changed concurrently");
   const dir = join(agentDirResolver(), CONFIG_DIR_NAME);
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  await chmod(dir, 0o700);
+  if (process.platform !== "win32") {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await chmod(dir, 0o700);
+  }
   const body = JSON.stringify(persisted(next), null, 2) + "\n";
   const temporary = join(dir, `.config.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`);
   let handle;
   try {
     handle = await open(temporary, "wx", 0o600);
+    if (process.platform === "win32") {
+      const created = await handle.stat();
+      await verifyPrivateWindowsPath(temporary, false);
+      const checked = await lstat(temporary);
+      if (!checked.isFile() || checked.isSymbolicLink() || created.ino !== checked.ino || created.dev !== checked.dev) throw new ConfigError("config-conflict", "temporary config changed while inspecting");
+    }
     await handle.writeFile(body, "utf8");
     await handle.sync();
     await handle.close();
     const latest = await readRaw(true);
     if ((latest?.revision) !== effectiveRevision) throw new ConfigError("config-conflict", "config changed concurrently");
-    await chmod(temporary, 0o600);
+    if (process.platform === "win32") await verifyPrivateWindowsPath(temporary, false);
+    else await chmod(temporary, 0o600);
     await rename(temporary, configPath());
   } catch (error) {
     try { await handle?.close(); } catch { /* best effort cleanup */ }

@@ -8,7 +8,7 @@ Administration qualification is being rebuilt after a mutation-safety contract
 migration. Reviewed reads, provider configuration, fallback chains, provider
 aliases, and model mappings have regained qualification with the limits below. Other examples describe intended workflows; use the
 generated inventory to check availability before trying them. Unqualified calls
-remain blocked. Version 1.0.3 does not expand the qualified operation set; the
+remain blocked. Version 1.0.4 does not expand the qualified operation set; the
 current release limits remain documented in the changelog and generated inventory.
 
 ## Start with read access
@@ -30,6 +30,67 @@ Use the [generated operation inventory](reference/generated.md#operation-invento
 to distinguish qualified operations, unfinished operations, and source-justified
 exceptions. A route appearing in that inventory does not make it callable. The
 client rejects operations without the required qualification evidence.
+
+## Qualification work pipeline
+
+The pinned OmniRoute v3.8.52 inventory currently contains 1,234 operations:
+25 invokable, 16 source-justified non-invokable, and 1,193 unqualified. Of the
+unqualified operations, 450 are GET, 7 HEAD, 133 OPTIONS, 414 POST, 62 PUT,
+26 PATCH, and 101 DELETE. These are method counts, not safety classifications.
+All 1,193 currently have unknown generated authorization and side-effect
+semantics; all 603 non-GET/HEAD/OPTIONS entries also have unavailable mutation
+preflight. The 222 operations absent from the OpenAPI specification overlap
+these groups. Unknown metadata is not proof that the server lacks a capability.
+
+The remaining work is organized by source behavior, not by assuming every HTTP
+method is interchangeable:
+
+1. **Public probes and other non-JSON responses.** Review the pinned ingress
+   policy and handler for each route, including exported HEAD and OPTIONS
+   handlers. Implement only transports the source actually requires; the current
+   adapter selection does not support `text/plain`. Exercise actual handlers,
+   response status, headers and body, authorization and error cases in isolated
+   fixtures. An exported HEAD or OPTIONS handler is not a non-invokable exception
+   merely because its method is shared or its response is empty.
+2. **Management reads.** Review each route family's request, authorization,
+   response projection, sensitive fields and read completeness against pinned
+   source. Exercise allowed and denied credentials and upstream errors using the
+   real authorization and handler code with explicitly bounded fixture backends.
+   Record independent observations before promoting a family to invokable.
+3. **Provider collection writes.** The existing provider family fixture runs
+   pinned writes but intentionally holds POST, PATCH and DELETE. Complete
+   source-qualified preflight for full provider revision and dependent cleanup
+   scope, then demonstrate client planning, drift checks, cancellation, partial
+   commits, uncertain replies and secret handling against independent source
+   behavior. A source-only write is not evidence that client apply is safe.
+4. **Other mutations and external effects.** For each remaining family, identify
+   a complete source-qualified read or other defensible preflight, side effects,
+   confirmation scope and settlement boundary. Implement missing executor
+   support where necessary; exercise concurrent drift, failures after partial
+   effects and lost responses without replay. Calls needing external providers,
+   services or credentials remain unavailable until an isolated fixture can
+   represent those boundaries honestly and the limits are reviewed.
+5. **Evidence and release.** For each supported operation bind the reviewed
+   request, auth, response, side-effect and safety contract to exact pinned
+   source and test bytes; capture independent before/after/result observations,
+   review and content-address them, then regenerate the inventory. Re-run the
+   operation's fixture and compare fresh observations with reviewed evidence.
+   A route may be classified non-invokable only with the existing
+   source-justified proof, never because its tests or adapter are missing.
+   Release remains blocked until every inventory entry meets the gate and the
+   separate native platform qualification requirements are satisfied.
+
+The first health-probe family has direct pinned-handler lifecycle observations,
+but not independent framework-ingress authorization evidence. Qualification must
+not infer public access from matcher source alone. Acquisition of the pinned
+`next@16.3.8` research runtime was stopped after critical advisories
+[GHSA-673q-mjm6-r5xr](https://github.com/advisories/GHSA-673q-mjm6-r5xr) and
+[GHSA-2464-fhr4-w9xw](https://github.com/advisories/GHSA-2464-fhr4-w9xw) were
+confirmed. Their patched Next.js version is `16.4.1`; substituting it would not
+prove the historical pin. Keep those operations unavailable until an approved
+upstream provenance refresh or isolated historical-runtime research procedure
+establishes actual ingress behavior. This is not a claim that the connector
+runtime depends on Next.js or that the health matcher exercises those flaws.
 
 ## Inspect and change fallback chains
 
