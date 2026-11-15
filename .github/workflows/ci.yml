@@ -47,10 +47,13 @@ jobs:
         with: { bun-version: "1.4.2" }
       - name: Install exact locked dependencies
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: Verify pinned upstreams
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun run check:upstreams
       - name: Validate nonprivileged source checks
         run: |
           set -euo pipefail
-          bun run check:upstreams
           bun run prepare:upstream
           bun run typecheck
       - name: Authorize the exact hosted sandbox recipe

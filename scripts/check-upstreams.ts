@@ -45,27 +45,48 @@ async function requestJson(url: string, fetchImpl: FetchLike = fetch): Promise<J
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(url, {
-      headers: {
-        accept: "application/vnd.github+json",
-        "user-agent": "cruxexperts-cruxomni-upstream-check",
-        "x-github-api-version": "2022-11-28",
-      },
-      redirect: "follow",
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new Error(`${url} returned non-JSON HTTP ${response.status}`);
+    let current = new URL(url);
+    for (let redirects = 0; redirects <= 5; redirects += 1) {
+      if (current.origin !== githubApi || current.username || current.password) {
+        throw new Error("GitHub API request rejected a non-API URL");
+      }
+      const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+      let response: Response;
+      try {
+        response = await fetchImpl(current.href, {
+          headers: {
+            accept: "application/vnd.github+json",
+            "user-agent": "cruxexperts-cruxomni-upstream-check",
+            "x-github-api-version": "2022-11-28",
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+          redirect: "manual",
+          signal: controller.signal,
+        });
+      } catch {
+        throw new Error("GitHub API request failed");
+      }
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        if (redirects === 5) throw new Error("GitHub API request exceeded the redirect limit");
+        const location = response.headers.get("location");
+        if (!location) throw new Error("GitHub API redirect has no location");
+        try {
+          current = new URL(location, current);
+        } catch {
+          throw new Error("GitHub API redirect has an invalid location");
+        }
+        continue;
+      }
+      if (!response.ok) throw new Error(`GitHub API request returned HTTP ${response.status}`);
+      let parsed: unknown;
+      try {
+        parsed = await response.json();
+      } catch {
+        throw new Error(`GitHub API request returned non-JSON HTTP ${response.status}`);
+      }
+      return record(parsed, "GitHub API response");
     }
-    if (!response.ok) {
-      const detail = record(parsed, `${url} error`).message;
-      throw new Error(`${url} returned HTTP ${response.status}${typeof detail === "string" ? `: ${detail}` : ""}`);
-    }
-    return record(parsed, url);
+    throw new Error("GitHub API request exceeded the redirect limit");
   } finally {
     clearTimeout(timer);
   }

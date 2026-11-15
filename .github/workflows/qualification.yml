@@ -124,6 +124,11 @@ jobs:
       - name: Install exact locked dependencies
         if: ${{ inputs.mode == 'full' }}
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: Verify pinned upstreams
+        if: ${{ inputs.mode == 'full' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun run check:upstreams
       - name: Validate source and build the single reviewed archive
         if: ${{ inputs.mode == 'full' }}
         env:
@@ -133,7 +138,6 @@ jobs:
           PINNED_INGRESS_BWRAP: ${{ runner.temp }}/pinned-bwrap/bwrap
         run: |
           set -euo pipefail
-          bun run check:upstreams
           bun run prepare:upstream
           bun run typecheck
           test_workers="$(( $(nproc) / 3 ))"

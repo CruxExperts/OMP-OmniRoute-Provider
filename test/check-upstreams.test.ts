@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verifyPinnedUpstreams } from "../scripts/check-upstreams.ts";
+import { recheckUpstreams, verifyPinnedUpstreams } from "../scripts/check-upstreams.ts";
 
 const tag = "v1.2.3";
 const repository = "example/upstream";
@@ -185,4 +185,102 @@ test("local package hash drift is reported", async () => {
     expect(result.status).toBe("drift");
     expect(hashes.find(hash => hash.path === "src/local.txt")?.matches).toBe(false);
   });
+});
+
+test("API authentication stays on the API origin across canonical redirects, not raw downloads", async () => {
+  const previousGh = process.env.GH_TOKEN;
+  const previousGithub = process.env.GITHUB_TOKEN;
+  process.env.GH_TOKEN = "test-gh-token";
+  process.env.GITHUB_TOKEN = "test-fallback-token";
+  try {
+    await withFixture(async fixture => {
+      const mocked = mockFetch();
+      let redirected = false;
+      const fetchImpl: NonNullable<Parameters<typeof verifyPinnedUpstreams>[0]> = async (input, init) => {
+        const url = new URL(String(input));
+        const headers = new Headers(init?.headers);
+        if (url.origin === "https://api.github.com") {
+          expect(headers.get("authorization")).toBe("Bearer test-gh-token");
+          expect(init?.redirect).toBe("manual");
+          if (!redirected) {
+            redirected = true;
+            return new Response(null, { status: 301, headers: { location: `${url.pathname}?canonical=1` } });
+          }
+        } else {
+          expect(url.origin).toBe("https://raw.githubusercontent.com");
+          expect(headers.has("authorization")).toBe(false);
+        }
+        return mocked.fetchImpl(input, init);
+      };
+      expect((await verifyPinnedUpstreams(fetchImpl, fixture)).status).toBe("verified");
+      expect(redirected).toBe(true);
+    });
+  } finally {
+    if (previousGh === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = previousGh;
+    if (previousGithub === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = previousGithub;
+  }
+});
+
+test("cross-origin redirects and upstream errors fail without leaking credentials", async () => {
+  const previousGh = process.env.GH_TOKEN;
+  const previousGithub = process.env.GITHUB_TOKEN;
+  delete process.env.GH_TOKEN;
+  process.env.GITHUB_TOKEN = "secret-fallback-token";
+  try {
+    await withFixture(async fixture => {
+      let calls = 0;
+      const redirectFetch: NonNullable<Parameters<typeof verifyPinnedUpstreams>[0]> = async (_input, init) => {
+        calls += 1;
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer secret-fallback-token");
+        return new Response(null, { status: 302, headers: { location: "https://attacker.example/?secret=secret-fallback-token" } });
+      };
+      try {
+        await verifyPinnedUpstreams(redirectFetch, fixture);
+        throw new Error("expected redirect rejection");
+      } catch (error) {
+        expect(String(error)).toContain("non-API URL");
+        expect(String(error)).not.toContain("secret-fallback-token");
+      }
+      expect(calls).toBe(1);
+      const errorFetch: NonNullable<Parameters<typeof verifyPinnedUpstreams>[0]> = async () =>
+        new Response(JSON.stringify({ message: "secret-fallback-token" }), { status: 403 });
+      await expect(verifyPinnedUpstreams(errorFetch, fixture)).rejects.toThrow("HTTP 403");
+      try {
+        await verifyPinnedUpstreams(errorFetch, fixture);
+      } catch (error) {
+        expect(String(error)).not.toContain("secret-fallback-token");
+      }
+      const failingFetch: NonNullable<Parameters<typeof verifyPinnedUpstreams>[0]> = async () => {
+        throw new Error("secret-fallback-token");
+      };
+      await expect(verifyPinnedUpstreams(failingFetch, fixture)).rejects.toThrow("GitHub API request failed");
+    });
+  } finally {
+    if (previousGh === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = previousGh;
+    if (previousGithub === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = previousGithub;
+  }
+});
+
+test("latest release selector does not receive API credentials", async () => {
+  const previous = process.env.GH_TOKEN;
+  process.env.GH_TOKEN = "selector-test-token";
+  try {
+    let calls = 0;
+    const fetchImpl: NonNullable<Parameters<typeof recheckUpstreams>[0]> = async (input, init) => {
+      calls += 1;
+      if (calls === 1) {
+        expect(new URL(String(input)).origin).toBe("https://github.com");
+        expect(new Headers(init?.headers).has("authorization")).toBe(false);
+        const response = new Response("");
+        Object.defineProperty(response, "url", { value: "https://github.com/example/upstream/releases/tag/v1.2.3" });
+        return response;
+      }
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer selector-test-token");
+      return new Response("{}", { status: 403 });
+    };
+    await expect(recheckUpstreams(fetchImpl)).rejects.toThrow("HTTP 403");
+    expect(calls).toBe(2);
+  } finally {
+    if (previous === undefined) delete process.env.GH_TOKEN; else process.env.GH_TOKEN = previous;
+  }
 });
