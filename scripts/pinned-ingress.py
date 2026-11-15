@@ -393,6 +393,15 @@ POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/
 POLICY_SOURCES += ('src/app/api/keys/route.ts', 'src/app/api/keys/[id]/route.ts', 'src/app/api/settings/proxies/assignments/route.ts', 'src/app/api/models/route.ts')
 POLICY_SOURCES += ('src/app/api/settings/route.ts', 'src/app/api/settings/proxies/route.ts')
 POLICY_SOURCES += ('src/app/api/settings/cc-discovery-metrics/route.ts', 'src/app/api/settings/reasoning-routing-rules/route.ts')
+REASONING_ROUTE = 'src/app/api/settings/reasoning-routing-rules/route.ts'
+REASONING_STORE = 'src/lib/db/reasoningRoutingRules.ts'
+REASONING_WRAPPER = b'''import { GET as sourceGet } from "./fixture-source";
+import { GET as policyGet } from "./fixture-policy";
+export const dynamic = "force-dynamic";
+export async function GET(request: Request) {
+  return request.headers.get("x-ingress-policy-control") === "1" ? policyGet() : sourceGet(request);
+}
+'''
 LIVE_ROUTE = 'src/app/livez/route.ts'
 
 def sha(data):
@@ -584,8 +593,11 @@ def materialize(real_core=False):
         control = Path('/work/fixture/routes/management.ts').read_bytes()
         for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts'):
             put(app, route, control)
+        require(support[REASONING_ROUTE] == '8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018', 'reasoning route identity mismatch')
+        put(app, 'src/app/api/settings/reasoning-routing-rules/fixture-source.ts', (app / REASONING_ROUTE).read_bytes())
+        put(app, 'src/app/api/settings/reasoning-routing-rules/fixture-policy.ts', control)
         for route in POLICY_SOURCES:
-            replace_policy_control(app, route, support[route], control)
+            replace_policy_control(app, route, support[route], REASONING_WRAPPER if route == REASONING_ROUTE else control)
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
     return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA, **source_identity}
@@ -710,7 +722,7 @@ def verify_flag_cache_fixture(flag_source, flag_fixture):
 
 
 def overlay_bytes(core, settings, declaration):
-    text = 'import { DatabaseSync } from "node:sqlite";\nimport path from "node:path";\n' + core.decode('utf-8')
+    text = 'import path from "node:path";\n' + core.decode('utf-8')
     text = replace_once(text, 'const db = {',
         'let sqlite: DatabaseSync | undefined;\nconst db = {')
     text = replace_once(text, '      const normalized = sql.replace(/\\s+/g, " ").trim();',
@@ -774,7 +786,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {LIVE_ROUTE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -839,6 +851,11 @@ def provision(material):
             member = archive.getmember('OmniRoute-v3.8.53/' + name)
             require(member.isfile() and member.size <= 2 * 1024 * 1024, 'invalid policy source member: ' + name)
             identities[name] = sha(archive.extractfile(member).read())
+    reasoning_original = identities[REASONING_ROUTE]
+    require(sha((app / 'src/app/api/settings/reasoning-routing-rules/fixture-source.ts').read_bytes()) == reasoning_original, 'reasoning source mount mismatch')
+    require((app / REASONING_ROUTE).read_bytes() == REASONING_WRAPPER and (app / 'src/app/api/settings/reasoning-routing-rules/fixture-policy.ts').read_bytes() == (fixture / 'routes/management.ts').read_bytes(), 'reasoning wrapper mismatch')
+    identities[REASONING_ROUTE] = {'originalSha256': reasoning_original, 'executedSha256': reasoning_original, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': sha((fixture / 'routes/management.ts').read_bytes())}
+    identities[REASONING_STORE] = sha((app / REASONING_STORE).read_bytes())
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
     live_bytes = (app / LIVE_ROUTE).read_bytes()
     live_expected = json.loads((fixture / 'source-manifest.json').read_text())['additionalFiles'][LIVE_ROUTE]['sha256']
@@ -1380,6 +1397,23 @@ def validate_degradation(row, events):
     return {'method': 'GET', 'path': '/api/health/degradation', 'routeClass': 'MANAGEMENT', 'anonymousStatus': denied['status'], 'invalidCredentialStatus': invalid['status'], 'empty': {'status': 200, 'summary': empty['summary']}, 'populated': {'status': 200, 'summary': summary, 'levels': [entry['level'] for entry in features]}, 'summaryTrue': {'status': 200, 'bodyKeys': ['isDegraded', 'summary']}, 'summaryFalseAndCapitalTrueReturnFullReport': True, 'recovery': {'status': 200, 'summary': recovery['summary'], 'active': False}, 'handlerFailure': 'unobserved'}
 
 
+def validate_reasoning_http(row, events):
+    require(isinstance(row, dict) and set(row) == {'denied', 'invalid', 'failure', 'allowed', 'cached'}, 'reasoning HTTP cases missing')
+    for name in ('denied', 'invalid'):
+        require(row[name] == {'status': 401, 'routeClass': 'MANAGEMENT'}, 'reasoning denial mismatch')
+    for name in ('allowed', 'cached'):
+        require(row[name] == {'status': 200, 'routeClass': 'MANAGEMENT', 'body': {'rules': []}}, 'reasoning recovery mismatch')
+    failure = row['failure']
+    require(isinstance(failure, dict) and set(failure) == {'status', 'routeClass', 'contentType', 'bodyCategory', 'privateMarkerPresent'}
+            and type(failure['status']) is int and 500 <= failure['status'] <= 599
+            and failure['routeClass'] in (None, 'MANAGEMENT')
+            and failure['contentType'] in (None, 'application/json', 'text/plain', 'text/html', 'text/plain; charset=utf-8', 'text/html; charset=utf-8')
+            and failure['bodyCategory'] in ('empty', 'json', 'text') and failure['privateMarkerPresent'] is False, 'reasoning failure observation invalid')
+    names = [e.get('event') for e in events]
+    require(names.count('reasoning:read') == 2 and names.count('reasoning:fault') == 1, 'reasoning SQLite or cache evidence mismatch')
+    return {'method': 'GET', 'path': '/api/settings/reasoning-routing-rules', **row, 'sqliteReadCount': 2, 'sqliteFaultCount': 1}
+
+
 def export_observations(output, hashes):
     """Produce an allowlisted research artifact only after the complete isolated run."""
     result = bounded_json(output / 'result.json')
@@ -1404,6 +1438,9 @@ def export_observations(output, hashes):
         source_hashes[name] = {'originalSha256': sha(data), 'executedSha256': sha(executed)}
     live_sha = sha(source[LIVE_ROUTE])
     source_hashes[LIVE_ROUTE] = {'originalSha256': live_sha, 'executedSha256': live_sha}
+    reasoning_sha = sha(source[REASONING_ROUTE])
+    source_hashes[REASONING_ROUTE] = {'originalSha256': reasoning_sha, 'executedSha256': reasoning_sha, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': hashes['test/fixtures/pinned-ingress/routes/management.ts']}
+    source_hashes[REASONING_STORE] = sha(source[REASONING_STORE])
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
     with tempfile.TemporaryDirectory() as temporary:
         app = Path(temporary)
@@ -1533,6 +1570,7 @@ def export_observations(output, hashes):
         family_policy.append({'method': method, 'path': path, 'routeClass': 'MANAGEMENT', 'anonymousStatus': 401, 'invalidCredentialStatus': 401, 'authorizedStatus': 200,
                               'readScopeStatus': read_scope['status'], 'writeScopeStatus': write_scope['status'], 'adminScopeStatus': admin_scope['status']})
     require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
+    reasoning_http = validate_reasoning_http(ingress['reasoningHttp'], ingress['events'])
     fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
     require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
     executed_fixture = identity['fixtureSha256']
@@ -1571,6 +1609,8 @@ def export_observations(output, hashes):
     artifact['agentSkillsReads'] = skills_reads
     artifact['modelComboMappingPolicy'] = mapping_policy
     artifact['familyPolicy'] = family_policy
+    artifact['reasoningHttp'] = reasoning_http
+    artifact['limitations'].append('Reasoning GET uses the pinned handler and store with an isolated query-specific SQLite fault and recovery; policy controls are separate and production persistence is not established.')
     artifact['limitations'].append('Family policy uses exact method/path reachability controls with scoped tokens, not the pinned handlers, persistence, API-key scope alternatives, or executor safety.')
     artifact['limitations'].append('Mapping ingress exercises policy with a reachability control at the exact method and path; it does not execute mapping handlers or cold database initialization.')
     artifact['limitations'].append('Agent-skills ingress coverage observes management denial and a dashboard-session query, not every credential alternative or hosted failures.')

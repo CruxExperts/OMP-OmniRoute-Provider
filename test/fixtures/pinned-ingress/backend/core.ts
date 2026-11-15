@@ -1,6 +1,7 @@
 /* Research-only database boundary. Source authorization and token validation remain upstream. */
 import { appendFileSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { API_KEY_COLUMN_FALLBACKS } from "@/lib/db/apiKeyColumnFallbacks";
 
 type Row = { id: string; token_hash: string; token_prefix: string; name: string; scope: string; created_at: string; last_used_at: string | null; expires_at: string | null; revoked_at: string | null };
@@ -28,6 +29,7 @@ export const SQLITE_FILE = "/work/data/fixture.sqlite";
 export function rowToCamel(): never { return unsupported("rowToCamel"); }
 export function cleanNulls(): never { return unsupported("cleanNulls"); }
 export function applyDatabaseOptimizationSettings(): never { return unsupported("applyDatabaseOptimizationSettings"); }
+let reasoningDb: DatabaseSync | undefined;
 const db = {
     prepare(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
@@ -81,6 +83,12 @@ const db = {
           return unsupported(`run:${createHash("sha256").update(normalized).digest("hex")}`);
         },
         all(...args: unknown[]) {
+          if (normalized === "SELECT * FROM reasoning_routing_rules ORDER BY priority DESC, created_at ASC, id ASC") {
+            event("reasoning:read");
+            reasoningDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            try { return reasoningDb.prepare(sql).all(); }
+            catch (error) { event("reasoning:fault"); throw new Error("INGRESS_PRIVATE_REASONING_FAULT", { cause: error }); }
+          }
           if (normalized === "PRAGMA table_info(api_keys)") { event("key-schema-read"); return API_KEY_COLUMN_FALLBACKS.map(column => ({ name: column.name })); }
           if (normalized === "SELECT key, value FROM key_value WHERE namespace = ?" && args[0] === "feature_flags") {
             event("feature-flag:list");

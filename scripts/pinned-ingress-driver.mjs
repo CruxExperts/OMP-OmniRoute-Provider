@@ -163,6 +163,23 @@ try {
     else assert(allowed.body?.id === 'config-codex-cli', 'agent-skills-detail');
     results.push({ case: `GET ${path}`, denied, invalid, allowed });
   }
+  const reasoningPath = '/api/settings/reasoning-routing-rules';
+  const reasoningDenied = await request(reasoningPath);
+  const reasoningInvalid = await request(reasoningPath, 'GET', { authorization: `Bearer ${invalidCredential}` });
+  const reasoningFailure = await request(reasoningPath, 'GET', { cookie });
+  assert(reasoningDenied.status === 401 && reasoningInvalid.status === 401 && !reasoningInvalid.text.includes(invalidCredential), 'reasoning-denials');
+  const privateMarkerPresent = ['INGRESS_PRIVATE_REASONING_FAULT', '/work/', 'SQLITE_', 'reasoning_routing_rules', 'no such table'].some(marker => reasoningFailure.text.includes(marker));
+  assert(reasoningFailure.status >= 500 && !privateMarkerPresent, 'reasoning-failure-privacy');
+  let bodyCategory = 'empty';
+  if (reasoningFailure.text !== '') {
+    try { JSON.parse(reasoningFailure.text); bodyCategory = 'json'; } catch { bodyCategory = 'text'; }
+  }
+  const reasoningFailureObservation = { status: reasoningFailure.status, routeClass: reasoningFailure.routeClass, contentType: reasoningFailure.contentType, bodyCategory, privateMarkerPresent };
+  db.exec('CREATE TABLE reasoning_routing_rules (id TEXT, priority INTEGER, created_at TEXT)');
+  const reasoningAllowed = await request(reasoningPath, 'GET', { cookie });
+  const reasoningCached = await request(reasoningPath, 'GET', { cookie });
+  assert(reasoningAllowed.status === 200 && JSON.stringify(reasoningAllowed.body) === '{"rules":[]}' && reasoningCached.status === 200 && JSON.stringify(reasoningCached.body) === '{"rules":[]}', 'reasoning-recovery-cache');
+  const reasoningHttp = { denied: { status: reasoningDenied.status, routeClass: reasoningDenied.routeClass }, invalid: { status: reasoningInvalid.status, routeClass: reasoningInvalid.routeClass }, failure: reasoningFailureObservation, allowed: { status: reasoningAllowed.status, routeClass: reasoningAllowed.routeClass, body: reasoningAllowed.body }, cached: { status: reasoningCached.status, routeClass: reasoningCached.routeClass, body: reasoningCached.body } };
   for (const [method, path] of [['GET', '/api/model-combo-mappings'], ['POST', '/api/model-combo-mappings'], ['GET', '/api/model-combo-mappings/fixture-id'], ['PUT', '/api/model-combo-mappings/fixture-id'], ['DELETE', '/api/model-combo-mappings/fixture-id']]) {
     const denied = await request(path, method);
     const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
@@ -217,12 +234,13 @@ try {
     ['PUT', '/api/providers/fixture-id/param-filters'],
   ];
   for (const [method, path] of familyPolicyCases) {
-    const denied = await request(path, method);
-    const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
-    const allowed = await request(path, method, { cookie });
-    const readScope = await request(path, method, { authorization: `Bearer ${scopedTokens.read}` });
-    const writeScope = await request(path, method, { authorization: `Bearer ${scopedTokens.write}` });
-    const adminScope = await request(path, method, { authorization: `Bearer ${scopedTokens.admin}` });
+    const control = path === reasoningPath ? { 'x-ingress-policy-control': '1' } : {};
+    const denied = await request(path, method, control);
+    const invalid = await request(path, method, { ...control, authorization: `Bearer ${invalidCredential}` });
+    const allowed = await request(path, method, { ...control, cookie });
+    const readScope = await request(path, method, { ...control, authorization: `Bearer ${scopedTokens.read}` });
+    const writeScope = await request(path, method, { ...control, authorization: `Bearer ${scopedTokens.write}` });
+    const adminScope = await request(path, method, { ...control, authorization: `Bearer ${scopedTokens.admin}` });
     const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(method);
     const adminRequired = mutation && (path === '/api/providers' || path.startsWith('/api/providers/'));
     assert(readScope.status === (mutation ? 403 : 200) && writeScope.status === (adminRequired ? 403 : 200) && adminScope.status === 200 && [readScope, writeScope, adminScope].every(response => response.routeClass === 'MANAGEMENT') && [readScope, writeScope, adminScope].every(response => !Object.values(scopedTokens).some(token => response.text.includes(token))), `family-scopes:${method}:${path}`);
@@ -234,7 +252,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   db.close();
   await stop();

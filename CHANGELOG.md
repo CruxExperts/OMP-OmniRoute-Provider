@@ -4,6 +4,12 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Qualify the filtered reasoning-routing-rules read against actual handler,
+  framework authentication and empty HTTP 500 behavior, plus independent database
+  lifecycle evidence. Preserve cache-staleness and filtered-output limitations.
+- Preserve safely projected successful response data when confirmed operation
+  effects remain unknown, without declaring completion or allowing replay.
+
 - Revalidate interrupted native activation on startup or refresh using the sole
   eligible saved credential, exact endpoint and generation, protected key
   verification, and a current catalog. Keep uncertain activation unavailable even

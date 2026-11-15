@@ -774,7 +774,13 @@ export class AdminExecutorImpl implements AdminExecutor {
           plan.state = "applied";
           return { status: "applied", plan: this.#handle(plan) };
         }
-        return { status: "unknown", plan: this.#handle(plan), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", operationId)) };
+        let output: unknown;
+        if (result && typeof result === "object" && "kind" in result && result.kind === "response"
+          && "status" in result && typeof result.status === "number" && Number.isInteger(result.status)
+          && result.status >= 200 && result.status <= 299 && "body" in result) {
+          try { output = plan.operation.project(result.body); } catch { /* Invalid response bodies remain private. */ }
+        }
+        return { status: "unknown", plan: this.#handle(plan), ...(output === undefined ? {} : { output }), error: errorResult(this.#error("uncertain-outcome", "mutation outcome is uncertain", operationId)) };
       });
     } catch (error) {
       if (!dispatched) {

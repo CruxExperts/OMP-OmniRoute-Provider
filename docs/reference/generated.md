@@ -115,7 +115,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/services | 0 | 76 | 0 |
 | api/session-pools | 0 | 2 | 0 |
 | api/sessions | 0 | 1 | 0 |
-| api/settings | 5 | 146 | 0 |
+| api/settings | 6 | 145 | 0 |
 | api/shutdown | 0 | 1 | 0 |
 | api/skills | 0 | 13 | 0 |
 | api/storage | 0 | 1 | 0 |
