@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { readdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
+import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 
@@ -199,7 +199,7 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
 // and neither real ingress nor the production authorization policy is established.
 type AcpProcessObservation = { status: number | null; code: string; signal: string; stdout: string; error: string };
 type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string;
-  processes?: { recordCount: number | null; outcomeCount: number; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
+  processes?: { recordCount: number | null; outcomeCount: number; probeCount: number; successProbeCount: number; normalizedProbeCount: number; caseInsensitiveProbeCount: number; successPathShellSafe: boolean; successPreflight: string; sourceProbes: { success: AcpProbeInspection | null; failure: AcpProbeInspection | null; stall: AcpProbeInspection | null }; sourceShell: boolean | null; rejections: Record<string, number>; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
 let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
 function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
   acpObservation = { stage, category: "incomplete", ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
@@ -263,7 +263,18 @@ async function runOwnedProcessCase(): Promise<void> {
       const stdout = outcome.stdout === "" ? "empty" : outcome.stdout === "Owned agent 7.8.9-beta\n" ? "success" : outcome.stdout === "failed 3.2.1\n" ? "failure" : "other";
       return { status, code, signal, stdout, error: processes.errorCategories[index] ?? "unknown" };
     };
+    const normalizedSuccess = path.normalize(success);
+    const matchingProbe = fixture.probes.find(probe => probe.command === success);
+    const sourceOptions = matchingProbe?.options as { shell?: boolean } | undefined;
+    const inspect = (binary: string): AcpProbeInspection | null => {
+      try { return fixture.inspectProbe(binary, version(binary)); } catch { return null; }
+    };
     acpObservation.processes = { recordCount, outcomeCount: Math.min(processes.outcomes.length, 1000),
+      probeCount: Math.min(fixture.probes.length, 1000), successProbeCount: Math.min(fixture.probes.filter(probe => probe.command === success).length, 1000),
+      normalizedProbeCount: Math.min(fixture.probes.filter(probe => path.normalize(probe.command) === normalizedSuccess).length, 1000),
+      caseInsensitiveProbeCount: Math.min(fixture.probes.filter(probe => probe.command.toLowerCase() === success.toLowerCase()).length, 1000),
+      sourceProbes: { success: inspect(success), failure: inspect(failure), stall: inspect(stall) }, sourceShell: sourceOptions ? Boolean(sourceOptions.shell) : null,
+      rejections: { ...processes.rejections }, successPathShellSafe: /^[A-Za-z0-9._+@:/\\-]+$/.test(success), successPreflight: processes.preflight.get("success") ?? "not-entered",
       success: processObservation(success), failure: processObservation(failure), stall: processObservation(stall) };
     acpStage("response-status", 200, response.status);
     expect(response.status).toBe(200);

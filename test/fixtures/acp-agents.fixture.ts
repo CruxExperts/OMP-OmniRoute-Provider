@@ -63,6 +63,9 @@ export class AcpOwnedProcesses {
   readonly executables = new Map<string, { mode: ProcessMode; sha256: string; script?: string; scriptSha256?: string }>();
   readonly outcomes: Array<{ command: string; stdout: string; status: number | null; signal: string | null; code: string | null }> = [];
   readonly errorCategories: Array<"none" | "not-found" | "invalid-argument" | "timeout" | "not-recognized" | "other"> = [];
+  readonly preflight = new Map<ProcessMode, "ownership" | "integrity" | "options" | "windows-shell" | "execute">();
+  currentPreflight: "ownership" | "integrity" | "options" | "windows-shell" | "execute" = "ownership";
+  readonly rejections: Record<string, number> = { ownership: 0, integrity: 0, options: 0, "windows-shell": 0, execute: 0 };
   cleaned = false;
 
   create(mode: ProcessMode): string {
@@ -89,20 +92,29 @@ export class AcpOwnedProcesses {
   }
 
   run(command: string, args: string[], options: unknown): string {
+    this.currentPreflight = "ownership";
     const executable = this.executables.get(command);
     if (!executable || args.length !== 1 || args[0] !== "--version") throw new Error("unowned or unsupported fixture probe");
+    this.preflight.set(executable.mode, "integrity");
+    this.currentPreflight = "integrity";
     for (const [file, digest] of [[command, executable.sha256], ...(executable.script ? [[executable.script, executable.scriptSha256!]] : [])]) {
       if (!file || !digest || !lstatSync(file).isFile() || crypto.createHash("sha256").update(readFileSync(file)).digest("hex") !== digest) throw new Error("fixture executable changed");
     }
+    this.preflight.set(executable.mode, "options");
+    this.currentPreflight = "options";
     const sourceOptions = options as { timeout?: number; encoding?: string; shell?: boolean };
     const windows = process.platform === "win32";
     if (sourceOptions.timeout !== 5000 || sourceOptions.encoding !== "utf-8" || Boolean(sourceOptions.shell) !== windows) throw new Error("unexpected source probe options");
     const env: Record<string, string> = { PATH: "", HOME: this.directory, TMPDIR: this.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
+    this.preflight.set(executable.mode, "windows-shell");
+    this.currentPreflight = "windows-shell";
     if (windows) {
       if (!process.env.SystemRoot || !process.env.ComSpec) throw new Error("Windows system shell unavailable");
       env.SystemRoot = process.env.SystemRoot;
       env.ComSpec = process.env.ComSpec;
     }
+    this.preflight.set(executable.mode, "execute");
+    this.currentPreflight = "execute";
     try {
       const stdout = execFileSync(command, args, { cwd: this.directory, env, shell: windows, timeout: sourceOptions.timeout, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16_384, killSignal: "SIGKILL" });
       this.outcomes.push({ command, stdout, status: 0, signal: null, code: null });
@@ -130,6 +142,8 @@ export class AcpOwnedProcesses {
   }
 }
 
+export interface AcpProbeInspection { resolved: boolean; exact: boolean; normalized: boolean; caseInsensitive: boolean; shell: boolean; shellSafe: boolean; hasWhitespace: boolean }
+
 /** Direct handler and pinned registry; process mode is restricted to owned fixtures. */
 export class AcpAgentsFixture {
   settings: { customAgents?: CustomAgent[] } = { customAgents: [] };
@@ -140,6 +154,7 @@ export class AcpAgentsFixture {
   readonly probes: Array<{ command: string; args: string[]; options: unknown }> = [];
   readonly outputs = new Map<string, string | Error>();
   readonly apiKeys = new Map<string, readonly string[]>();
+  readonly inspectProbe: (binary: string, versionCommand: string) => AcpProbeInspection;
   readonly #get: (request: Request) => Promise<Response>;
 
   constructor(processes?: AcpOwnedProcesses) {
@@ -153,13 +168,30 @@ export class AcpAgentsFixture {
       if (s === "@/shared/constants/cliIntegrationManifest") return manifest;
       if (s === "child_process") return { execFileSync: (command: string, args: string[], options: unknown) => {
         this.probes.push({ command, args: [...args], options });
-        if (processes) return processes.run(command, args, options);
+        if (processes) {
+          try { return processes.run(command, args, options); } catch (error) {
+            const stage = processes.currentPreflight;
+            processes.rejections[stage] = Math.min((processes.rejections[stage] ?? 0) + 1, 1000);
+            throw error;
+          }
+        }
         const result = this.outputs.get(command);
         if (typeof result !== "string") throw result ?? new Error("fixture executable unavailable");
         return result;
       } };
       throw new Error(`Unexpected registry import: ${s}`);
     }, { date: new Proxy(Date, { get: (target, property, receiver) => property === "now" ? () => this.now : Reflect.get(target, property, receiver) }) });
+    const resolveProbe = registry.resolveVersionProbe as (binary: string, command: string, requireMatch: boolean) => { command: string; args: string[] } | null;
+    const useShell = registry.shouldUseShellForVersionProbe as (command: string) => boolean;
+    const shellSafe = registry.isShellSafeCommand as (command: string) => boolean;
+    this.inspectProbe = (binary, versionCommand) => {
+      const probe = resolveProbe(binary, versionCommand, true);
+      const command = probe?.command ?? "";
+      return { resolved: probe !== null, exact: command === binary,
+        normalized: path.normalize(command) === path.normalize(binary), caseInsensitive: command.toLowerCase() === binary.toLowerCase(),
+        shell: Boolean(probe && useShell(command)),
+        shellSafe: Boolean(probe && shellSafe(command)), hasWhitespace: /\s/.test(binary) };
+    };
     const headers = loadPinnedModule("src/server/authz/headers.ts", s => { throw new Error(`Unexpected headers import: ${s}`); });
     const guard = loadPinnedModule("src/server/authz/routeGuard.ts", s => {
       if (s === "@/lib/config/runtimeSettings") return { getAuthzBypassSnapshot: () => ({ enabled: false, prefixes: [] }) };
