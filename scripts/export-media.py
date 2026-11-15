@@ -153,6 +153,19 @@ def _svg_metadata(path: Path) -> tuple[str, str, tuple[int, int]]:
     return title.text, desc.text, (width, height)
 
 
+def _render_svg(source: Path, size: tuple[int, int], path: Path, metadata: dict[str, str], cairosvg) -> None:
+    rendered = cairosvg.svg2png(bytestring=source.read_bytes(), output_width=size[0], output_height=size[1])
+    with Image.open(BytesIO(rendered)) as image:
+        if image.size != size:
+            raise ValueError(f"Unexpected rendered dimensions for {source}: {image.size}")
+        output = image.convert("RGB")
+    info = PngImagePlugin.PngInfo()
+    for key, value in metadata.items():
+        info.add_itxt(key, value)
+    output.save(path, pnginfo=info, optimize=True, compress_level=9)
+    print(json.dumps({"status": "rendered", "asset": path.relative_to(ROOT).as_posix(), "size": output.size, "bytes": path.stat().st_size}))
+
+
 def export_marketing_assets() -> dict[str, str]:
     try:
         import cairosvg
@@ -175,19 +188,8 @@ def export_marketing_assets() -> dict[str, str]:
         if source_size != expected_size:
             raise ValueError(f"Unexpected source dimensions for {source}: {source_size}, expected {expected_size}")
 
-        svg_bytes = source.read_bytes()
-        rendered_bytes = cairosvg.svg2png(
-            bytestring=svg_bytes,
-            output_width=expected_size[0],
-            output_height=expected_size[1],
-        )
-        with Image.open(BytesIO(rendered_bytes)) as image:
-            if image.size != expected_size:
-                raise ValueError(f"Unexpected rendered dimensions for {name}: {image.size}")
-            output = image.convert("RGB")
-
-        metadata = PngImagePlugin.PngInfo()
-        for key, value in {
+        path = MARKETING / f"{name}.png"
+        _render_svg(source, expected_size, path, {
             "Title": title,
             "Description": description,
             "Author": "Crux Experts LLC",
@@ -196,15 +198,30 @@ def export_marketing_assets() -> dict[str, str]:
             "License": RIGHTS,
             "Software": f"{PRODUCT_NAME} exporter; CairoSVG {cairosvg.__version__}; Pillow {Image.__version__}",
             "Attribution": "Third-party interface rights retained.",
-        }.items():
-            metadata.add_itxt(key, value)
-        path = MARKETING / f"{name}.png"
-        output.save(path, pnginfo=metadata, optimize=True, compress_level=9)
+        }, cairosvg)
         if name == "social-preview" and path.stat().st_size >= 1_000_000:
             raise ValueError("Social preview exceeds the 1 MB GitHub image limit.")
-        print(json.dumps({"status": "rendered", "asset": path.relative_to(ROOT).as_posix(), "size": output.size, "bytes": path.stat().st_size}))
 
     return {"CairoSVG": cairosvg.__version__, "Pillow": Image.__version__}
+
+
+def export_social_real_ui() -> None:
+    try:
+        import cairosvg
+    except ImportError as error:
+        raise RuntimeError("Social preview export requires CairoSVG in the selected Python environment.") from error
+
+    path = DEST / "social-real-ui.png"
+    _render_svg(DEST / "social-real-ui.svg", (1280, 640), path, {
+        "Title": "OMP OmniRoute Provider — screenshot-led social preview",
+        "Author": "Crux Experts LLC (visual composition)",
+        "Copyright": MARKETING_COPYRIGHT,
+        "Source": "Official OmniRoute screenshot and historical OMP 18.12.5 capture; see social-real-ui-provenance.json",
+        "Website": WEBSITE,
+        "License": RIGHTS + " Third-party interface rights retained; see ASSET_LICENSE.md and upstream terms.",
+        "Attribution": "Third-party interface rights retained.",
+        "Software": f"{PRODUCT_NAME} exporter; CairoSVG {cairosvg.__version__}; Pillow {Image.__version__}",
+    }, cairosvg)
 
 
 def _file_records(previous: dict) -> list[dict]:
@@ -382,8 +399,14 @@ def verify_assets() -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--marketing-only", action="store_true", help="render marketing compositions without regenerating historic exports")
+    parser.add_argument("--social-real-ui-only", action="store_true", help="render only the historical screenshot-led social preview")
     parser.add_argument("--check", action="store_true", help="verify brand hashes, screenshot provenance, dimensions, and embedded metadata")
     args = parser.parse_args()
+    if args.social_real_ui_only:
+        if args.check or args.marketing_only:
+            parser.error("--social-real-ui-only cannot be combined with other modes")
+        export_social_real_ui()
+        return
     if args.check:
         verify_assets()
         return

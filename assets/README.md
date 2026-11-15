@@ -17,6 +17,29 @@ dimensions, accessible descriptions, and the distinction between native
 `/login` and the recommended `/omniroute setup` path. Historical media below is
 retained unchanged. Third-party interface rights remain with their owners.
 
+## Historical screenshot-led social preview
+
+[`brand/social-real-ui.svg`](brand/social-real-ui.svg) and
+[`brand/social-real-ui.png`](brand/social-real-ui.png) are the original PR 1
+composition and raster. The SVG embeds complete source PNGs, including content
+outside the visible crop; review those source bytes as well as the rendered card
+before any publication. The card labels the plugin as v1.0.2 and shows earlier
+interfaces: the upstream OmniRoute documentation screenshot shows v3.8.1, not a
+verified v3.8.53 runtime, and the genuine OMP 18.12.5 capture uses the former
+CruxOmni name. Neither proves the current release UI or operation eligibility.
+The [provenance record](brand/social-real-ui-provenance.json) identifies the source
+repositories, blobs, and caveats. Third-party interface rights remain with their
+owners; corporate copyright covers the composition, not those interfaces. Keep
+the applicable upstream and font notices with the underlying captures.
+
+To render a review copy, use `python3 scripts/export-media.py --social-real-ui-only`
+in an environment already providing Pillow, CairoSVG, and DejaVu Sans. This
+overwrites `brand/social-real-ui.png`; preserve the original if its exact PR bytes
+are needed. Rendering versions and fonts can change output pixels. The existing
+local exporter owns rendering; no automated write-enabled workflow or new
+self-hosted runner is required. The existing `brand/social.png` and GitHub
+social-preview setting are unchanged.
+
 ## Historical brand exports
 
 The `brand/` collection uses the current public display name **OMP OmniRoute
