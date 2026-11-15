@@ -1,16 +1,18 @@
 import { reviewedOpenApiAnnotation } from "./openapi-annotations.ts";
-import { readRouteSources } from "./route-source-store.ts";
+import { readRouteSources, verifyQualificationSource } from "./route-source-store.ts";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, extname, relative, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
 import * as ts from "typescript";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches, sourcePreflightViewMatches, sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { requiredOmaScope } from "../src/admin/authorization-policy.ts";
 import { sourceRequestValidatorBinding } from "../src/admin/source-validation.ts";
 import { isSecretOutputField } from "../src/admin/registry.ts";
 import { FAMILY_INGRESS_OPERATIONS, operationRequiresIngressEvidence } from "../src/admin/eligibility.ts";
+import { GITHUB_REPOSITORY } from "../src/identity.ts";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type RecordValue = Record<string, unknown>;
@@ -111,7 +113,7 @@ function resolveTestModule(specifier: string, fromFile: string): string | undefi
   return absolute;
 }
 
-export function testCaseSourceHash(testId: string): string {
+export function testCaseSourceHash(testId: string, unchangedSince?: string): string {
   const entry = resolve(packageRoot, testId);
   const normalized = relative(packageRoot, entry).split(sep).join("/");
   if (normalized !== testId || !testId.startsWith("test/") || !existsSync(entry) || !statSync(entry).isFile()) {
@@ -182,6 +184,13 @@ export function testCaseSourceHash(testId: string): string {
     if (existsSync(absolute) && statSync(absolute).isFile()) visit(absolute);
   }
   const ordered = [...receipts.values()].sort((left, right) => compareText(left.path, right.path));
+  if (unchangedSince !== undefined) {
+    if (!/^[a-f0-9]{40}$/.test(unchangedSince)) throw new Error("invalid test source revision");
+    const files = ordered.map(receipt => receipt.path);
+    const options = { cwd: packageRoot, encoding: "utf8" as const, timeout: 120_000, maxBuffer: 1024 * 1024 };
+    if (execFileSync("git", ["log", "--format=%H", `${unchangedSince}..HEAD`, "--", ...files], options).trim()) throw new Error("test source changed after native run");
+    execFileSync("git", ["diff", "--quiet", unchangedSince, "--", ...files], options);
+  }
   return sha256(canonicalJson(toJson(ordered, `test source closure ${testId}`)));
 }
 
@@ -1519,7 +1528,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
   const result = new Map<string, RecordValue>();
   for (const value of records) {
     const record = requireRecord(value, "eligibility record");
-    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence", "lifecycleEvidence", "effectEvidence"]);
+    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence", "lifecycleEvidence", "effectEvidence", "nativeEvidence"]);
     const operationId = requireString(record.operationId, "eligibility operationId");
     if (result.has(operationId)) throw new Error(`duplicate eligibility record ${operationId}`);
     if (record.status !== "verified") throw new Error(`eligibility entries must be verified or omitted: ${operationId}`);
@@ -1591,6 +1600,80 @@ function outcomeBindingFor(route: RecordValue, binding: EvidenceBinding): Operat
   };
 }
 
+/** Retained collector output is trusted only after an authorized signed review commit. */
+export function validateAcpNativeEvidence(value: unknown, binding: EvidenceBinding): void {
+  const label = "ACP native evidence";
+  const reference = requireRecord(value, label);
+  assertKeys(reference, label, ["artifact", "sha256"]);
+  const digest = requireString(reference.sha256, `${label}.sha256`);
+  const artifact = requireString(reference.artifact, `${label}.artifact`);
+  if (!/^[a-f0-9]{64}$/.test(digest) || artifact !== `provenance/qualification/native-acp-${digest}.json`) throw new Error(`${label} reference mismatch`);
+  const file = resolve(packageRoot, artifact);
+  const info = lstatSync(file);
+  if (!info.isFile() || info.isSymbolicLink() || info.size > 1024 * 1024 || !realpathSync(file).startsWith(`${realpathSync(packageRoot)}${sep}`)) throw new Error(`${label} invalid file`);
+  const bytes = readFileSync(file);
+  if (createHash("sha256").update(bytes).digest("hex") !== digest) throw new Error(`${label} digest mismatch`);
+  const proof = requireRecord(JSON.parse(bytes.toString("utf8")) as unknown, label);
+  assertKeys(proof, label, ["schemaVersion", "kind", "repository", "runId", "attempt", "sourceRevision", "inputs", "results"]);
+  if (proof.schemaVersion !== 1 || proof.kind !== "native-acp-actions-proof" || proof.repository !== GITHUB_REPOSITORY || typeof proof.runId !== "string" || !/^[1-9][0-9]{0,18}$/.test(proof.runId) || proof.attempt !== 1 || typeof proof.sourceRevision !== "string" || !/^[a-f0-9]{40}$/.test(proof.sourceRevision)) throw new Error(`${label} identity mismatch`);
+  const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  gitEnv.GIT_CONFIG_NOSYSTEM = "1";
+  gitEnv.GIT_CONFIG_GLOBAL = process.platform === "win32" ? "NUL" : "/dev/null";
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: packageRoot, env: gitEnv, encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+  const commits = git("rev-list", "--reverse", "HEAD", "--", artifact).trim().split("\n");
+  if (commits.length !== 1 || !/^[a-f0-9]{40}$/.test(commits[0]!)) throw new Error(`${label} must have one signed retention commit`);
+  const review = commits[0]!;
+  git("merge-base", "--is-ancestor", proof.sourceRevision, review);
+  if (!Buffer.from(git("show", `${review}:${artifact}`), "utf8").equals(bytes)) throw new Error(`${label} retained blob mismatch`);
+  const home = mkdtempSync(resolve(tmpdir(), "acp-review-"));
+  try {
+    const env = { ...gitEnv, GNUPGHOME: home };
+    execFileSync("gpg", ["--batch", "--no-options", "--import", resolve(packageRoot, ".github/crux-experts-release-signing-key.asc")], { env, stdio: "ignore", timeout: 120_000 });
+    for (const revision of [proof.sourceRevision, review]) {
+      const result = spawnSync("git", ["-c", "gpg.program=gpg", "verify-commit", "--raw", revision], { cwd: packageRoot, env, encoding: "utf8", timeout: 120_000, maxBuffer: 1024 * 1024 });
+      const signers = [...(result.stderr ?? "").matchAll(/^\[GNUPG:\] VALIDSIG ([A-F0-9]{40})\b/gm)];
+      if (result.status !== 0 || signers.length !== 1 || signers[0]![1] !== "AF7968466B5B39C5E928FEFE716342D3EFBA5522") throw new Error(`${label} signature verification failed`);
+    }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+  const hashFile = (path: string) => createHash("sha256").update(readFileSync(resolve(packageRoot, path))).digest("hex");
+  const inputs = requireRecord(proof.inputs, `${label}.inputs`);
+  if (!binding.databaseInitializationRequired || !binding.sourceDerivation || !binding.effectiveTreeSha256) throw new Error(`${label} requires derived database source`);
+  const verifiedSource = verifyQualificationSource(packageRoot);
+  if (canonicalJson(toJson(verifiedSource.derivation, label)) !== canonicalJson(toJson(binding.sourceDerivation, label)) || verifiedSource.treeSha256 !== binding.effectiveTreeSha256) throw new Error(`${label} effective source mismatch`);
+  const expected = { caseSha256: testCaseSourceHash("test/admin-acp-agents.test.ts", proof.sourceRevision), lockfileSha256: hashFile("bun.lock"), packageSha256: hashFile("package.json"), compilerPackageSha256: hashFile("node_modules/typescript/package.json"), compilerSha256: hashFile("node_modules/typescript/lib/typescript.js"), compilerVersion: ts.version, workflowSha256: hashFile(".github/workflows/windows-input-diagnostic.yml"), upstreamManifestSha256: hashFile("provenance/upstreams.json"), sourceManifestSha256: hashFile("provenance/route-sources.json"), fixtureSha256: hashFile("test/fixtures/acp-agents.fixture.ts"), testSha256: hashFile("test/admin-acp-agents.test.ts"), sourceDerivation: binding.sourceDerivation, effectiveTreeSha256: binding.effectiveTreeSha256 };
+  if (canonicalJson(toJson(inputs, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} current input mismatch`);
+  validateAcpNativeResults(proof.results);
+}
+
+/** Validate the collector's retained stage projection, independently of trust provenance. */
+export function validateAcpNativeResults(value: unknown): void {
+  const label = "ACP native evidence";
+  const results = requireArray(value, `${label}.results`);
+  if (results.length !== 2) throw new Error(`${label} requires both targets`);
+  const ids = new Set<number>();
+  for (const [index, target] of ["windows-x64", "windows-arm64"].entries()) {
+    const result = requireRecord(results[index], `${label}.${target}`);
+    assertKeys(result, label, ["target", "artifactId", "archiveSha256", "receiptSha256", "stageSha256", "stage"]);
+    if (result.target !== target || !Number.isSafeInteger(result.artifactId) || (result.artifactId as number) <= 0 || ids.has(result.artifactId as number) || [result.archiveSha256, result.receiptSha256, result.stageSha256].some(hash => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash))) throw new Error(`${label} target mismatch`);
+    ids.add(result.artifactId as number);
+    const expectedStage = { stage: "cleanup", category: "passed", recordCount: 3, outcomeCount: 3, environmentMatches: true, unknownEnvironmentCount: 0, sentinelAssertionPassed: true, outcomes: { success: { status: 0, code: "none", signal: "none", stdout: "success", error: "none" }, failure: { status: 17, code: "none", signal: "none", stdout: "failure", error: "other" }, stall: { status: null, code: "ETIMEDOUT", signal: "SIGKILL", stdout: "empty", error: "timeout" } } };
+    if (canonicalJson(toJson(result.stage, label)) !== canonicalJson(toJson(expectedStage, label))) throw new Error(`${label} stage mismatch`);
+  }
+}
+
+export function validateAcpContract(value: unknown): void {
+  const contract = requireRecord(value, "ACP contract");
+  const same = (actual: unknown, expected: unknown) => canonicalJson(toJson(actual, "ACP contract")) === canonicalJson(toJson(expected, "ACP contract"));
+  const auth = requireRecord(contract.auth, "ACP auth");
+  const confirmation = requireRecord(contract.confirmation, "ACP confirmation");
+  const safety = requireRecord(contract.mutationSafety, "ACP mutation safety");
+  const preflight = requireRecord(safety.preflight, "ACP preflight");
+  const response = requireRecord(contract.response, "ACP response");
+  const count = { type: "integer", minimum: 0 };
+  const view = { type: "object", properties: { agents: { type: "array", items: { type: "object", properties: { installed: { type: "boolean" }, isCustom: { type: "boolean" } }, required: ["installed", "isCustom"], additionalProperties: false } }, summary: { type: "object", properties: { total: count, installed: count, notFound: count, builtIn: count, custom: count }, required: ["total", "installed", "notFound", "builtIn", "custom"], additionalProperties: false } }, required: ["agents", "summary"], additionalProperties: false };
+  if (contract.sideEffect !== "lifecycle" || auth.domain !== "management" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: true, handlerGuard: "isAuthenticated", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }] }) || confirmation.required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || preflight.kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || !same(response.schema, view)) throw new Error("ACP source contract safety mismatch");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -1598,9 +1681,8 @@ function validateEligibility(
   binding: EvidenceBinding,
 ): boolean {
   if (!record) return false;
-  // The retained Linux-owned probes do not establish Windows executable effects.
-  // Do not admit a receipt until cross-platform process evidence has a verifier.
-  if (operationId === "GET /api/acp/agents") throw new Error(`eligibility requires verified cross-platform ACP process effects: ${operationId}`);
+  if (operationId === "GET /api/acp/agents") { validateAcpContract(record.contract); validateAcpNativeEvidence(record.nativeEvidence, binding); }
+  else if (record.nativeEvidence !== undefined) throw new Error(`native evidence is unsupported for ${operationId}`);
   if (binding.sideEffect === "unknown") throw new Error(`eligibility requires a source-qualified side-effect classification: ${operationId}`);
   const source = requireRecord(record.source, `${operationId}.eligibility.source`);
   if (record.status !== "verified"
@@ -2437,6 +2519,7 @@ function makeOperation(
       ...(operationRequiresIngressEvidence(operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
       ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/providers/deprecated" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
+      ...(operationId === "GET /api/acp/agents" ? { nativeEvidenceSha256: requireRecord(eligibilityRecord.nativeEvidence, `${operationId}.nativeEvidence`).sha256 } : {}),
     };
   }
   return effective;

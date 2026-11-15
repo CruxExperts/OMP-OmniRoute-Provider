@@ -544,10 +544,17 @@ The existing output directory must be private. The collector authenticates GitHu
 Actions metadata, requires both Windows architectures in the same successful
 first-attempt run, verifies artifact archive digests and source/test bindings,
 and writes a content-addressed proof for review without printing credentials or
-private paths. This proof is not release approval and does not unlock ACP
-qualification; the owned fixture does not establish confinement of arbitrary
-production executables. Historical native observations cannot substitute for
-evidence bound to the current source and test bytes.
+private paths. After review, retain those exact bytes as
+`provenance/qualification/native-acp-<sha256>.json` in a signed descendant
+commit. The ACP eligibility record must name it in `nativeEvidence` as
+`{ "artifact": "provenance/qualification/native-acp-<sha256>.json", "sha256": "<sha256>" }`.
+The generator verifies the signed producer and retention commits, ancestry,
+retained bytes, both target summaries and current tested input identities. The
+test source closure must not change after the native run, even temporarily.
+The proof is not release approval: separate current Linux ingress, handler and
+database lifecycle observations remain mandatory. The owned fixture does not
+establish confinement of arbitrary production executables. Historical native
+observations cannot substitute for evidence bound to current source and test bytes.
 
 The Windows parent smoke deadline is 55 minutes, covering the sequential setup,
 persisted inference, and administration allowances; other native targets retain

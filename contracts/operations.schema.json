@@ -1061,7 +1061,7 @@
       "required": ["operationId", "method", "pathTemplate", "request", "response", "mediaType", "auth", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "source", "specification", "reconciliation", "mutationSafety", "coverage"],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/providers/deprecated"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/providers/deprecated", "GET /api/acp/agents"] } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["ingressSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["ingressSha256"] } } } }
         },
@@ -1074,6 +1074,11 @@
           "if": { "properties": { "operationId": { "const": "GET /api/providers/deprecated" } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["effectSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["effectSha256"] } } } }
+        },
+        {
+          "if": { "properties": { "operationId": { "const": "GET /api/acp/agents" } }, "required": ["operationId"] },
+          "then": { "properties": { "qualification": { "required": ["nativeEvidenceSha256", "lifecycleSha256"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } } } },
+          "else": { "properties": { "qualification": { "not": { "required": ["nativeEvidenceSha256"] } } } }
         }
       ],
       "properties": {
@@ -1145,7 +1150,8 @@
             },
             "ingressSha256": {"$ref": "#/$defs/sha256"},
             "lifecycleSha256": {"$ref": "#/$defs/sha256"},
-            "effectSha256": {"$ref": "#/$defs/sha256"}
+            "effectSha256": {"$ref": "#/$defs/sha256"},
+            "nativeEvidenceSha256": {"$ref": "#/$defs/sha256"}
           }
         }
       }

@@ -1,7 +1,11 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
+import { canonicalizeJson } from "../src/admin/registry.ts";
+import { isVerifiedEligibility } from "../src/admin/eligibility.ts";
 import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
@@ -10,6 +14,19 @@ interface Agent extends CustomAgent { installed: boolean; version: string | null
 interface Body { agents: Agent[]; summary: { total: number; installed: number; notFound: number; builtIn: number; custom: number } }
 const custom = (id: string, binary: string, versionCommand: string): CustomAgent => ({
   id, name: id, binary, versionCommand, providerAlias: id, spawnArgs: [], protocol: "stdio",
+});
+const TEST_ID = "test/admin-acp-agents.test.ts";
+let sourceObservation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
+let lifecycleObserved = false;
+afterAll(async () => {
+  if (!sourceObservation || !lifecycleObserved) return;
+  const contract = acpAgentsGetContract();
+  const binding = operationEvidenceBinding(ACP_AGENTS_GET_ID, contract);
+  const caseSha256 = testCaseSourceHash(TEST_ID);
+  const artifactPath = outcomeArtifactPath(ACP_AGENTS_GET_ID);
+  await mkdir(path.resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+  await writeFile(path.resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: ACP_AGENTS_GET_ID, testId: TEST_ID, caseSha256, binding, observation: sourceObservation })}\n`, { mode: 0o600 });
+  testOutcomeHash(ACP_AGENTS_GET_ID, TEST_ID, caseSha256, binding, contract, artifactPath);
 });
 
 // These are direct-handler observations with in-memory settings and an intercepted
@@ -118,6 +135,21 @@ test("candidate projects only status counts, not executable-controlled strings o
   finally { executor.shutdown(); }
 });
 
+test("ACP synthetic receipt requires its matching native digest", () => {
+  const authority = fixtureRegistry([acpAgentsGetDescriptor()]);
+  const operation = authority.getOperation(ACP_AGENTS_GET_ID)!;
+  const item = authority.getEligibility(ACP_AGENTS_GET_ID);
+  const qualification = operation.qualification!;
+  const expected = { source: operation.source, qualification, binding: qualification.binding };
+  expect(isVerifiedEligibility(item, expected)).toBe(true);
+  const { nativeEvidenceSha256: _itemDigest, ...itemWithoutDigest } = item;
+  expect(isVerifiedEligibility(itemWithoutDigest, expected)).toBe(false);
+  expect(isVerifiedEligibility({ ...item, nativeEvidenceSha256: "1".repeat(64) }, expected)).toBe(false);
+  const { nativeEvidenceSha256: _receiptDigest, ...qualificationWithoutDigest } = qualification;
+  expect(isVerifiedEligibility(item, { ...expected, qualification: qualificationWithoutDigest })).toBe(false);
+  expect(isVerifiedEligibility(item, { ...expected, qualification: { ...qualification, nativeEvidenceSha256: "1".repeat(64) } })).toBe(false);
+});
+
 test("confirmed ACP probes return only projected status while their effects remain unknown", async () => {
   const fixture = new AcpAgentsFixture();
   fixture.settings.customAgents = [Object.assign(custom("private-agent", "fixture-extra", "fixture-extra --version"), { password: "private-password" })];
@@ -126,11 +158,14 @@ test("confirmed ACP probes return only projected status while their effects rema
   // Fixture descriptor is not release authority; execute the actual lifecycle policy.
   const descriptor = candidate;
   let calls = 0;
+  let responseStatus = 0;
+  const before = { settingsReads: fixture.settingsReads, probeCount: fixture.probes.length };
   const executor = createAdminExecutor({
     registry: fixtureRegistry([descriptor]),
     dispatch: async () => {
       calls += 1;
       const response = await fixture.get();
+      responseStatus = response.status;
       return { kind: "response", status: response.status, body: await response.json() };
     },
   });
@@ -146,6 +181,7 @@ test("confirmed ACP probes return only projected status while their effects rema
     expect(JSON.stringify(result)).not.toContain("fixture-extra");
     await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
     expect(calls).toBe(1);
+    sourceObservation = { before, after: { settingsReads: fixture.settingsReads, probeCount: fixture.probes.length, executorStatus: result.status, dispatchCount: calls }, result: { status: responseStatus, body: output } };
   } finally { executor.shutdown(); }
 });
 
@@ -168,6 +204,7 @@ test("ACP lifecycle preview never probes and expiry, rotation and cancellation p
     controller.abort();
     await expect(executor.apply(cancelled.planId, { confirmed: true, signal: controller.signal })).rejects.toThrow();
     expect(calls).toBe(0);
+    lifecycleObserved = true;
   } finally { executor.shutdown(); }
 });
 

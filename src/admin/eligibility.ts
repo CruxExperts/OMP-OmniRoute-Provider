@@ -41,6 +41,7 @@ export interface OperationQualificationReceipt {
   readonly ingressSha256?: string;
   readonly lifecycleSha256?: string;
   readonly effectSha256?: string;
+  readonly nativeEvidenceSha256?: string;
 }
 export type OperationSourceContract = Pick<OperationDescriptor,
   "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation"> &
@@ -58,6 +59,7 @@ export interface OperationEligibilityRecord {
   readonly ingressSha256?: string;
   readonly lifecycleSha256?: string;
   readonly effectSha256?: string;
+  readonly nativeEvidenceSha256?: string;
 }
 interface EligibilityDocument {
   readonly releaseCommit?: string;
@@ -146,6 +148,11 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     if (!databaseRequired || !record(effect) || Object.keys(effect).sort().join(",") !== "artifact,sha256" || !sha(effect.sha256, 64)
       || effect.artifact !== `provenance/qualification/deprecated-provider-sweep-${effect.sha256}.json`) return undefined;
   } else if (effect !== undefined) return undefined;
+  const native = value.nativeEvidence;
+  if (value.operationId === "GET /api/acp/agents") {
+    if (!databaseRequired || !record(native) || Object.keys(native).sort().join(",") !== "artifact,sha256" || !sha(native.sha256, 64)
+      || native.artifact !== `provenance/qualification/native-acp-${native.sha256}.json`) return undefined;
+  } else if (native !== undefined) return undefined;
   if (!Array.isArray(evidence) || evidence.length === 0 || evidence.some(item => !record(item) || typeof item.kind !== "string" || !item.kind || typeof item.detail !== "string" || !item.detail)) return undefined;
   return freeze({ operationId: value.operationId, status: "verified", reason: value.reason,
     source: { file: source.file, sha256: source.sha256, gitBlobSha: source.gitBlobSha },
@@ -156,6 +163,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     ...(record(ingress) ? { ingressSha256: ingress.sha256 as string } : {}),
     ...(record(lifecycle) ? { lifecycleSha256: lifecycle.sha256 as string } : {}),
     ...(record(effect) ? { effectSha256: effect.sha256 as string } : {}),
+    ...(record(native) ? { nativeEvidenceSha256: native.sha256 as string } : {}),
     evidence: evidence.map(item => ({ kind: String(item.kind), detail: String(item.detail) })) });
 }
 function loadDocument(): EligibilityDocument {
@@ -214,6 +222,9 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
   if (item.operationId === "GET /api/providers/deprecated") {
     if (!sha(item.effectSha256, 64) || item.effectSha256 !== qualification.effectSha256) return false;
   } else if (item.effectSha256 !== undefined || qualification.effectSha256 !== undefined) return false;
+  if (item.operationId === "GET /api/acp/agents") {
+    if (!binding.databaseInitializationRequired || !sha(item.nativeEvidenceSha256, 64) || item.nativeEvidenceSha256 !== qualification.nativeEvidenceSha256) return false;
+  } else if (item.nativeEvidenceSha256 !== undefined || qualification.nativeEvidenceSha256 !== undefined) return false;
   if (binding.sideEffect === "unknown" || item.binding.sideEffect !== binding.sideEffect) return false;
   for (const key of HASH_FIELDS) if (!sha(binding[key], 64) || item.binding[key] !== binding[key] || qualification.binding[key] !== binding[key]) return false;
   for (const candidate of [item.binding, qualification.binding]) {

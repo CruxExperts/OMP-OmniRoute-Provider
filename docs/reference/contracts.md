@@ -314,13 +314,17 @@ does not retain object header entries. These warm fixture observations do not co
 cold database initialization or migrations. Provider reads remain unqualified
 until their cold database lifecycle and the other required evidence are established.
 
-The ACP agents GET fixture executes pinned registry, manifest, route and direct
+The ACP agents GET candidate executes pinned registry, manifest, route and direct
 authentication logic with intercepted subprocesses and in-memory settings. It
-observes safe version-argument rejection, cache behavior and fixed error responses;
-raw successful custom definitions can still contain undeclared fields. It does
-not prove the central local-only ingress guard, actual executable isolation or
-production settings effects. This GET remains unqualified, not a pure read: it
-can update the process-local registry and launch version probes.
+observes version-argument rejection, cache behavior, fixed errors and a confirmed
+executor invocation with an unknown outcome. Its projected response contains only
+boolean agent status and aggregate counts. The operation is not a pure read: it
+can update the process-local registry and launch version probes, and requires
+local-only explicit enablement and human confirmation with no automatic replay.
+Qualification additionally requires independently reviewed Linux ingress, database
+lifecycle and signed-retained native Windows proof for both architectures. The
+owned process fixture does not confine arbitrary production executables; without
+all current evidence the operation remains unavailable.
 
 
 For `GET /api/health`, `GET /api/health/degradation`, the three agent-skills reads,

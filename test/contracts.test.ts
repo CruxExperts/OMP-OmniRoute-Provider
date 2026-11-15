@@ -17,6 +17,9 @@ import {
   validateHealthIngressEvidence,
   validateCoreLifecycleEvidence,
   validateCoreLifecycleObservation,
+  validateAcpContract,
+  validateAcpNativeEvidence,
+  validateAcpNativeResults,
 } from "../scripts/generate-contracts.ts";
 import { decodeRouteSources, resolveQualificationSource } from "../scripts/route-source-store.ts";
 import { validateReleaseSourceIdentity } from "../scripts/release-gate.ts";
@@ -29,12 +32,39 @@ import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
 import { agentSkillsContract, agentSkillsReadContract, SKILLS_DETAIL_ID, SKILLS_COVERAGE_ID } from "./fixtures/pinned-agent-skills.fixture.ts";
 import { reasoningRulesGetContract, REASONING_RULES_GET_ID } from "../src/admin/source-reasoning-rules.ts";
 import type { OperationSourceContract } from "../src/admin/eligibility.ts";
+import { acpAgentsGetContract } from "./fixtures/acp-agents.fixture.ts";
 import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
 
 test("cache metrics, ping and ACP require exact ingress evidence", () => {
   for (const id of ["GET /api/settings/cache-metrics", "DELETE /api/settings/cache-metrics", "GET /api/health/ping", "GET /api/acp/agents"]) expect(operationRequiresIngressEvidence(id)).toBe(true);
   for (const id of ["POST /api/settings/cache-metrics", "HEAD /api/health/ping", "POST /api/acp/agents"]) expect(operationRequiresIngressEvidence(id)).toBe(false);
 });
+test("ACP admission rejects missing native proof and weakened lifecycle contracts", () => {
+  const contract = acpAgentsGetContract();
+  expect(() => validateAcpContract(contract)).not.toThrow();
+  expect(() => validateAcpNativeEvidence(undefined, { sideEffect: "lifecycle" } as never)).toThrow();
+  expect(() => validateAcpNativeEvidence({ artifact: "provenance/qualification/native-acp-" + "a".repeat(64) + ".json", sha256: "b".repeat(64) }, { sideEffect: "lifecycle" } as never)).toThrow();
+  for (const changed of [
+    { ...contract, sideEffect: "read" },
+    { ...contract, confirmation: { ...contract.confirmation, required: false } },
+    { ...contract, retry: { allowed: true, maxAttempts: 2, statusCodes: [500] } },
+    { ...contract, mutationSafety: { ...contract.mutationSafety!, settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null } } },
+    { ...contract, auth: { ...contract.auth, sourcePolicy: { ...contract.auth.sourcePolicy, localOnly: false } } },
+  ]) expect(() => validateAcpContract(changed)).toThrow();
+});
+test("native ACP target projections reject missing, duplicated and altered stages", () => {
+  const stage = { stage: "cleanup", category: "passed", recordCount: 3, outcomeCount: 3, environmentMatches: true, unknownEnvironmentCount: 0, sentinelAssertionPassed: true, outcomes: { success: { status: 0, code: "none", signal: "none", stdout: "success", error: "none" }, failure: { status: 17, code: "none", signal: "none", stdout: "failure", error: "other" }, stall: { status: null, code: "ETIMEDOUT", signal: "SIGKILL", stdout: "empty", error: "timeout" } } };
+  const target = (name: string, artifactId: number) => ({ target: name, artifactId, archiveSha256: "a".repeat(64), receiptSha256: "b".repeat(64), stageSha256: "c".repeat(64), stage });
+  const results = [target("windows-x64", 1), target("windows-arm64", 2)];
+  expect(() => validateAcpNativeResults(results)).not.toThrow();
+  expect(() => validateAcpNativeResults(results.slice(0, 1))).toThrow();
+  expect(() => validateAcpNativeResults([results[0], { ...results[1], artifactId: 1 }])).toThrow();
+  expect(() => validateAcpNativeResults([results[0], { ...results[1], target: "windows-x64" }])).toThrow();
+  expect(() => validateAcpNativeResults([results[0], { ...results[1], stage: { ...stage, sentinelAssertionPassed: false } }])).toThrow();
+  expect(() => validateAcpNativeResults([results[0], { ...results[1], stage: { ...stage, outcomes: { ...stage.outcomes, stall: { ...stage.outcomes.stall, error: "none" } } } }])).toThrow();
+});
+
+
 
 test("derived lifecycle research joins independent identities and cold/warm observations", () => {
   const binding = { sourceDerivation: { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) }, effectiveTreeSha256: "b".repeat(64) };
