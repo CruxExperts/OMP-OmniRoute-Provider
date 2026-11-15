@@ -67,7 +67,8 @@ async function copyReviewed(root: string, paths: string[], destination: string, 
     if (headHash !== createHash("sha256").update(bytes).digest("hex")) throw new Error(`release input changed after clean-source review: ${path}`);
     if (!bytes.includes(0)) {
       const text = bytes.toString("utf8");
-      if (/\/(?:home|Users)\/[^\s"']+/.test(text) || /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text) || /\bsk-[A-Za-z0-9_-]{16,}\b/.test(text)) throw new Error(`public-content scan rejected ${path}`);
+      // Only a complete public route placeholder is exempt; suffix paths remain private.
+      if (/\/(?:Users\/[^\s"']+|home\/(?!(?::[A-Za-z_][A-Za-z0-9_]*[?*+]?|\*)(?=$|[\s"'`,;)\]}]))[^\s"']+)/.test(text) || /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/.test(text) || /\bsk-[A-Za-z0-9_-]{16,}\b/.test(text)) throw new Error(`public-content scan rejected ${path}`);
     }
     await mkdir(dirname(join(destination, path)), { recursive: true });
     await cp(source, join(destination, path), { dereference: false });

@@ -1189,6 +1189,34 @@ describe("release automation", () => {
     expect(planVersion(touchedRoot)).toMatchObject({ bump: "minor", excluded: { revert: 0 } });
   });
 
+  it("exports public route placeholders while rejecting private paths and credentials", async () => {
+    const root = await fixtureRepo();
+    const output = join(root, "release");
+    const path = "src/public-routes.ts";
+    const routes = "export const matchers = ['/home/:path*', '/home/:slug', '/home/*'];\n";
+    await put(root, path, routes);
+    unsignedCommit(root, "chore: public route fixture");
+    await exportFixture(root, output);
+    const archive = join(output, "OMP-OmniRoute-Provider-v0.1.1-source.tar.gz");
+    expect(execFileSync("tar", ["-xOzf", archive, `OMP-OmniRoute-Provider-0.1.1/${path}`], { encoding: "utf8" })).toBe(routes);
+
+    const rejected = [
+      ["", "home", "alice"].join("/"),
+      ["", "home", "alice", "file?download=1"].join("/"),
+      `?file=${["", "home", "alice%20smith", "file"].join("/")}`,
+      ["", "home", ":path*", "alice"].join("/"),
+      ["", "home", "*alice"].join("/"),
+      ["", "Users", "alice", "file"].join("/"),
+      ["-----BEGIN", "PRIVATE KEY-----"].join(" "),
+      ["sk", "abcdefghijklmnopqrstuvwxyz"].join("-"),
+    ];
+    for (const value of rejected) {
+      await put(root, path, `export const value = ${JSON.stringify(value)};\n`);
+      unsignedCommit(root, "chore: private content fixture");
+      await expect(exportFixture(root, output)).rejects.toThrow(`public-content scan rejected ${path}`);
+    }
+  });
+
   it("exports a reviewed source file larger than subprocess buffering limits without truncation", async () => {
     const root = await fixtureRepo();
     const content = Buffer.alloc(17 * 1024 * 1024, 120);
