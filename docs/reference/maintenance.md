@@ -126,6 +126,34 @@ source, artifacts, notes, checksums, and release receipt described in the
 [release guide](release.md), then obtain approval for that payload. A tag push alone
 does not publish. Reconcile any partial npm or GitHub publication before retrying.
 
+## OMP 18.20.2 compatibility review
+
+The disposable native smoke reported `verified` for the Linux x64 glibc OMP
+18.20.2 release asset, SHA-256
+`f34cfa57311ed67a45f01bb1a21519cad4d74875d181316f00fa0cd6a4abcaaa`,
+with host range `>=18.12.2 <19`. It installed the packed 1.0.5 package through
+a credential-free fixture registry; the package archive SHA-256 was
+`37ea3845a1b95583ca786c29ad40c7d4f358bce6e810d982d0fe4c2d01b9a4ef`.
+The run used candidate source HEAD `6fe7402` plus the then-current integrated
+working bytes, including the disposable setup version correction. It is not
+evidence for an exact final commit or archive; the final main candidate still
+requires CI and the applicable release qualification.
+
+The fixture observed guided setup and cancellation, masked input and persistence,
+streaming inference, tool continuation, rejection of an unavailable legacy
+cached model, and install, disable, enable, and uninstall lifecycle operations.
+The administration exercise was limited to the model-combo-mappings fixture;
+its two injected uncertain outcomes have unverified durability. The disposable
+profile uses the host's current setup version so the host's first-run wizard
+does not consume the provider's `/login` command. This does not qualify the
+host's first-run onboarding or other platforms and administration operations.
+
+The immutable source and SDK pins remain at 18.12.5 and the existing host
+matrix entries remain in place. The compatibility review binds this exact source
+pin and latest host to the tested release-asset record; a different latest or
+source binding remains a maintenance finding. The 18.16.0 advisory caveat below
+is not removed by this smoke, which makes no general safety claim.
+
 ## OMP 18.16.0 compatibility review
 
 The Linux x64 glibc release asset for OMP 18.16.0 passed the disposable native

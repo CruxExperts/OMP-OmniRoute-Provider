@@ -124,16 +124,24 @@ test("OmniRoute observations use the validated canonical repository while proven
 
 test("the reviewed OMP latest is suppressed only while the pin and tested release artifact agree", async () => {
   await withMaintenanceRoot(() => {}, async root => {
-    const result = await collectFindings(root, latestCollectors("v18.16.0"));
+    const result = await collectFindings(root, latestCollectors("v18.20.2"));
 
     expect(result.collectionErrors).toEqual([]);
     expect(result.findings.map(item => item.findingId)).not.toContain("upstream:omp");
   });
 });
 
+test("a different previously reviewed OMP latest is not suppressed", async () => {
+  await withMaintenanceRoot(() => {}, async root => {
+    const result = await collectFindings(root, latestCollectors("v18.16.0"));
+
+    expect(result.findings.map(item => item.findingId)).toContain("upstream:omp");
+  });
+});
+
 test("a release newer than the reviewed OMP compatibility still creates the stable finding", async () => {
   await withMaintenanceRoot(() => {}, async root => {
-    const result = await collectFindings(root, latestCollectors("v18.16.1"));
+    const result = await collectFindings(root, latestCollectors("v18.20.3"));
 
     expect(result.findings.map(item => item.findingId)).toContain("upstream:omp");
   });
@@ -155,7 +163,7 @@ test("a stale OMP source binding remains a finding even when Latest returns to t
 test("a missing local compatibility evidence file cannot suppress the OMP finding", async () => {
   await withMaintenanceRoot(() => {}, async root => {
     await rm(resolve(root, "docs/reference/maintenance.md"));
-    const result = await collectFindings(root, latestCollectors("v18.16.0"));
+    const result = await collectFindings(root, latestCollectors("v18.20.2"));
 
     expect(result.findings.map(item => item.findingId)).toContain("upstream:omp");
   });
@@ -167,7 +175,7 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
       name: "missing tested version",
       async apply(root: string) {
         await updateJson<{ omp: { compatibility: { tested: string[] } } }>(resolve(root, "package.json"), manifest => {
-          manifest.omp.compatibility.tested = manifest.omp.compatibility.tested.filter(version => version !== "18.16.0");
+          manifest.omp.compatibility.tested = manifest.omp.compatibility.tested.filter(version => version !== "18.20.2");
         });
       },
     },
@@ -175,7 +183,7 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
       name: "missing artifact",
       async apply(root: string) {
         await updateJson<{ artifacts: Array<Record<string, unknown>> }>(resolve(root, "provenance/release-artifacts.json"), manifest => {
-          manifest.artifacts = manifest.artifacts.filter(artifact => artifact.id !== "omp-linux-x64-18.16.0");
+          manifest.artifacts = manifest.artifacts.filter(artifact => artifact.id !== "omp-linux-x64-18.20.2");
         });
       },
     },
@@ -183,7 +191,7 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
       name: "duplicate artifact",
       async apply(root: string) {
         await updateJson<{ artifacts: Array<Record<string, unknown>> }>(resolve(root, "provenance/release-artifacts.json"), manifest => {
-          manifest.artifacts.push({ ...manifest.artifacts.find(artifact => artifact.id === "omp-linux-x64-18.16.0")! });
+          manifest.artifacts.push({ ...manifest.artifacts.find(artifact => artifact.id === "omp-linux-x64-18.20.2")! });
         });
       },
     },
@@ -191,7 +199,7 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
       name: "malformed digest",
       async apply(root: string) {
         await updateJson<{ artifacts: Array<Record<string, unknown>> }>(resolve(root, "provenance/release-artifacts.json"), manifest => {
-          manifest.artifacts.find(artifact => artifact.id === "omp-linux-x64-18.16.0")!.sha256 = "not-a-sha256";
+          manifest.artifacts.find(artifact => artifact.id === "omp-linux-x64-18.20.2")!.sha256 = "not-a-sha256";
         });
       },
     },
@@ -199,7 +207,7 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
       name: "malformed URL",
       async apply(root: string) {
         await updateJson<{ artifacts: Array<Record<string, unknown>> }>(resolve(root, "provenance/release-artifacts.json"), manifest => {
-          manifest.artifacts.find(artifact => artifact.id === "omp-linux-x64-18.16.0")!.url = "https://example.invalid/omp-linux-x64";
+          manifest.artifacts.find(artifact => artifact.id === "omp-linux-x64-18.20.2")!.url = "https://example.invalid/omp-linux-x64";
         });
       },
     },
@@ -224,7 +232,7 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
   for (const invalid of invalidEvidence) {
     await withMaintenanceRoot(() => {}, async root => {
       await invalid.apply(root);
-      const result = await collectFindings(root, latestCollectors("v18.16.0"));
+      const result = await collectFindings(root, latestCollectors("v18.20.2"));
       expect(result.findings.map(item => item.findingId)).toContain("upstream:omp");
     });
   }
@@ -235,7 +243,7 @@ test("one upstream failure keeps documentation and independent issue observation
   const result = await collectFindings(resolve(import.meta.dir, ".."), {
     async releaseTag(repository) {
       if (repository === "cheaper-inference/OmniRoute") throw new Error("private response body");
-      return "v18.16.0";
+      return "v18.20.2";
     },
     async checkGeneratedDocs() { docsChecked = true; throw new Error("private diagnostics"); },
   });
