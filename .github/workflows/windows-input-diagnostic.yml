@@ -219,12 +219,12 @@ jobs:
             const [, mode, expectedBlob, file] = match;
             if (file.startsWith("assets/")) continue;
             if (!(/\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|json|py|yml|yaml)$/.test(file) || file === "bun.lock" || file === ".gitattributes" || file === ".github/crux-experts-release-signing-key.asc" || file.startsWith("provenance/derivations/"))) continue;
-            if (mode === "120000" || file.startsWith("-") || file.includes("\\") || file.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid tracked source path");
+            if (mode === "120000" || file.length > 200 || !/^[A-Za-z0-9._/-]+$/.test(file) || file.startsWith("-") || file.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid tracked source path");
             const info = lstatSync(file);
             if (!info.isFile() || info.isSymbolicLink() || info.size > 64 * 1024 * 1024 || (total += info.size) > 512 * 1024 * 1024) throw new Error("Invalid tracked source file");
             const bytes = readFileSync(file);
             const actualBlob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-            if (actualBlob !== expectedBlob) throw new Error("Tracked source checkout differs from Git blob");
+            if (actualBlob !== expectedBlob) throw new Error(`Tracked source checkout differs from Git blob: ${file}`);
           }
           const verified = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/acp-verified-source.private.json", "utf8"));
           const sha = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);

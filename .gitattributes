@@ -2,6 +2,7 @@
 assets/native/**/terminal-transcript.txt -whitespace
 assets/native/**/third-party-notices.txt -whitespace
 # Source and workflow evidence must use identical checkout bytes on every host.
+.gitattributes text eol=lf
 *.ts text eol=lf
 *.tsx text eol=lf
 *.js text eol=lf
