@@ -7,6 +7,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Preserve exact provenance bytes on Windows checkouts and isolate signature
   verification from platform-specific absolute-path handling. Signature failures
   expose only bounded diagnostic categories, never local paths or raw key output.
+- Exercise fixed owned ACP probes on native Windows runners using validated
+  runner storage and a closed child environment. Keep bounded diagnostics
+  separate from operation qualification; arbitrary executable isolation and the
+  production outer shell environment are not established by these fixtures.
 
 - Qualify both public agent-discovery card GETs with actual anonymous Next.js
   requests outside the pinned proxy matcher, distinct source handlers and cache

@@ -211,7 +211,7 @@ test.skipIf(process.platform !== "win32")("owned Windows fixture rejects an unsa
 // and neither real ingress nor the production authorization policy is established.
 type AcpProcessObservation = { status: number | null; code: string; signal: string; stdout: string; error: string };
 type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string; tempForbiddenCodes?: number[]; parentForbiddenCodes?: number[];
-  environment?: { supplied: Record<string, { present: boolean; matches: boolean }>; extras: Record<string, boolean>; unknownCount: number; duplicateCount: number; unknownPrefixes: Record<string, number>; unknownLengths: number[]; unknownHasNonIdentifier: boolean };
+  environment?: { supplied: Record<string, { present: boolean; matches: boolean }>; extras: Record<string, boolean>; unknownCount: number; duplicateCount: number; unknownPrefixes: Record<string, number>; unknownLengths: number[]; unknownHasNonIdentifier: boolean; processorArchitecture: "ARM64" | "AMD64" | "absent" | "other" };
   processes?: { recordCount: number | null; outcomeCount: number; probeCount: number; successProbeCount: number; normalizedProbeCount: number; caseInsensitiveProbeCount: number; successPathShellSafe: boolean; successPreflight: string; sourceProbes: { success: AcpProbeInspection | null; failure: AcpProbeInspection | null; stall: AcpProbeInspection | null }; sourceShell: boolean | null; rejections: Record<string, number>; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
 let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
 function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
@@ -365,6 +365,7 @@ async function runOwnedProcessCase(): Promise<void> {
         delete expectedEnv.PATH;
         expectedEnv.SystemRoot = process.env.SystemRoot!;
         expectedEnv.ComSpec = process.env.ComSpec!;
+        if (process.arch === "arm64") expectedEnv.PROCESSOR_ARCHITECTURE = "ARM64";
       }
       if (windows) {
         const entries = Object.entries(record.env).map(([key, value]) => [key.toUpperCase(), value] as const);
@@ -373,6 +374,7 @@ async function runOwnedProcessCase(): Promise<void> {
         const extraNames = ["PATHEXT", "COMSPEC", "SYSTEMROOT", "TEMP", "TMP", "PROMPT", "SYSTEMDRIVE", "WINDIR", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "BUN_JSC_FORCERAMSIZE", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "__COMPAT_LAYER"];
         const unknown = entries.map(([key]) => key).filter(key => !Object.hasOwn(normalizedExpected, key) && !extraNames.includes(key));
         const prefixes = ["BUN_", "JSC_", "OMP_", "ACP_", "PROCESSOR_", "NODE_", "NPM_", "CI_", "GITHUB_", "RUNNER_", "__"];
+        const architecture = actualEnv.PROCESSOR_ARCHITECTURE;
         acpObservation.environment = {
           supplied: Object.fromEntries(Object.entries(normalizedExpected).map(([key, value]) => [key, { present: Object.hasOwn(actualEnv, key), matches: actualEnv[key] === value }])),
           extras: Object.fromEntries(extraNames.map(key => [key, Object.hasOwn(actualEnv, key) && !Object.hasOwn(normalizedExpected, key)])),
@@ -380,6 +382,7 @@ async function runOwnedProcessCase(): Promise<void> {
           unknownPrefixes: Object.fromEntries(prefixes.map(prefix => [prefix, Math.min(unknown.filter(key => key.startsWith(prefix)).length, 1000)])),
           unknownLengths: unknown.slice(0, 16).map(key => Math.min(key.length, 256)).sort((a, b) => a - b),
           unknownHasNonIdentifier: unknown.some(key => !/^[A-Z0-9_]+$/.test(key)),
+          processorArchitecture: architecture === "ARM64" || architecture === "AMD64" ? architecture : architecture === undefined ? "absent" : "other",
           duplicateCount: Math.min(entries.length - Object.keys(actualEnv).length, 1000),
         };
         acpStage("record-environment");
