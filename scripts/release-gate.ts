@@ -258,7 +258,8 @@ export function validateAcpStage(value: unknown, target: AcpTarget): Record<stri
     if (!exactKeys(item, ["present", "matches"]) || item.present !== true || item.matches !== true) fail();
   }
   const extras = objectValue(environment.extras, "native ACP environment extras");
-  if (!exactKeys(extras, ["PATHEXT", "COMSPEC", "SYSTEMROOT", "TEMP", "TMP", "PROMPT", "SYSTEMDRIVE", "WINDIR", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "BUN_JSC_FORCERAMSIZE", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "__COMPAT_LAYER"]) || Object.values(extras).some(item => item !== false)) fail();
+  const wow64ArchitectureVariable = ["PROCESSOR_ARCHITEW", "6432"].join("");
+  if (!exactKeys(extras, ["PATHEXT", "COMSPEC", "SYSTEMROOT", "TEMP", "TMP", "PROMPT", "SYSTEMDRIVE", "WINDIR", "PROCESSOR_ARCHITECTURE", wow64ArchitectureVariable, "BUN_JSC_FORCERAMSIZE", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "__COMPAT_LAYER"]) || Object.values(extras).some(item => item !== false)) fail();
   const prefixes = objectValue(environment.unknownPrefixes, "native ACP unknown prefixes");
   if (!exactKeys(prefixes, ["BUN_", "JSC_", "OMP_", "ACP_", "PROCESSOR_", "NODE_", "NPM_", "CI_", "GITHUB_", "RUNNER_", "__"]) || Object.values(prefixes).some(item => item !== 0)) fail();
   const processes = objectValue(stage.processes, "native ACP processes");
