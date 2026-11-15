@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Recover a validated pending native connection after restart only when OMP's
+  selected credential passes the protected endpoint check and live catalog
+  discovery; otherwise keep models unavailable and direct the user to sign in.
+
 - Align scoped authorization with the pinned 3.8.53 key, reveal, and settings
   policy. Exercise key and proxy lifecycles with private target bindings, exact
   complete-list proofs, cancellation, credential rotation, and no replay after
