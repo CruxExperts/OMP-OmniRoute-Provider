@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { operationContractTemplate } from "../../scripts/generate-contracts.ts";
 import type { OperationSourceContract } from "../../src/admin/eligibility.ts";
@@ -6,7 +7,7 @@ import { canonicalizeJson, getOperation, type JsonSchema, type OperationAdapter,
 import type { JsonObject, JsonValue } from "../../src/admin/types.ts";
 import { fixtureRegistry } from "./admin-qualification.fixture.ts";
 import { FALLBACK_CHAIN_DELETE, FALLBACK_CHAIN_GET, FALLBACK_CHAIN_POST, type FallbackChainMutationOperation } from "../../src/admin/source-fallback-chains.ts";
-import { createPinnedManagementAuthorization, loadExtractedPinnedDeclarations, loadPinnedAccessTokenAuth, loadPinnedModule } from "./pinned-handler.fixture.ts";
+import { createPinnedManagementAuthorization, loadExtractedPinnedDeclarations, loadPinnedAccessTokenAuth, loadPinnedModule, readPinnedSource } from "./pinned-handler.fixture.ts";
 import type { ManagementAuthFixture } from "./management-auth.fixture.ts";
 
 export { FALLBACK_CHAIN_DELETE, FALLBACK_CHAIN_GET, FALLBACK_CHAIN_POST };
@@ -276,7 +277,7 @@ function createSourceContract(operationId: FallbackChainOperationId): OperationS
     auth: operationAuth(base.auth, operationId),
     sideEffect: "mutation",
     streaming: { mode: "json", framing: "application/json" },
-    confirmation: { required: true, reason: "Human confirmation is required before replacing or removing a model-keyed fallback chain." },
+    confirmation: { required: true, reason: "Human confirmation is required before replacing or removing a model-keyed fallback chain. An initial database read failure is swallowed and cached as an empty runtime map, so apparent absence does not prove persisted absence." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] },
     response: responseContract(base.response, operationId === FALLBACK_CHAIN_POST ? POST_SUCCESS_SCHEMA : DELETE_SUCCESS_SCHEMA),
     reconciliation: reconciliation(operationId),
@@ -284,6 +285,7 @@ function createSourceContract(operationId: FallbackChainOperationId): OperationS
       preflight: {
         kind: "required",
         visibilityLimits: [
+          "An initial database load failure is swallowed and cached as an empty runtime map; an absent entry does not prove persisted absence.",
           "The server exposes its in-memory fallback map. This read cannot reveal direct database writes or another process's map, or prove persistence.",
           "The server can silently fail persistence after changing its runtime map. Even a normal success reply leaves this mutation outcome unknown; it will not be replayed automatically.",
           "Another client can change the selected chain after the final read; the server provides no atomic conditional write.",
@@ -332,10 +334,6 @@ export interface FallbackChainsHttpFixtureOptions {
   readonly dashboardCookies?: readonly string[];
 }
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
 function json(value: unknown, status = 200): Response {
   return Response.json(value, { status });
 }
@@ -368,7 +366,8 @@ export class FallbackChainsHttpFixture {
   readonly #loopbackCliToken: string | undefined;
   readonly #dashboardCookies: ReadonlySet<string>;
   readonly #authorization: ReturnType<typeof createPinnedManagementAuthorization>;
-  readonly #durable = new Map<string, unknown>();
+  readonly #database = new Database(":memory:");
+  readonly #domainState: Record<string, unknown>;
   readonly #policy: PinnedFallbackPolicy;
   #readRuntime: () => Record<string, unknown> = () => ({});
   readonly #handlers: Record<string, (request: Request) => Response | Promise<Response>>;
@@ -384,7 +383,18 @@ export class FallbackChainsHttpFixture {
   #loadCount = 0;
 
   constructor(options: FallbackChainsHttpFixtureOptions) {
-    for (const [model, chain] of Object.entries(options.persisted ?? {})) this.#durable.set(model, clone(chain));
+    const core = readPinnedSource("src/lib/db/core.ts");
+    for (const table of ["key_value", "domain_fallback_chains"]) {
+      const schema = new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\s*\\([\\s\\S]*?\\n\\s*\\);`, "i").exec(core)?.[0];
+      if (!schema) throw new Error(`Receipt-verified core schema omitted ${table}`);
+      this.#database.exec(schema);
+    }
+    const insert = this.#database.prepare("INSERT INTO domain_fallback_chains (model, chain) VALUES (?, ?)");
+    for (const [model, chain] of Object.entries(options.persisted ?? {})) insert.run(model, JSON.stringify(chain));
+    this.#domainState = loadPinnedModule("src/lib/db/domainState.ts", specifier => {
+      if (specifier === "./core") return { getDbInstance: () => this.#database };
+      throw new Error(`Unapproved pinned domain-state import: ${specifier}`);
+    });
     this.#auth = options.auth;
     this.#accessTokens = new Map((options.accessTokens ?? []).map(record => [record.secret, { id: record.id, name: record.name, scope: record.scope }]));
     this.#apiKeys = new Map(Object.entries(options.apiKeys ?? {}));
@@ -426,11 +436,12 @@ export class FallbackChainsHttpFixture {
 
   get state(): FallbackChainFixtureState {
     const runtime = this.#readRuntime();
-    return { runtime: safePublicMap(new Map(Object.entries(runtime))), durable: safePublicMap(this.#durable) };
+    return { runtime: safePublicMap(new Map(Object.entries(runtime))), durable: safePublicMap(new Map(Object.entries(this.durableSnapshot))) };
   }
 
   get durableSnapshot(): Readonly<Record<string, unknown>> {
-    return Object.fromEntries([...this.#durable.entries()].map(([model, value]) => [model, clone(value)]));
+    const rows = this.#database.prepare("SELECT model, chain FROM domain_fallback_chains ORDER BY model").all() as { model: string; chain: string }[];
+    return Object.fromEntries(rows.map(row => [row.model, JSON.parse(row.chain) as unknown]));
   }
 
   failNextRoute(method: "GET" | "POST" | "DELETE"): void {
@@ -451,6 +462,7 @@ export class FallbackChainsHttpFixture {
 
   async close(): Promise<void> {
     this.#server.stop(true);
+    this.#database.close();
   }
 
   #consumeHandlerFailure(method: string): boolean {
@@ -465,7 +477,9 @@ export class FallbackChainsHttpFixture {
       this.#failNextLoad = false;
       throw new Error("fixture database read failed");
     }
-    return Object.fromEntries([...this.#durable.entries()].map(([model, chain]) => [model, clone(chain)]));
+    const load = this.#domainState.loadAllFallbackChains;
+    if (typeof load !== "function") throw new Error("Pinned domain state omitted loadAllFallbackChains");
+    return load() as Record<string, unknown>;
   }
 
   #saveFallbackChain(model: string, chain: readonly unknown[]): void {
@@ -474,7 +488,9 @@ export class FallbackChainsHttpFixture {
       this.#failNextSave = false;
       throw new Error("fixture database write failed");
     }
-    this.#durable.set(model, clone(chain));
+    const save = this.#domainState.saveFallbackChain;
+    if (typeof save !== "function") throw new Error("Pinned domain state omitted saveFallbackChain");
+    save(model, chain);
   }
 
   #deleteFallbackChain(model: string): boolean {
@@ -483,9 +499,9 @@ export class FallbackChainsHttpFixture {
       this.#failNextDelete = false;
       throw new Error("fixture database delete failed");
     }
-    const removed = this.#durable.has(model);
-    this.#durable.delete(model);
-    return removed;
+    const remove = this.#domainState.deleteFallbackChain;
+    if (typeof remove !== "function") throw new Error("Pinned domain state omitted deleteFallbackChain");
+    return remove(model) as boolean;
   }
 
   #createPinnedPolicy(): PinnedFallbackPolicy {
@@ -493,8 +509,8 @@ export class FallbackChainsHttpFixture {
       loadAllFallbackChains: () => this.#loadAllFallbackChains(),
       saveFallbackChain: (model: string, chain: readonly unknown[]) => this.#saveFallbackChain(model, chain),
       deleteFallbackChain: (model: string) => this.#deleteFallbackChain(model),
-      loadFallbackChain: () => null,
-      deleteAllFallbackChains: () => { this.#durable.clear(); },
+      loadFallbackChain: this.#domainState.loadFallbackChain,
+      deleteAllFallbackChains: this.#domainState.deleteAllFallbackChains,
     };
     const policy = loadPinnedModule("src/domain/fallbackPolicy.ts", specifier => {
       if (specifier === "../lib/db/domainState") return domainState;

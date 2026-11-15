@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
 import { canonicalizeJson } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
-import { createPinnedSettingsFixture } from "./fixtures/pinned-settings.fixture.ts";
-import { SETTINGS_GET_ID, settingsGetContract, settingsGetDescriptor } from "./fixtures/settings.fixture.ts";
+import { createPinnedReasoningRulesFixture, createPinnedSettingsFixture } from "./fixtures/pinned-settings.fixture.ts";
+import { REASONING_RULES_GET_ID, reasoningRulesGetContract, reasoningRulesGetDescriptor, SETTINGS_GET_ID, settingsGetContract, settingsGetDescriptor } from "./fixtures/settings.fixture.ts";
 
 const testId = "test/admin-settings-source.test.ts";
 const cases = new Set<string>();
@@ -120,5 +120,83 @@ test("headless first settings GET persists onboarding state and cannot be an ord
     expect(body.setupComplete).toBe(true);
     expect(body.requireLogin).toBe(true);
     cases.add("initial-password-write");
+  } finally { fixture.close(); }
+});
+
+const reasoningCases = new Set<string>();
+let reasoningObservation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
+afterAll(async () => {
+  if (!reasoningObservation || !["read", "authorization", "cache", "failure"].every(item => reasoningCases.has(item))) return;
+  const contract = reasoningRulesGetContract();
+  const binding = operationEvidenceBinding(REASONING_RULES_GET_ID, contract);
+  const caseSha256 = testCaseSourceHash(testId);
+  const artifactPath = outcomeArtifactPath(REASONING_RULES_GET_ID);
+  await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+  await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: REASONING_RULES_GET_ID, testId, caseSha256, binding, observation: reasoningObservation })}\n`, { mode: 0o600 });
+  testOutcomeHash(REASONING_RULES_GET_ID, testId, caseSha256, binding, contract, artifactPath);
+});
+
+test("reasoning rules GET reads and orders persisted rules without changing SQLite", async () => {
+  const fixture = createPinnedReasoningRulesFixture();
+  try {
+    fixture.db.exec(`INSERT INTO reasoning_routing_rules (id, name, scope, priority, request_tags, created_at, updated_at)
+      VALUES ('low', 'Low', 'global', 1, '[" Test ","test","",3]', '2026-01-01', '2026-01-01'),
+             ('high', 'High', 'global', 9, '[]', '2026-01-02', '2026-01-02')`);
+    const before = fixture.db.query("SELECT * FROM reasoning_routing_rules ORDER BY id").all();
+    const response = await fixture.handle("oma_fixture-read");
+    expect(response.status).toBe(200);
+    const body = await response.json() as { rules: Array<Record<string, unknown>> };
+    expect(body.rules.map(rule => rule.id)).toEqual(["high", "low"]);
+    expect(body.rules[1]).toMatchObject({ name: "Low", enabled: true, requestTags: ["test"], scope: "global", targetModel: null, budgetTokens: null });
+    const after = fixture.db.query("SELECT * FROM reasoning_routing_rules ORDER BY id").all();
+    expect(after).toEqual(before);
+    const adapter = fixtureRegistry([reasoningRulesGetDescriptor()]).require(REASONING_RULES_GET_ID);
+    const projected = adapter.project(body) as { rules: Array<Record<string, unknown>> };
+    expect(projected.rules.map(rule => rule.id)).toEqual(["high", "low"]);
+    expect(projected.rules[1]).toMatchObject({ name: "Low", enabled: true, requestTags: ["test"], scope: "global", targetModel: null });
+    for (const rule of projected.rules) {
+      expect(rule).not.toHaveProperty("apiKeyId");
+      expect(rule).not.toHaveProperty("budgetTokens");
+    }
+    const withSensitiveFields = { rules: body.rules.map(rule => ({ ...rule, apiKeyId: "fixture-key-id", budgetTokens: 1234 })) };
+    const sensitiveProjection = adapter.project(withSensitiveFields) as { rules: Array<Record<string, unknown>> };
+    for (const rule of sensitiveProjection.rules) {
+      expect(rule).not.toHaveProperty("apiKeyId");
+      expect(rule).not.toHaveProperty("budgetTokens");
+    }
+    expect(() => adapter.project({ rules: [{ ...body.rules[0], password: "fixture-secret" }] })).toThrow();
+    expect(() => adapter.project({ rules: [{ id: "incomplete" }] })).toThrow();
+    const state = { ruleIds: (before as Array<{ id: string }>).map(rule => rule.id) };
+    reasoningObservation = { before: state, after: { ruleIds: (after as Array<{ id: string }>).map(rule => rule.id) }, result: { status: response.status, body: projected } };
+    reasoningCases.add("read");
+  } finally { fixture.close(); }
+});
+
+test("reasoning rules read enforces management authorization and bounded input", async () => {
+  const fixture = createPinnedReasoningRulesFixture();
+  try {
+    const adapter = fixtureRegistry([reasoningRulesGetDescriptor()]).require(REASONING_RULES_GET_ID);
+    expect(adapter.validate({})).toEqual({ path: {}, query: {} });
+    expect(() => adapter.validate({ query: { extra: "x" } })).toThrow();
+    expect(() => adapter.validate({ body: {} })).toThrow();
+    for (const token of [undefined, "invalid", "fixture-unscoped"]) expect([401, 403]).toContain((await fixture.handle(token)).status);
+    for (const token of ["oma_fixture-read", "fixture-manage", "fixture-session"]) expect((await fixture.handle(token)).status).toBe(200);
+    reasoningCases.add("authorization");
+  } finally { fixture.close(); }
+});
+
+test("reasoning rules cache can be stale until invalidated and store errors escape the handler", async () => {
+  const fixture = createPinnedReasoningRulesFixture();
+  try {
+    expect(await (await fixture.handle("fixture-manage")).json()).toEqual({ rules: [] });
+    fixture.db.exec("INSERT INTO reasoning_routing_rules (id, name, scope, created_at, updated_at) VALUES ('one', 'One', 'global', '2026-01-01', '2026-01-01')");
+    expect(await (await fixture.handle("fixture-manage")).json()).toEqual({ rules: [] });
+    fixture.invalidate();
+    expect((await (await fixture.handle("fixture-manage")).json() as { rules: unknown[] }).rules).toHaveLength(1);
+    reasoningCases.add("cache");
+    fixture.invalidate();
+    fixture.setFailure(true);
+    await expect(fixture.handle("fixture-manage")).rejects.toThrow("fixture-private-database-error");
+    reasoningCases.add("failure");
   } finally { fixture.close(); }
 });
