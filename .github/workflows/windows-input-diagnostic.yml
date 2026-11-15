@@ -15,6 +15,10 @@ on:
         description: Run only the native owned ACP fixture on both Windows architectures
         type: boolean
         default: false
+      acp_arm_only:
+        description: Limit native ACP diagnostic to Windows ARM64
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -181,11 +185,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - id: windows-x64
-            runner: windows-2025
-          - id: windows-arm64
-            runner: windows-11-arm
+        include: ${{ fromJSON(inputs.acp_arm_only && '[{"id":"windows-arm64","runner":"windows-11-arm"}]' || '[{"id":"windows-x64","runner":"windows-2025"},{"id":"windows-arm64","runner":"windows-11-arm"}]') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     steps:
