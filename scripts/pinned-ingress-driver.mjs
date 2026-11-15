@@ -49,7 +49,7 @@ async function request(path, method = 'GET', headers = {}) {
   const text = Buffer.concat(chunks).toString('utf8');
   let body;
   try { body = JSON.parse(text); } catch { body = null; }
-  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), cacheControl: response.headers.get('cache-control'), contentType: response.headers.get('content-type'), contentLength: response.headers.get('content-length'), text, body };
+  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), requestId: response.headers.get('x-request-id'), cacheControl: response.headers.get('cache-control'), contentType: response.headers.get('content-type'), contentLength: response.headers.get('content-length'), text, body };
 }
 async function transition(path, status) {
   const deadline = Date.now() + 10000;
@@ -77,6 +77,19 @@ try {
   assert(Array.isArray(matchers) && matchers.length > 0 && matchers.every(entry => typeof entry.regexp === 'string'), 'proxy-matchers-present');
   const livenessMatcherMatched = matchers.some(entry => new RegExp(entry.regexp).test('/livez'));
   assert(!livenessMatcherMatched, 'livez-proxy-matcher');
+  const wellKnown = [];
+  for (const path of ['/.well-known/agent-card.json', '/.well-known/agent.json']) {
+    const matcherMatched = matchers.some(entry => new RegExp(entry.regexp).test(path));
+    const response = await request(path);
+    const v1 = path.endsWith('agent-card.json');
+    assert(!matcherMatched && response.status === 200 && response.contentType === 'application/json' && response.cacheControl === 'public, max-age=3600' && response.routeClass === null && response.requestId === null, `well-known-ingress:${path}`);
+    assert(response.body?.name === 'OmniRoute AI Gateway', `well-known-name:${path}`);
+    assert(response.body?.url === `http://localhost:${port}/a2a`, `well-known-url:${path}`);
+    assert(response.body?.version === '3.8.53', `well-known-version:${path}:${response.body?.version}`);
+    assert(response.body?.skills?.length === 6, `well-known-skills:${path}:${response.body?.skills?.length}`);
+    assert(Boolean(response.body?.[v1 ? 'supportedInterfaces' : 'authentication']) && !response.body?.[v1 ? 'authentication' : 'supportedInterfaces'], `well-known-envelope:${path}`);
+    wellKnown.push({ path, matcherMatched, response });
+  }
   const liveInvalid = ['oma', 'live', 'unknownfixture'].join('_');
   const liveness = {};
   for (const [name, headers] of [['anonymous', {}], ['invalidCredential', { authorization: `Bearer ${liveInvalid}` }], ['session', { cookie }]]) {
@@ -252,7 +265,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, wellKnown }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   db.close();
   await stop();

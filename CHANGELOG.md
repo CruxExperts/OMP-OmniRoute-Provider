@@ -4,6 +4,11 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Qualify both public agent-discovery card GETs with actual anonymous Next.js
+  requests outside the pinned proxy matcher, distinct source handlers and cache
+  headers. Keep the client view filtered and distinguish advertised protocol
+  security from inbound authorization.
+
 - Qualify the filtered reasoning-routing-rules read against actual handler,
   framework authentication and empty HTTP 500 behavior, plus independent database
   lifecycle evidence. Preserve cache-staleness and filtered-output limitations.

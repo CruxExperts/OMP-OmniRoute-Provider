@@ -30,8 +30,8 @@ Qualified means the inventory marks an operation invokable. It does not establis
 
 | Route family | Qualified | Unqualified | Source exceptions |
 | --- | ---: | ---: | ---: |
-| .well-known/agent-card.json | 0 | 1 | 0 |
-| .well-known/agent.json | 0 | 1 | 0 |
+| .well-known/agent-card.json | 1 | 0 | 0 |
+| .well-known/agent.json | 1 | 0 | 0 |
 | a2a | 0 | 2 | 0 |
 | api/{omnirouteApiCatchAll} | 0 | 0 | 7 |
 | api/a2a | 0 | 6 | 0 |

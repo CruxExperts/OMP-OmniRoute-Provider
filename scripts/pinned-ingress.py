@@ -387,6 +387,7 @@ def disk_usage(root):
 
 
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
+ROUTES += ('src/app/.well-known/agent-card.json/route.ts', 'src/app/.well-known/agent.json/route.ts', 'src/lib/a2a/agentCardMetadata.ts', 'src/lib/conductor/fleetSkills.ts', 'src/lib/wellKnown.ts', 'src/shared/constants/appConfig.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
@@ -1485,6 +1486,22 @@ def export_observations(output, hashes):
     expected_live_head = {**expected_live, 'body': ''}
     require(set(ingress['livenessHead']) == {'anonymous', 'invalidCredential', 'session'}, 'liveness HEAD cases mismatch')
     require(all(ingress['livenessHead'][name] == expected_live_head for name in ('anonymous', 'invalidCredential', 'session')), 'liveness HEAD response mismatch')
+    well_known = ingress['wellKnown']
+    require(isinstance(well_known, list) and len(well_known) == 2, 'well-known cases incomplete')
+    public_cards = []
+    for observed, path in zip(well_known, ('/.well-known/agent-card.json', '/.well-known/agent.json')):
+        response = observed['response']
+        body = response['body']
+        v1 = path.endswith('agent-card.json')
+        require(observed['path'] == path and observed['matcherMatched'] is False and response['status'] == 200
+                and response['routeClass'] is None and response['requestId'] is None
+                and response['contentType'] == 'application/json' and response['cacheControl'] == 'public, max-age=3600', 'well-known ingress mismatch')
+        require(isinstance(body, dict) and body.get('name') == 'OmniRoute AI Gateway' and body.get('version') == '3.8.53'
+                and body.get('url') == 'http://localhost:43179/a2a' and isinstance(body.get('skills'), list) and len(body['skills']) == 6
+                and bool(body.get('supportedInterfaces' if v1 else 'authentication')) and ('authentication' if v1 else 'supportedInterfaces') not in body, 'well-known handler mismatch')
+        public_cards.append({'method': 'GET', 'path': path, 'matcher': 'not-matched', 'anonymous': True, 'status': 200,
+                             'contentType': 'application/json', 'cacheControl': 'public, max-age=3600',
+                             'routeClass': None, 'requestId': None, 'handlerMarker': 'v1' if v1 else 'legacy', 'staticSkillCount': 6})
     rows = ingress['results']
     prefix_cases = ['public GET /api/health', 'public GET /api/health/ping', 'GET /api/settings/cache-metrics', 'DELETE /api/settings/cache-metrics', 'GET cache-metrics missing usage_history', 'drain-transition GET /api/health', 'GET /api/health/degradation', 'GET /api/agent-skills', 'GET /api/agent-skills/config-codex-cli', 'GET /api/agent-skills/coverage', 'GET /api/model-combo-mappings', 'POST /api/model-combo-mappings', 'GET /api/model-combo-mappings/fixture-id', 'PUT /api/model-combo-mappings/fixture-id', 'DELETE /api/model-combo-mappings/fixture-id']
     family_cases = [
@@ -1603,6 +1620,8 @@ def export_observations(output, hashes):
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
     artifact['publicLivenessHttp'] = {'method': 'GET', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live) for name in ('anonymous', 'invalidCredential', 'session')}}
     artifact['publicLivenessHeadHttp'] = {'method': 'HEAD', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live_head) for name in ('anonymous', 'invalidCredential', 'session')}}
+    artifact['wellKnownHttp'] = public_cards
+    artifact['limitations'].append('Well-known cards observe anonymous Next GET with no hub configured; hub failure, cache and projection behavior require separately bound handler tests.')
     artifact['limitations'].append('Liveness observes only GET and HEAD on isolated Next with the pinned matcher and handler; it does not establish full application or production persistence behavior.')
     artifact['degradation'] = degradation
     artifact['agentSkills'] = skills

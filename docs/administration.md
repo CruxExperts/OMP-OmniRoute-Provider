@@ -133,6 +133,19 @@ not actual billing. The direct handler fixture uses in-memory SQLite and does no
 establish durable storage or production behavior. Error responses are bounded,
 but the server also logs exceptions; response redaction does not cover those logs.
 
+## Inspect public agent discovery cards
+
+The two `/.well-known/agent-card.json` and `/.well-known/agent.json` GET endpoints
+are outside the pinned proxy matcher. Actual isolated Next.js requests observed
+anonymous JSON responses with public cache headers even when login was required;
+the cards' advertised protocol security is not an inbound authentication check.
+
+The connector exposes only the fixed name, version and capability view. It omits
+URLs and all hub-controlled skill strings. The optional fleet lookup performs a
+server-side GET and caches results in process memory; direct source tests cover
+controlled hub success, failure and expiry, not a production hub's behavior.
+Neither HEAD nor OPTIONS is qualified by these GET observations.
+
 ## Inspect reasoning routing rules
 
 `GET /api/settings/reasoning-routing-rules` exposes a filtered view of the pinned
