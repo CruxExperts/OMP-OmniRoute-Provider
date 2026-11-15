@@ -55,6 +55,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     publicHealthIpFilter: { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } },
     familyPolicy: policies,
     reasoningHttp,
+    wellKnownHttp: ["agent-card.json", "agent.json"].map(name => ({ method: "GET", path: `/.well-known/${name}`, matcher: "not-matched", anonymous: true, status: 200, contentType: "application/json", cacheControl: "public, max-age=3600", routeClass: null, requestId: null, handlerMarker: name === "agent-card.json" ? "v1" : "legacy", staticSkillCount: 6 })),
   };
   const cases = [
     ["GET /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
@@ -88,6 +89,18 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     }
     check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /source mismatch/);
     check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch|reasoning source/);
+  }
+  for (const [index, name] of ["agent-card.json", "agent.json"].entries()) {
+    const operation = `GET /.well-known/${name}`;
+    const route = `src/app/.well-known/${name}/route.ts`;
+    const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route], handlerGitBlobSha: "0".repeat(40), sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+    check(artifact, binding, operation);
+    check({ ...artifact, wellKnownHttp: [] }, binding, operation, /card HTTP observation mismatch/);
+    check({ ...artifact, wellKnownHttp: [...artifact.wellKnownHttp, artifact.wellKnownHttp[index]] }, binding, operation, /card HTTP observation mismatch/);
+    for (const [field, value] of [["matcher", "matched"], ["anonymous", false], ["status", 401], ["routeClass", "PUBLIC"], ["requestId", "stamp"], ["handlerMarker", "wrong"], ["cacheControl", "no-store"]] as const) {
+      check({ ...artifact, wellKnownHttp: artifact.wellKnownHttp.map((row, i) => i === index ? { ...row, [field]: value } : row) }, binding, operation, /card HTTP observation mismatch/);
+    }
+    check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /card source mismatch/);
   }
   const operation = "GET /api/settings/reasoning-routing-rules";
   const route = "src/app/api/settings/reasoning-routing-rules/route.ts";
@@ -840,6 +853,7 @@ with tempfile.TemporaryDirectory() as temp:
    rows.append({'case':method+' '+path,'denied':observed(401),'invalid':observed(401),'allowed':observed(200),'readScope':observed(403 if mutation else 200),'writeScope':observed(403 if admin else 200),'adminScope':observed(200)})
  live = {'status':200,'body':'ok\n','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None}
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}, 'livenessHead':{name:{**live,'body':''} for name in ('anonymous','invalidCredential','session')}}
+ ingress['wellKnown'] = [{'path':'/.well-known/'+name,'matcherMatched':False,'response':{'status':200,'routeClass':None,'requestId':None,'contentType':'application/json','cacheControl':'public, max-age=3600','body':{'name':'OmniRoute AI Gateway','version':'3.8.53','url':'http://localhost:43179/a2a','skills':[{}]*6, **({'supportedInterfaces':[{}]} if name == 'agent-card.json' else {'authentication':{'schemes':['api-key']}})}}} for name in ('agent-card.json','agent.json')]
  ingress['reasoningHttp'] = {'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'failure':{'status':503,'routeClass':None,'contentType':'text/plain','bodyCategory':'text','privateMarkerPresent':False},'allowed':response({'rules':[]}),'cached':response({'rules':[]})}
  ingress['events'].extend([{'event':'reasoning:read'},{'event':'reasoning:fault'},{'event':'reasoning:read'}])
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
@@ -850,6 +864,7 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
  assert exported['publicLivenessHttp'] == {'method':'GET','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':ingress['liveness']}
  assert exported['publicLivenessHeadHttp'] == {'method':'HEAD','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':{name:{'status':200,'body':'','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None} for name in ('anonymous','invalidCredential','session')}}
+ assert len(exported['wellKnownHttp']) == 2 and all(row['matcher'] == 'not-matched' and row['anonymous'] and row['requestId'] is None for row in exported['wellKnownHttp'])
  assert exported['publicHealthIpFilter'] == {'enabled':True,'mode':'blacklist','configReadObserved':True,'forwardedAddressFallback':{'deniedStatus':403,'error':'IP blacklisted','recoveryStatus':200,'routeClass':'PUBLIC','requestIdUuid':True,'allowedOriginEchoed':True}}
  assert exported['degradation']['handlerFailure'] == 'unobserved' and exported['degradation']['populated']['levels'] == ['default','reduced','full']
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401

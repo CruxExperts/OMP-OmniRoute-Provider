@@ -2045,6 +2045,11 @@
     }
   },
   "additionalFiles": {
+    "src/app/.well-known/agent-card.json/route.ts": { "sha256": "6dec4e641f952837884e55b1e3c1c2fadd65651c692b98441de4d45e70cd89fb", "gitBlob": "77e7bea33364777c272065900c71858263fc23cd" },
+    "src/app/.well-known/agent.json/route.ts": { "sha256": "b3a6898d06386799c03a06d06abbc8f4a4c0d636c78db972212cef7c193ebdf8", "gitBlob": "5ab1c1bb31ca6c425ae57253e99134318a4f3615" },
+    "src/lib/a2a/agentCardMetadata.ts": { "sha256": "64cd2472c6881076f88b053b33dd36b9846e707f8372d36945b7149a6623cf72", "gitBlob": "ea311a6b806eef7b093c3da39be94455031fc467" },
+    "src/lib/conductor/fleetSkills.ts": { "sha256": "ed7edeb25ff13a1a295bc6438e05693e4eea93e72b07a8bda408c96bb9f1bea6", "gitBlob": "d836be87991551cf7733c8da38eee539204c8599" },
+    "src/lib/wellKnown.ts": { "sha256": "96b75c5059c2d2b777e1af0bd7fd866da92729ff8e2dd807e8e25f07925c5171", "gitBlob": "341d639888924c8ec36476cb1e55f5d323181a0a" },
     "src/lib/reasoningRouting/input.ts": { "sha256": "f415e15910ba99a4aac21ebaf46f205ae23b80c50a6f56de80741ec2f31e297b", "gitBlob": "5cad3c84e5938efea28838e10065b2336864759d" },
     "src/shared/constants/batchEndpoints.ts": { "sha256": "dde25db7542cd3ea4eec0ee5e73a5a8d589074e04386eb39ef2d95241551d68a", "gitBlob": "1a9a92e02339ac55182382eaebc33375fd640e2b" },
     "src/shared/constants/comboConfigMode.ts": { "sha256": "358ff1087ac8f62b8ba8c760833d05d33ce39a24c360862afd71b1334bf43c9a", "gitBlob": "76efda2bba597f8e4df2cb1ba7cf6d2cd0561f1d" },

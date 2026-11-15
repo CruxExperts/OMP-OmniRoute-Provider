@@ -363,9 +363,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const reasoningSource = operationId === REASONING_OPERATION ? requireRecord(added[REASONING_ROUTE], `${label}.reasoning source`) : undefined;
   if (reasoningSource !== undefined && (reasoningSource.originalSha256 !== REASONING_SHA256 || reasoningSource.executedSha256 !== REASONING_SHA256
     || binding.handlerSha256 !== REASONING_SHA256 || binding.handlerGitBlobSha !== REASONING_GIT_BLOB)) throw new Error(`${label} reasoning source mismatch`);
-  const specialSource = operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
+  const specialSource = cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
+  if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
     || source.archiveSha256 !== manifest.archiveSha256 || (reasoningSource !== undefined ? reasoningSource.originalSha256 : livenessSource !== undefined ? livenessSource.originalSha256 : specialSource !== undefined ? specialSource : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
     || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
@@ -398,6 +400,12 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const isolation = requireRecord(artifact.isolation, `${label}.isolation`);
   if (["namespacesDistinct", "memoryLimitEnforced", "cpuLimitEnforced", "privateLoopbackOnly", "environmentAllowlisted"].some(key => isolation[key] !== true)) {
     throw new Error(`${label} isolation mismatch`);
+  }
+  if (cardOperation) {
+    const path = operationId.slice(4);
+    const rows = requireArray(artifact.wellKnownHttp, `${label}.wellKnownHttp`).filter(row => isRecord(row) && row.path === path);
+    const expectedCard = { method: "GET", path, matcher: "not-matched", anonymous: true, status: 200, contentType: "application/json", cacheControl: "public, max-age=3600", routeClass: null, requestId: null, handlerMarker: path.endsWith("agent-card.json") ? "v1" : "legacy", staticSkillCount: 6 };
+    if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedCard, label))) throw new Error(`${label} card HTTP observation mismatch`);
   }
   const healthRows = requireArray(artifact.health, `${label}.health`).filter(row => isRecord(row) && row.method === "GET" && row.path === "/api/health");
   if (healthRows.length !== 1) throw new Error(`${label} health observation missing or duplicated`);
