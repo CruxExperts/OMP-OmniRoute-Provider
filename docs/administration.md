@@ -133,6 +133,24 @@ not actual billing. The direct handler fixture uses in-memory SQLite and does no
 establish durable storage or production behavior. Error responses are bounded,
 but the server also logs exceptions; response redaction does not cover those logs.
 
+## Inspect reasoning routing rules
+
+`GET /api/settings/reasoning-routing-rules` exposes a filtered view of the pinned
+server's routing rules. Key identifiers and token-budget fields are omitted by
+the existing secret-field projection; the result is not a complete configuration
+backup or an atomic preview for later mutations. The upstream process caches
+rules, so direct database changes may remain invisible until cache invalidation.
+
+An isolated actual Next.js request observed an empty HTTP 500 without a content
+type when the SQLite query failed. The connector reports that HTTP failure before
+JSON projection and does not retry it or expose private backend details. Separate
+handler, framework-ingress, and cold/warm lifecycle evidence binds this operation
+to its qualified source; it does not certify a production deployment.
+
+Confirmed operations whose effects remain uncertain can return a safely projected
+successful response while retaining outcome **unknown**. Returned data is not a
+completion receipt and never permits automatic replay.
+
 ## Inspect and change fallback chains
 
 Search for `/api/fallback/chains` to inspect or change a model's fallback chain.

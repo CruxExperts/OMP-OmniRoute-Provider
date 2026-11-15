@@ -151,8 +151,8 @@
       },
       "test": {
         "id": "test/admin-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/ce8f50894409ee2bf2a07fbb49b6ae0d983c078a469bcec43085c3ab194e13b7.json",
-        "caseSha256": "4cbb97d01a0300dc8c12045b258aec9174ab1e53443acba7879de8e6798416f0",
+        "observedOutcome": "provenance/qualification/b8617cc027977f7c56f318b185a487c5da9accbd84bf721b3daf7db201d8567e.json",
+        "caseSha256": "a9920937f55107e3194ef6385b4e7ab747015d68f76aa2ec8e2e2e1efd3d0016",
         "outcomeSha256": "1844a34f4ed08002e481ae0a9758ebed6f9edd2d4cf1e39eeeb8942a67742f28"
       },
       "evidence": [
@@ -170,8 +170,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -308,8 +308,8 @@
       },
       "test": {
         "id": "test/admin-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/43f42ac0b47ae254ba016c3befac2a3471b9c06926b9ab589e0dbaa66e23e886.json",
-        "caseSha256": "4cbb97d01a0300dc8c12045b258aec9174ab1e53443acba7879de8e6798416f0",
+        "observedOutcome": "provenance/qualification/e9cb520b43708a1c1814a5e0fb42d53446302cda395455f544389c3ad5120a43.json",
+        "caseSha256": "a9920937f55107e3194ef6385b4e7ab747015d68f76aa2ec8e2e2e1efd3d0016",
         "outcomeSha256": "f4c247fd87795d3895c298eed058e66bb065eb97f4f6703059ac06a5d6f93c40"
       },
       "evidence": [
@@ -327,8 +327,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -515,8 +515,8 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/e52373e97832b06168c71b50a9658aa04555676b668259d10fd7fe1118f6c11c.json",
-        "caseSha256": "4c805f31610c2098e0f06cf1a172fc07ad68cc8586b16ea401c5605c4bcdcb95",
+        "observedOutcome": "provenance/qualification/f350a8e420051ca8349f30cfb915b2edd164f8aba5c6f999df2eb4b9eb96b97c.json",
+        "caseSha256": "8d18eaa36613210748b845a2fe4a453d921d57a0bbfeccdd827a9ac62c59ef62",
         "outcomeSha256": "1dfceb75c5a4f6ed3a635d029fedf913b7526771c37d8bcdf071f920a14f68e4"
       },
       "evidence": [
@@ -534,8 +534,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -1032,8 +1032,8 @@
       },
       "test": {
         "id": "test/admin-degradation.test.ts",
-        "observedOutcome": "provenance/qualification/d8b604e4820ff128c0703e5d2d756972b7582c4e03dfe6898a5ba5cc50fbed7a.json",
-        "caseSha256": "3312efd9e9f5cac41d27f900d9f1f81b9d512542024766ee2dcf274dfd2eb7e6",
+        "observedOutcome": "provenance/qualification/3968c13adfb2ca77b452d196c1c9516dd03dab70c04e4eac0a7c915fc16f17ca.json",
+        "caseSha256": "866d7596d0e3be6be8a2f260376153a9937205314f1cd36d3a93af3fa40b75f4",
         "outcomeSha256": "f0a24acf1431365d1a3f1bbe92824967e43ad367bea49a694621ac1b9cb31d14"
       },
       "evidence": [
@@ -1051,8 +1051,8 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -1709,8 +1709,8 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/3a44d68c99c4df5f3b206bf8a6565038bb7c2680fcff415f65c304e9a442a79d.json",
-        "caseSha256": "7148f052e58b77d45431f96b0d5189b7df5975f9193915d330c11868493beec3",
+        "observedOutcome": "provenance/qualification/c642a671b439d50fc1dd5549ca5186368159683d4793981507a6d63d56e7e592.json",
+        "caseSha256": "8b456097397dc673918dc86503e88775c8516a0c286aad8b915c452b77f2d342",
         "outcomeSha256": "febe9ce9a005d5d74b68709d13589be4931006c781ca2a791e1d42e9a9636d1d"
       },
       "evidence": [
@@ -1728,12 +1728,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -2376,8 +2376,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/8c74ce8dc7a4c1263b611a80a46ef7ba35403c16ffaa0527e4d9cd7128d7993d.json",
-        "caseSha256": "8e05dffaab7a84b454d4236a90c031342f22fd50eea1ec7f5240401645c9ba40",
+        "observedOutcome": "provenance/qualification/7012ba7d691e3b5a3df737371edffffbda1eab9d9b98fc1efe266bc04f20d69a.json",
+        "caseSha256": "0476adf41d4c186e5ba19957d6bd9afbc69c431c8abf40287f619252f3e78f20",
         "outcomeSha256": "cfe55b7c58b69885445b188ac2e2c087340302eb46ce6934fbb04dc92a8a176f"
       },
       "evidence": [
@@ -2395,12 +2395,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -3286,8 +3286,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/e717aa8a9933c9f2d7b7ccf9251b038ced0365683c2d1122768a39e5913624a4.json",
-        "caseSha256": "8e05dffaab7a84b454d4236a90c031342f22fd50eea1ec7f5240401645c9ba40",
+        "observedOutcome": "provenance/qualification/1b5cbb2e428b15ef0279a82f354d65157602c9bc7f63da8d4f9884fcff835d79.json",
+        "caseSha256": "0476adf41d4c186e5ba19957d6bd9afbc69c431c8abf40287f619252f3e78f20",
         "outcomeSha256": "459acd820fd4ebfbe3caa4c5bbe61b02ff0dea72c36da2057eab87a88c1d0b1b"
       },
       "evidence": [
@@ -3305,12 +3305,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -3855,8 +3855,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/e2ca36e22634577ccaf1f3baee0e2a767369932d1ec29d4f24e07cd262a63a62.json",
-        "caseSha256": "8e05dffaab7a84b454d4236a90c031342f22fd50eea1ec7f5240401645c9ba40",
+        "observedOutcome": "provenance/qualification/136086c66d9171b93ad03781efb5e679b37c0310282b5e7b5032f9b64de4e986.json",
+        "caseSha256": "0476adf41d4c186e5ba19957d6bd9afbc69c431c8abf40287f619252f3e78f20",
         "outcomeSha256": "5511450fe273fec0da4ba2788d092fe675c9421377ccc1b0b7095ecce01bbeca"
       },
       "evidence": [
@@ -3874,12 +3874,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -4831,8 +4831,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/e5dc4edb334ac5cc1d1fb2637ca3266995636fcaf95938b3a41fee1a759f4a3d.json",
-        "caseSha256": "8e05dffaab7a84b454d4236a90c031342f22fd50eea1ec7f5240401645c9ba40",
+        "observedOutcome": "provenance/qualification/7b65889973f101cc46f78e1fcdd145003523be184a6152f4d39f5cd186a86463.json",
+        "caseSha256": "0476adf41d4c186e5ba19957d6bd9afbc69c431c8abf40287f619252f3e78f20",
         "outcomeSha256": "2413727fc49a4fb3d87f89eb44ad95ebe096196feef07832cfb1ef9ffcf56fb6"
       },
       "evidence": [
@@ -4850,12 +4850,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -5474,8 +5474,8 @@
       },
       "test": {
         "id": "test/admin-model-combo-mappings.test.ts",
-        "observedOutcome": "provenance/qualification/5067e80b269cb17ce77c8880f8865c76b2e058f45c440935ef2ed758ff722fe5.json",
-        "caseSha256": "8e05dffaab7a84b454d4236a90c031342f22fd50eea1ec7f5240401645c9ba40",
+        "observedOutcome": "provenance/qualification/386423878659eb87332238bd611ebfd685015abb4763058b285d22c3f1aaf549.json",
+        "caseSha256": "0476adf41d4c186e5ba19957d6bd9afbc69c431c8abf40287f619252f3e78f20",
         "outcomeSha256": "043c373797a23a47f37eb3bca82f5bdc0bddf7582fc3bcd0186c118100f3b193"
       },
       "evidence": [
@@ -5493,12 +5493,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -5910,8 +5910,8 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/bc34bdc84d2b2cd9c43382d2d68dc2927074953d22dc702d5a7f57fcf5b75062.json",
-        "caseSha256": "7148f052e58b77d45431f96b0d5189b7df5975f9193915d330c11868493beec3",
+        "observedOutcome": "provenance/qualification/5879a652725c4712f26c86cc7b4ca5f699fd306a18e9f24c6f2f32561df75329.json",
+        "caseSha256": "8b456097397dc673918dc86503e88775c8516a0c286aad8b915c452b77f2d342",
         "outcomeSha256": "9fff0dfcfb77ece861111d51f5e849d9e4ac70215388afdaaf8c76eada7d0005"
       },
       "evidence": [
@@ -5929,12 +5929,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -6437,8 +6437,8 @@
       },
       "test": {
         "id": "test/admin-agent-skills-source.test.ts",
-        "observedOutcome": "provenance/qualification/dd8d329ec06ae264ba58884e92b9150bcb27f7a380f54a31a169a25b756d4209.json",
-        "caseSha256": "7148f052e58b77d45431f96b0d5189b7df5975f9193915d330c11868493beec3",
+        "observedOutcome": "provenance/qualification/fb2fa63b251a3709c22222ab5ad44f42c92d810b56f59e5b7aaa924113948007.json",
+        "caseSha256": "8b456097397dc673918dc86503e88775c8516a0c286aad8b915c452b77f2d342",
         "outcomeSha256": "b7795bf10b0d10ff7d518bfa1d15a127f3399b6e3f14276ae4cbb2281b609aa9"
       },
       "evidence": [
@@ -6456,12 +6456,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -9582,8 +9582,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/73a9b90ca88bbaac06e761936d1ba20f9eecc011e074da82b04940469d68c97f.json",
-        "caseSha256": "d859d8edbd4d6ad6d9cc7ff99a7cffbdde57cf9d7e346eb1d1695f2ea47b1c9e",
+        "observedOutcome": "provenance/qualification/210c35d8db458668dc0856faa9804b158e41c24df05b72c7e568000a6f4c6c12.json",
+        "caseSha256": "fbc81b205f173ced08a19d70d03320078c11cd6bf80ba0c21d8b03edf0c22dcc",
         "outcomeSha256": "3be23c8f5d27ecd14f93d0738a492ddec5b9eb7fee4d29dcf3a5baf59ed42df8"
       },
       "evidence": [
@@ -9601,12 +9601,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -12571,8 +12571,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/c47e404fa66b9a9d0f199554d38841565f9e96eb1f1b35196f684e2548a5060f.json",
-        "caseSha256": "d859d8edbd4d6ad6d9cc7ff99a7cffbdde57cf9d7e346eb1d1695f2ea47b1c9e",
+        "observedOutcome": "provenance/qualification/333c126708f2d523d192dbbd4240d63c45cd9c1cd2df71589f65ad6bb5afea9c.json",
+        "caseSha256": "fbc81b205f173ced08a19d70d03320078c11cd6bf80ba0c21d8b03edf0c22dcc",
         "outcomeSha256": "d7ffc407dfdbe413fa53c9b2a99d1a6a332ea100841284af7f4c34f3a6cd9845"
       },
       "evidence": [
@@ -12590,12 +12590,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -13872,8 +13872,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/ad07864a706548d30c0648d9ffaabdb70eee2995f2178dae4f531119c90941ff.json",
-        "caseSha256": "d859d8edbd4d6ad6d9cc7ff99a7cffbdde57cf9d7e346eb1d1695f2ea47b1c9e",
+        "observedOutcome": "provenance/qualification/3ef8db32658db71b8234b6c09645e0261a91aad4bbc92c67d4e055c36fe4710a.json",
+        "caseSha256": "fbc81b205f173ced08a19d70d03320078c11cd6bf80ba0c21d8b03edf0c22dcc",
         "outcomeSha256": "1a035beee78f258404c17aee17d1453ded8a7502174061e513b914f86a7c9513"
       },
       "evidence": [
@@ -13891,12 +13891,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -14910,8 +14910,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/7f0e9323a5fcb76f021d3dbfc667d4cda1dea6cc5439f6440ac8616b049ec7bb.json",
-        "caseSha256": "d859d8edbd4d6ad6d9cc7ff99a7cffbdde57cf9d7e346eb1d1695f2ea47b1c9e",
+        "observedOutcome": "provenance/qualification/ed31eeaded590c598f62b97ec9d11dc55358bdbbdfafba21511c92eb3f990067.json",
+        "caseSha256": "fbc81b205f173ced08a19d70d03320078c11cd6bf80ba0c21d8b03edf0c22dcc",
         "outcomeSha256": "668d492e819afcc480957edc95095c7d7b5fbc8ef218f84a41329d12cad7804b"
       },
       "evidence": [
@@ -14929,12 +14929,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -17545,8 +17545,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/6dc1448e25fa93f470ad2704d05e5c58d88f9b7bb6d93474102fb87e6568c3e8.json",
-        "caseSha256": "d859d8edbd4d6ad6d9cc7ff99a7cffbdde57cf9d7e346eb1d1695f2ea47b1c9e",
+        "observedOutcome": "provenance/qualification/1be20de2d10bd20e4f5b83fec24b945e221b13dd2632e8c993aae0c4f8c68714.json",
+        "caseSha256": "fbc81b205f173ced08a19d70d03320078c11cd6bf80ba0c21d8b03edf0c22dcc",
         "outcomeSha256": "de774b3548115b164553ed8df6c6ea7d34a3b89095698442cf1e58df1fac9614"
       },
       "evidence": [
@@ -17564,12 +17564,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -18015,8 +18015,8 @@
       },
       "test": {
         "id": "test/admin-combos.test.ts",
-        "observedOutcome": "provenance/qualification/1d3a2e30f236326d832ba1e672471bbb5cf543e2db4ef0b015ca163a199eaa5b.json",
-        "caseSha256": "d859d8edbd4d6ad6d9cc7ff99a7cffbdde57cf9d7e346eb1d1695f2ea47b1c9e",
+        "observedOutcome": "provenance/qualification/b59ce66552b16d118397bce62380839df02d0abbac3febe0336cccf31bf59c8d.json",
+        "caseSha256": "fbc81b205f173ced08a19d70d03320078c11cd6bf80ba0c21d8b03edf0c22dcc",
         "outcomeSha256": "9b14302833cbc2f15fa4085ffc73d4ace8828454061c64b3bca8ad6c8079b783"
       },
       "evidence": [
@@ -18034,12 +18034,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -18717,8 +18717,8 @@
       },
       "test": {
         "id": "test/admin-model-capability-overrides.test.ts",
-        "observedOutcome": "provenance/qualification/2b8e532f672447de0ed76389af63c9ecb165477ca3674438459c603e38b20ee5.json",
-        "caseSha256": "fd598196f44a2667cdeed10ee3ae4d325d984e5446fa16573f520ed921b20977",
+        "observedOutcome": "provenance/qualification/482a1ba71cb13bfd3389f07342c8abd5cb94e2394087d1bab54a9ea2c26f0725.json",
+        "caseSha256": "f190593a79758bf060ea56bfbddb282ec0473fb92646e1fcb351e1df129874e7",
         "outcomeSha256": "da2834bc4bd430a77ac62e12e7bce49387617a44b8be286af4eeeeb3a6864d56"
       },
       "evidence": [
@@ -18736,12 +18736,12 @@
         }
       ],
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       },
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       }
     },
     {
@@ -19230,8 +19230,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/bf94751ff9bf1aaaf39cfb566d68c2f682c732e62a53ab7b23930641a6ae18ec.json",
-        "caseSha256": "630198911dd13b44a8ed8592b6d1ea3e57fbf5502f9ceeabd655ac21899b0e92",
+        "observedOutcome": "provenance/qualification/2efb1f75c476c388d06d29e69344b493312ea644427e1df588313dd52e24bf45.json",
+        "caseSha256": "e3472ebaa2a60c3c358741522b04752ee83640aa70f705a27ffa04d47c7aea92",
         "outcomeSha256": "990b901a1ef77e2e09899318250e1fa5017b9d42d216681ec1e0e039607ae359"
       },
       "evidence": [
@@ -19249,12 +19249,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -19749,8 +19749,8 @@
       },
       "test": {
         "id": "test/admin-provider-nodes.test.ts",
-        "observedOutcome": "provenance/qualification/bee75b7cfc8c2bcfd6a33e55a33a51ac857aee12ad7560b5b90612b2d14ea1c3.json",
-        "caseSha256": "efbad5cd4e2cf92735644628208c67714d4437afca75dd676daef5790e9108da",
+        "observedOutcome": "provenance/qualification/6f1a0824f1c024b2bd713e6b7c42834966bd052e1a72ad3146754b18ce0cb8fc.json",
+        "caseSha256": "6f2d1f547126fd7e0f1cb9823dd335feee0544eba542cdb49c87a5649873c063",
         "outcomeSha256": "03681fcb5c98cb2e8417e441ead610fffffc145b7028272f0bbac9e344bc7c5b"
       },
       "evidence": [
@@ -19768,12 +19768,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -20068,8 +20068,8 @@
       },
       "test": {
         "id": "test/admin-provider-cc-alias.test.ts",
-        "observedOutcome": "provenance/qualification/4a0670e46e9045f4a9de65581abb2c48ec2d5707511930cb2d442eb68563f74c.json",
-        "caseSha256": "ff21aa5cd8174596a9a50ab0e50cc652a68e79b6dcda10debc6dfef35cf8ccb8",
+        "observedOutcome": "provenance/qualification/f34254e1b3733ea0c1524b7b31cabf99a74583a90eed2dde4502749a14f98abe.json",
+        "caseSha256": "304a456cead2a6113db713d9d33ddbed5488287c043ef1b3b4fd39e59c9ec100",
         "outcomeSha256": "5f4e0da20073879d7770b68f284224857cacfb89f7efae93f363ece6c72f6718"
       },
       "evidence": [
@@ -20087,12 +20087,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -20483,8 +20483,8 @@
       },
       "test": {
         "id": "test/admin-provider-family.test.ts",
-        "observedOutcome": "provenance/qualification/c988062d5d4f7f8c335f770c8564a8324bae45a46890dfec438bfc9b5f86bba3.json",
-        "caseSha256": "a17f62c3bde8ce1b462670a4b3f1e6afeae79583e1e65af78628605bbccd3f7b",
+        "observedOutcome": "provenance/qualification/420515b8eeb88d4a71a71ffcf38d88536667b000a3134b0b9e2bd7eda887f4ab.json",
+        "caseSha256": "6f1432ba0a7ee447d6c4e4f9feac723a9a472a72478032510f0af8cd4613a2fa",
         "outcomeSha256": "d419646f848b42986a1f96e6e027582904b69856bc2ebe0fb0f6b267b89201f0"
       },
       "evidence": [
@@ -20502,12 +20502,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -20849,8 +20849,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/3e28c7d676c4acd3056cd8c46b8547ddaf9ff1b132fb5aeb3d1350d04b9f1376.json",
-        "caseSha256": "746eabd4c2f979c5415d5f21a9da5cbd95f87afc02a023804ff96e9ac2b26f51",
+        "observedOutcome": "provenance/qualification/9d0ab2fb2245bebca703caeb566d0bc9004f4442aeb73298e06c82e1cb4aba44.json",
+        "caseSha256": "97ceecafba1d82efe194ffd6eef32c924f78ca42f644d8feb1194cfef80a8b36",
         "outcomeSha256": "0154ae64f1f17233c168e3c0e92a225d07c709ef4c0121f5f0efef36a03b5e7c"
       },
       "evidence": [
@@ -20868,12 +20868,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -21382,8 +21382,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/db8146c711ee56d4c4aa77ada1da03f0cec0f29565cfb3d0688a8374b6f26ac9.json",
-        "caseSha256": "746eabd4c2f979c5415d5f21a9da5cbd95f87afc02a023804ff96e9ac2b26f51",
+        "observedOutcome": "provenance/qualification/ffb2c38790e76249b11ed3f1d7c455bfebfd62cdcb2c502d2aaa478a2d4016f1.json",
+        "caseSha256": "97ceecafba1d82efe194ffd6eef32c924f78ca42f644d8feb1194cfef80a8b36",
         "outcomeSha256": "97ef6353cdcbb5abce564c5a7fdb4739b00e37237f3ba20a08018049bb7f6939"
       },
       "evidence": [
@@ -21401,12 +21401,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -21720,8 +21720,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/36ee592a4f8c86c87e1f49b475ffcb0c82afe797aeeb825201db29e8f01e945b.json",
-        "caseSha256": "746eabd4c2f979c5415d5f21a9da5cbd95f87afc02a023804ff96e9ac2b26f51",
+        "observedOutcome": "provenance/qualification/7d99bb9417a918f024a09569d4871d5554241d190bad022f19794a9d2e135c10.json",
+        "caseSha256": "97ceecafba1d82efe194ffd6eef32c924f78ca42f644d8feb1194cfef80a8b36",
         "outcomeSha256": "60581f12596f76b999060d7d606a6b6505d7d6d90c7c7cc8822dd0a0dfb56ab8"
       },
       "evidence": [
@@ -21739,12 +21739,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -22096,8 +22096,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/443941dc7f974f7c37103b8e35dbb35afe7bbdec51b0997d2e55efd6a729160d.json",
-        "caseSha256": "746eabd4c2f979c5415d5f21a9da5cbd95f87afc02a023804ff96e9ac2b26f51",
+        "observedOutcome": "provenance/qualification/ed03615806c95ef83f6d25bc58570e28bf7d3ea7912f00f75bb85233a62aba9a.json",
+        "caseSha256": "97ceecafba1d82efe194ffd6eef32c924f78ca42f644d8feb1194cfef80a8b36",
         "outcomeSha256": "31e114922c376536bdefa69966f5c9dd6ecb5c6c9ad4cc85f8bb68c664e1b5f7"
       },
       "evidence": [
@@ -22115,12 +22115,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -22629,8 +22629,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/5a4106e1645c35e05b802259ae431e22c7c43ee8d3caf5c61eeb6c01985d7e76.json",
-        "caseSha256": "746eabd4c2f979c5415d5f21a9da5cbd95f87afc02a023804ff96e9ac2b26f51",
+        "observedOutcome": "provenance/qualification/8fbed3c4ecd52c762ac7e4c8c2e230fdada188713ba65356fb599023d08ef63a.json",
+        "caseSha256": "97ceecafba1d82efe194ffd6eef32c924f78ca42f644d8feb1194cfef80a8b36",
         "outcomeSha256": "fa3f91fcc36b8993e00ef1cce6ed4c772dfa7dd769b462bdbf6e56392af88750"
       },
       "evidence": [
@@ -22648,12 +22648,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -22967,8 +22967,8 @@
       },
       "test": {
         "id": "test/admin-provider-configuration.test.ts",
-        "observedOutcome": "provenance/qualification/0a73a6ed66707585bb129255d1599227eb0332a2d45ff62ee7f34c05c34825b7.json",
-        "caseSha256": "746eabd4c2f979c5415d5f21a9da5cbd95f87afc02a023804ff96e9ac2b26f51",
+        "observedOutcome": "provenance/qualification/bc399a2126e0e4ed1d17f22ffa3b4eee0c797e2b9c54bb405668f8f7b91d73d2.json",
+        "caseSha256": "97ceecafba1d82efe194ffd6eef32c924f78ca42f644d8feb1194cfef80a8b36",
         "outcomeSha256": "95f8ecb15a9c5a99d3beae9ed6582d4892d749cbcb5256ec31871b950189885b"
       },
       "evidence": [
@@ -22986,12 +22986,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -23756,8 +23756,8 @@
       },
       "test": {
         "id": "test/admin-keys.test.ts",
-        "observedOutcome": "provenance/qualification/077e90f6a8af039de116f66e2b2a681f93a268fc7cfe0bd270396f353aef6fee.json",
-        "caseSha256": "7c65fe31388f272a33236f71346d77f11dac90fd72a20f9df1a7195126e0c945",
+        "observedOutcome": "provenance/qualification/1384968c88643e1deafe79f04349aec40eb124af521e4781c70251dbf5117500.json",
+        "caseSha256": "10bdc926defa3ad0aad13aeb1fabb3716378e95bf3c9e0d37afc0ed791351373",
         "outcomeSha256": "f2d72e71a11762ac114008bf488cbd76b4b3c89f3a3ab7eab68bb1e628076b1f"
       },
       "evidence": [
@@ -23775,12 +23775,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -24125,8 +24125,8 @@
       },
       "test": {
         "id": "test/admin-proxies.test.ts",
-        "observedOutcome": "provenance/qualification/daffd32440bd1d56ac87052a01ec88a5d3a5463ee4e4ab7b4b32cb6f8e699203.json",
-        "caseSha256": "edab503c0828c867d1d16fc4d32695886e1f40e54b275c00c992fdfdd9d7ce9b",
+        "observedOutcome": "provenance/qualification/8b8dc1f70e20402f683378ce4b87357391b5ef20f4717cd2be4b644473f966ff.json",
+        "caseSha256": "5ccc4f39c41d3b991133ea3cffcab3e7ef0138a9a8118a43b5aff3ff75d71140",
         "outcomeSha256": "79ea42053da643c0c10384406727b4032e9dfbb3c0fe107a34054d2972270436"
       },
       "evidence": [
@@ -24144,12 +24144,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -24786,8 +24786,8 @@
       },
       "test": {
         "id": "test/admin-proxies.test.ts",
-        "observedOutcome": "provenance/qualification/f6ea12482b8416056343d16c32cadaa3ba836698849d6325996456aa96fb5bc5.json",
-        "caseSha256": "edab503c0828c867d1d16fc4d32695886e1f40e54b275c00c992fdfdd9d7ce9b",
+        "observedOutcome": "provenance/qualification/a93b5b976d6778d983322672fd71587fbae9bbcb42cbe3cbbfa6555640c1f777.json",
+        "caseSha256": "5ccc4f39c41d3b991133ea3cffcab3e7ef0138a9a8118a43b5aff3ff75d71140",
         "outcomeSha256": "6a5a30f012cd2acafff02b5a51b519cc9e204e99032c725ac57b8b8edbb94104"
       },
       "evidence": [
@@ -24805,12 +24805,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -25530,8 +25530,8 @@
       },
       "test": {
         "id": "test/admin-cache-metrics.test.ts",
-        "observedOutcome": "provenance/qualification/d044e826d9068599fd69a83f248bf2f60b4f06c18151215b1b593798b2f859d3.json",
-        "caseSha256": "1a632c953f5e28ba62ee00959b8e29da0e0924c0dd7d00be8b3a4a0a54b5fca2",
+        "observedOutcome": "provenance/qualification/02ac98e9b245ae0cb7db83ce0016e1a028370f4d318beeb676aae541976c17cb.json",
+        "caseSha256": "b554a79cacacdaac0c167322e671bf7a353e2fbd728152f446dc128f581d801a",
         "outcomeSha256": "843565a84e0835b646d08c0351a94c59f71fcb81a9a9b9a8fc38548bb5dcf1b7"
       },
       "evidence": [
@@ -25549,12 +25549,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -26274,8 +26274,8 @@
       },
       "test": {
         "id": "test/admin-cache-metrics.test.ts",
-        "observedOutcome": "provenance/qualification/68df637b5c609285a612fa1e608cb878bead2004f50c96a8353e6dfcb45bbf5a.json",
-        "caseSha256": "1a632c953f5e28ba62ee00959b8e29da0e0924c0dd7d00be8b3a4a0a54b5fca2",
+        "observedOutcome": "provenance/qualification/5321a5697abe15a8bb906e5b9a0ed58b01b2573b9342bfce72e2f1f45ee494e2.json",
+        "caseSha256": "b554a79cacacdaac0c167322e671bf7a353e2fbd728152f446dc128f581d801a",
         "outcomeSha256": "843565a84e0835b646d08c0351a94c59f71fcb81a9a9b9a8fc38548bb5dcf1b7"
       },
       "evidence": [
@@ -26293,12 +26293,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -26523,8 +26523,8 @@
       },
       "test": {
         "id": "test/admin-json-health-source.test.ts",
-        "observedOutcome": "provenance/qualification/9dc8f53920485d85a2a70c371d5dc182d0f70447837c0fec5abd2d769939303a.json",
-        "caseSha256": "4c805f31610c2098e0f06cf1a172fc07ad68cc8586b16ea401c5605c4bcdcb95",
+        "observedOutcome": "provenance/qualification/4cb1474bcc483aa8a7e2956d4d3d0e0b994adeaa82e4b069a33a41d8f0261daa.json",
+        "caseSha256": "8d18eaa36613210748b845a2fe4a453d921d57a0bbfeccdd827a9ac62c59ef62",
         "outcomeSha256": "1c157efb14626d98b1c14fa8ade1212d1c1f87d229fce073a8d00a8599046a1e"
       },
       "evidence": [
@@ -26542,12 +26542,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -27287,8 +27287,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/55ab18fe1900e76594f83c7ca100d374c90b3be432bd601c5ea7f13057d0a40e.json",
-        "caseSha256": "630198911dd13b44a8ed8592b6d1ea3e57fbf5502f9ceeabd655ac21899b0e92",
+        "observedOutcome": "provenance/qualification/cb11609b5a1547d1c09d9b9546d00c15550fdda36a40f62c7abc63ec653eab11.json",
+        "caseSha256": "e3472ebaa2a60c3c358741522b04752ee83640aa70f705a27ffa04d47c7aea92",
         "outcomeSha256": "0c42e1b8ae46623306b4cc3af7a5f1e135122098b431545e80a2fbb64cf790bc"
       },
       "evidence": [
@@ -27306,12 +27306,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -27980,8 +27980,8 @@
       },
       "test": {
         "id": "test/admin-fallback-chains.test.ts",
-        "observedOutcome": "provenance/qualification/6a256d473df13744440df829a4eadfabb248028186325b76a3a8e84c4b3416d3.json",
-        "caseSha256": "630198911dd13b44a8ed8592b6d1ea3e57fbf5502f9ceeabd655ac21899b0e92",
+        "observedOutcome": "provenance/qualification/9b8828bb9b4bed1dd9f4b52b593b147020cd1a9d8ad7dc4b597200f8a493fe00.json",
+        "caseSha256": "e3472ebaa2a60c3c358741522b04752ee83640aa70f705a27ffa04d47c7aea92",
         "outcomeSha256": "da01054890405de1c6f815454372e1b5bf7c6df7bdf106d3e36da693cc2333f6"
       },
       "evidence": [
@@ -27999,12 +27999,12 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     },
     {
@@ -28576,8 +28576,8 @@
       },
       "test": {
         "id": "test/admin-cc-discovery-metrics.test.ts",
-        "observedOutcome": "provenance/qualification/b56d279ed324e5ce5b4f9c33dfa212642f2d79a28cc672dc3104a297434b731c.json",
-        "caseSha256": "5b695ede20dbe1e5a4d62616ecc31f7e22bae48fd060fd279a26096c0bfb3354",
+        "observedOutcome": "provenance/qualification/444f5d73f7658f9d356e9e279d08324e290892d4bc5a0f4b234f7f356a824471.json",
+        "caseSha256": "b25b5986f7e789270ff37e5e115fe0297b1a5f37b83c5170154d2dcb56a8cf08",
         "outcomeSha256": "4bbe2c9f25a399915b98c2f9914c5cc55bbe0e8dc2bb34b461bffe4fe101cde0"
       },
       "evidence": [
@@ -28595,12 +28595,704 @@
         }
       ],
       "ingressEvidence": {
-        "artifact": "provenance/qualification/ingress-37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1.json",
-        "sha256": "37731f34b1eaf485cf9021e52b203b3891b0b985db4a5f55fec698d457e0dff1"
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
       },
       "lifecycleEvidence": {
-        "artifact": "provenance/qualification/core-lifecycle-34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02.json",
-        "sha256": "34a2c3fdb3b1e7143d745af5619cb152b66fcdd9a4b0da7682fa96a3ed4efd02"
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
+      }
+    },
+    {
+      "operationId": "GET /api/settings/reasoning-routing-rules",
+      "status": "verified",
+      "reason": "Independently observed handler and framework ingress with current cold/warm lifecycle.",
+      "source": {
+        "file": "src/app/api/settings/reasoning-routing-rules/route.ts",
+        "sha256": "8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018",
+        "gitBlobSha": "fd13070fad4b50034e2019cd1d75058d871f93cf"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": false,
+            "handlerGuard": "requireManagementAuth",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              },
+              {
+                "kind": "oma-access-token",
+                "minimumScope": "read"
+              },
+              {
+                "kind": "trusted-local",
+                "loopbackOnly": true
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "503",
+            "500"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "scope": {
+                      "type": "string"
+                    },
+                    "apiKeyId": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "comboId": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "connectionId": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "modelPattern": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sourceEffort": {
+                      "type": "string"
+                    },
+                    "requestTags": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "tagMatchMode": {
+                      "type": "string"
+                    },
+                    "effortMode": {
+                      "type": "string"
+                    },
+                    "targetEffort": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "targetKind": {
+                      "type": "string"
+                    },
+                    "targetModel": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "targetComboId": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "budgetAction": {
+                      "type": "string"
+                    },
+                    "budgetTokens": {
+                      "oneOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "priority": {
+                      "type": "number"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "description",
+                    "scope",
+                    "apiKeyId",
+                    "comboId",
+                    "connectionId",
+                    "modelPattern",
+                    "sourceEffort",
+                    "requestTags",
+                    "tagMatchMode",
+                    "effortMode",
+                    "targetEffort",
+                    "targetKind",
+                    "targetModel",
+                    "targetComboId",
+                    "budgetAction",
+                    "budgetTokens",
+                    "priority",
+                    "enabled",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "rules"
+            ],
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "rules": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "string"
+                            },
+                            "apiKeyId": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "comboId": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "connectionId": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "modelPattern": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "sourceEffort": {
+                              "type": "string"
+                            },
+                            "requestTags": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "tagMatchMode": {
+                              "type": "string"
+                            },
+                            "effortMode": {
+                              "type": "string"
+                            },
+                            "targetEffort": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "targetKind": {
+                              "type": "string"
+                            },
+                            "targetModel": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "targetComboId": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "budgetAction": {
+                              "type": "string"
+                            },
+                            "budgetTokens": {
+                              "oneOf": [
+                                {
+                                  "type": "number"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "priority": {
+                              "type": "number"
+                            },
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "createdAt": {
+                              "type": "string"
+                            },
+                            "updatedAt": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "description",
+                            "scope",
+                            "apiKeyId",
+                            "comboId",
+                            "connectionId",
+                            "modelPattern",
+                            "sourceEffort",
+                            "requestTags",
+                            "tagMatchMode",
+                            "effortMode",
+                            "targetEffort",
+                            "targetKind",
+                            "targetModel",
+                            "targetComboId",
+                            "budgetAction",
+                            "budgetTokens",
+                            "priority",
+                            "enabled",
+                            "createdAt",
+                            "updatedAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "rules"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "sourceFile": "src/app/api/settings/reasoning-routing-rules/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/settings/reasoning-routing-rules/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "message": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "message",
+                              "type"
+                            ],
+                            "additionalProperties": true
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        },
+                        "required": [
+                          "error",
+                          "requestId"
+                        ],
+                        "additionalProperties": true
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "correlation_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "message",
+                              "correlation_id"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "error"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/settings/reasoning-routing-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "message": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "message",
+                              "type"
+                            ],
+                            "additionalProperties": true
+                          },
+                          "requestId": {
+                            "type": "string",
+                            "format": "uuid"
+                          }
+                        },
+                        "required": [
+                          "error",
+                          "requestId"
+                        ],
+                        "additionalProperties": true
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              },
+                              "correlation_id": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "required": [
+                              "code",
+                              "message",
+                              "correlation_id"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "error"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/settings/reasoning-routing-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/lib/api/errorResponse.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/settings/reasoning-routing-rules/route.ts",
+                "src/lib/api/errorResponse.ts",
+                "src/lib/api/requireManagementAuth.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [],
+              "body": "empty",
+              "headers": {}
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "read",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": false,
+          "reason": "Filtered rule view omits sensitive fields; process-local cached results may be stale until invalidated."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": null
+      },
+      "binding": {
+        "requestSchemaSha256": "b2eb0d866b868cf698fa865f6f46cac76fbce7fd127c1b43e527bf0e44e33945",
+        "authSha256": "d48be4bbc33176f7d5a2b8e5fccdf0627b926a827e8578f8ff6053665c2e58af",
+        "sideEffect": "read",
+        "responseProjectionSha256": "ba6ae6f7d31a74273341ab1bdb90ca6e6b8af9280f9ea90d5b9d12ab44c02ebf",
+        "operationSemanticsSha256": "d2c5f1875de583f53b1e895d9053e3caca886aa6857e23de581eb7500fa7525e",
+        "routeImportsSha256": "e698062fdab051d788ac08a205687f7a119857a6606d4d77c6406639cbf1bf23",
+        "frameworkContextSha256": "555751d4dca90edf19e6476126977fd189b043dd0b35016e4587cd00035e8fa8",
+        "sourceDerivation": {
+          "record": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+          "sha256": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+        },
+        "effectiveTreeSha256": "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851",
+        "databaseInitializationRequired": true,
+        "mutationSafetySha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+      },
+      "test": {
+        "id": "test/admin-settings-source.test.ts",
+        "observedOutcome": "provenance/qualification/afed1ebe196cb4e0ed20978c379c38178710fa06e89749611c6ef27ca4b0ab15.json",
+        "caseSha256": "c1a83854dd95f49b621f30c8cbdda81e0253d8167f4a0d6023fb06d7ef79bf12",
+        "outcomeSha256": "60e6bf086f5251f2c19b6bf636e2b868ed51f375a032424fd757bbca64760653"
+      },
+      "evidence": [
+        {
+          "kind": "pinned-source",
+          "detail": "Reviewed ordered source read, management authorization, and process-local cache staleness; filtered projection is not a complete inventory."
+        },
+        {
+          "kind": "fixture",
+          "detail": "Actual handler and store exercised against disposable SQLite for unchanged reads, authorization, bounded input, cache and storage failure, and empty HTTP 500 consumer behavior."
+        },
+        {
+          "kind": "handler-review",
+          "detail": "Independent framework ingress and real-core lifecycle evidence bind the original handler and framework failure boundary."
+        }
+      ],
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38.json",
+        "sha256": "33976f0e4072f8aa457fa4d3777fa1af7f76631ddd6bcc8906fa425070853f38"
+      },
+      "lifecycleEvidence": {
+        "artifact": "provenance/qualification/core-lifecycle-9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7.json",
+        "sha256": "9bb640f56cd1a2dd6e21d9a9312028c578445d620a48c8d47574e4594a8812a7"
       }
     }
   ],

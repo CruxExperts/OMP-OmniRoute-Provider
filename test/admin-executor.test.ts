@@ -858,13 +858,49 @@ test("an invalid success body cannot settle a mutation", async () => {
   expect(configured.calls()).toBe(1);
 });
 
-test("a 200 response stays unknown when the source has no complete success proof", async () => {
+test("a successful unknown-effect response exposes only projected output without settling or replaying", async () => {
   const configured = setup({
     reconciliationEnabled: false,
     responseCompleteStatuses: [],
-    dispatch: async () => ({ kind: "response", status: 200, body: { ok: true } }),
+    dispatch: async () => ({ kind: "response", status: 200, body: { ok: true, password: "private-response-secret" } }),
   });
   const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
-  expect((await configured.executor.apply(plan.planId, { confirmed: true })).status).toBe("unknown");
+  const result = await configured.executor.apply(plan.planId, { confirmed: true });
+  expect(result).toMatchObject({ status: "unknown", plan: { state: "unknown" }, output: { ok: true }, error: { code: "uncertain-outcome" } });
+  expect(JSON.stringify(result)).not.toContain("private-response-secret");
+  await expect(configured.executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
   expect(configured.calls()).toBe(1);
+});
+
+test("invalid or unsuccessful uncertain responses never expose their body", async () => {
+  for (const response of [
+    { kind: "response", status: 200, body: { ok: "private-invalid-body" } },
+    { kind: "response", status: 500, body: { ok: true, password: "private-error-body" } },
+    { kind: "response", status: 200 },
+  ]) {
+    const configured = setup({ reconciliationEnabled: false, responseCompleteStatuses: [], dispatch: async () => response });
+    const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+    const result = await configured.executor.apply(plan.planId, { confirmed: true });
+    expect(result).toMatchObject({ status: "unknown", error: { code: "uncertain-outcome" } });
+    expect(result.output).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("private-");
+    expect(configured.calls()).toBe(1);
+  }
+});
+
+test("successful uncertain responses preserve reconciliation outcomes", async () => {
+  for (const status of ["unknown", "applied"] as const) {
+    let reconciles = 0;
+    const configured = setup({
+      responseCompleteStatuses: [],
+      dispatch: async () => ({ kind: "response", status: 200, body: { ok: true } }),
+      reconcile: async () => { reconciles += 1; return { status }; },
+    });
+    const plan = await configured.executor.plan(MUTATION, MUTATION_INPUT);
+    const result = await configured.executor.apply(plan.planId, { confirmed: true });
+    expect(result.status).toBe(status);
+    expect(result.output).toEqual(status === "unknown" ? { ok: true } : undefined);
+    expect(reconciles).toBe(1);
+    expect(configured.calls()).toBe(1);
+  }
 });

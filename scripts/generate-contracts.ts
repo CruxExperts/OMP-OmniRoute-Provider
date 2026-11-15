@@ -310,6 +310,8 @@ for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.
  data = source[name]; executed = b'import "./fixture-control";\\n' + data if name.endswith('/route.ts') else data
  identities[name] = {'originalSha256': m.sha(data), 'executedSha256': m.sha(executed)}
 identities['src/app/livez/route.ts'] = {'originalSha256': m.sha(source['src/app/livez/route.ts']), 'executedSha256': m.sha(source['src/app/livez/route.ts'])}
+identities[m.REASONING_ROUTE] = {'originalSha256': m.sha(source[m.REASONING_ROUTE]), 'executedSha256': m.sha(source[m.REASONING_ROUTE]), 'wrapperSha256': m.sha(m.REASONING_WRAPPER), 'policySha256': m.sha((m.FIXTURE / 'routes/management.ts').read_bytes())}
+identities[m.REASONING_STORE] = m.sha(source[m.REASONING_STORE])
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
 print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
@@ -326,6 +328,10 @@ print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sh
 const FAMILY_POLICY_SOURCES: Readonly<Record<string, string>> = Object.fromEntries(FAMILY_INGRESS_OPERATIONS.map(operationId => [
   operationId, `src/app${operationId.slice(operationId.indexOf(" ") + 1).replace("{id}", "[id]")}/route.ts`,
 ]));
+const REASONING_OPERATION = "GET /api/settings/reasoning-routing-rules";
+const REASONING_ROUTE = "src/app/api/settings/reasoning-routing-rules/route.ts";
+const REASONING_SHA256 = "8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018";
+const REASONING_GIT_BLOB = "fd13070fad4b50034e2019cd1d75058d871f93cf";
 
 /** Validate the retained research export separately from the handler receipt. */
 export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding, operationId: string = "GET /api/health"): void {
@@ -354,11 +360,14 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
   const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
   const livenessSource = (operationId === "GET /livez" || operationId === "HEAD /livez") ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
+  const reasoningSource = operationId === REASONING_OPERATION ? requireRecord(added[REASONING_ROUTE], `${label}.reasoning source`) : undefined;
+  if (reasoningSource !== undefined && (reasoningSource.originalSha256 !== REASONING_SHA256 || reasoningSource.executedSha256 !== REASONING_SHA256
+    || binding.handlerSha256 !== REASONING_SHA256 || binding.handlerGitBlobSha !== REASONING_GIT_BLOB)) throw new Error(`${label} reasoning source mismatch`);
   const specialSource = operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || (livenessSource !== undefined ? livenessSource.originalSha256 : specialSource !== undefined ? specialSource : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
+    || source.archiveSha256 !== manifest.archiveSha256 || (reasoningSource !== undefined ? reasoningSource.originalSha256 : livenessSource !== undefined ? livenessSource.originalSha256 : specialSource !== undefined ? specialSource : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
     || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
     throw new Error(`${label} source mismatch`);
   }
@@ -468,7 +477,19 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedPolicy = { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: mutation ? 403 : 200, writeScopeStatus: adminRequired ? 403 : 200, adminScopeStatus: 200 };
     if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} family policy observation mismatch`);
   }
+  if (operationId === REASONING_OPERATION) {
+    const expectedReasoning = { method: "GET", path: "/api/settings/reasoning-routing-rules", denied: { status: 401, routeClass: "MANAGEMENT" }, invalid: { status: 401, routeClass: "MANAGEMENT" }, failure: { status: 500, routeClass: "MANAGEMENT", contentType: null, bodyCategory: "empty", privateMarkerPresent: false }, allowed: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, cached: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, sqliteReadCount: 2, sqliteFaultCount: 1 };
+    if (!isRecord(artifact.reasoningHttp) || canonicalJson(toJson(artifact.reasoningHttp, label)) !== canonicalJson(toJson(expectedReasoning, label))) throw new Error(`${label} reasoning HTTP observation mismatch`);
+  }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
+  // Older exports used the unwrapped route hash and omitted the reasoning store;
+  // they cannot establish reasoning HTTP behavior but remain valid for other routes.
+  if (operationId !== REASONING_OPERATION && typeof added[REASONING_ROUTE] === "string" && !Object.hasOwn(added, "src/lib/db/reasoningRoutingRules.ts")) {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    const reasoning = requireRecord(expectedAdded[REASONING_ROUTE], `${label}.expected reasoning source`);
+    expectedAdded[REASONING_ROUTE] = reasoning.originalSha256;
+    delete expectedAdded["src/lib/db/reasoningRoutingRules.ts"];
+  }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
     if (canonicalJson(toJson(source[key] ?? null, label)) !== canonicalJson(toJson(expectedIdentities[key] ?? null, label))) throw new Error(`${label} effective source identity mismatch: ${key}`);
@@ -1690,7 +1711,7 @@ function validateRequestContract(value: unknown, baseValue: unknown, operationId
   }
 }
 
-export function validateResponseContract(value: unknown, baseValue: unknown, operationId: string): void {
+export function validateResponseContract(value: unknown, baseValue: unknown, operationId: string, source?: unknown): void {
   const response = requireRecord(value, `${operationId}.contract.response`);
   assertKeys(response, `${operationId}.contract.response`, ["statusCodes", "mediaType", "schema", "variants"]);
   const statusCodes = stringList(response.statusCodes, `${operationId}.response.statusCodes`);
@@ -1736,10 +1757,16 @@ export function validateResponseContract(value: unknown, baseValue: unknown, ope
   const base = requireRecord(baseValue, `${operationId}.base.response`);
   const baseVariants = requireArray(base.variants, `${operationId}.base.response.variants`);
   const expectedStatuses = baseVariants.map(item => requireRecord(item, "base response variant").statusCode);
+  const extra = variants.length === baseVariants.length + 1 ? variants[variants.length - 1] : undefined;
+  const extraIsReasoningFailure = operationId === REASONING_OPERATION && isRecord(source)
+    && source.file === REASONING_ROUTE && source.sha256 === REASONING_SHA256 && source.gitBlobSha === REASONING_GIT_BLOB
+    && !expectedStatuses.includes("500") && isRecord(extra)
+    && canonicalJson(toJson(extra, "reasoning framework response")) === canonicalJson(toJson({ statusCode: "500", content: [], body: "empty", headers: {} }, "expected reasoning framework response"));
+  if (extraIsReasoningFailure) expectedStatuses.push("500");
   if (canonicalJson(toJson(variantStatuses, "response statuses")) !== canonicalJson(toJson(expectedStatuses, "base response statuses"))) {
     throw new Error(`${operationId}.contract drops or changes a documented or source-derived response status`);
   }
-  for (const [index, item] of variants.entries()) {
+  for (const [index, item] of variants.slice(0, baseVariants.length).entries()) {
     const actual = requireRecord(item, "response variant");
     const expected = requireRecord(baseVariants[index], "base response variant");
     if (actual.body !== expected.body) throw new Error(`${operationId}.contract alters source-derived response body evidence`);
@@ -2056,7 +2083,7 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
     !== canonicalJson(toJson(baseAuth.specificationAlternatives, `${operationId}.base.auth.specificationAlternatives`))) {
     throw new Error(`${operationId}.contract cannot rewrite OpenAPI security alternatives`);
   }
-  validateResponseContract(contract.response, base.response, operationId);
+  validateResponseContract(contract.response, base.response, operationId, base.source);
   const secrets = requireRecord(contract.secrets, `${operationId}.contract.secrets`);
   assertKeys(secrets, `${operationId}.contract.secrets`, ["inputFields", "outputFields"]);
   stringList(secrets.inputFields, `${operationId}.secrets.inputFields`);

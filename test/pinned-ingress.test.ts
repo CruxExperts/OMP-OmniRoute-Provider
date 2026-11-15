@@ -43,6 +43,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   const sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
   const publicCase = (name: string, bypass: string) => ({ name, input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } });
   const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes", "/api/model-capability-overrides", "/api/settings/cc-discovery-metrics", "/api/settings/reasoning-routing-rules"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: 200, writeScopeStatus: 200, adminScopeStatus: 200 }));
+  const reasoningHttp = { method: "GET", path: "/api/settings/reasoning-routing-rules", denied: { status: 401, routeClass: "MANAGEMENT" }, invalid: { status: 401, routeClass: "MANAGEMENT" }, failure: { status: 500, routeClass: "MANAGEMENT", contentType: null, bodyCategory: "empty", privateMarkerPresent: false }, allowed: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, cached: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, sqliteReadCount: 2, sqliteFaultCount: 1 };
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
     source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256, sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 },
@@ -53,6 +54,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     sharedAuthentication: [publicCase("default-bypass-health", "source-default"), publicCase("disabled-bypass-health", "disabled")],
     publicHealthIpFilter: { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } },
     familyPolicy: policies,
+    reasoningHttp,
   };
   const cases = [
     ["GET /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
@@ -74,7 +76,9 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     } finally { rmSync(absolute); }
   }
   for (const [index, [operation, route]] of cases.entries()) {
-    const binding = { handlerSha256: (identities.addedSourceSha256 as Record<string, string>)[route], sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+    const routeIdentity = (identities.addedSourceSha256 as Record<string, unknown>)[route];
+    if (typeof routeIdentity !== "string" && (!routeIdentity || typeof routeIdentity !== "object" || !("originalSha256" in routeIdentity) || typeof routeIdentity.originalSha256 !== "string")) throw new Error("invalid route identity");
+    const binding = { handlerSha256: typeof routeIdentity === "string" ? routeIdentity : routeIdentity.originalSha256, handlerGitBlobSha: "fd13070fad4b50034e2019cd1d75058d871f93cf", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
     check(artifact, binding, operation);
     check({ ...artifact, familyPolicy: undefined }, binding, operation, /familyPolicy/);
     check({ ...artifact, familyPolicy: policies.filter((_, i) => i !== index) }, binding, operation, /family policy observation mismatch/);
@@ -83,7 +87,23 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
       check({ ...artifact, familyPolicy: policies.map((policy, i) => i === index ? { ...policy, [key]: value } : policy) }, binding, operation, /family policy observation mismatch/);
     }
     check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /source mismatch/);
-    check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch/);
+    check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch|reasoning source/);
+  }
+  const operation = "GET /api/settings/reasoning-routing-rules";
+  const route = "src/app/api/settings/reasoning-routing-rules/route.ts";
+  const binding = { handlerSha256: "8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018", handlerGitBlobSha: "fd13070fad4b50034e2019cd1d75058d871f93cf", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  check({ ...artifact, reasoningHttp: undefined }, binding, operation, /reasoning HTTP observation/);
+  for (const [field, value] of [["method", "POST"], ["path", "/wrong"], ["sqliteReadCount", 1], ["sqliteFaultCount", 0], ["denied", { status: 200, routeClass: "MANAGEMENT" }], ["invalid", { status: 200, routeClass: "MANAGEMENT" }], ["allowed", { status: 500 }], ["cached", { status: 500 }]] as const) {
+    check({ ...artifact, reasoningHttp: { ...reasoningHttp, [field]: value } }, binding, operation, /reasoning HTTP observation/);
+  }
+  for (const [field, value] of [["status", 503], ["routeClass", null], ["contentType", "text/plain"], ["bodyCategory", "text"], ["privateMarkerPresent", true]] as const) {
+    check({ ...artifact, reasoningHttp: { ...reasoningHttp, failure: { ...reasoningHttp.failure, [field]: value } } }, binding, operation, /reasoning HTTP observation/);
+  }
+  check(artifact, { ...binding, handlerGitBlobSha: "0".repeat(40) }, operation, /reasoning source mismatch/);
+  for (const key of ["originalSha256", "executedSha256", "wrapperSha256", "policySha256"]) {
+    const changed = structuredClone(artifact);
+    ((changed.source.addedSourceSha256 as Record<string, unknown>)[route] as Record<string, unknown>)[key] = "0".repeat(64);
+    check(changed, binding, operation, /source mismatch|source identity mismatch/);
   }
 }, 120_000);
 
@@ -113,6 +133,29 @@ for name in ('../escape', '/absolute', 'a/../../escape', 'a\\\\b'):
 assert module.safe_parts('node_modules/example/package.json') == ('node_modules','example','package.json')
 `;
   const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.status).toBe(0);
+});
+
+test("reasoning HTTP export rejects missing fault, cache, privacy, and response evidence", () => {
+  const code = String.raw`
+import copy,importlib.util,sys
+spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+denial={'status':401,'routeClass':'MANAGEMENT'}
+success={'status':200,'routeClass':'MANAGEMENT','body':{'rules':[]}}
+row={'denied':denial,'invalid':denial,'failure':{'status':503,'routeClass':None,'contentType':'text/plain; charset=utf-8','bodyCategory':'text','privateMarkerPresent':False},'allowed':success,'cached':success}
+events=[{'event':'reasoning:read'},{'event':'reasoning:fault'},{'event':'reasoning:read'}]
+assert m.validate_reasoning_http(row,events)['failure']['status']==503
+def reject(r,e):
+ try: m.validate_reasoning_http(r,e)
+ except (RuntimeError,KeyError): return
+ raise AssertionError('invalid observation accepted')
+for key,value in [('status',200),('privateMarkerPresent',True),('bodyCategory','unbounded'),('contentType','private\nstack'),('contentType','text/plain; diagnostic=INGRESS_PRIVATE_REASONING_FAULT')]:
+ bad=copy.deepcopy(row); bad['failure'][key]=value; reject(bad,events)
+bad=copy.deepcopy(row); del bad['cached']; reject(bad,events)
+reject(row,events[:-1]); reject(row,[{'event':'reasoning:read'}]*2)
+`;
+  const result = spawnSync("python3", ["-c", code, runner], { encoding: "utf8" });
+  expect(result.stderr).toBe("");
   expect(result.status).toBe(0);
 });
 
@@ -700,7 +743,7 @@ with tempfile.TemporaryDirectory() as temp:
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
- names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | {m.LIVE_ROUTE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | {m.LIVE_ROUTE,m.REASONING_STORE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
  m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
  m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
@@ -718,7 +761,7 @@ with tempfile.TemporaryDirectory() as temp:
  manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}},'additionalFiles':{m.LIVE_ROUTE:{'sha256':m.sha(sources[m.LIVE_ROUTE])}}}
  manifest_bytes = json.dumps(manifest).encode(); (fixture/'source-manifest.json').write_bytes(manifest_bytes)
  hashes['test/fixtures/pinned-ingress/source-manifest.json'] = m.sha(manifest_bytes)
- expected_core = (b'import { DatabaseSync } from "node:sqlite";\nimport path from "node:path";\nlet sqlite: DatabaseSync | undefined;\n'
+ expected_core = (b'import path from "node:path";\nlet sqlite: DatabaseSync | undefined;\n'
   b'const db = {\n      const normalized = sql.replace(/\\s+/g, " ").trim();\n'
   b'      if (normalized === "SELECT 1 AS ok" || (/^SELECT /i.test(normalized) && /\\bFROM usage_history\\b/i.test(normalized))) {\n'
   b'        event("sqlite:read");\n        sqlite ??= new DatabaseSync("/work/data/metrics.sqlite");\n'
@@ -733,6 +776,9 @@ with tempfile.TemporaryDirectory() as temp:
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
  identity['effectiveTreeSha256'] = 'a'*64
  identity['addedSourceSha256'][m.LIVE_ROUTE] = {'originalSha256':m.sha(sources[m.LIVE_ROUTE]),'executedSha256':m.sha(sources[m.LIVE_ROUTE])}
+ reasoning_sha = m.sha(sources[m.REASONING_ROUTE])
+ identity['addedSourceSha256'][m.REASONING_ROUTE] = {'originalSha256':reasoning_sha,'executedSha256':reasoning_sha,'wrapperSha256':m.sha(m.REASONING_WRAPPER),'policySha256':hashes['test/fixtures/pinned-ingress/routes/management.ts']}
+ identity['addedSourceSha256'][m.REASONING_STORE] = m.sha(sources[m.REASONING_STORE])
  identity['proxyIdentity'] = {'originalSha256':m.sha(sources['src/proxy.ts']),'executedSha256':m.sha(sources['src/proxy.ts'])}
  for name in ('src/app/api/health/degradation/route.ts','src/domain/degradation.ts'):
   data = sources[name]; executed = b'import "./fixture-control";\n'+data if name.endswith('/route.ts') else data
@@ -794,6 +840,8 @@ with tempfile.TemporaryDirectory() as temp:
    rows.append({'case':method+' '+path,'denied':observed(401),'invalid':observed(401),'allowed':observed(200),'readScope':observed(403 if mutation else 200),'writeScope':observed(403 if admin else 200),'adminScope':observed(200)})
  live = {'status':200,'body':'ok\n','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None}
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}, 'livenessHead':{name:{**live,'body':''} for name in ('anonymous','invalidCredential','session')}}
+ ingress['reasoningHttp'] = {'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'failure':{'status':503,'routeClass':None,'contentType':'text/plain','bodyCategory':'text','privateMarkerPresent':False},'allowed':response({'rules':[]}),'cached':response({'rules':[]})}
+ ingress['events'].extend([{'event':'reasoning:read'},{'event':'reasoning:fault'},{'event':'reasoning:read'}])
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
  exported = json.loads((p/'export/observed-outcomes.json').read_text())
@@ -819,11 +867,16 @@ with tempfile.TemporaryDirectory() as temp:
  assert 'started' not in json.dumps(exported['publicHealthHttp']) and 'correlation_id' not in json.dumps(exported['publicHealthHttp'])
  assert exported['inputs']['executedOverlaySha256'] == {'backend/core.ts':m.sha(expected_core),'backend/settings.ts':m.sha(expected_settings)}
  assert exported['inputs']['sourceOverlaySha256'] == identity['sourceOverlaySha256']
+ assert exported['source']['addedSourceSha256'][m.REASONING_STORE] == m.sha(sources[m.REASONING_STORE])
+ assert exported['source']['addedSourceSha256'][m.REASONING_ROUTE] == identity['addedSourceSha256'][m.REASONING_ROUTE]
+ assert exported['reasoningHttp']['failure'] == ingress['reasoningHttp']['failure']
  (p/'export/observed-outcomes.json').unlink(); (p/'export').rmdir()
  def rejected():
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ original = identity['addedSourceSha256'].pop(m.REASONING_STORE); put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.REASONING_STORE] = original
+ original = identity['addedSourceSha256'][m.REASONING_STORE]; identity['addedSourceSha256'][m.REASONING_STORE] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.REASONING_STORE] = original
  discovery = next(row for row in rows if row['case'] == 'GET /api/settings/cc-discovery-metrics')
  for name, bad in [('denied',200),('invalid',200),('allowed',403),('readScope',403),('writeScope',403),('adminScope',403)]:
   original = discovery[name]['status']; discovery[name]['status'] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); discovery[name]['status'] = original

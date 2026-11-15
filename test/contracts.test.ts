@@ -27,6 +27,8 @@ import { FALLBACK_CHAIN_POST, FALLBACK_CHAIN_SOURCE_CONTRACTS } from "./fixtures
 import { jsonHealthContract } from "./fixtures/pinned-health.fixture.ts";
 import { degradationContract } from "./fixtures/pinned-degradation.fixture.ts";
 import { agentSkillsContract, agentSkillsReadContract, SKILLS_DETAIL_ID, SKILLS_COVERAGE_ID } from "./fixtures/pinned-agent-skills.fixture.ts";
+import { reasoningRulesGetContract, REASONING_RULES_GET_ID } from "../src/admin/source-reasoning-rules.ts";
+import type { OperationSourceContract } from "../src/admin/eligibility.ts";
 import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
 
 test("cache metrics and ping require exact ingress evidence", () => {
@@ -149,6 +151,23 @@ test("HEAD empty evidence is status-scoped and cannot be invented or dropped by 
   const get = record(responseFor(spec, "GET /api/livez", [hint]));
   expect(record((get.variants as unknown[])[0]).body).toBeUndefined();
 });
+test("reasoning empty framework failure is additive and bound to the reviewed handler", () => {
+  const template = operationContractTemplate(REASONING_RULES_GET_ID) as OperationSourceContract;
+  const response = reasoningRulesGetContract(template).response;
+  const source = { file: "src/app/api/settings/reasoning-routing-rules/route.ts", sha256: "8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018", gitBlobSha: "fd13070fad4b50034e2019cd1d75058d871f93cf" };
+  expect(() => operationEvidenceBinding(REASONING_RULES_GET_ID, reasoningRulesGetContract(template))).not.toThrow();
+  expect(() => validateResponseContract(response, template.response, REASONING_RULES_GET_ID, source)).not.toThrow();
+  for (const changed of [undefined, { ...source, sha256: "0".repeat(64) }, { ...source, gitBlobSha: "0".repeat(40) }, { ...source, file: "src/app/other/route.ts" }]) {
+    expect(() => validateResponseContract(response, template.response, REASONING_RULES_GET_ID, changed)).toThrow();
+  }
+  expect(() => validateResponseContract(response, template.response, "GET /api/other", source)).toThrow();
+  for (const bad of [{ statusCode: "500", content: [], headers: {} }, { statusCode: "500", content: [], body: "empty", headers: { "x-extra": { required: false, schema: null } } }, { statusCode: "500", content: [{ mediaType: "text/plain", schema: null }], body: "empty", headers: {} }]) {
+    expect(() => validateResponseContract({ ...response, variants: [...response.variants.slice(0, -1), bad] }, template.response, REASONING_RULES_GET_ID, source)).toThrow();
+  }
+  const changedBase = { ...response, variants: response.variants.map((variant, index) => index === 0 ? { ...variant, body: "empty" } : variant) };
+  expect(() => validateResponseContract(changedBase, template.response, REASONING_RULES_GET_ID, source)).toThrow();
+});
+
 
 test("public health pipeline responses remain conservative without complete exclusivity proof", () => {
   const template = record(operationContractTemplate("GET /api/health").response);
@@ -575,9 +594,11 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       const adminRequired = mutation && (path === "/api/providers" || path.startsWith("/api/providers/"));
       return { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: mutation ? 403 : 200, writeScopeStatus: adminRequired ? 403 : 200, adminScopeStatus: 200 };
     });
+    const reasoningHttp = { method: "GET", path: "/api/settings/reasoning-routing-rules", denied: { status: 401, routeClass: "MANAGEMENT" }, invalid: { status: 401, routeClass: "MANAGEMENT" }, failure: { status: 500, routeClass: "MANAGEMENT", contentType: null, bodyCategory: "empty", privateMarkerPresent: false }, allowed: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, cached: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, sqliteReadCount: 2, sqliteFaultCount: 1 };
     for (const [index, [operationId, route]] of familyRoutes.entries()) {
-      const familyBinding = { ...binding, handlerSha256: String(added[route]) };
-      const familyArtifact = { ...artifact, familyPolicy };
+      const reasoning = operationId === REASONING_RULES_GET_ID;
+      const familyBinding = { ...binding, handlerSha256: reasoning ? String(record(added[route]).originalSha256) : String(added[route]), ...(reasoning ? { handlerGitBlobSha: "fd13070fad4b50034e2019cd1d75058d871f93cf" } : {}) };
+      const familyArtifact = { ...artifact, familyPolicy, ...(reasoning ? { reasoningHttp } : {}) };
       const evidence = await save(familyArtifact);
       expect(() => validateHealthIngressEvidence(evidence, familyBinding, operationId)).not.toThrow();
       expect(() => validateHealthIngressEvidence(evidence, { ...familyBinding, handlerSha256: "0".repeat(64) }, operationId)).toThrow(/source mismatch/);
@@ -591,6 +612,12 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       expect(() => validateHealthIngressEvidence(duplicateEvidence, familyBinding, operationId)).toThrow(/family policy observation mismatch/);
       const missingEvidence = await save({ ...familyArtifact, familyPolicy: familyPolicy.filter((_, item) => item !== index) });
       expect(() => validateHealthIngressEvidence(missingEvidence, familyBinding, operationId)).toThrow(/family policy observation mismatch/);
+      if (reasoning) {
+        const missingHttp = await save({ ...familyArtifact, reasoningHttp: undefined });
+        expect(() => validateHealthIngressEvidence(missingHttp, familyBinding, operationId)).toThrow(/reasoning HTTP observation mismatch/);
+        const malformedHttp = await save({ ...familyArtifact, reasoningHttp: { ...reasoningHttp, failure: { ...reasoningHttp.failure, status: 503 } } });
+        expect(() => validateHealthIngressEvidence(malformedHttp, familyBinding, operationId)).toThrow(/reasoning HTTP observation mismatch/);
+      }
     }
     await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation

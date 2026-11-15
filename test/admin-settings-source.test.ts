@@ -2,6 +2,9 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
+import { invokeJsonAdapter } from "../src/admin/adapters.ts";
+import { createAdminExecutor } from "../src/admin/executor.ts";
+import { dispatchResult } from "../src/admin/runtime.ts";
 import { canonicalizeJson } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { createPinnedReasoningRulesFixture, createPinnedSettingsFixture } from "./fixtures/pinned-settings.fixture.ts";
@@ -126,7 +129,7 @@ test("headless first settings GET persists onboarding state and cannot be an ord
 const reasoningCases = new Set<string>();
 let reasoningObservation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
 afterAll(async () => {
-  if (!reasoningObservation || !["read", "authorization", "cache", "failure"].every(item => reasoningCases.has(item))) return;
+  if (!reasoningObservation || !["read", "authorization", "cache", "failure", "http-failure-consumer"].every(item => reasoningCases.has(item))) return;
   const contract = reasoningRulesGetContract();
   const binding = operationEvidenceBinding(REASONING_RULES_GET_ID, contract);
   const caseSha256 = testCaseSourceHash(testId);
@@ -164,7 +167,10 @@ test("reasoning rules GET reads and orders persisted rules without changing SQLi
       expect(rule).not.toHaveProperty("apiKeyId");
       expect(rule).not.toHaveProperty("budgetTokens");
     }
-    expect(() => adapter.project({ rules: [{ ...body.rules[0], password: "fixture-secret" }] })).toThrow();
+    const unexpectedProjection = adapter.project({ rules: [{ ...body.rules[0], password: "fixture-secret", unexpected: "not-allowed" }] }) as { rules: Array<Record<string, unknown>> };
+    expect(unexpectedProjection.rules[0]).not.toHaveProperty("password");
+    expect(unexpectedProjection.rules[0]).not.toHaveProperty("unexpected");
+    expect(() => adapter.project({ rules: [{ ...body.rules[0], priority: "invalid" }] })).toThrow();
     expect(() => adapter.project({ rules: [{ id: "incomplete" }] })).toThrow();
     const state = { ruleIds: (before as Array<{ id: string }>).map(rule => rule.id) };
     reasoningObservation = { before: state, after: { ruleIds: (after as Array<{ id: string }>).map(rule => rule.id) }, result: { status: response.status, body: projected } };
@@ -199,4 +205,42 @@ test("reasoning rules cache can be stale until invalidated and store errors esca
     await expect(fixture.handle("fixture-manage")).rejects.toThrow("fixture-private-database-error");
     reasoningCases.add("failure");
   } finally { fixture.close(); }
+});
+
+test("reasoning rules empty HTTP 500 fails before projection without a retry or write", async () => {
+  const fixture = createPinnedReasoningRulesFixture();
+  fixture.db.exec("INSERT INTO reasoning_routing_rules (id, name, scope, created_at, updated_at) VALUES ('one', 'One', 'global', '2026-01-01', '2026-01-01')");
+  const before = fixture.db.query("SELECT * FROM reasoning_routing_rules ORDER BY id").all();
+  fixture.setFailure(true);
+  let requests = 0;
+  let methods: string[] = [];
+  // Replay the independently observed Next ingress response, not a JSON error.
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    requests += 1;
+    methods.push(request.method);
+    try { return await fixture.handle("fixture-manage"); }
+    catch { return new Response(null, { status: 500 }); }
+  } });
+  const endpoint = `http://127.0.0.1:${server.port}`;
+  const registry = fixtureRegistry([reasoningRulesGetDescriptor()]);
+  const executor = createAdminExecutor({ registry, dispatch: async (request, context) => {
+    const adapter = registry.require(request.operationId);
+    const result = await invokeJsonAdapter({ descriptor: { ...adapter.descriptor, adapterId: adapter.adapterId },
+      endpoint: context.auth.endpoint, resolvedPath: request.path, queryParameters: request.queryParameters,
+      ...(context.auth.credential ? { credential: context.auth.credential } : {}) });
+    return dispatchResult(result, adapter.risk);
+  } });
+  executor.bindCredential({ profileId: "reasoning-fixture", endpoint, apiKey: "fixture-manage" });
+  try {
+    let failure: unknown;
+    try { await executor.read(REASONING_RULES_GET_ID, {}); } catch (error) { failure = error; }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).toMatchObject({ message: "operation request failed", status: 500 });
+    expect(String(failure)).not.toContain("JSON");
+    expect(String(failure)).not.toContain("fixture-private-database-error");
+    expect(requests).toBe(1);
+    expect(methods).toEqual(["GET"]);
+    expect(fixture.db.query("SELECT * FROM reasoning_routing_rules ORDER BY id").all()).toEqual(before);
+    reasoningCases.add("http-failure-consumer");
+  } finally { executor.shutdown(); server.stop(true); fixture.close(); }
 });

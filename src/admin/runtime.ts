@@ -3,13 +3,13 @@ import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { allowsEnvironmentOptionalCredentials, loadConfig, resolveEnvironmentBinding, setAdminEnabledConfig, type PluginConfig } from "../config.ts";
 import type { OptionalCredentials } from "../credentials.ts";
 import type { DiscoveryBinding } from "../health.ts";
-import { adapterFor, invokeBinaryAdapter, invokeHeadAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, type AdapterInvocation, type MultipartFile } from "./adapters.ts";
+import { adapterFor, invokeBinaryAdapter, invokeHeadAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeSseAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, type AdapterInvocation, type AdapterResponse, type MultipartFile } from "./adapters.ts";
 import { createAdminExecutor, type AdminExecutor } from "./executor.ts";
 import { canonicalizeJson, getOperationRegistry, type OperationAdapter, type OperationDescriptor, type OperationReadCompleteness, type OperationReconciliationRelation, type ReconciliationFieldMapping, type ValidatedOperationInput } from "./registry.ts";
 import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "./relations.ts";
 import { createAdminCommandHandler, type AdminUiOptions } from "./ui.ts";
 import { registerAdminTools } from "./tools.ts";
-import type { AdminDispatch, AdminOperationAuthBinding, AdminRequest } from "./types.ts";
+import type { AdminDispatch, AdminOperationAuthBinding, AdminRequest, AdminRisk } from "./types.ts";
 import { sourcePreflightReadInput } from "./source-normalization.ts";
 
 export interface AdminRuntimeOptions {
@@ -66,6 +66,13 @@ function multipartParts(value: unknown): { files: MultipartFile[]; fields: Recor
     else fields[key] = typeof child === "string" ? child : JSON.stringify(child) ?? "";
   }
   return { files, fields };
+}
+
+/** Interpret transport status before any read projection; mutations retain their response envelope. */
+export function dispatchResult(result: AdapterResponse, risk: AdminRisk): unknown {
+  if (risk !== "read") return { kind: "response", status: result.status, body: result.data };
+  if (result.status >= 400) throw Object.assign(new Error("operation request failed"), { status: result.status });
+  return result.data;
 }
 
 /** Loaded only for an enabled operation surface or an explicit administration command. */
@@ -178,9 +185,7 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
       else if (kind === "websocket") result = await invokeWebSocketAdapter(invocation);
       else if (kind === "multipart") { const parts = multipartParts(request.body); result = await invokeMultipartAdapter(invocation, parts.files, parts.fields); }
       else result = await invokeJsonAdapter(invocation);
-      if (adapter.risk !== "read") return { kind: "response", status: result.status, body: result.data };
-      if (result.status >= 400) throw Object.assign(new Error("operation request failed"), { status: result.status });
-      return result.data;
+      return dispatchResult(result, adapter.risk);
     } catch (error) {
       if (authorized && adapter.risk !== "read") {
         throw Object.assign(new Error("operation outcome could not be observed"), { code: "network-lost-response", uncertain: true });

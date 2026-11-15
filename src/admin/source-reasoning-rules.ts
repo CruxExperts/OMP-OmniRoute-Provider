@@ -53,10 +53,14 @@ export function reasoningRulesGetContract(template: OperationSourceContract): Op
         { kind: "trusted-local", loopbackOnly: true },
       ],
     } },
-    response: { ...template.response, schema: { anyOf: [rulesResponse, handlerAuthError, centralAuthError] },
-      variants: template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({
-        ...content, schema: variant.statusCode === "200" ? rulesResponse : { oneOf: [handlerAuthError, centralAuthError] },
-      })) })) },
+    // Only successful bodies reach projection. The independently observed Next
+    // failure is an empty 500, not a JSON authentication error or rule list.
+    response: { ...template.response, schema: rulesResponse,
+      statusCodes: [...template.response.statusCodes, "500"],
+      variants: [...template.response.variants.map(variant => ({ ...variant, content: variant.content.map(content => ({
+        ...content, schema: variant.statusCode === "200" ? rulesResponse
+          : variant.statusCode === "401" || variant.statusCode === "403" ? { oneOf: [handlerAuthError, centralAuthError] } : content.schema,
+      })) })), { statusCode: "500", content: [], body: "empty", headers: {} }] },
     secrets: { inputFields: [], outputFields: [] }, sideEffect: "read",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
     confirmation: { required: false, reason: "Filtered rule view omits sensitive fields; process-local cached results may be stale until invalidated." },
