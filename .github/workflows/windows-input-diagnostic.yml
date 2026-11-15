@@ -202,7 +202,9 @@ jobs:
         shell: pwsh
         env:
           ACP_TARGET: ${{ matrix.id }}
+          ACP_OBSERVATION_PATH: ${{ runner.temp }}/windows-acp-stage.json
         run: |
+          '{"stage":"not-started","category":"incomplete"}' | Set-Content -Encoding utf8 $env:ACP_OBSERVATION_PATH
           $result = [ordered]@{
             target = $env:ACP_TARGET
             commit = $env:GITHUB_SHA
@@ -230,7 +232,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-owned-acp-${{ matrix.id }}
-          path: ${{ runner.temp }}/windows-acp-result.json
+          path: |
+            ${{ runner.temp }}/windows-acp-result.json
+            ${{ runner.temp }}/windows-acp-stage.json
           if-no-files-found: error
           retention-days: 14
 

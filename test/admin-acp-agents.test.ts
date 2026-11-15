@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { readdirSync } from "node:fs";
+import { readdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
@@ -197,10 +197,35 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
 
 // Candidate evidence only: the controlled process is not a qualification receipt,
 // and neither real ingress nor the production authorization policy is established.
+type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string };
+let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
+function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
+  acpObservation = { stage, category: "incomplete", ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
+  if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
+}
 async function ownedProcessCase(): Promise<void> {
+  acpStage("initializing");
+  try {
+    await runOwnedProcessCase();
+    acpObservation.category = "passed";
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    acpObservation.category = name === "AssertionError" || name === "ExpectError" ? "assertion" : name === "TimeoutError" ? "timeout" : "other";
+    if (error instanceof Error && typeof error.stack === "string") {
+      const match = error.stack.match(/(?:^|[\\/])test[\\/]admin-acp-agents\.test\.ts:(\d{1,5}):(\d{1,5})(?:\)?\s|$)/m);
+      if (match) acpObservation.location = `test/admin-acp-agents.test.ts:${match[1]}:${match[2]}`;
+    }
+    throw error;
+  } finally {
+    if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
+  }
+}
+
+async function runOwnedProcessCase(): Promise<void> {
   const processes = new AcpOwnedProcesses();
   let executor: AdminExecutor | undefined;
   try {
+    acpStage("create-processes");
     const success = processes.create("success");
     const failure = processes.create("failure");
     const stall = processes.create("stall");
@@ -220,25 +245,40 @@ async function ownedProcessCase(): Promise<void> {
       custom("unsupported", unsupported, version(unsupported)),
       ...(windows ? [custom("shell-unsafe-space", spaced, version(spaced))] : []),
     ] };
+    acpStage("initial-request");
     const controller = new AbortController();
     controller.abort();
     const response = await fixture.get(new Request("http://localhost/api/acp/agents", { signal: controller.signal }));
+    acpStage("response-status", 200, response.status);
     expect(response.status).toBe(200);
     const body = await response.json() as Body;
+    acpStage("settings-reads", 1, fixture.settingsReads);
     expect(fixture.settingsReads).toBe(1);
-    expect(body.agents.find(a => a.id === "success")).toMatchObject({ installed: true, version: "7.8.9-beta" });
+    const successAgent = body.agents.find(a => a.id === "success");
+    acpStage("success-agent", 1, successAgent ? Number(successAgent.installed) : null);
+    expect(successAgent).toMatchObject({ installed: true, version: "7.8.9-beta" });
+    acpStage("invalid-agents");
     for (const id of ["failure", "stall", "invalid-eval", "invalid-extra", "invalid-shell", "invalid-mismatch", "unsupported"]) {
-      expect(body.agents.find(a => a.id === id)).toMatchObject({ installed: false, version: null });
+      const agent = body.agents.find(a => a.id === id);
+      acpStage(`invalid-agent-${id}`, 0, agent ? Number(agent.installed) : null);
+      expect(agent).toMatchObject({ installed: false, version: null });
     }
+    acpStage("windows-unsafe-agent");
     if (windows) expect(body.agents.find(a => a.id === "shell-unsafe-space")).toMatchObject({ installed: false, version: null });
+    acpStage("outcome-count", 3, processes.outcomes.length);
     expect(processes.outcomes).toHaveLength(3);
+    acpStage("success-outcome", 0, processes.outcomes[0]?.status ?? null);
     expect(processes.outcomes[0]).toEqual({ command: success, stdout: "Owned agent 7.8.9-beta\n", status: 0, signal: null, code: null });
+    acpStage("failure-outcome", 17, processes.outcomes[1]?.status ?? null);
     expect(processes.outcomes[1]).toMatchObject({ command: failure, stdout: "failed 3.2.1\n", status: 17 });
+    acpStage("stall-outcome", null, processes.outcomes[2]?.status ?? null);
     expect(processes.outcomes[2]).toMatchObject({ command: stall, stdout: "", status: null, code: "ETIMEDOUT" });
     if (!windows) expect(processes.outcomes[2]?.signal).toBe("SIGKILL");
+    acpStage("probe-counts");
     expect(fixture.probes.filter(p => p.command === success)).toHaveLength(1);
     expect(fixture.probes.filter(p => p.command === failure)).toHaveLength(1);
     expect(fixture.probes.some(p => p.command.endsWith("not-owned"))).toBe(true);
+    acpStage("windows-probe-arguments");
     if (windows) {
       expect(fixture.probes.some(p => p.command === spaced)).toBe(false);
       for (const probe of fixture.probes.filter(p => [success, failure, stall].includes(p.command))) {
@@ -246,8 +286,10 @@ async function ownedProcessCase(): Promise<void> {
         expect(probe.options).toMatchObject({ shell: true });
       }
     }
+    acpStage("read-records");
     const records = processes.records();
     // A real Windows subprocess must exit on its own deadline, not fake time.
+    acpStage("windows-stall-exit");
     if (windows) {
       const stallPid = records.find(record => record.mode === "stall")?.pid;
       if (stallPid === undefined) throw new Error("stall fixture did not start");
@@ -258,18 +300,25 @@ async function ownedProcessCase(): Promise<void> {
         await Bun.sleep(50);
       }
     }
+    acpStage("record-modes", 3, records.length);
     expect(records.map(r => r.mode)).toEqual(["success", "failure", "stall"]);
     for (const record of records) {
+      acpStage("record-argv");
       expect(record.argv).toEqual(["--version"]);
+      acpStage("record-cwd");
       expect(record.cwd).toBe(processes.directory);
       const expectedEnv: Record<string, string> = { PATH: "", HOME: processes.directory, TMPDIR: processes.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
       if (windows) { expectedEnv.SystemRoot = process.env.SystemRoot!; expectedEnv.ComSpec = process.env.ComSpec!; }
+      acpStage("record-environment");
       expect(record.env).toEqual(expectedEnv);
+      acpStage("record-process-exited");
       expect(() => process.kill(record.pid, 0)).toThrow();
     }
+    acpStage("workspace-files");
     expect(readdirSync(processes.directory).sort()).toEqual(windows
       ? ["counter.jsonl", "probe-failure.cmd", "probe-failure.js", "probe-stall.cmd", "probe-stall.js", "probe-success.cmd", "probe-success.js"]
       : ["counter.jsonl", "probe-failure", "probe-stall", "probe-success"]);
+    acpStage("candidate-executor");
     fixture.settings = {};
     const candidate = acpAgentsGetDescriptor();
     const descriptor: typeof candidate = { ...candidate, sideEffect: "mutation", auth: { ...candidate.auth, sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "none", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }] } } };
@@ -278,14 +327,23 @@ async function ownedProcessCase(): Promise<void> {
       return { kind: "response", status: result.status, body: await result.json() };
     } });
     executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "[REDACTED:auth_header]" });
+    acpStage("candidate-plan");
     const plan = await executor.plan(ACP_AGENTS_GET_ID, {});
+    acpStage("candidate-apply");
     const result = await executor.apply(plan.planId, { confirmed: true });
+    acpStage("candidate-result");
     expect(result).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+    acpStage("candidate-summary");
     expect(result.output).toMatchObject({ summary: body.summary });
+    acpStage("candidate-records");
     expect(processes.records()).toEqual(records);
+    acpStage("candidate-reapply");
     await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+    acpStage("candidate-records-after-reapply");
     expect(processes.records()).toEqual(records);
+    acpStage("candidate-contract");
     expect(acpAgentsGetContract()).toMatchObject({ sideEffect: "unknown", auth: { sourcePolicy: { status: "unknown" } } });
+    acpStage("cleanup");
   } finally {
     executor?.shutdown();
     // Windows may leave the owned stall child running briefly after its wrapper times out.
