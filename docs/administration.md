@@ -35,6 +35,16 @@ cold/warm SQLite with the pinned session verifier and an explicit cookie boundar
 Cached revocation and password cutoff visibility are limited to the observed cache
 behavior; these observations do not establish production deployment behavior.
 
+`GET /api/auth/mfa/status` remains an unavailable qualification candidate. Its
+proposed view contains only the enabled flag, remaining recovery-code count, and
+recovery-switch flag. Database initialization can write, so the proposed policy
+requires confirmation, does not retry, and leaves settlement unknown. Qualification
+requires matching source, executor, actual ingress, and native lifecycle evidence;
+the candidate does not expose recovery codes, encrypted seeds, or enrollment time.
+The proposed JSON adapter is conditional on independently observed JSON media;
+the source constructor alone does not establish the effective response headers.
+At runtime a successful response with a different media type is rejected.
+
 The qualified deprecated-provider inventory read requires confirmation: its first
 read may encrypt legacy provider metadata, start a backup, and invalidate caches.
 A successful HTTP 200 can hide a caught migration failure, so the effect remains

@@ -7,6 +7,19 @@ function parseFixture(text: string): ts.SourceFile {
 }
 
 describe("source response hint collector", () => {
+  test("records constructor identity without inferring unknown header media", () => {
+    const source = parseFixture('import { NextResponse } from "next/server"; import { headers } from "./headers"; export function GET() { return NextResponse.json(readState(), { headers }); }');
+    const dynamic = parseFixture('import { NextResponse } from "next/server"; import { headers } from "./headers"; export function GET() { return NextResponse.json(readState(), { headers: headers }); }');
+    expect(collectSourceResponseEvidence(source, "GET", "GET", "fixture.ts").jsonResponses).toEqual([]);
+    const evidence = collectSourceResponseEvidence(dynamic, "GET", "GET", "fixture.ts");
+    expect(evidence.jsonResponses).toEqual([]);
+    expect(evidence.unknownHeaderJson).toEqual([{ method: "GET", statusCode: "200", sourceFile: "fixture.ts" }]);
+    for (const text of [
+      'import { NextResponse } from "next/server"; export function GET(status: number, headers: object) { return NextResponse.json({}, { status, headers: headers }); }',
+      'import { NextResponse } from "next/server"; export function GET(headers: object) { return NextResponse.json({}, { ...headers }); }',
+      'export function GET(NextResponse: { json: Function }, headers: object) { return NextResponse.json({}, { headers: headers }); }',
+    ]) expect(collectSourceResponseEvidence(parseFixture(text), "GET", "GET", "fixture.ts").unknownHeaderJson ?? []).toEqual([]);
+  });
   test("keeps methods isolated and recognizes aliased NextResponse", () => {
     const source = parseFixture(`
       import { NextResponse as JsonResponse } from "next/server";

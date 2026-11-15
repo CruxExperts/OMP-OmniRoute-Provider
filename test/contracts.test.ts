@@ -213,6 +213,16 @@ test("HEAD empty evidence is status-scoped and cannot be invented or dropped by 
   const get = record(responseFor(spec, "GET /api/livez", [hint]));
   expect(record((get.variants as unknown[])[0]).body).toBeUndefined();
 });
+test("unknown header JSON constructor only permits matching source specialization", () => {
+  const file = "src/app/api/example/route.ts";
+  const source = { file, sha256: "a".repeat(64), gitBlobSha: "b".repeat(40) };
+  const base = { statusCodes: ["200"], mediaType: null, schema: null, variants: [{ statusCode: "200", content: [], headers: {} }] };
+  const response = { ...base, mediaType: "application/json", variants: [{ statusCode: "200", content: [{ mediaType: "application/json", schema: null, sourceFile: file }], headers: {} }] };
+  const witness = { method: "GET", statusCode: "200", sourceFile: file };
+  expect(() => validateResponseContract(response, base, "GET /api/example", source, [witness])).not.toThrow();
+  for (const changed of [[], [{ ...witness, method: "POST" }], [{ ...witness, statusCode: "201" }], [{ ...witness, sourceFile: "src/other.ts" }], [{ ...witness, extra: true }]]) expect(() => validateResponseContract(response, base, "GET /api/example", source, changed)).toThrow();
+  expect(() => validateResponseContract(response, base, "GET /api/example", { ...source, file: "src/other.ts" }, [witness])).toThrow();
+});
 test("reasoning empty framework failure is additive and bound to the reviewed handler", () => {
   const template = operationContractTemplate(REASONING_RULES_GET_ID) as OperationSourceContract;
   const response = reasoningRulesGetContract(template).response;

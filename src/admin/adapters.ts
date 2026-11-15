@@ -372,6 +372,12 @@ export async function invokeJsonAdapter(invocation: AdapterInvocation): Promise<
   if (body) headers.set("content-type", "application/json");
   const lifetime = await fetchTyped(invocation, body, headers);
   try {
+    const contentType = lifetime.response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    const expected = invocation.descriptor.mediaType?.response?.split(";", 1)[0]?.trim().toLowerCase();
+    if (lifetime.response.ok && (!expected || contentType !== expected)) {
+      if (lifetime.response.body) void lifetime.response.body.cancel().catch(() => undefined);
+      throw new AdminAdapterError("invalid_payload", "response content type does not match the qualified JSON media type", lifetime.response.status);
+    }
     const bytes = await readBounded(lifetime.response, ADMIN_ADAPTER_LIMITS.maxResponseBytes, invocation.onProgress, lifetime.signal, invocation.signal);
     return { status: lifetime.response.status, headers: Object.fromEntries(lifetime.response.headers.entries()), data: parseJson(bytes) };
   } finally {

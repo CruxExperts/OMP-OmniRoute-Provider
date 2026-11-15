@@ -531,6 +531,7 @@ export function loadExtractedPinnedDeclarations(
   files: readonly string[],
   declarationNames: readonly string[],
   restrictedRequire: PinnedRequire,
+  imports = "",
 ): PinnedExports {
   const requested = new Set(declarationNames);
   const declarations = new Map<string, string>();
@@ -557,7 +558,7 @@ export function loadExtractedPinnedDeclarations(
   if (missing.length) throw new Error(`Pinned source declarations are missing: ${missing.join(", ")}`);
   return executeCommonJs(
     `extracted:${files.join(",")}`,
-    `import { z } from "zod";\n${[...requested].map(name => declarations.get(name)).join("\n")}`,
+    `import { z } from "zod";\n${imports}\n${[...requested].map(name => declarations.get(name)).join("\n")}`,
     specifier => specifier === "zod" ? zod : restrictedRequire(specifier),
   );
 }

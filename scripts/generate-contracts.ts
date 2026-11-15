@@ -258,6 +258,12 @@ export function testOutcomeHash(
   if (binding.sideEffect !== "read" && binding.sideEffect !== "unknown" && (before === null || after === null)) {
     throw new Error(`side-effect evidence requires observed before and after state: ${operationId}`);
   }
+  if (operationId === "GET /api/auth/mfa/status") {
+    const expectedState = { rows: 1, unchanged: true };
+    const expectedBody = { enabled: true, backupCodesRemaining: 2, recoverySwitchSet: false };
+    if (canonicalJson(before) !== canonicalJson(expectedState) || canonicalJson(after) !== canonicalJson(expectedState)
+      || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("MFA status observed outcome mismatch");
+  }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -328,7 +334,9 @@ identities[m.ACP_REGISTRY] = {'originalSha256': m.sha(source[m.ACP_REGISTRY]), '
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
 auth_graph = m.auth_status_closure(source, closures['src/lib/db/readCache.ts'])
 identities[m.AUTH_STATUS] = {'originalSha256': m.sha(source[m.AUTH_STATUS]), 'executedSha256': m.sha(auth_graph[m.AUTH_STATUS])}
-print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
+mfa_graph = m.mfa_status_closure(source)
+identities[m.MFA_STATUS] = {'originalSha256': m.sha(source[m.MFA_STATUS]), 'executedSha256': m.sha(mfa_graph[m.MFA_STATUS])}
+print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
   // This generator requires python3 and the prepared pinned archive; fail closed if
@@ -349,7 +357,7 @@ const REASONING_SHA256 = "8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab
 const REASONING_GIT_BLOB = "fd13070fad4b50034e2019cd1d75058d871f93cf";
 
 /** Validate the retained research export separately from the handler receipt. */
-export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding, operationId: string = "GET /api/health"): void {
+export function validateHealthIngressEvidence(value: unknown, binding: OperationEvidenceBinding, operationId: string = "GET /api/health", specializedStatuses: readonly string[] = []): void {
   const label = `${operationId} ingress evidence`;
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -368,6 +376,20 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     throw new Error(`${label} artifact digest mismatch`);
   }
   const artifact = requireRecord(JSON.parse(bytes.toString("utf8")) as unknown, label);
+  const independentlyValidatedMedia = new Set<string>();
+  if (specializedStatuses.length) {
+    const [method, path] = operationId.split(" ");
+    const observed = requireArray(artifact.supportedJsonHttp, `${label}.supportedJsonHttp`);
+    const matching = observed.map(item => requireRecord(item, `${label}.supportedJsonHttp item`)).filter(item => item.operationId === operationId);
+    if (observed.length !== matching.length || matching.length !== specializedStatuses.length || !method || !path) throw new Error(`${label} conditional media evidence missing or contains unrelated observations`);
+    for (const status of specializedStatuses) {
+      const matches = matching.filter(item => item.status === Number(status));
+      if (matches.length !== 1) throw new Error(`${label} conditional media status mismatch`);
+      const item = matches[0]!;
+      assertKeys(item, `${label}.supportedJsonHttp item`, ["operationId", "method", "path", "status", "contentType"]);
+      if (item.method !== method || item.path !== path || item.contentType !== "application/json") throw new Error(`${label} conditional media observation mismatch`);
+    }
+  }
   if (artifact.schemaVersion !== 1 || artifact.classification !== "research-only-not-qualification") throw new Error(`${label} classification mismatch`);
   const source = requireRecord(artifact.source, `${label}.source`);
   const manifest = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as unknown, `${label}.manifest`);
@@ -382,8 +404,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (operationId === "GET /api/acp/agents" && (added["src/app/api/acp/agents/route.ts"] !== binding.handlerSha256 || binding.handlerSha256 !== "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3" || binding.handlerGitBlobSha !== "1aa6c1a3305aab27f6e011defda696cab62a945e")) throw new Error(`${label} ACP source mismatch`);
   const authSource = operationId === "GET /api/auth/status" ? requireRecord(added["src/app/api/auth/status/route.ts"], `${label}.auth status source`) : undefined;
   if (authSource !== undefined && (authSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede" || binding.handlerGitBlobSha !== "50f8b6c4b7983ffc191eed84009a9eda9c138d19")) throw new Error(`${label} auth status source mismatch`);
+  const mfaSource = operationId === "GET /api/auth/mfa/status" ? requireRecord(added["src/app/api/auth/mfa/status/route.ts"], `${label}.MFA status source`) : undefined;
+  if (mfaSource !== undefined && (mfaSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "722f9a027e69d1b0179130ea59787a58d468cf649d2e9383cac4b8f3498d5509" || binding.handlerGitBlobSha !== "e6aa48caa7c3c499f9a1d08853b2b50f3b603cd3")) throw new Error(`${label} MFA status source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -538,6 +562,23 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   if (operationId === "GET /api/auth/status" && canonicalJson(toJson(artifact.authStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.authStatusClosure, label))) throw new Error(`${label} auth status closure mismatch`);
+  if (operationId === "GET /api/auth/mfa/status") {
+    if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
+    const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
+    assertKeys(http, label, ["cases", "enrolled", "failure"]);
+    const cases = requireRecord(http.cases, `${label}.MFA cases`);
+    const statuses: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-admin": 200, "key-manage": 200, "oma-read": 403, "oma-write": 403, "oma-admin": 200 };
+    assertKeys(cases, label, Object.keys(statuses));
+    for (const [name, status] of Object.entries(statuses)) {
+      const item = requireRecord(cases[name], `${label}.MFA ${name}`);
+      assertKeys(item, label, ["status", "routeClass", "cacheControl", "contentType", "body"]);
+      if (item.status !== status || item.routeClass !== "MANAGEMENT" || (status === 200 && (item.cacheControl !== "no-store" || item.contentType !== "application/json" || canonicalJson(toJson(item.body, label)) !== canonicalJson({ enabled: false, backupCodesRemaining: 0, recoverySwitchSet: false }))) || (status !== 200 && (item.cacheControl !== null || item.contentType !== null || item.body !== null))) throw new Error(`${label} MFA ${name} mismatch`);
+    }
+    if (canonicalJson(toJson(http.enrolled, label)) !== canonicalJson({ status: 200, routeClass: "MANAGEMENT", cacheControl: "no-store", contentType: "application/json", body: { enabled: true, backupCodesRemaining: 1, recoverySwitchSet: false }, privateMarkerPresent: false, rowUnchanged: true })) throw new Error(`${label} MFA enrolled mismatch`);
+    if (canonicalJson(toJson(http.failure, label)) !== canonicalJson({ status: 500, routeClass: "MANAGEMENT", cacheControl: "no-store", privateMarkerPresent: false })) throw new Error(`${label} MFA error mismatch`);
+    independentlyValidatedMedia.add(`${operationId}\0${String(requireRecord(http.enrolled, label).status)}\0${String(requireRecord(http.enrolled, label).contentType)}`);
+  }
+  for (const status of specializedStatuses) if (!independentlyValidatedMedia.has(`${operationId}\0${status}\0application/json`)) throw new Error(`${label} conditional media lacks independently validated HTTP observation`);
   // Older exports used the unwrapped route hash and omitted the reasoning store;
   // they cannot establish reasoning HTTP behavior but remain valid for other routes.
   if (operationId !== REASONING_OPERATION && typeof added[REASONING_ROUTE] === "string" && !Object.hasOwn(added, "src/lib/db/reasoningRoutingRules.ts")) {
@@ -550,6 +591,12 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (operationId !== "GET /api/acp/agents") {
     const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
     for (const name of ["src/app/api/acp/agents/route.ts", "src/lib/acp/registry.ts", "config/cli-tools-manifest.json", "scripts/dev/peer-stamp.mjs", "src/server/authz/routeGuard.ts", "src/shared/utils/apiAuth.ts", "src/server/authz/peerStamp.ts"]) {
+      if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+    }
+  }
+  if (operationId !== "GET /api/auth/mfa/status") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/auth/mfa/status/route.ts", "src/server/auth/dashboardMfa.ts", "src/lib/db/dashboardMfa.ts", "src/server/auth/mfaRouteSupport.ts"]) {
       if (!Object.hasOwn(added, name)) delete expectedAdded[name];
     }
   }
@@ -572,7 +619,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
 const coreLifecycleIdentityCache = new Map<string, unknown>();
 
 /** Join a research-only cold/warm observation to independently rerun producer identities. */
-export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown): void {
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false): void {
   const label = "core lifecycle evidence";
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -609,6 +656,17 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     coreLifecycleIdentityCache.set(key, expected);
   }
   validateCoreLifecycleObservation(artifact, binding, expected);
+  if (requireMfa) {
+    const independent = requireRecord(expected, `${label}.independent`);
+    const actual = requireRecord(artifact.mfaStatus, `${label}.mfaStatus`);
+    const reference = requireRecord(independent.mfaStatus, `${label}.independent.mfaStatus`);
+    assertKeys(actual, `${label}.mfaStatus`, ["cold", "warm"]);
+    for (const phase of ["cold", "warm"] as const) {
+      const row = requireRecord(actual[phase], `${label}.mfaStatus.${phase}`);
+      assertKeys(row, `${label}.mfaStatus.${phase}`, ["databaseExistedBefore", "databaseExistsAfter", "beforeFileCount", "afterFileCount", "enabled", "backupCodesRemaining", "recoverySwitchSet", "mfaRows", "corruptEnabled", "corruptCount", "rowUnchanged"]);
+      if (row.databaseExistedBefore !== (phase === "warm") || row.databaseExistsAfter !== true || row.enabled !== false || row.backupCodesRemaining !== 0 || row.recoverySwitchSet !== false || row.mfaRows !== 0 || row.corruptEnabled !== (phase === "warm" ? true : null) || row.corruptCount !== (phase === "warm" ? 1 : null) || row.rowUnchanged !== (phase === "warm" ? true : null) || !Number.isSafeInteger(row.beforeFileCount) || !Number.isSafeInteger(row.afterFileCount) || canonicalJson(toJson(row, label)) !== canonicalJson(toJson(reference[phase], label))) throw new Error(`${label} MFA ${phase} mismatch`);
+    }
+  }
   if (effectValue !== undefined) {
     const effect = requireRecord(effectValue, "deprecated provider effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
@@ -654,7 +712,7 @@ export function validateDeprecatedProviderSweepObservation(value: unknown, indep
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
   const label = "core lifecycle evidence";
   const artifact = requireRecord(value, label);
-  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"]);
+  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"])]);
   if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
   const identity = requireRecord(artifact.identity, `${label}.identity`);
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
@@ -1581,7 +1639,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
     ...effectiveSourceBinding(manifest),
-    ...(operation.operationId === "GET /api/auth/status" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
+    ...(operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
@@ -1701,6 +1759,19 @@ export function validateAuthStatusContract(value: unknown): void {
   if (contract.sideEffect !== "lifecycle" || auth.domain !== "public" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }], optionalSessionCookie: "dashboard-session" }) || confirmation.required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || preflight.kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("auth status contract does not match source-bound lifecycle behavior");
 }
 
+export function validateMfaStatusContract(value: unknown): void {
+  const contract = requireRecord(value, "MFA status contract");
+  const same = (actual: unknown, expected: unknown) => canonicalJson(toJson(actual, "MFA status contract")) === canonicalJson(toJson(expected, "MFA status contract"));
+  const auth = requireRecord(contract.auth, "MFA status auth");
+  const confirmation = requireRecord(contract.confirmation, "MFA status confirmation");
+  const safety = requireRecord(contract.mutationSafety, "MFA status mutation safety");
+  const response = requireRecord(contract.response, "MFA status response");
+  const view = { type: "object", properties: { enabled: { type: "boolean" }, backupCodesRemaining: { type: "integer", minimum: 0 }, recoverySwitchSet: { type: "boolean" } }, required: ["enabled", "backupCodesRemaining", "recoverySwitchSet"], additionalProperties: false };
+  const policy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "oma-access-token", minimumScope: "admin" }, { kind: "trusted-local", loopbackOnly: true }] };
+  const preflight = requireRecord(safety.preflight, "MFA status preflight");
+  if (contract.sideEffect !== "lifecycle" || auth.domain !== "management" || !same(auth.sourcePolicy, policy) || confirmation.required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || preflight.kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("MFA status contract does not match source-bound lifecycle behavior");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -1713,6 +1784,10 @@ function validateEligibility(
   if (operationId === "GET /api/auth/status") {
     validateAuthStatusContract(record.contract);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/status/route.ts" || route.sha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede" || route.gitBlobSha !== "50f8b6c4b7983ffc191eed84009a9eda9c138d19") throw new Error("auth status requires the exact lifecycle source");
+  }
+  if (operationId === "GET /api/auth/mfa/status") {
+    validateMfaStatusContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/mfa/status/route.ts" || route.sha256 !== "722f9a027e69d1b0179130ea59787a58d468cf649d2e9383cac4b8f3498d5509" || route.gitBlobSha !== "e6aa48caa7c3c499f9a1d08853b2b50f3b603cd3") throw new Error("MFA status requires the exact lifecycle source");
   }
   if (binding.sideEffect === "unknown") throw new Error(`eligibility requires a source-qualified side-effect classification: ${operationId}`);
   const source = requireRecord(record.source, `${operationId}.eligibility.source`);
@@ -1746,16 +1821,26 @@ function validateEligibility(
   if (requireString(test.outcomeSha256, `${operationId}.eligibility.test.outcomeSha256`) !== expectedOutcomeSha256) {
     throw new Error(`eligibility observed outcome digest mismatch: ${operationId}`);
   }
+  const contractResponse = requireRecord(requireRecord(record.contract, `${operationId}.contract`).response, `${operationId}.response`);
+  const witnessStatuses = new Set(requireArray(route.unknownHeaderJson ?? [], `${operationId}.unknownHeaderJson`).flatMap(value => {
+    const witness = requireRecord(value, `${operationId}.constructor witness`);
+    return witness.method === operationId.split(" ", 1)[0] && witness.sourceFile === route.sourceFile && typeof witness.statusCode === "string" ? [witness.statusCode] : [];
+  }));
+  const specializedStatuses = requireArray(contractResponse.variants, `${operationId}.response variants`).flatMap(value => {
+    const variant = requireRecord(value, `${operationId}.response variant`);
+    return typeof variant.statusCode === "string" && witnessStatuses.has(variant.statusCode) && requireArray(variant.content, `${operationId}.response content`).some(content => isRecord(content) && content.mediaType === "application/json" && content.sourceFile === route.sourceFile) ? [variant.statusCode] : [];
+  });
+  if (specializedStatuses.length && !operationRequiresIngressEvidence(operationId)) throw new Error(`${operationId} conditional media requires operation-bound ingress evidence`);
   if (operationRequiresIngressEvidence(operationId)) {
     const ingress = requireRecord(record.ingressEvidence, `${operationId}.eligibility.ingressEvidence`);
     if (typeof ingress.artifact !== "string" || !/^provenance\/qualification\/ingress-[a-f0-9]{64}\.json$/.test(ingress.artifact)) {
       throw new Error(`eligibility ingress artifact must be retained in provenance: ${operationId}`);
     }
-    validateHealthIngressEvidence(ingress, expectedBinding, operationId);
+    validateHealthIngressEvidence(ingress, expectedBinding, operationId, specializedStatuses);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined);
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -1914,7 +1999,7 @@ function validateRequestContract(value: unknown, baseValue: unknown, operationId
   }
 }
 
-export function validateResponseContract(value: unknown, baseValue: unknown, operationId: string, source?: unknown): void {
+export function validateResponseContract(value: unknown, baseValue: unknown, operationId: string, source?: unknown, constructorWitnesses: readonly unknown[] = []): void {
   const response = requireRecord(value, `${operationId}.contract.response`);
   assertKeys(response, `${operationId}.contract.response`, ["statusCodes", "mediaType", "schema", "variants"]);
   const statusCodes = stringList(response.statusCodes, `${operationId}.response.statusCodes`);
@@ -1977,7 +2062,9 @@ export function validateResponseContract(value: unknown, baseValue: unknown, ope
       .map(content => requireRecord(content, "response content variant").mediaType);
     const expectedTypes = requireArray(expected.content, "base response content")
       .map(content => requireRecord(content, "base response content variant").mediaType);
-    if (canonicalJson(toJson(actualTypes, "response media types")) !== canonicalJson(toJson(expectedTypes, "base response media types"))) {
+    const sourceRecord = isRecord(source) ? source : undefined;
+    const specialized = typeof actual.statusCode === "string" && /^2\d\d$/.test(actual.statusCode) && expectedTypes.length === 0 && actualTypes.length === 1 && actualTypes[0] === "application/json" && constructorWitnesses.some(witness => isRecord(witness) && Object.keys(witness).sort().join(",") === "method,sourceFile,statusCode" && witness.method === operationId.split(" ", 1)[0] && witness.statusCode === actual.statusCode && witness.sourceFile === sourceRecord?.file);
+    if (!specialized && canonicalJson(toJson(actualTypes, "response media types")) !== canonicalJson(toJson(expectedTypes, "base response media types"))) {
       throw new Error(`${operationId}.contract drops or changes a documented or source-derived response media type`);
     }
     if (canonicalJson(toJson(actual.sourceFiles ?? null, "response variant sourceFiles")) !== canonicalJson(toJson(expected.sourceFiles ?? null, "base response variant sourceFiles"))) {
@@ -1987,6 +2074,10 @@ export function validateResponseContract(value: unknown, baseValue: unknown, ope
     const expectedContent = requireArray(expected.content, "base response content");
     for (const [contentIndex, contentValue] of actualContent.entries()) {
       const actualContentRecord = requireRecord(contentValue, "response content variant");
+      if (specialized) {
+        if (actualContentRecord.sourceFile !== sourceRecord?.file || actualContentRecord.mediaType !== "application/json") throw new Error(`${operationId}.specialized response media provenance mismatch`);
+        continue;
+      }
       const expectedContentRecord = requireRecord(expectedContent[contentIndex], "base response content variant");
       if (canonicalJson(toJson(actualContentRecord.sourceFile ?? null, "response content sourceFile"))
         !== canonicalJson(toJson(expectedContentRecord.sourceFile ?? null, "base response content sourceFile"))) {
@@ -2278,7 +2369,7 @@ function validateSourceAuthorizationPolicy(value: unknown, domain: string, opera
   if (!compatible) throw new Error(`${operationId}.auth.sourcePolicy alternatives do not match credential domain ${domain}`);
 }
 
-function validateOperationContract(value: unknown, base: RecordValue, operationId: string, routeFile: string): RecordValue {
+function validateOperationContract(value: unknown, base: RecordValue, operationId: string, routeFile: string, constructorWitnesses: readonly unknown[] = []): RecordValue {
   const contract = requireRecord(toJson(value, `${operationId}.contract`), `${operationId}.contract`);
   assertKeys(contract, `${operationId}.contract`, OPERATION_CONTRACT_FIELDS);
   validateRequestContract(contract.request, base.request, operationId, routeFile);
@@ -2302,7 +2393,7 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
     !== canonicalJson(toJson(baseAuth.specificationAlternatives, `${operationId}.base.auth.specificationAlternatives`))) {
     throw new Error(`${operationId}.contract cannot rewrite OpenAPI security alternatives`);
   }
-  validateResponseContract(contract.response, base.response, operationId, base.source);
+  validateResponseContract(contract.response, base.response, operationId, base.source, constructorWitnesses);
   const secrets = requireRecord(contract.secrets, `${operationId}.contract.secrets`);
   assertKeys(secrets, `${operationId}.contract.secrets`, ["inputFields", "outputFields"]);
   stringList(secrets.inputFields, `${operationId}.secrets.inputFields`);
@@ -2514,7 +2605,7 @@ function makeOperation(
   if (requireContract && contractValue === undefined) throw new Error(`operationEvidenceBinding requires a source-reviewed contract: ${operationId}`);
   const effective: RecordValue = contractValue === undefined
     ? base
-    : { ...base, ...validateOperationContract(contractValue, base, operationId, requireString(route.sourceFile, `${operationId}.sourceFile`)) };
+    : { ...base, ...validateOperationContract(contractValue, base, operationId, requireString(route.sourceFile, `${operationId}.sourceFile`), requireArray(route.unknownHeaderJson ?? [], `${operationId}.unknownHeaderJson`)) };
   if (eligibilityRecord && effective.sideEffect !== "read"
     && requireRecord(requireRecord(effective.mutationSafety, `${operationId}.mutationSafety`).preflight, `${operationId}.preflight`).kind === "unavailable") {
     throw new Error(`stored verified eligibility cannot promote a mutation with unavailable preflight: ${operationId}`);

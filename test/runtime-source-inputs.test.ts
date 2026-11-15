@@ -77,3 +77,19 @@ test("generated pinned source corpus binds the required migration bytes into rou
   expect(resolvedSourceInputsDigest(route!.resolvedImports.map(path => sourceFiles.get(path)!)))
     .toBe(route!.resolvedImportsSha256);
 });
+
+test("imported header bytes are bound into the consuming route digest", () => {
+  const manifest = readRouteSources(resolve(import.meta.dir, "../provenance/route-sources.json")) as unknown as {
+    sourceCorpus: { files: RuntimeSourceReceipt[] };
+    routeFiles: Array<{ sourceFile: string; resolvedImports: string[]; resolvedImportsSha256: string }>;
+  };
+  const route = manifest.routeFiles.find(item => item.sourceFile === "src/app/api/auth/mfa/status/route.ts");
+  expect(route).toBeDefined();
+  const owner = "src/server/auth/mfaRouteSupport.ts";
+  expect(route!.resolvedImports).toContain(owner);
+  const receipts = new Map(manifest.sourceCorpus.files.map(item => [item.path, item]));
+  const inputs = route!.resolvedImports.map(path => receipts.get(path)!);
+  expect(resolvedSourceInputsDigest(inputs)).toBe(route!.resolvedImportsSha256);
+  const modified = inputs.map(item => item.path === owner ? { ...item, sha256: "0".repeat(64) } : item);
+  expect(resolvedSourceInputsDigest(modified)).not.toBe(route!.resolvedImportsSha256);
+});

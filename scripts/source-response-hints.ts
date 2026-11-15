@@ -35,6 +35,7 @@ export type ReturnedImportedResponseMember = ReturnedImportedCall & {
 
 export type SourceResponseEvidence = {
   jsonResponses: SourceJsonResponse[];
+  unknownHeaderJson?: { method: SourceResponseMethod; statusCode: string; sourceFile: string }[];
   literalResponses: SourceLiteralResponse[];
   returnedImportedCalls: ReturnedImportedCall[];
   returnedImportedResponseMembers: ReturnedImportedResponseMember[];
@@ -489,6 +490,7 @@ function headerFactoryMediaType(input: ts.Expression, shadowed: ReadonlySet<stri
   return inspect(returned) ? mediaType : undefined;
 }
 
+
 function collectHandlerEvidence(
   handler: Handler,
   sourceFile: string,
@@ -556,6 +558,7 @@ function collectHandlerEvidence(
   if (ts.isBlock(body)) collectLocals(body);
 
   const jsonResponses = new Map<string, SourceJsonResponse>();
+  const unknownHeaderJson = new Map<string, { method: SourceResponseMethod; statusCode: string; sourceFile: string }>();
   const literalResponses = new Map<string, SourceLiteralResponse>();
   const returnedLocalInvocations = new Map<string, LocalInvocation>();
   const returnedCalls = new Set<string>();
@@ -614,6 +617,7 @@ function collectHandlerEvidence(
 
     let status = 200;
     let mediaType = "application/json";
+    let unknownHeaders = false;
     const options = expression.arguments[1];
     if (options) {
       if (!ts.isObjectLiteralExpression(options)) return;
@@ -629,7 +633,7 @@ function collectHandlerEvidence(
         if (name === "headers") {
           if (!ts.isObjectLiteralExpression(property.initializer)) {
             const inferred = headerFactoryMediaType(property.initializer, shadowed);
-            if (inferred === undefined) return;
+            if (inferred === undefined) { unknownHeaders = true; continue; }
             mediaType = inferred;
             continue;
           }
@@ -644,6 +648,11 @@ function collectHandlerEvidence(
           }
         }
       }
+    }
+    if (unknownHeaders && Number.isInteger(status) && status >= 200 && status <= 599 && ![204, 205, 304].includes(status)) {
+      const witness = { method: publicMethod, statusCode: String(status), sourceFile };
+      unknownHeaderJson.set(`${witness.statusCode}\0${witness.sourceFile}`, witness);
+      return;
     }
     if (!Number.isInteger(status) || status < 200 || status > 599 || [204, 205, 304].includes(status)
       || !/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mediaType)) return;
@@ -822,6 +831,7 @@ function collectHandlerEvidence(
   return {
     jsonResponses: [...jsonResponses.values()].sort((left, right) =>
       left.statusCode.localeCompare(right.statusCode) || left.mediaType.localeCompare(right.mediaType) || left.sourceFile.localeCompare(right.sourceFile)),
+    unknownHeaderJson: [...unknownHeaderJson.values()],
     literalResponses: [...literalResponses.values()],
     returnedImportedCalls: [...returnedCalls].sort().flatMap(localName => {
       const binding = importedBindings.get(localName);
@@ -899,6 +909,7 @@ export function collectSourceResponseEvidence(
   const safeLocalNames = new Set([...localDeclarations].flatMap(([name, declarations]) =>
     declarations.length === 1 && topLevelBindings.get(name) === 1 && !reassigned.has(name) ? [name] : []));
   const jsonResponses = new Map<string, SourceJsonResponse>();
+  const unknownHeaderJson = new Map<string, { method: SourceResponseMethod; statusCode: string; sourceFile: string }>();
   const literalResponses = new Map<string, SourceLiteralResponse>();
   const returnedImportedCalls = new Map<string, ReturnedImportedCall>();
   const returnedImportedResponseMembers = new Map<string, ReturnedImportedResponseMember>();
@@ -927,6 +938,7 @@ export function collectSourceResponseEvidence(
     for (const hint of evidence.jsonResponses) {
       jsonResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.sourceFile}`, hint);
     }
+    for (const hint of evidence.unknownHeaderJson ?? []) unknownHeaderJson.set(`${hint.statusCode}\0${hint.sourceFile}`, hint);
     for (const hint of evidence.literalResponses) literalResponses.set(`${hint.statusCode}\0${hint.mediaType}\0${hint.body}`, hint);
     for (const call of evidence.returnedImportedCalls) returnedImportedCalls.set(call.localName, call);
     for (const member of evidence.returnedImportedResponseMembers) returnedImportedResponseMembers.set(member.localName, member);
@@ -942,6 +954,7 @@ export function collectSourceResponseEvidence(
   return {
     jsonResponses: [...jsonResponses.values()].sort((left, right) =>
       left.statusCode.localeCompare(right.statusCode) || left.mediaType.localeCompare(right.mediaType) || left.sourceFile.localeCompare(right.sourceFile)),
+    unknownHeaderJson: [...unknownHeaderJson.values()],
     literalResponses: [...literalResponses.values()],
     returnedImportedCalls: [...returnedImportedCalls.values()].sort((left, right) => left.localName.localeCompare(right.localName)),
     returnedImportedResponseMembers: [...returnedImportedResponseMembers.values()].sort((left, right) => left.localName.localeCompare(right.localName)),

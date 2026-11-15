@@ -5,6 +5,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
+import { projectMfaStatus } from '/work/fixture/mfa-response.mjs';
 
 if (process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1') throw new Error('INGRESS_SANDBOX_REQUIRED');
 const dir = '/work/data';
@@ -19,6 +20,8 @@ db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
 const statusDb = new DatabaseSync(`${dir}/auth-status.sqlite`);
 statusDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
+const mfaDb = new DatabaseSync(`${dir}/mfa-status.sqlite`);
+mfaDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
 const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].map(scope => [scope, `fixture_api_key_${scope}`]));
 const ownedProbe = '/work/fixture/acp-owned-probe';
@@ -117,6 +120,21 @@ try {
   await delay(5100);
   await statusCase('settingsFailure', { cookie }, false);
   const authStatusHttp = { cases: statusCases, invalidSettingsReads, onboardingBefore: statusBefore, onboardingAfter: statusAfter };
+  const mfaPath = '/api/auth/mfa/status';
+  const mfaCases = {};
+  const mfaCredentials = { anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, ...Object.fromEntries(Object.entries(managementKeys).map(([name, key]) => [`key-${name}`, { authorization: `Bearer ${key}` }])), ...Object.fromEntries(Object.entries(scopedTokens).map(([name, key]) => [`oma-${name}`, { authorization: `Bearer ${key}` }])) };
+  for (const [name, headers] of Object.entries(mfaCredentials)) {
+    const response = await request(mfaPath, 'GET', headers);
+    mfaCases[name] = { status: response.status, routeClass: response.routeClass, cacheControl: response.cacheControl, contentType: response.status === 200 ? response.contentType : null, body: response.status === 200 ? projectMfaStatus(response.body) : null };
+  }
+  const mfaRow = JSON.stringify({ enabled: true, secret: 'fixture-private-seed', backupCodeHashes: ['fixture-private-hash'], lastTotpCounter: 42, enabledAt: '2025-01-01T00:00:00.000Z' });
+  mfaDb.prepare("INSERT INTO key_value (namespace, key, value) VALUES ('dashboardMfa', 'state', ?)").run(mfaRow);
+  const enrolled = await request(mfaPath, 'GET', { authorization: `Bearer ${managementKeys.manage}` });
+  const persisted = mfaDb.prepare("SELECT value FROM key_value WHERE namespace = 'dashboardMfa' AND key = 'state'").get();
+  const mfaEnrolled = { status: enrolled.status, routeClass: enrolled.routeClass, cacheControl: enrolled.cacheControl, contentType: enrolled.contentType, body: projectMfaStatus(enrolled.body), privateMarkerPresent: enrolled.text.includes('fixture-private'), rowUnchanged: persisted?.value === mfaRow };
+  await writeFile(`${dir}/mfa-status-fail`, '', { mode: 0o600 });
+  const mfaFailure = await request(mfaPath, 'GET', { authorization: `Bearer ${managementKeys.manage}` });
+  const mfaStatusHttp = { cases: mfaCases, enrolled: mfaEnrolled, failure: { status: mfaFailure.status, routeClass: mfaFailure.routeClass, cacheControl: mfaFailure.cacheControl, privateMarkerPresent: mfaFailure.text.includes('private MFA backend failure') } };
   const acpCases = {};
   const unstamped = await request('/api/acp/agents', 'GET', { cookie });
   console.log('ACP_UNSTAMPED', unstamped.status, unstamped.routeClass);
@@ -338,9 +356,10 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
+  mfaDb.close();
   db.close();
   await stop(acpChild);
   await stop();

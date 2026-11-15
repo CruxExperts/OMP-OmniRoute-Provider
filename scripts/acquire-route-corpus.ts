@@ -43,6 +43,7 @@ type CapturedRoute = {
   exports: { direct: string[]; reExports: string[]; resolved: string[] };
   gitBlobSha: string;
   responseHints: PublishedSourceResponse[];
+  unknownHeaderJson: { method: HttpMethod; statusCode: string; sourceFile: string }[];
   centralResponseHints: CentralResponseHint[];
   resolvedImports: string[];
   resolvedImportsSha256: string;
@@ -853,6 +854,7 @@ for (const absolute of routePaths) {
     exports,
     gitBlobSha: sourceHash.gitBlobSha,
     responseHints: exports.resolved.flatMap(method => sourceJsonResponses(absolute, method, method as HttpMethod).hints),
+    unknownHeaderJson: exports.resolved.flatMap(method => collectSourceResponseEvidence(readSource(absolute).source, method, method as HttpMethod, sourceFile).unknownHeaderJson ?? []),
     centralResponseHints: [],
     resolvedImports,
     resolvedImportsSha256: sourceDigestFor(resolvedImports),

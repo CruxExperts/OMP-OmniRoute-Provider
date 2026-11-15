@@ -490,8 +490,12 @@ export function buildComboFixtureRegistry() {
 }
 export function comboAdapterDescriptor(adapter: OperationAdapter) {
   const descriptor = adapter.descriptor;
+  // Synthetic unqualified transport only: the pinned export handler explicitly
+  // emits JSON even though the source inventory does not infer its 200 variant.
+  const portableExport = descriptor.operationId === "GET /api/combos/export";
+  if (portableExport && (descriptor.source.file !== "src/app/api/combos/export/route.ts" || descriptor.source.sha256 !== "4fc582cb308fbe3e6bcc30401991bb3f7217a3353307d904fbbae71d04202c30" || descriptor.source.gitBlobSha !== "cdb07bd42ac3256ad880291ad76b2902e2dd6c9c")) throw new Error("Unexpected combo export source identity");
   return { operationId: descriptor.operationId, adapterId: adapter.adapterId, method: descriptor.method, pathTemplate: descriptor.pathTemplate,
-    mediaType: { request: descriptor.request.body?.mediaType ?? null, response: descriptor.response.mediaType },
+    mediaType: { request: descriptor.request.body?.mediaType ?? null, response: portableExport ? "application/json" : descriptor.response.mediaType },
     request: { pathParameters: descriptor.request.pathParameters, body: descriptor.request.body }, streaming: descriptor.streaming,
     auth: { domain: descriptor.auth.domain }, coverage: { status: "invokable" as const } };
 }

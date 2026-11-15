@@ -184,6 +184,15 @@ function verifyFrameworkAndRoutes(manifest: AnyRecord, receipts: Map<string, Rec
     const resolved = requireArray(exports.resolved, `${sourceFile}.exports.resolved`).map(String);
     const union = [...new Set([...direct, ...reExports])].sort(compareText);
     if (canonical(union) !== canonical([...resolved].sort(compareText)) || new Set(resolved).size !== resolved.length) throw new Error(`route exported-method closure mismatch: ${sourceFile}`);
+    const constructors = requireArray(route.unknownHeaderJson ?? [], `${sourceFile}.unknownHeaderJson`);
+    const constructorKeys = new Set<string>();
+    for (const value of constructors) {
+      const witness = requireObject(value, `${sourceFile}.unknownHeaderJson witness`);
+      if (Object.keys(witness).sort().join(",") !== "method,sourceFile,statusCode" || typeof witness.method !== "string" || !resolved.includes(witness.method) || witness.sourceFile !== sourceFile || typeof witness.statusCode !== "string" || !/^[2-5]\d\d$/.test(witness.statusCode) || ["204", "205", "304"].includes(witness.statusCode)) throw new Error(`invalid constructor witness: ${sourceFile}`);
+      const key = `${witness.method}\0${witness.statusCode}`;
+      if (constructorKeys.has(key)) throw new Error(`duplicate constructor witness: ${sourceFile}`);
+      constructorKeys.add(key);
+    }
     for (const method of resolved) {
       if (!(METHODS as readonly string[]).includes(method)) throw new Error(`unsupported exported method ${method}: ${sourceFile}`);
       methodCounts[method] = (methodCounts[method] ?? 0) + 1;

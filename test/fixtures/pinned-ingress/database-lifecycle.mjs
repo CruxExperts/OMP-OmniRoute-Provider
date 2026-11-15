@@ -10,8 +10,9 @@ import { SignJWT } from 'jose';
 const phase = process.argv[2];
 const sweep = phase === 'sweep-success' || phase === 'sweep-failure';
 const auth = phase === 'auth-cold' || phase === 'auth-warm';
-const expectedDataDir = auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const mfa = phase === 'mfa-cold' || phase === 'mfa-warm';
+const expectedDataDir = mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -110,6 +111,36 @@ if (auth) {
       if (await status(token)) throw new Error('password cutoff ignored after cache expiry');
     }
     const observation = { invalidRejected: true, validAccepted: true, databaseExistedBefore: existed, onboardingBefore: cold ? 'absent' : 'persisted', onboardingAfter: 'persisted', ...(cold ? { invalidNoDatabase: true } : { cachedRevocation: true, revocationAfterExpiry: true, passwordCutoffAfterExpiry: true }) };
+    await writeFile(`/work/${phase}.json`, JSON.stringify(observation) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+if (mfa) {
+  const cold = phase === 'mfa-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('MFA database phase mismatch');
+  const { getDashboardMfaStatus } = await import('/work/app/src/server/auth/pinnedMfaLifecycle.ts');
+  const before = await files();
+  const status = getDashboardMfaStatus();
+  try {
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite' || status.enabled !== false || status.backupCodesRemaining !== 0 || status.recoverySwitchSet !== false) throw new Error('MFA status mismatch');
+    const row = db.prepare("SELECT COUNT(*) AS count FROM key_value WHERE namespace = 'dashboardMfa'").get();
+    if (row.count !== 0) throw new Error('unexpected MFA row');
+    let corruptEnabled = null, corruptCount = null, rowUnchanged = null;
+    if (!cold) {
+      const seed = JSON.stringify({ enabled: true, secret: 'enc:v1:fixture-invalid-ciphertext', backupCodeHashes: ['fixture-hash'], lastTotpCounter: 42 });
+      db.prepare("INSERT INTO key_value (namespace, key, value) VALUES ('dashboardMfa', 'state', ?)").run(seed);
+      const corrupt = getDashboardMfaStatus();
+      if (corrupt.enabled !== true || corrupt.backupCodesRemaining !== 1) throw new Error('corrupt MFA row did not fail closed');
+      const stored = db.prepare("SELECT value FROM key_value WHERE namespace = 'dashboardMfa' AND key = 'state'").get();
+      if (stored?.value !== seed) throw new Error('MFA status changed stored row');
+      corruptCount = corrupt.backupCodesRemaining;
+      rowUnchanged = stored.value === seed;
+      corruptEnabled = corrupt.enabled;
+    }
+    const after = await files();
+    const observation = { databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), beforeFileCount: before.length, afterFileCount: after.length, enabled: status.enabled, backupCodesRemaining: status.backupCodesRemaining, recoverySwitchSet: status.recoverySwitchSet, mfaRows: row.count, corruptEnabled, corruptCount, rowUnchanged };
     await writeFile(`/work/${phase}.json`, JSON.stringify(observation) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { await closeDbInstance(); }
   process.exit(0);

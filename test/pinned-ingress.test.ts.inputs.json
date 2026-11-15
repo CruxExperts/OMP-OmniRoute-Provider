@@ -27,6 +27,7 @@
     "test/fixtures/pinned-ingress/extracted/shutdown.ts",
     "test/fixtures/pinned-ingress/extracted/sync.ts",
     "test/fixtures/pinned-ingress/initialize.mjs",
+    "test/fixtures/pinned-ingress/mfa-response.mjs",
     "test/fixtures/pinned-ingress/next.config.mjs",
     "test/fixtures/pinned-ingress/routes/management.ts",
     "test/fixtures/pinned-ingress/runtime.json",

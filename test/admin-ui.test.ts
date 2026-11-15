@@ -590,6 +590,25 @@ test("local schema refs constrain validation and projection while external refs 
   })).toEqual({ mediaType: "application/json", schema: { type: "string" } });
   expect(() => projectResponse({ ...descriptor, response: { ...descriptor.response, schema: { $ref: "https://example.invalid/schema" } } }, {})).toThrow();
 });
+test("JSON adapter rejects successful non-JSON media before parsing", async () => {
+  const originalFetch = globalThis.fetch;
+  const invocation = { descriptor: jsonDescriptor, endpoint: "http://127.0.0.1:20128", resolvedPath: "/api/models", queryParameters: [] };
+  try {
+    let status = 200;
+    let contentType = "text/plain";
+    let cancelled = false;
+    globalThis.fetch = Object.assign(async () => new Response(new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } }), { status, headers: { "content-type": contentType } }), { preconnect: originalFetch.preconnect });
+    await expect(invokeJsonAdapter(invocation)).rejects.toMatchObject({ code: "invalid_payload" });
+    expect(cancelled).toBe(true);
+    globalThis.fetch = Object.assign(async () => new Response('{"ok":true}', { status, headers: { "content-type": contentType } }), { preconnect: originalFetch.preconnect });
+    await expect(invokeJsonAdapter(invocation)).rejects.toMatchObject({ code: "invalid_payload" });
+    contentType = "application/json; charset=utf-8";
+    expect((await invokeJsonAdapter(invocation)).data).toEqual({ ok: true });
+    status = 400;
+    contentType = "text/plain";
+    expect((await invokeJsonAdapter(invocation)).status).toBe(400);
+  } finally { globalThis.fetch = originalFetch; }
+});
 
 test("stalled response bodies are cancelled by the combined deadline", async () => {
   const originalFetch = globalThis.fetch;

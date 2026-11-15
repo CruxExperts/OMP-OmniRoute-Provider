@@ -8,6 +8,14 @@ import { expectedHealthIngressIdentities, validateDeprecatedProviderSweepObserva
 import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
+test("MFA source response is closed before projection", async () => {
+  // Load the exact JavaScript module copied into the isolated Node ingress worker.
+  const path = resolve(import.meta.dir, "fixtures/pinned-ingress/mfa-response.mjs");
+  const { projectMfaStatus } = await import(path);
+  const source = { enabled: true, backupCodesRemaining: 2, enabledAt: "2025-01-01T00:00:00.000Z", recoverySwitchSet: false };
+  expect(projectMfaStatus(source)).toEqual({ enabled: true, backupCodesRemaining: 2, recoverySwitchSet: false });
+  for (const changed of [{ ...source, secret: "private" }, { ...source, lastTotpCounter: 42 }, { ...source, enabledAt: 9 }, { ...source, backupCodesRemaining: -1 }]) expect(() => projectMfaStatus(changed)).toThrow();
+});
 test("sweep evidence rejects private extras and out-of-range backup observations", () => {
   const scenarios = [true, false].map(success => ({ phase: success ? "sweep-success" : "sweep-failure", firstStatus: 200, secondStatus: 200, encryptedAfterFirst: success, encryptedAfterSecond: success, cacheInvalidated: success, nativeBackupCalls: 0, backupCountBefore: 0, backupCountAfter: 0 }));
   const independent = { status: "research-observed", qualification: false, boundary: "fixture", inputSha256: {}, identity: {}, scenarioArguments: [], scenarioEnvironment: {}, scenarios };
@@ -72,6 +80,16 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     deprecatedProviderHttp,
     wellKnownHttp: ["agent-card.json", "agent.json"].map(name => ({ method: "GET", path: `/.well-known/${name}`, matcher: "not-matched", anonymous: true, status: 200, contentType: "application/json", cacheControl: "public, max-age=3600", routeClass: null, requestId: null, handlerMarker: name === "agent-card.json" ? "v1" : "legacy", staticSkillCount: 6 })),
   };
+  const mediaBinding = { handlerSha256: "a".repeat(64), handlerGitBlobSha: "b".repeat(40) } as OperationEvidenceBinding;
+  for (const media of [undefined, [], [{ operationId: "GET /api/fallback/chains", method: "GET", path: "/api/fallback/chains", status: 201, contentType: "application/json" }], [{ operationId: "GET /api/fallback/chains", method: "GET", path: "/api/fallback/chains", status: 200, contentType: "text/plain" }], [{ operationId: "GET /api/fallback/chains", method: "GET", path: "/api/fallback/chains", status: 200, contentType: "application/json", private: "secret" }]]) {
+    const value = { ...artifact, supportedJsonHttp: media };
+    const bytes = Buffer.from(JSON.stringify(value));
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const path = `provenance/qualification/ingress-${digest}.json`;
+    const absolute = resolve(root, path);
+    writeFileSync(absolute, bytes, { flag: "wx" });
+    try { expect(() => validateHealthIngressEvidence({ artifact: path, sha256: digest }, mediaBinding, "GET /api/fallback/chains", ["200"])).toThrow(); } finally { rmSync(absolute); }
+  }
   const cases = [
     ["GET /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
     ["GET /api/providers/{id}/cc-alias", "src/app/api/providers/[id]/cc-alias/route.ts"],
@@ -788,6 +806,7 @@ with tempfile.TemporaryDirectory() as temp:
  m.deprecated_ingress_source=lambda route,helper,registry:(route+b':executed',helper+b':executed',registry+b':executed')
  sources[m.AUTH_SESSION] = b'session'; sources[m.AUTH_SHARED] = b'shared'
  m.auth_status_closure = lambda source, cache: {m.AUTH_STATUS:b'route-executed',m.AUTH_SESSION:b'session-executed','src/lib/db/fixtureAuthStatusCache.ts':b'cache-executed','src/lib/db/fixtureAuthStatusSettings.ts':b'settings-executed'}
+ m.mfa_status_closure = lambda source: {m.MFA_STATUS:b'mfa-route-executed','src/server/auth/fixtureDashboardMfaStatus.ts':b'mfa-dashboard-executed','src/lib/db/fixtureDashboardMfaStatus.ts':b'mfa-storage-executed','src/server/auth/fixtureMfaRouteSupport.ts':b'mfa-support-executed','src/lib/db/fixtureMfaStatusCore.ts':b'mfa-core-executed'}
  sources[m.ACP_REGISTRY] = b'import { execFileSync } from "child_process";\n'
  m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
  m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
@@ -835,6 +854,9 @@ with tempfile.TemporaryDirectory() as temp:
  graph = m.auth_status_closure(sources,b'cache')
  identity['addedSourceSha256'][m.AUTH_STATUS] = {'originalSha256':m.sha(sources[m.AUTH_STATUS]),'executedSha256':m.sha(graph[m.AUTH_STATUS])}
  identity['authStatusClosure'] = {'sources':{name:m.sha(sources[name]) for name in (m.AUTH_STATUS,m.AUTH_SESSION,m.AUTH_SETTINGS,m.AUTH_SHARED)},'executed':{name:m.sha(data) for name,data in graph.items()}}
+ mfa_graph = m.mfa_status_closure(sources)
+ identity['addedSourceSha256'][m.MFA_STATUS] = {'originalSha256':m.sha(sources[m.MFA_STATUS]),'executedSha256':m.sha(mfa_graph[m.MFA_STATUS])}
+ identity['mfaStatusClosure'] = {'sources':{name:m.sha(sources[name]) for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)},'executed':{name:m.sha(data) for name,data in mfa_graph.items()}}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
@@ -900,6 +922,13 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['acpHttp'] = {'cases':acp_cases,'unstampedSessionStatus':403,'probeCount':3,'processPlatform':'linux'}
  status_expected = {'anonymous':False,'invalid':False,'expired':False,'tampered':False,'valid':True,'cachedRevocation':True,'revoked':False,'passwordChanged':False,'settingsFailure':False}
  ingress['authStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'PUBLIC','authenticated':value} for name,value in status_expected.items()},'invalidSettingsReads':0,'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
+ ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
+ mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
+ for name,status in mfa_statuses.items():
+  ingress['mfaStatusHttp']['cases'][name]['status']=status
+  if status != 200: ingress['mfaStatusHttp']['cases'][name]['body']=None; ingress['mfaStatusHttp']['cases'][name]['cacheControl']=None
+  ingress['mfaStatusHttp']['cases'][name]['contentType']='application/json' if status == 200 else None
+ ingress['mfaStatusHttp']['enrolled']={'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','contentType':'application/json','body':{'enabled':True,'backupCodesRemaining':1,'recoverySwitchSet':False},'privateMarkerPresent':False,'rowUnchanged':True}
  ingress['events'].extend([{'event':'reasoning:read'},{'event':'reasoning:fault'},{'event':'reasoning:read'}])
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -936,6 +965,10 @@ with tempfile.TemporaryDirectory() as temp:
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ original = ingress['mfaStatusHttp']['enrolled']['rowUnchanged']; ingress['mfaStatusHttp']['enrolled']['rowUnchanged'] = False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['mfaStatusHttp']['enrolled']['rowUnchanged'] = original
+ ingress['mfaStatusHttp']['cases']['anonymous']['cacheControl']={'private':'secret'}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['mfaStatusHttp']['cases']['anonymous']['cacheControl']=None
+ ingress['mfaStatusHttp']['cases']['key-manage']['contentType']='text/plain'; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['mfaStatusHttp']['cases']['key-manage']['contentType']='application/json'
+ original = identity['mfaStatusClosure']['executed'][m.MFA_STATUS]; identity['mfaStatusClosure']['executed'][m.MFA_STATUS] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['mfaStatusClosure']['executed'][m.MFA_STATUS] = original
  original = ingress['authStatusHttp']['cases']['revoked']['authenticated']; ingress['authStatusHttp']['cases']['revoked']['authenticated'] = True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['authStatusHttp']['cases']['revoked']['authenticated'] = original
  ingress['authStatusHttp']['invalidSettingsReads'] = 1; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['authStatusHttp']['invalidSettingsReads'] = 0
  original = identity['authStatusClosure']['executed'][m.AUTH_SESSION]; identity['authStatusClosure']['executed'][m.AUTH_SESSION] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['authStatusClosure']['executed'][m.AUTH_SESSION] = original
@@ -1064,17 +1097,23 @@ with tempfile.TemporaryDirectory() as d:
  p=pathlib.Path(d); h='a'*64
  source={f'src/lib/db/migrations/{i:03}_fixture.sql':h for i in range(222)}
  source.update({'src/lib/db/healthCheckWorker.ts':h,'scripts/build/colocate-standalone.mjs':h,'src/lib/db/core.ts':h})
+ source.update({name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
+ identity['mfaClosure']={'sources':{name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)},'selectedSha256':h}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
  authcold={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':False,'onboardingBefore':'absent','onboardingAfter':'persisted','invalidNoDatabase':True}
  authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
- for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm'): (p/(phase+'.private')).write_text('normal output\n')
+ for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
+ mfa_base={'databaseExistsAfter':True,'beforeFileCount':0,'afterFileCount':1,'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False,'mfaRows':0}
+ mfacold={**mfa_base,'databaseExistedBefore':False,'corruptEnabled':None,'corruptCount':None,'rowUnchanged':None}
+ mfawarm={**mfa_base,'databaseExistedBefore':True,'corruptEnabled':True,'corruptCount':1,'rowUnchanged':True}
+ put('mfa-cold.json',mfacold); put('mfa-warm.json',mfawarm)
  def reject():
   try: m.export_core_lifecycle(p,{})
   except (RuntimeError,ValueError,KeyError,TypeError): return
