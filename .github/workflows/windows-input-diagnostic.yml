@@ -11,6 +11,10 @@ on:
         description: Run only the native private ACL diagnostic on both Windows architectures
         type: boolean
         default: false
+      acp_only:
+        description: Run only the native owned ACP fixture on both Windows architectures
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,7 +27,7 @@ env:
 
 jobs:
   package:
-    if: ${{ !inputs.research && !inputs.acl_only }}
+    if: ${{ !inputs.research && !inputs.acl_only && !inputs.acp_only }}
     name: prepare-diagnostic-package
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -49,7 +53,7 @@ jobs:
           retention-days: 14
 
   host:
-    if: ${{ !inputs.research && !inputs.acl_only }}
+    if: ${{ !inputs.research && !inputs.acl_only && !inputs.acp_only }}
     name: native-login-${{ matrix.id }}
     needs: package
     strategy:
@@ -97,7 +101,7 @@ jobs:
           retention-days: 14
 
   probe:
-    if: ${{ !inputs.research || inputs.acl_only }}
+    if: ${{ (!inputs.research || inputs.acl_only) && !inputs.acp_only }}
     name: input-transport-${{ matrix.id }}
     strategy:
       fail-fast: false
@@ -171,8 +175,67 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  acp:
+    if: ${{ inputs.acp_only && !inputs.research && !inputs.acl_only }}
+    name: native-owned-acp-${{ matrix.id }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows-x64
+            runner: windows-2025
+          - id: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with: { bun-version: "1.4.2" }
+      - name: Install locked dependencies and prepare pinned source
+        shell: bash
+        run: |
+          bun install --frozen-lockfile --ignore-scripts
+          bun run prepare:upstream
+      - name: Run focused native owned ACP fixture
+        shell: pwsh
+        env:
+          ACP_TARGET: ${{ matrix.id }}
+        run: |
+          $result = [ordered]@{
+            target = $env:ACP_TARGET
+            commit = $env:GITHUB_SHA
+            os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
+            architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            bun = (bun --version).Trim()
+            bunArchitecture = (bun -e 'process.stdout.write(process.arch)').Trim()
+            sourceManifestSha256 = (Get-FileHash provenance/route-sources.json -Algorithm SHA256).Hash.ToLowerInvariant()
+            fixtureSha256 = (Get-FileHash test/fixtures/acp-agents.fixture.ts -Algorithm SHA256).Hash.ToLowerInvariant()
+            testSha256 = (Get-FileHash test/admin-acp-agents.test.ts -Algorithm SHA256).Hash.ToLowerInvariant()
+            outcome = 'failed'
+          }
+          $expectedArch = if ($env:ACP_TARGET -eq 'windows-arm64') { 'ARM64' } else { 'X64' }
+          if ($result.architecture -ne $expectedArch -or $result.bunArchitecture -ne $expectedArch.ToLowerInvariant()) {
+            $result | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-acp-result.json"
+            throw 'Native runner architecture mismatch.'
+          }
+          bun test test/admin-acp-agents.test.ts --test-name-pattern 'Windows native owned ACP probes' --timeout=30000 *> $null
+          $code = $LASTEXITCODE
+          if ($code -eq 0) { $result.outcome = 'passed' }
+          $result | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-acp-result.json"
+          if ($code -ne 0) { throw 'Native owned ACP fixture failed; raw output withheld.' }
+      - name: Upload bounded ACP observation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-owned-acp-${{ matrix.id }}
+          path: ${{ runner.temp }}/windows-acp-result.json
+          if-no-files-found: error
+          retention-days: 14
+
   research:
-    if: ${{ inputs.research && !inputs.acl_only }}
+    if: ${{ inputs.research && !inputs.acl_only && !inputs.acp_only }}
     uses: ./.github/workflows/windows-login-research.yml
     permissions:
       contents: read

@@ -1,4 +1,7 @@
 import * as crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { loadExtractedPinnedDeclarations, loadPinnedModule, readPinnedSource } from "./pinned-handler.fixture.ts";
 import { operationContractTemplate } from "../../scripts/generate-contracts.ts";
@@ -51,7 +54,76 @@ export interface CustomAgent {
   protocol: "stdio" | "http";
 }
 
-/** Direct handler and source registry only. No real process or production settings is used. */
+type ProcessMode = "success" | "failure" | "stall";
+
+/** Owns all executable fixtures and their only writable counter; not a sandbox for arbitrary code. */
+export class AcpOwnedProcesses {
+  readonly directory = mkdtempSync(path.join(tmpdir(), "acp-owned-"));
+  readonly counter = path.join(this.directory, "counter.jsonl");
+  readonly executables = new Map<string, { mode: ProcessMode; sha256: string; script?: string; scriptSha256?: string }>();
+  readonly outcomes: Array<{ command: string; stdout: string; status: number | null; signal: string | null; code: string | null }> = [];
+  cleaned = false;
+
+  create(mode: ProcessMode): string {
+    const windows = process.platform === "win32";
+    const executable = path.join(this.directory, `probe-${mode}${windows ? ".cmd" : ""}`);
+    const script = windows ? path.join(this.directory, `probe-${mode}.js`) : executable;
+    const source = (windows ? "" : `#!${process.execPath}\n`) +
+      `import { appendFileSync } from "node:fs";\n` +
+      `appendFileSync(${JSON.stringify(this.counter)}, JSON.stringify({ mode: ${JSON.stringify(mode)}, argv: process.argv.slice(2), cwd: process.cwd(), env: process.env, pid: process.pid }) + "\\n");\n` +
+      (mode === "success" ? `process.stdout.write("Owned agent 7.8.9-beta\\n");\n` :
+        mode === "failure" ? `process.stdout.write("failed 3.2.1\\n"); process.exit(17);\n` : windows ? `setTimeout(() => process.exit(0), 6500);\n` : `setInterval(() => {}, 1000);\n`);
+    writeFileSync(script, source, { mode: 0o700, flag: "wx" });
+    if (windows) {
+      if (/["%\r\n]/.test(process.execPath) || /["%\r\n]/.test(script)) throw new Error("unsafe fixture wrapper path");
+      // The wrapper is fixed at creation; no registry-controlled text enters it.
+      const wrapper = `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`;
+      writeFileSync(executable, wrapper, { flag: "wx" });
+      this.executables.set(executable, { mode, sha256: crypto.createHash("sha256").update(wrapper).digest("hex"), script, scriptSha256: crypto.createHash("sha256").update(source).digest("hex") });
+    } else {
+      chmodSync(executable, 0o700);
+      this.executables.set(executable, { mode, sha256: crypto.createHash("sha256").update(source).digest("hex") });
+    }
+    return executable;
+  }
+
+  run(command: string, args: string[], options: unknown): string {
+    const executable = this.executables.get(command);
+    if (!executable || args.length !== 1 || args[0] !== "--version") throw new Error("unowned or unsupported fixture probe");
+    for (const [file, digest] of [[command, executable.sha256], ...(executable.script ? [[executable.script, executable.scriptSha256!]] : [])]) {
+      if (!file || !digest || !lstatSync(file).isFile() || crypto.createHash("sha256").update(readFileSync(file)).digest("hex") !== digest) throw new Error("fixture executable changed");
+    }
+    const sourceOptions = options as { timeout?: number; encoding?: string; shell?: boolean };
+    const windows = process.platform === "win32";
+    if (sourceOptions.timeout !== 5000 || sourceOptions.encoding !== "utf-8" || Boolean(sourceOptions.shell) !== windows) throw new Error("unexpected source probe options");
+    const env: Record<string, string> = { PATH: "", HOME: this.directory, TMPDIR: this.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
+    if (windows) {
+      if (!process.env.SystemRoot || !process.env.ComSpec) throw new Error("Windows system shell unavailable");
+      env.SystemRoot = process.env.SystemRoot;
+      env.ComSpec = process.env.ComSpec;
+    }
+    try {
+      const stdout = execFileSync(command, args, { cwd: this.directory, env, shell: windows, timeout: sourceOptions.timeout, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16_384, killSignal: "SIGKILL" });
+      this.outcomes.push({ command, stdout, status: 0, signal: null, code: null });
+      return stdout;
+    } catch (error) {
+      const failure = error as { stdout?: string | Buffer; status?: number | null; signal?: string | null; code?: string };
+      this.outcomes.push({ command, stdout: String(failure.stdout ?? ""), status: failure.status ?? null, signal: failure.signal ?? null, code: failure.code ?? null });
+      throw error;
+    }
+  }
+
+  records(): Array<{ mode: ProcessMode; argv: string[]; cwd: string; env: Record<string, string>; pid: number }> {
+    return existsSync(this.counter) ? readFileSync(this.counter, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
+  }
+
+  cleanup(): void {
+    rmSync(this.directory, { recursive: true, force: true });
+    this.cleaned = !existsSync(this.directory);
+  }
+}
+
+/** Direct handler and pinned registry; process mode is restricted to owned fixtures. */
 export class AcpAgentsFixture {
   settings: { customAgents?: CustomAgent[] } = { customAgents: [] };
   requireLogin = false;
@@ -63,7 +135,7 @@ export class AcpAgentsFixture {
   readonly apiKeys = new Map<string, readonly string[]>();
   readonly #get: (request: Request) => Promise<Response>;
 
-  constructor() {
+  constructor(processes?: AcpOwnedProcesses) {
     const manifestJson = JSON.parse(readPinnedSource("config/cli-tools-manifest.json"));
     const manifest = loadPinnedModule("src/shared/constants/cliIntegrationManifest.ts", s => {
       if (s === "../../../config/cli-tools-manifest.json") return manifestJson;
@@ -74,6 +146,7 @@ export class AcpAgentsFixture {
       if (s === "@/shared/constants/cliIntegrationManifest") return manifest;
       if (s === "child_process") return { execFileSync: (command: string, args: string[], options: unknown) => {
         this.probes.push({ command, args: [...args], options });
+        if (processes) return processes.run(command, args, options);
         const result = this.outputs.get(command);
         if (typeof result !== "string") throw result ?? new Error("fixture executable unavailable");
         return result;

@@ -1,7 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
-import { ACP_AGENTS_GET_ID, AcpAgentsFixture, acpAgentsGetContract, acpAgentsGetDescriptor, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
+import { readdirSync } from "node:fs";
+import * as path from "node:path";
+import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
-import { createAdminExecutor } from "../src/admin/executor.ts";
+import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 
 interface Agent extends CustomAgent { installed: boolean; version: string | null; isCustom: boolean }
 interface Body { agents: Agent[]; summary: { total: number; installed: number; notFound: number; builtIn: number; custom: number } }
@@ -192,3 +194,116 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
   expect(fixture.settingsReads).toBe(1);
   expect(fixture.probes.length).toBeGreaterThan(0);
 });
+
+// Candidate evidence only: the controlled process is not a qualification receipt,
+// and neither real ingress nor the production authorization policy is established.
+async function ownedProcessCase(): Promise<void> {
+  const processes = new AcpOwnedProcesses();
+  let executor: AdminExecutor | undefined;
+  try {
+    const success = processes.create("success");
+    const failure = processes.create("failure");
+    const stall = processes.create("stall");
+    const windows = process.platform === "win32";
+    const version = (binary: string) => `${windows ? `"${binary}"` : binary} --version`;
+    const unsupported = path.join(processes.directory, "not-owned");
+    const spaced = path.join(processes.directory, "not owned.cmd");
+    const fixture = new AcpAgentsFixture(processes);
+    fixture.settings = { customAgents: [
+      custom("success", success, version(success)),
+      custom("failure", failure, version(failure)),
+      custom("stall", stall, version(stall)),
+      custom("invalid-eval", success, `${windows ? `"${success}"` : success} -e`),
+      custom("invalid-extra", success, `${version(success)} extra`),
+      custom("invalid-shell", success, `${version(success)};bad`),
+      custom("invalid-mismatch", success, version(failure)),
+      custom("unsupported", unsupported, version(unsupported)),
+      ...(windows ? [custom("shell-unsafe-space", spaced, version(spaced))] : []),
+    ] };
+    const controller = new AbortController();
+    controller.abort();
+    const response = await fixture.get(new Request("http://localhost/api/acp/agents", { signal: controller.signal }));
+    expect(response.status).toBe(200);
+    const body = await response.json() as Body;
+    expect(fixture.settingsReads).toBe(1);
+    expect(body.agents.find(a => a.id === "success")).toMatchObject({ installed: true, version: "7.8.9-beta" });
+    for (const id of ["failure", "stall", "invalid-eval", "invalid-extra", "invalid-shell", "invalid-mismatch", "unsupported"]) {
+      expect(body.agents.find(a => a.id === id)).toMatchObject({ installed: false, version: null });
+    }
+    if (windows) expect(body.agents.find(a => a.id === "shell-unsafe-space")).toMatchObject({ installed: false, version: null });
+    expect(processes.outcomes).toHaveLength(3);
+    expect(processes.outcomes[0]).toEqual({ command: success, stdout: "Owned agent 7.8.9-beta\n", status: 0, signal: null, code: null });
+    expect(processes.outcomes[1]).toMatchObject({ command: failure, stdout: "failed 3.2.1\n", status: 17 });
+    expect(processes.outcomes[2]).toMatchObject({ command: stall, stdout: "", status: null, code: "ETIMEDOUT" });
+    if (!windows) expect(processes.outcomes[2]?.signal).toBe("SIGKILL");
+    expect(fixture.probes.filter(p => p.command === success)).toHaveLength(1);
+    expect(fixture.probes.filter(p => p.command === failure)).toHaveLength(1);
+    expect(fixture.probes.some(p => p.command.endsWith("not-owned"))).toBe(true);
+    if (windows) {
+      expect(fixture.probes.some(p => p.command === spaced)).toBe(false);
+      for (const probe of fixture.probes.filter(p => [success, failure, stall].includes(p.command))) {
+        expect(probe.args).toEqual(["--version"]);
+        expect(probe.options).toMatchObject({ shell: true });
+      }
+    }
+    const records = processes.records();
+    // A real Windows subprocess must exit on its own deadline, not fake time.
+    if (windows) {
+      const stallPid = records.find(record => record.mode === "stall")?.pid;
+      if (stallPid === undefined) throw new Error("stall fixture did not start");
+      const deadline = Date.now() + 5000;
+      while (true) {
+        try { process.kill(stallPid, 0); } catch { break; }
+        if (Date.now() >= deadline) throw new Error("stall fixture did not exit");
+        await Bun.sleep(50);
+      }
+    }
+    expect(records.map(r => r.mode)).toEqual(["success", "failure", "stall"]);
+    for (const record of records) {
+      expect(record.argv).toEqual(["--version"]);
+      expect(record.cwd).toBe(processes.directory);
+      const expectedEnv: Record<string, string> = { PATH: "", HOME: processes.directory, TMPDIR: processes.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
+      if (windows) { expectedEnv.SystemRoot = process.env.SystemRoot!; expectedEnv.ComSpec = process.env.ComSpec!; }
+      expect(record.env).toEqual(expectedEnv);
+      expect(() => process.kill(record.pid, 0)).toThrow();
+    }
+    expect(readdirSync(processes.directory).sort()).toEqual(windows
+      ? ["counter.jsonl", "probe-failure.cmd", "probe-failure.js", "probe-stall.cmd", "probe-stall.js", "probe-success.cmd", "probe-success.js"]
+      : ["counter.jsonl", "probe-failure", "probe-stall", "probe-success"]);
+    fixture.settings = {};
+    const candidate = acpAgentsGetDescriptor();
+    const descriptor: typeof candidate = { ...candidate, sideEffect: "mutation", auth: { ...candidate.auth, sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "none", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }] } } };
+    executor = createAdminExecutor({ registry: fixtureRegistry([descriptor]), dispatch: async () => {
+      const result = await fixture.get();
+      return { kind: "response", status: result.status, body: await result.json() };
+    } });
+    executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "[REDACTED:auth_header]" });
+    const plan = await executor.plan(ACP_AGENTS_GET_ID, {});
+    const result = await executor.apply(plan.planId, { confirmed: true });
+    expect(result).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+    expect(result.output).toMatchObject({ summary: body.summary });
+    expect(processes.records()).toEqual(records);
+    await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+    expect(processes.records()).toEqual(records);
+    expect(acpAgentsGetContract()).toMatchObject({ sideEffect: "unknown", auth: { sourcePolicy: { status: "unknown" } } });
+  } finally {
+    executor?.shutdown();
+    // Windows may leave the owned stall child running briefly after its wrapper times out.
+    if (process.platform === "win32") {
+      const stallPid = processes.records().find(record => record.mode === "stall")?.pid;
+      if (stallPid !== undefined) {
+        const deadline = Date.now() + 8000;
+        while (true) {
+          try { process.kill(stallPid, 0); } catch { break; }
+          if (Date.now() >= deadline) throw new Error("owned stall fixture termination unconfirmed; workspace retained");
+          await Bun.sleep(50);
+        }
+      }
+    }
+    processes.cleanup();
+    expect(processes.cleaned).toBe(true);
+  }
+}
+
+test.skipIf(process.platform === "win32")("POSIX owned probes expose status, timeout, cache and abort behavior through the candidate consumer", ownedProcessCase, 20_000);
+test.skipIf(process.platform !== "win32")("Windows native owned ACP probes expose status, timeout, cache, validation and ignored cancellation", ownedProcessCase, 30_000);
