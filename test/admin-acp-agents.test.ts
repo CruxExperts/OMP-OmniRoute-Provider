@@ -211,10 +211,11 @@ test.skipIf(process.platform !== "win32")("owned Windows fixture rejects an unsa
 // and neither real ingress nor the production authorization policy is established.
 type AcpProcessObservation = { status: number | null; code: string; signal: string; stdout: string; error: string };
 type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string; tempForbiddenCodes?: number[]; parentForbiddenCodes?: number[];
+  environment?: { supplied: Record<string, { present: boolean; matches: boolean }>; extras: Record<string, boolean>; unknownCount: number; duplicateCount: number };
   processes?: { recordCount: number | null; outcomeCount: number; probeCount: number; successProbeCount: number; normalizedProbeCount: number; caseInsensitiveProbeCount: number; successPathShellSafe: boolean; successPreflight: string; sourceProbes: { success: AcpProbeInspection | null; failure: AcpProbeInspection | null; stall: AcpProbeInspection | null }; sourceShell: boolean | null; rejections: Record<string, number>; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
 let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
 function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
-  acpObservation = { stage, category: "incomplete", ...(acpObservation.tempForbiddenCodes ? { tempForbiddenCodes: acpObservation.tempForbiddenCodes } : {}), ...(acpObservation.parentForbiddenCodes ? { parentForbiddenCodes: acpObservation.parentForbiddenCodes } : {}), ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
+  acpObservation = { stage, category: "incomplete", ...(acpObservation.tempForbiddenCodes ? { tempForbiddenCodes: acpObservation.tempForbiddenCodes } : {}), ...(acpObservation.parentForbiddenCodes ? { parentForbiddenCodes: acpObservation.parentForbiddenCodes } : {}), ...(acpObservation.environment ? { environment: acpObservation.environment } : {}), ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
   if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
 }
 async function ownedProcessCase(): Promise<void> {
@@ -353,8 +354,24 @@ async function runOwnedProcessCase(): Promise<void> {
       expect(record.cwd).toBe(processes.directory);
       const expectedEnv: Record<string, string> = { PATH: "", HOME: processes.directory, TMPDIR: processes.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
       if (windows) { expectedEnv.SystemRoot = process.env.SystemRoot!; expectedEnv.ComSpec = process.env.ComSpec!; }
-      acpStage("record-environment");
-      expect(record.env).toEqual(expectedEnv);
+      if (windows) {
+        const entries = Object.entries(record.env).map(([key, value]) => [key.toUpperCase(), value] as const);
+        const actualEnv = Object.fromEntries(entries);
+        const normalizedExpected = Object.fromEntries(Object.entries(expectedEnv).map(([key, value]) => [key.toUpperCase(), value]));
+        const extraNames = ["PATHEXT", "COMSPEC", "SYSTEMROOT", "TEMP", "TMP", "PROMPT"];
+        acpObservation.environment = {
+          supplied: Object.fromEntries(Object.entries(normalizedExpected).map(([key, value]) => [key, { present: Object.hasOwn(actualEnv, key), matches: actualEnv[key] === value }])),
+          extras: Object.fromEntries(extraNames.map(key => [key, Object.hasOwn(actualEnv, key) && !Object.hasOwn(normalizedExpected, key)])),
+          unknownCount: Math.min(entries.filter(([key]) => !Object.hasOwn(normalizedExpected, key) && !extraNames.includes(key)).length, 1000),
+          duplicateCount: Math.min(entries.length - Object.keys(actualEnv).length, 1000),
+        };
+        acpStage("record-environment");
+        expect(entries.length).toBe(Object.keys(actualEnv).length);
+        expect(actualEnv).toEqual(normalizedExpected);
+      } else {
+        acpStage("record-environment");
+        expect(record.env).toEqual(expectedEnv);
+      }
       acpStage("record-process-exited");
       expect(() => process.kill(record.pid, 0)).toThrow();
     }
