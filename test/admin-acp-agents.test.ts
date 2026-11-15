@@ -1,7 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { readdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
-import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
+import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, ownedWindowsDrivePath, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 
@@ -193,6 +193,19 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
   expect((await fixture.get(request("fixture-manage"))).status).toBe(200);
   expect(fixture.settingsReads).toBe(1);
   expect(fixture.probes.length).toBeGreaterThan(0);
+});
+
+test("owned Windows drive namespace conversion preserves unsafe inputs", () => {
+  const fixture = new AcpAgentsFixture();
+  const drive = ownedWindowsDrivePath(String.raw`\\?\C:\safe\probe.cmd`);
+  expect(drive).toBe(String.raw`C:\safe\probe.cmd`);
+  expect(fixture.inspectProbe(drive, `"${drive}" --version`).shellSafe).toBe(true);
+  for (const value of [String.raw`\\?\UNC\server\share\probe.cmd`, String.raw`\\?\C:\bad!\probe.cmd`, String.raw`C:\bad!\probe.cmd`]) {
+    const converted = ownedWindowsDrivePath(value);
+    if (value.includes("UNC")) expect(converted).toBe(value);
+    else expect(converted).toContain("!");
+    expect(fixture.inspectProbe(converted, `"${converted}" --version`).shellSafe).toBe(false);
+  }
 });
 
 // Candidate evidence only: the controlled process is not a qualification receipt,

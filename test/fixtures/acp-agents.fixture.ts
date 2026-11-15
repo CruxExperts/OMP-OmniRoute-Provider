@@ -56,9 +56,32 @@ export interface CustomAgent {
 
 type ProcessMode = "success" | "failure" | "stall";
 
+export function ownedWindowsDrivePath(value: string): string {
+  return value.replace(/^\\\\\?\\(?=[A-Za-z]:\\)/, "");
+}
+
+function ownedDirectory(): string {
+  const created = mkdtempSync(path.join(tmpdir(), "acp-owned-"));
+  if (process.platform !== "win32") return created;
+  const usable = ownedWindowsDrivePath(created);
+  if (usable !== created) {
+    try {
+      const original = lstatSync(created);
+      const converted = lstatSync(usable);
+      if (!original.isDirectory() || !converted.isDirectory() || original.dev !== converted.dev || original.ino !== converted.ino) {
+        throw new Error("Owned temporary directory identity mismatch");
+      }
+    } catch (error) {
+      rmSync(created, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  return usable;
+}
+
 /** Owns all executable fixtures and their only writable counter; not a sandbox for arbitrary code. */
 export class AcpOwnedProcesses {
-  readonly directory = mkdtempSync(path.join(tmpdir(), "acp-owned-"));
+  readonly directory = ownedDirectory();
   readonly counter = path.join(this.directory, "counter.jsonl");
   readonly executables = new Map<string, { mode: ProcessMode; sha256: string; script?: string; scriptSha256?: string }>();
   readonly outcomes: Array<{ command: string; stdout: string; status: number | null; signal: string | null; code: string | null }> = [];
@@ -142,7 +165,7 @@ export class AcpOwnedProcesses {
   }
 }
 
-export interface AcpProbeInspection { resolved: boolean; exact: boolean; normalized: boolean; caseInsensitive: boolean; shell: boolean; shellSafe: boolean; hasWhitespace: boolean }
+export interface AcpProbeInspection { resolved: boolean; exact: boolean; normalized: boolean; caseInsensitive: boolean; shell: boolean; shellSafe: boolean; hasWhitespace: boolean; driveNamespace: boolean }
 
 /** Direct handler and pinned registry; process mode is restricted to owned fixtures. */
 export class AcpAgentsFixture {
@@ -190,7 +213,7 @@ export class AcpAgentsFixture {
       return { resolved: probe !== null, exact: command === binary,
         normalized: path.normalize(command) === path.normalize(binary), caseInsensitive: command.toLowerCase() === binary.toLowerCase(),
         shell: Boolean(probe && useShell(command)),
-        shellSafe: Boolean(probe && shellSafe(command)), hasWhitespace: /\s/.test(binary) };
+        shellSafe: Boolean(probe && shellSafe(command)), hasWhitespace: /\s/.test(binary), driveNamespace: ownedWindowsDrivePath(binary) !== binary };
     };
     const headers = loadPinnedModule("src/server/authz/headers.ts", s => { throw new Error(`Unexpected headers import: ${s}`); });
     const guard = loadPinnedModule("src/server/authz/routeGuard.ts", s => {
