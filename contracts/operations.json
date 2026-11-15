@@ -2,7 +2,7 @@
   "$schema": "./operations.schema.json",
   "counts": {
     "documentedOperations": 1049,
-    "invokableOperations": 42,
+    "invokableOperations": 43,
     "methodCounts": {
       "DELETE": 111,
       "GET": 485,
@@ -18,12 +18,12 @@
     "routeFiles": 798,
     "sourceOperations": 1292,
     "unmatchedSpecificationMethods": 9,
-    "unqualifiedOperations": 1234
+    "unqualifiedOperations": 1233
   },
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "8417f121b58305dbca20a631364d2ba39a16f529fe8f43c5529fef08457f94bd",
+    "eligibilitySha256": "84e39e6c06ffa1ac34fef97fb36604cd08d8e4759fe8645fe695bec8e13af0c8",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "c5d4df1da5fdce531ff088a89fc3274d30551092d71cdc4940bcb6ed3accd9b0",
     "sourceCorpusFileCount": 4806
@@ -29452,20 +29452,41 @@
     },
     {
       "auth": {
-        "domain": "unknown",
+        "domain": "management",
         "sourcePolicy": {
-          "status": "unknown"
+          "alternatives": [
+            {
+              "anyOf": [
+                "manage",
+                "admin"
+              ],
+              "kind": "management-api-key"
+            },
+            {
+              "kind": "dashboard-session"
+            },
+            {
+              "kind": "auth-disabled",
+              "when": "central-and-handler-auth-not-required"
+            }
+          ],
+          "bootstrap": "none",
+          "handlerGuard": "isAuthenticated",
+          "localOnly": true,
+          "routeClass": "management",
+          "source": "omniroute-v3.8.53",
+          "status": "qualified"
         },
         "specificationAlternatives": []
       },
       "confirmation": {
-        "reason": "Source-side effect and auth behavior have not been operation-qualified.",
+        "reason": "GET can execute locally configured version probes with effects outside the response; cancellation does not prevent those effects.",
         "required": true
       },
       "coverage": {
-        "adapterId": null,
-        "reason": "No operation-specific source-bound request/auth/side-effect/response behavior test is recorded.",
-        "status": "unqualified"
+        "adapterId": "typed.get.api.acp.agents",
+        "reason": null,
+        "status": "invokable"
       },
       "databaseInitializationRequired": true,
       "mediaType": {
@@ -29473,13 +29494,57 @@
         "response": "application/json"
       },
       "method": "GET",
-      "mutationSafety": null,
+      "mutationSafety": {
+        "preflight": {
+          "kind": "not-applicable",
+          "sourceReason": "No independent read can establish the effects of locally configured executable probes."
+        },
+        "reconciliation": {
+          "kind": "unknown"
+        },
+        "settlement": {
+          "definiteRejection": null,
+          "responseComplete": {
+            "statusCodes": []
+          }
+        }
+      },
       "operationId": "GET /api/acp/agents",
       "pagination": {
         "mode": "none",
         "parameters": []
       },
       "pathTemplate": "/api/acp/agents",
+      "qualification": {
+        "binding": {
+          "authSha256": "8c2cf2fdd77356ebda6594642d9abcab9980bdebeeafb197cd4b56188c7fb39d",
+          "databaseInitializationRequired": true,
+          "effectiveTreeSha256": "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851",
+          "frameworkContextSha256": "555751d4dca90edf19e6476126977fd189b043dd0b35016e4587cd00035e8fa8",
+          "handlerGitBlobSha": "1aa6c1a3305aab27f6e011defda696cab62a945e",
+          "handlerSha256": "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3",
+          "mutationSafetySha256": "0312caba52dc71ad314a8b1fcaffe938e05c7b817b1734c9428402f02032d6fd",
+          "operationSemanticsSha256": "0c85a3ed910a73ed1ef95a2e184ab7333dfd94bdd5c31282353dd0fa401aa7f5",
+          "requestSchemaSha256": "b2eb0d866b868cf698fa865f6f46cac76fbce7fd127c1b43e527bf0e44e33945",
+          "responseProjectionSha256": "343379d071c7d33efee63afb3a3101c8431d0aeb1a5aed69bca48ad9035440bb",
+          "routeImportsSha256": "b92b0a4f853a82419817c5a104338ec3a15684462dd4f164c9947c53baca670a",
+          "sideEffect": "lifecycle",
+          "sideEffectSha256": "1bd5e9ccee0c1fdf999763d0adefec70a2c2dee97a02f93ed67beb92a9578f56",
+          "sourceDerivation": {
+            "record": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+            "sha256": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+          }
+        },
+        "ingressSha256": "3bc86c20e9532df1b76cb102de91d3402e8db7c9fcb1cdb9be6e62edca3c3c70",
+        "lifecycleSha256": "7b073185202cad592db62f6fc9b9bed10f51b3e577cacd05575c23a82c612c54",
+        "nativeEvidenceSha256": "92a608dbc4143e8d82a4c5a5ac9607400900099ed703540f7d9a178e7b1e239a",
+        "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
+        "test": {
+          "caseSha256": "c898fde0017028b9a4d108a212c371be3f20027dc793a406d2ad2d2a981fd656",
+          "id": "test/admin-acp-agents.test.ts",
+          "outcomeSha256": "5ed1234c89b454878d5eb2d12c8107e8290f8d20737d1a31dd3947f454894954"
+        }
+      },
       "reconciliation": null,
       "request": {
         "body": null,
@@ -29499,7 +29564,68 @@
       },
       "response": {
         "mediaType": "application/json",
-        "schema": null,
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "agents": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "installed": {
+                    "type": "boolean"
+                  },
+                  "isCustom": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "installed",
+                  "isCustom"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "summary": {
+              "additionalProperties": false,
+              "properties": {
+                "builtIn": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "custom": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "installed": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "notFound": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "total": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "total",
+                "installed",
+                "notFound",
+                "builtIn",
+                "custom"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "agents",
+            "summary"
+          ],
+          "type": "object"
+        },
         "statusCodes": [
           "200",
           "401",
@@ -29608,7 +29734,7 @@
         "inputFields": [],
         "outputFields": []
       },
-      "sideEffect": "unknown",
+      "sideEffect": "lifecycle",
       "source": {
         "export": "direct",
         "file": "src/app/api/acp/agents/route.ts",
@@ -29663,8 +29789,8 @@
         "path": "/api/acp/agents"
       },
       "streaming": {
-        "framing": "behavior-unverified",
-        "mode": "unknown"
+        "framing": "application/json",
+        "mode": "json"
       }
     },
     {

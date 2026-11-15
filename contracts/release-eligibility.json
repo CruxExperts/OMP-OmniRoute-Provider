@@ -30021,6 +30021,303 @@
           "detail": "Source handler and restricted projection, actual ingress, and independent native first-read sweep observations; effects remain uncertain and are never retried."
         }
       ]
+    },
+    {
+      "operationId": "GET /api/acp/agents",
+      "status": "verified",
+      "reason": "Pinned source, independently observed handler and ingress behavior, native owned-process proof, and lifecycle evidence.",
+      "source": {
+        "file": "src/app/api/acp/agents/route.ts",
+        "sha256": "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3",
+        "gitBlobSha": "1aa6c1a3305aab27f6e011defda696cab62a945e"
+      },
+      "contract": {
+        "request": {
+          "pathSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "querySchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+          },
+          "pathParameters": [],
+          "parameters": [],
+          "body": null,
+          "specificationDocumented": true
+        },
+        "auth": {
+          "domain": "management",
+          "specificationAlternatives": [],
+          "sourcePolicy": {
+            "status": "qualified",
+            "source": "omniroute-v3.8.53",
+            "routeClass": "management",
+            "localOnly": true,
+            "handlerGuard": "isAuthenticated",
+            "bootstrap": "none",
+            "alternatives": [
+              {
+                "kind": "management-api-key",
+                "anyOf": [
+                  "manage",
+                  "admin"
+                ]
+              },
+              {
+                "kind": "dashboard-session"
+              },
+              {
+                "kind": "auth-disabled",
+                "when": "central-and-handler-auth-not-required"
+              }
+            ]
+          }
+        },
+        "response": {
+          "statusCodes": [
+            "200",
+            "401",
+            "403",
+            "500",
+            "503"
+          ],
+          "mediaType": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "agents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "installed": {
+                      "type": "boolean"
+                    },
+                    "isCustom": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "installed",
+                    "isCustom"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "summary": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "installed": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "notFound": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "builtIn": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "custom": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "total",
+                  "installed",
+                  "notFound",
+                  "builtIn",
+                  "custom"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "agents",
+              "summary"
+            ],
+            "additionalProperties": false
+          },
+          "variants": [
+            {
+              "statusCode": "200",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/acp/agents/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/acp/agents/route.ts"
+              ]
+            },
+            {
+              "statusCode": "401",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/acp/agents/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/acp/agents/route.ts",
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "403",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            },
+            {
+              "statusCode": "500",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/app/api/acp/agents/route.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/app/api/acp/agents/route.ts"
+              ]
+            },
+            {
+              "statusCode": "503",
+              "content": [
+                {
+                  "mediaType": "application/json",
+                  "schema": null,
+                  "sourceFile": "src/server/authz/pipeline.ts"
+                }
+              ],
+              "headers": {},
+              "sourceFiles": [
+                "src/proxy.ts",
+                "src/server/authz/classify.ts",
+                "src/server/authz/context.ts",
+                "src/server/authz/headers.ts",
+                "src/server/authz/pipeline.ts",
+                "src/server/authz/policies/management.ts",
+                "src/shared/constants/publicApiRoutes.ts"
+              ]
+            }
+          ]
+        },
+        "secrets": {
+          "inputFields": [],
+          "outputFields": []
+        },
+        "sideEffect": "lifecycle",
+        "pagination": {
+          "mode": "none",
+          "parameters": []
+        },
+        "streaming": {
+          "mode": "json",
+          "framing": "application/json"
+        },
+        "confirmation": {
+          "required": true,
+          "reason": "GET can execute locally configured version probes with effects outside the response; cancellation does not prevent those effects."
+        },
+        "retry": {
+          "allowed": false,
+          "maxAttempts": 1,
+          "statusCodes": []
+        },
+        "reconciliation": null,
+        "mutationSafety": {
+          "preflight": {
+            "kind": "not-applicable",
+            "sourceReason": "No independent read can establish the effects of locally configured executable probes."
+          },
+          "reconciliation": {
+            "kind": "unknown"
+          },
+          "settlement": {
+            "responseComplete": {
+              "statusCodes": []
+            },
+            "definiteRejection": null
+          }
+        }
+      },
+      "binding": {
+        "requestSchemaSha256": "b2eb0d866b868cf698fa865f6f46cac76fbce7fd127c1b43e527bf0e44e33945",
+        "authSha256": "8c2cf2fdd77356ebda6594642d9abcab9980bdebeeafb197cd4b56188c7fb39d",
+        "sideEffect": "lifecycle",
+        "responseProjectionSha256": "343379d071c7d33efee63afb3a3101c8431d0aeb1a5aed69bca48ad9035440bb",
+        "operationSemanticsSha256": "0c85a3ed910a73ed1ef95a2e184ab7333dfd94bdd5c31282353dd0fa401aa7f5",
+        "routeImportsSha256": "b92b0a4f853a82419817c5a104338ec3a15684462dd4f164c9947c53baca670a",
+        "frameworkContextSha256": "555751d4dca90edf19e6476126977fd189b043dd0b35016e4587cd00035e8fa8",
+        "sourceDerivation": {
+          "record": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+          "sha256": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+        },
+        "effectiveTreeSha256": "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851",
+        "databaseInitializationRequired": true,
+        "mutationSafetySha256": "0312caba52dc71ad314a8b1fcaffe938e05c7b817b1734c9428402f02032d6fd"
+      },
+      "test": {
+        "id": "test/admin-acp-agents.test.ts",
+        "observedOutcome": "provenance/qualification/d6806e92ca4a7ea875337f1ec260bfbb9105dd8457fa1d46e05c90c2a90a9607.json",
+        "caseSha256": "c898fde0017028b9a4d108a212c371be3f20027dc793a406d2ad2d2a981fd656",
+        "outcomeSha256": "5ed1234c89b454878d5eb2d12c8107e8290f8d20737d1a31dd3947f454894954"
+      },
+      "ingressEvidence": {
+        "artifact": "provenance/qualification/ingress-3bc86c20e9532df1b76cb102de91d3402e8db7c9fcb1cdb9be6e62edca3c3c70.json",
+        "sha256": "3bc86c20e9532df1b76cb102de91d3402e8db7c9fcb1cdb9be6e62edca3c3c70"
+      },
+      "lifecycleEvidence": {
+        "artifact": "provenance/qualification/core-lifecycle-7b073185202cad592db62f6fc9b9bed10f51b3e577cacd05575c23a82c612c54.json",
+        "sha256": "7b073185202cad592db62f6fc9b9bed10f51b3e577cacd05575c23a82c612c54"
+      },
+      "nativeEvidence": {
+        "artifact": "provenance/qualification/native-acp-92a608dbc4143e8d82a4c5a5ac9607400900099ed703540f7d9a178e7b1e239a.json",
+        "sha256": "92a608dbc4143e8d82a4c5a5ac9607400900099ed703540f7d9a178e7b1e239a"
+      },
+      "evidence": [
+        {
+          "kind": "source-and-observed",
+          "detail": "Bounded source and isolated ingress observations with signed native owned-process evidence; arbitrary production executables remain outside this proof."
+        }
+      ]
     }
   ],
   "history": [
