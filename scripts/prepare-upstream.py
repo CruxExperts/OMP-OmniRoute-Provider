@@ -12,6 +12,7 @@ import tarfile
 import tempfile
 import urllib.request
 import stat
+import shutil
 
 SIGNING_FINGERPRINT = "AF7968466B5B39C5E928FEFE716342D3EFBA5522"
 DERIVATION_RECORD = "provenance/derivations/omniroute-3.8.53-startup/manifest.json"
@@ -229,6 +230,35 @@ def verify_effective_tree(root, source_archive_sha256, derivation):
     return receipt
 
 
+def _gpg_failure(stage, result, env):
+    # Only fixed categories and numeric status codes leave this boundary; GPG
+    # diagnostics can contain host paths, key identities, and other local data.
+    stderr = result.stderr.decode("utf-8", errors="replace").lower()
+    categories = (
+        ("no such file or directory", "file-not-found"),
+        ("permission denied", "permission-denied"),
+        ("no valid openpgp data", "invalid-openpgp-data"),
+        ("no agent running", "agent-unavailable"),
+        ("can't connect to the agent", "agent-unavailable"),
+        ("error running", "helper-execution-failed"),
+        ("invalid argument", "invalid-argument"),
+    )
+    category = next((name for text, name in categories if text in stderr), "unclassified")
+    codes = re.findall(rb"(?m)^\[GNUPG:\] (?:FAILURE|ERROR) [^\s]+ ([0-9]{1,10})(?:\s|$)", result.stdout)
+    status = ",".join(code.decode("ascii") for code in codes[:4]) or "none"
+    executable = (shutil.which("gpg") or "").replace("\\", "/").lower()
+    flavor = "git-usr-bin" if "/git/usr/bin/" in executable else "gnupg-bin" if "/gnupg/bin/" in executable else "other"
+    try:
+        version = subprocess.run(["gpg", "--version"], env=env, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, timeout=10, check=False).stdout[:256]
+        match = re.match(rb"gpg \(GnuPG\) ([0-9]+(?:\.[0-9]+){1,3})", version)
+        version = match.group(1).decode("ascii") if match else "unknown"
+    except (OSError, subprocess.TimeoutExpired):
+        version = "unavailable"
+    raise ValueError(f"GPG {stage} failed: category={category} status={status} "
+                     f"exit={result.returncode} version={version} executable={flavor}") from None
+
+
 def _verify_signature(record_path, root):
     signature = Path(str(record_path) + ".asc")
     key = root / ".github/crux-experts-release-signing-key.asc"
@@ -237,11 +267,15 @@ def _verify_signature(record_path, root):
         _regular(path, 1024 * 1024)
     with tempfile.TemporaryDirectory() as home:
         os.chmod(home, 0o700)
-        env = {**os.environ, "GNUPGHOME": home}
-        subprocess.run(["gpg", "--batch", "--no-options", "--import", str(key)], env=env, check=True,
-                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        env = {**os.environ, "GNUPGHOME": home, "LC_ALL": "C"}
+        imported = subprocess.run(["gpg", "--batch", "--no-options", "--status-fd=1", "--import", str(key)],
+                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if imported.returncode:
+            _gpg_failure("import", imported, env)
         result = subprocess.run(["gpg", "--batch", "--no-options", "--status-fd=1", "--verify", str(signature), str(record_path)],
-                                env=env, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode:
+            _gpg_failure("verify", result, env)
         valid = [line.split() for line in result.stdout.decode("ascii").splitlines() if line.startswith("[GNUPG:] VALIDSIG ")]
         if len(valid) != 1 or valid[0][2] != SIGNING_FINGERPRINT:
             raise ValueError("Derivation signature signer mismatch")
