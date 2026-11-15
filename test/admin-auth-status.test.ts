@@ -1,10 +1,26 @@
-import { expect, test } from "bun:test";
-import { validateAuthStatusContract } from "../scripts/generate-contracts.ts";
+import { afterAll, expect, test } from "bun:test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash, validateAuthStatusContract } from "../scripts/generate-contracts.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import type { AdminOperationAuthBinding } from "../src/admin/types.ts";
-import { OperationRegistry, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
+import { canonicalizeJson, OperationRegistry, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { AUTH_STATUS_ID, AuthStatusFixture, authStatusContract, authStatusDescriptor, signFixtureToken } from "./fixtures/auth-status.fixture.ts";
+
+const TEST_ID = "test/admin-auth-status.test.ts";
+let sourceObservation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
+let consumerObserved = false;
+afterAll(async () => {
+  if (!sourceObservation || !consumerObserved) return;
+  const contract = authStatusContract();
+  const binding = operationEvidenceBinding(AUTH_STATUS_ID, contract);
+  const caseSha256 = testCaseSourceHash(TEST_ID);
+  const artifactPath = outcomeArtifactPath(AUTH_STATUS_ID);
+  await mkdir(resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations"), { recursive: true, mode: 0o700 });
+  await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson({ operationId: AUTH_STATUS_ID, testId: TEST_ID, caseSha256, binding, observation: sourceObservation })}\n`, { mode: 0o600 });
+  testOutcomeHash(AUTH_STATUS_ID, TEST_ID, caseSha256, binding, contract, artifactPath);
+});
 
 /** Synthetic executor authority only: unknown effects remain ineligible in production. */
 function statusExecutorRegistry(descriptors: readonly OperationDescriptor[]): OperationRegistry {
@@ -83,12 +99,19 @@ test("valid session cache miss can durably complete onboarding and cannot be an 
     const now = Math.floor(Date.now() / 1000);
     const token = signFixtureToken({ authenticated: true, iat: now, jti: "fixture-id", exp: now + 3600 });
     const rows = fixture.db.query("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('setupComplete', 'requireLogin') ORDER BY key");
-    expect(rows.all()).toEqual([]);
-    await expectStatus(await fixture.handle(token, undefined, "fixture-onboarding-password"), true);
-    expect(rows.all()).toEqual([{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }]);
+    const before = rows.all();
+    expect(before).toEqual([]);
+    const response = await fixture.handle(token, undefined, "fixture-onboarding-password");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ authenticated: true });
+    expect(projectResponse(authStatusDescriptor(), body)).toEqual({ authenticated: true });
+    const after = rows.all();
+    expect(after).toEqual([{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }]);
     expect(authStatusContract().sideEffect).toBe("lifecycle");
     expect(authStatusContract().confirmation.required).toBe(true);
     expect(authStatusContract().retry.allowed).toBe(false);
+    sourceObservation = { before, after, result: { status: response.status, body } };
   } finally { fixture.close(); }
 });
 test("auth status admission preserves lifecycle and uncertain settlement", () => {
@@ -134,8 +157,10 @@ test("optional status cookie is endpoint-bound, ephemeral and never forwarded to
   executor.bindCredential({ profileId: "omniroute", endpoint, cookie: secret });
   const plan = await executor.plan(AUTH_STATUS_ID, {});
   expect(JSON.stringify(plan)).not.toContain(secret);
+  const priorCalls = seen.length;
   const result = await executor.apply(plan.planId, { confirmed: true });
   expect(result.status).toBe("unknown");
+  expect(seen.length - priorCalls).toBe(1);
   expect(JSON.stringify(result)).not.toContain(secret);
   expect(seen.at(-1)?.credential).toEqual({ kind: "cookie", value: secret });
   const otherPlan = await executor.plan(other.operationId, {});
@@ -147,6 +172,7 @@ test("optional status cookie is endpoint-bound, ephemeral and never forwarded to
   expect(seen.at(-1)?.credential).toBeUndefined();
   await expect(executor.plan(AUTH_STATUS_ID, {}, { profileId: "different", endpoint })).rejects.toMatchObject({ code: "credential-mismatch" });
   await expect(executor.plan(AUTH_STATUS_ID, {}, { profileId: "omniroute", endpoint: "http://127.0.0.1:20129" })).rejects.toMatchObject({ code: "credential-mismatch" });
+  consumerObserved = true;
 });
 
 test("cookie rotation, clear and cancellation invalidate status authority", async () => {
