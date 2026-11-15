@@ -3,6 +3,7 @@ import { dirname, extname, posix } from "node:path";
 import {
   createPinnedManagementAuthorization,
   createPinnedFixtureDate,
+  loadExtractedPinnedDeclarations,
   loadPinnedModule,
   readPinnedSource,
   withPinnedSourceSnapshot,
@@ -609,6 +610,25 @@ function loadProviderRoute(
   }, { date }) as ProviderRoute;
 }
 
+function loadDeprecatedProviderRoute(store: ProviderStore, auth: PinnedManagementAuthorization, date: FixtureDate): PinnedExports {
+  const registry = loadExtractedPinnedDeclarations(["open-sse/services/tokenRefresh.ts"], ["DEPRECATED_PROVIDERS", "isDeprecatedProvider", "getDeprecationNotice"], specifier => {
+    throw new Error(`Unapproved deprecation registry dependency: ${specifier}`);
+  });
+  const grouping = loadPinnedModule("src/lib/providers/deprecatedProviderCleanup.ts", specifier => {
+    if (specifier === "@omniroute/open-sse/services/tokenRefresh.ts") return registry;
+    throw new Error(`Unapproved deprecation grouping dependency: ${specifier}`);
+  }, { date });
+  return loadPinnedModule("src/app/api/providers/deprecated/route.ts", specifier => {
+    if (specifier === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };
+    if (specifier === "@/lib/api/requireManagementAuth") return { requireManagementAuth: (request: Request) => auth.requireManagementAuth(request) };
+    if (specifier === "@/lib/db/providers") return store;
+    if (specifier === "@/lib/providers/deprecatedProviderCleanup") return grouping;
+    if (specifier === "@omniroute/open-sse/services/tokenRefresh.ts") return registry;
+    if (specifier === "@/lib/compliance/index" || specifier === "@/lib/db/providers/deletion" || specifier === "@/shared/validation/helpers") return {};
+    throw new Error(`Unapproved deprecated provider route dependency: ${specifier}`);
+  }, { date });
+}
+
 function providerRow(connection: ProviderConnectionFixture, now: string): Record<string, unknown> {
   return {
     id: connection.id,
@@ -632,6 +652,7 @@ export class ProviderFamilyFixture {
   readonly #database = new Database(":memory:");
   #authorization!: PinnedManagementAuthorization;
   #route!: ProviderRoute;
+  #deprecatedRoute!: PinnedExports;
   readonly #server: Bun.Server<undefined>;
   readonly effects: ProviderFamilyEffects = { backups: [], cacheInvalidations: [], audits: [], testRequests: [], cloudSyncRequests: [], modelSyncRequests: [], updates: [] };
   readonly #counts = { get: 0, patch: 0, post: 0, delete: 0 };
@@ -665,6 +686,7 @@ export class ProviderFamilyFixture {
         : token === "fixture-no-manage" ? { id: "provider-family-read", scopes: ["read"] } : null,
     });
     this.#route = loadProviderRoute(store, this.#database, this.#authorization, this.effects, date);
+    this.#deprecatedRoute = loadDeprecatedProviderRoute(store, this.#authorization, date);
     });
     } catch (error) {
       this.#database.close();
@@ -797,6 +819,16 @@ export class ProviderFamilyFixture {
 
   async #handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === "/api/providers/deprecated") {
+      if (request.method !== "GET" || typeof this.#deprecatedRoute.GET !== "function") return Response.json({ error: "Method not allowed" }, { status: 405 });
+      // Next turns an uncaught route exception into an HTTP 5xx. This fixture
+      // boundary is not part of the pinned handler and never exposes its error.
+      try {
+        return await this.#authorization.dispatch(request, { centralAuthRequired: this.authRequired, handlerAuthRequired: this.authRequired }, forwarded => (this.#deprecatedRoute.GET as RouteHandler)(forwarded));
+      } catch {
+        return new Response(null, { status: 500 });
+      }
+    }
     if (url.pathname !== "/api/providers") return Response.json({ error: "Not found" }, { status: 404 });
     const method = request.method as "GET" | "POST" | "PATCH" | "DELETE";
     const counter = method.toLowerCase() as "get" | "post" | "patch" | "delete";

@@ -83,6 +83,13 @@
         "sha256": { "$ref": "#/$defs/sha256" }
       }
     },
+    "effectEvidence": {
+      "type": "object", "additionalProperties": false, "required": ["artifact", "sha256"],
+      "properties": {
+        "artifact": { "type": "string", "pattern": "^provenance/qualification/deprecated-provider-sweep-[a-f0-9]{64}\\.json$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "sourceDerivation": {
       "type": "object", "additionalProperties": false, "required": ["record", "sha256"],
       "properties": {
@@ -208,7 +215,7 @@
       ],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}", "GET /api/providers/deprecated"] } }, "required": ["operationId"] },
           "then": { "required": ["ingressEvidence"] },
           "else": { "not": { "required": ["ingressEvidence"] } }
         },
@@ -216,6 +223,11 @@
           "if": { "properties": { "binding": { "properties": { "databaseInitializationRequired": { "const": true } }, "required": ["databaseInitializationRequired"] } }, "required": ["binding"] },
           "then": { "required": ["lifecycleEvidence"], "properties": { "binding": { "required": ["sourceDerivation", "effectiveTreeSha256"] } } },
           "else": { "not": { "required": ["lifecycleEvidence"] } }
+        },
+        {
+          "if": { "properties": { "operationId": { "const": "GET /api/providers/deprecated" } }, "required": ["operationId"] },
+          "then": { "required": ["effectEvidence"] },
+          "else": { "not": { "required": ["effectEvidence"] } }
         }
       ],
       "properties": {
@@ -313,6 +325,7 @@
           }
         },
         "lifecycleEvidence": { "$ref": "#/$defs/lifecycleEvidence" },
+        "effectEvidence": { "$ref": "#/$defs/effectEvidence" },
         "ingressEvidence": {
           "type": "object",
           "additionalProperties": false,
@@ -556,6 +569,7 @@
           }
         },
         "lifecycleEvidence": { "$ref": "#/$defs/lifecycleEvidence" },
+        "effectEvidence": { "$ref": "#/$defs/effectEvidence" },
         "ingressEvidence": {
           "type": "object",
           "additionalProperties": false,

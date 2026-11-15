@@ -4,10 +4,23 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expectedHealthIngressIdentities, validateHealthIngressEvidence } from "../scripts/generate-contracts.ts";
+import { expectedHealthIngressIdentities, validateDeprecatedProviderSweepObservation, validateHealthIngressEvidence } from "../scripts/generate-contracts.ts";
 import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
+test("sweep evidence rejects private extras and out-of-range backup observations", () => {
+  const scenarios = [true, false].map(success => ({ phase: success ? "sweep-success" : "sweep-failure", firstStatus: 200, secondStatus: 200, encryptedAfterFirst: success, encryptedAfterSecond: success, cacheInvalidated: success, nativeBackupCalls: 0, backupCountBefore: 0, backupCountAfter: 0 }));
+  const independent = { status: "research-observed", qualification: false, boundary: "fixture", inputSha256: {}, identity: {}, scenarioArguments: [], scenarioEnvironment: {}, scenarios };
+  const observed = structuredClone(independent);
+  expect(() => validateDeprecatedProviderSweepObservation(observed, independent)).not.toThrow();
+  expect(() => validateDeprecatedProviderSweepObservation({ ...observed, privateField: "private-fixture" }, independent)).toThrow();
+  expect(() => validateDeprecatedProviderSweepObservation({ ...observed, scenarios: [{ ...scenarios[0], privateField: "private-fixture" }, scenarios[1]] }, independent)).toThrow();
+  for (const field of ["nativeBackupCalls", "backupCountBefore", "backupCountAfter"] as const) {
+    expect(() => validateDeprecatedProviderSweepObservation({ ...observed, scenarios: [{ ...scenarios[0], [field]: 100000 }, scenarios[1]] }, independent)).toThrow();
+  }
+  expect(() => validateDeprecatedProviderSweepObservation({ ...observed, scenarios: [{ ...scenarios[0], nativeBackupCalls: 1, backupCountAfter: 2 }, scenarios[1]] }, independent)).not.toThrow();
+});
+
 
 test("effective source rejects a changed capsule rather than falling back to the base", () => {
   const code = String.raw`
@@ -42,8 +55,9 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   const declaration = JSON.parse(readFileSync(resolve(root, declarationPath), "utf8")) as { files: string[] };
   const sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
   const publicCase = (name: string, bypass: string) => ({ name, input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } });
-  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes", "/api/model-capability-overrides", "/api/settings/cc-discovery-metrics", "/api/settings/reasoning-routing-rules"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: 200, writeScopeStatus: 200, adminScopeStatus: 200 }));
+  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes", "/api/model-capability-overrides", "/api/settings/cc-discovery-metrics", "/api/settings/reasoning-routing-rules", "/api/providers/deprecated"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: 200, writeScopeStatus: 200, adminScopeStatus: 200 }));
   const reasoningHttp = { method: "GET", path: "/api/settings/reasoning-routing-rules", denied: { status: 401, routeClass: "MANAGEMENT" }, invalid: { status: 401, routeClass: "MANAGEMENT" }, failure: { status: 500, routeClass: "MANAGEMENT", contentType: null, bodyCategory: "empty", privateMarkerPresent: false }, allowed: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, cached: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, sqliteReadCount: 2, sqliteFaultCount: 1 };
+  const deprecatedProviderHttp = { denied: { status: 401, routeClass: "MANAGEMENT" }, invalid: { status: 401, routeClass: "MANAGEMENT" }, failure: { status: 500, routeClass: "MANAGEMENT", privateMarkerPresent: false }, allowed: { status: 200, routeClass: "MANAGEMENT", body: { leftovers: [{ provider: "gemini-cli", migrateTo: "gemini", reason: "fixture", connectionIds: Array.from({ length: 105 }, (_, i) => `fixture-${i}`), names: Array.from({ length: 105 }, (_, i) => `name-${i}`) }] } } };
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
     source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256, sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 },
@@ -55,6 +69,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     publicHealthIpFilter: { enabled: true, mode: "blacklist", configReadObserved: true, forwardedAddressFallback: { deniedStatus: 403, error: "IP blacklisted", recoveryStatus: 200, routeClass: "PUBLIC", requestIdUuid: true, allowedOriginEchoed: true } },
     familyPolicy: policies,
     reasoningHttp,
+    deprecatedProviderHttp,
     wellKnownHttp: ["agent-card.json", "agent.json"].map(name => ({ method: "GET", path: `/.well-known/${name}`, matcher: "not-matched", anonymous: true, status: 200, contentType: "application/json", cacheControl: "public, max-age=3600", routeClass: null, requestId: null, handlerMarker: name === "agent-card.json" ? "v1" : "legacy", staticSkillCount: 6 })),
   };
   const cases = [
@@ -64,6 +79,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     ["GET /api/model-capability-overrides", "src/app/api/model-capability-overrides/route.ts"],
     ["GET /api/settings/cc-discovery-metrics", "src/app/api/settings/cc-discovery-metrics/route.ts"],
     ["GET /api/settings/reasoning-routing-rules", "src/app/api/settings/reasoning-routing-rules/route.ts"],
+    ["GET /api/providers/deprecated", "src/app/api/providers/deprecated/route.ts"],
   ] as const;
   function check(value: unknown, binding: OperationEvidenceBinding, operation: string, error?: RegExp) {
     const bytes = Buffer.from(JSON.stringify(value));
@@ -88,8 +104,18 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
       check({ ...artifact, familyPolicy: policies.map((policy, i) => i === index ? { ...policy, [key]: value } : policy) }, binding, operation, /family policy observation mismatch/);
     }
     check(artifact, { ...binding, handlerSha256: "0".repeat(64) }, operation, /source mismatch/);
-    check({ ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } }, binding, operation, /source mismatch|reasoning source/);
+    const corrupted = { ...artifact, source: { ...artifact.source, addedSourceSha256: { ...(identities.addedSourceSha256 as Record<string, unknown>), [route]: "0".repeat(64) } } };
+    const bytes = Buffer.from(JSON.stringify(corrupted));
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const path = `provenance/qualification/ingress-${digest}.json`;
+    const absolute = resolve(root, path);
+    writeFileSync(absolute, bytes, { flag: "wx" });
+    try { expect(() => validateHealthIngressEvidence({ artifact: path, sha256: digest }, binding, operation)).toThrow(); }
+    finally { rmSync(absolute); }
   }
+  const deprecatedBinding = { handlerSha256: ((identities.addedSourceSha256 as Record<string, { originalSha256: string }>)["src/app/api/providers/deprecated/route.ts"]!).originalSha256, handlerGitBlobSha: "0".repeat(40), sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  check({ ...artifact, deprecatedProviderHttp: undefined }, deprecatedBinding, "GET /api/providers/deprecated", /deprecated HTTP observation/);
+  check({ ...artifact, deprecatedProviderHttp: { ...deprecatedProviderHttp, allowed: { ...deprecatedProviderHttp.allowed, body: { leftovers: [] } } } }, deprecatedBinding, "GET /api/providers/deprecated", /deprecated HTTP/);
   for (const [index, name] of ["agent-card.json", "agent.json"].entries()) {
     const operation = `GET /.well-known/${name}`;
     const route = `src/app/.well-known/${name}/route.ts`;
@@ -756,8 +782,13 @@ with tempfile.TemporaryDirectory() as temp:
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
- names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | {m.LIVE_ROUTE,m.REASONING_STORE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | set(m.ACP_AUTH_SOURCES) | {m.ACP_ROUTE,m.ACP_REGISTRY,m.ACP_MANIFEST,m.ACP_PEER_STAMP,m.LIVE_ROUTE,m.REASONING_STORE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
+ sources[m.DEPRECATED_HELPER]=b'helper'; sources[m.DEPRECATED_REGISTRY]=b'registry'
+ m.deprecated_ingress_source=lambda route,helper,registry:(route+b':executed',helper+b':executed',registry+b':executed')
+ sources[m.AUTH_SESSION] = b'session'; sources[m.AUTH_SHARED] = b'shared'
+ m.auth_status_closure = lambda source, cache: {m.AUTH_STATUS:b'route-executed',m.AUTH_SESSION:b'session-executed','src/lib/db/fixtureAuthStatusCache.ts':b'cache-executed','src/lib/db/fixtureAuthStatusSettings.ts':b'settings-executed'}
+ sources[m.ACP_REGISTRY] = b'import { execFileSync } from "child_process";\n'
  m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
  m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
  for alias in aliases:
@@ -787,16 +818,23 @@ with tempfile.TemporaryDirectory() as temp:
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
  identity_names = set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
+ identity['addedSourceSha256'].update({name:m.sha(sources[name]) for name in (m.ACP_ROUTE,m.ACP_MANIFEST,m.ACP_PEER_STAMP,*m.ACP_AUTH_SOURCES)})
+ identity['addedSourceSha256'][m.ACP_REGISTRY] = {'originalSha256':m.sha(sources[m.ACP_REGISTRY]),'executedSha256':m.sha(m.acp_registry_bytes(sources[m.ACP_REGISTRY])),'processBoundarySha256':m.sha(m.acp_process_boundary()),'ownedProbeSha256':m.sha(m.ACP_PROBE)}
  identity['effectiveTreeSha256'] = 'a'*64
  identity['addedSourceSha256'][m.LIVE_ROUTE] = {'originalSha256':m.sha(sources[m.LIVE_ROUTE]),'executedSha256':m.sha(sources[m.LIVE_ROUTE])}
  reasoning_sha = m.sha(sources[m.REASONING_ROUTE])
  identity['addedSourceSha256'][m.REASONING_ROUTE] = {'originalSha256':reasoning_sha,'executedSha256':reasoning_sha,'wrapperSha256':m.sha(m.REASONING_WRAPPER),'policySha256':hashes['test/fixtures/pinned-ingress/routes/management.ts']}
  identity['addedSourceSha256'][m.REASONING_STORE] = m.sha(sources[m.REASONING_STORE])
+ dr,dh,dt=m.deprecated_ingress_source(sources[m.DEPRECATED_ROUTE],sources[m.DEPRECATED_HELPER],sources[m.DEPRECATED_REGISTRY])
+ identity['addedSourceSha256'][m.DEPRECATED_ROUTE]={'originalSha256':m.sha(sources[m.DEPRECATED_ROUTE]),'executedSha256':m.sha(dr),'wrapperSha256':m.sha(m.REASONING_WRAPPER),'backendSha256':m.sha(m.DEPRECATED_BACKEND),'helperOriginalSha256':m.sha(sources[m.DEPRECATED_HELPER]),'helperExecutedSha256':m.sha(dh),'registryOriginalSha256':m.sha(sources[m.DEPRECATED_REGISTRY]),'registryExecutedSha256':m.sha(dt)}
  identity['proxyIdentity'] = {'originalSha256':m.sha(sources['src/proxy.ts']),'executedSha256':m.sha(sources['src/proxy.ts'])}
  for name in ('src/app/api/health/degradation/route.ts','src/domain/degradation.ts'):
   data = sources[name]; executed = b'import "./fixture-control";\n'+data if name.endswith('/route.ts') else data
   identity['addedSourceSha256'][name] = {'originalSha256':m.sha(data),'executedSha256':m.sha(executed)}
  identity['addedSourceSha256'].update({name:{'originalSha256':sha,'executedSha256':m.sha(sources[name]+b':executed')} for name,sha in m.READ_CLOSURES.items()})
+ graph = m.auth_status_closure(sources,b'cache')
+ identity['addedSourceSha256'][m.AUTH_STATUS] = {'originalSha256':m.sha(sources[m.AUTH_STATUS]),'executedSha256':m.sha(graph[m.AUTH_STATUS])}
+ identity['authStatusClosure'] = {'sources':{name:m.sha(sources[name]) for name in (m.AUTH_STATUS,m.AUTH_SESSION,m.AUTH_SETTINGS,m.AUTH_SHARED)},'executed':{name:m.sha(data) for name,data in graph.items()}}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
@@ -845,6 +883,7 @@ with tempfile.TemporaryDirectory() as temp:
   '/api/providers/fixture-id/interception-rules': ('GET','PUT','DELETE'), '/api/providers/fixture-id/param-filters': ('GET','PUT','DELETE'),
   '/api/keys': ('GET',), '/api/keys/fixture-id': ('GET',), '/api/settings/proxies/assignments': ('GET',), '/api/models': ('GET',),
   '/api/settings': ('GET',), '/api/settings/proxies': ('GET',), '/api/settings/cc-discovery-metrics': ('GET',), '/api/settings/reasoning-routing-rules': ('GET',),
+  '/api/providers/deprecated': ('GET',),
  }
  for path,methods in family_methods.items():
   for method in methods:
@@ -855,6 +894,12 @@ with tempfile.TemporaryDirectory() as temp:
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}, 'livenessHead':{name:{**live,'body':''} for name in ('anonymous','invalidCredential','session')}}
  ingress['wellKnown'] = [{'path':'/.well-known/'+name,'matcherMatched':False,'response':{'status':200,'routeClass':None,'requestId':None,'contentType':'application/json','cacheControl':'public, max-age=3600','body':{'name':'OmniRoute AI Gateway','version':'3.8.53','url':'http://localhost:43179/a2a','skills':[{}]*6, **({'supportedInterfaces':[{}]} if name == 'agent-card.json' else {'authentication':{'schemes':['api-key']}})}}} for name in ('agent-card.json','agent.json')]
  ingress['reasoningHttp'] = {'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'failure':{'status':503,'routeClass':None,'contentType':'text/plain','bodyCategory':'text','privateMarkerPresent':False},'allowed':response({'rules':[]}),'cached':response({'rules':[]})}
+ ingress['deprecatedHttp']={'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'failure':{'status':500,'routeClass':'MANAGEMENT','privateMarkerPresent':False},'allowed':{'status':200,'routeClass':'MANAGEMENT','body':{'leftovers':[{'provider':'gemini-cli','migrateTo':'gemini','reason':'fixture','connectionIds':[f'fixture-{i}' for i in range(105)],'names':[f'name-{i}' for i in range(105)]}]}}}
+ acp_status = {'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':401,'oma-write':401,'oma-admin':401}
+ acp_cases = {name:{'status':status,'routeClass':'MANAGEMENT','owned':{'installed':True,'version':'7.8.9'} if status == 200 else None} for name,status in acp_status.items()}
+ ingress['acpHttp'] = {'cases':acp_cases,'unstampedSessionStatus':403,'probeCount':3,'processPlatform':'linux'}
+ status_expected = {'anonymous':False,'expired':False,'tampered':False,'valid':True,'cachedRevocation':True,'revoked':False,'passwordChanged':False,'settingsFailure':False}
+ ingress['authStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'PUBLIC','authenticated':value} for name,value in status_expected.items()},'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
  ingress['events'].extend([{'event':'reasoning:read'},{'event':'reasoning:fault'},{'event':'reasoning:read'}])
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -870,7 +915,6 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
  assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
- assert len(exported['familyPolicy']) == 43
  family = {item['method']+' '+item['path']:item for item in exported['familyPolicy']}
  assert family['POST /api/providers']['readScopeStatus'] == 403 and family['POST /api/providers']['writeScopeStatus'] == 403 and family['POST /api/providers']['adminScopeStatus'] == 200
  assert family['POST /api/provider-nodes']['readScopeStatus'] == 403 and family['POST /api/provider-nodes']['writeScopeStatus'] == 200
@@ -885,11 +929,25 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['source']['addedSourceSha256'][m.REASONING_STORE] == m.sha(sources[m.REASONING_STORE])
  assert exported['source']['addedSourceSha256'][m.REASONING_ROUTE] == identity['addedSourceSha256'][m.REASONING_ROUTE]
  assert exported['reasoningHttp']['failure'] == ingress['reasoningHttp']['failure']
+ assert exported['authStatusHttp'] == ingress['authStatusHttp']
+ assert exported['acpAgentsHttp'] == ingress['acpHttp']
  (p/'export/observed-outcomes.json').unlink(); (p/'export').rmdir()
  def rejected():
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ original = ingress['authStatusHttp']['cases']['revoked']['authenticated']; ingress['authStatusHttp']['cases']['revoked']['authenticated'] = True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['authStatusHttp']['cases']['revoked']['authenticated'] = original
+ original = identity['authStatusClosure']['executed'][m.AUTH_SESSION]; identity['authStatusClosure']['executed'][m.AUTH_SESSION] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['authStatusClosure']['executed'][m.AUTH_SESSION] = original
+ original = ingress.pop('acpHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['acpHttp'] = original
+ original = acp_cases.pop('key-manage'); put('data/pinned-ingress-observations.json',ingress); rejected(); acp_cases['key-manage'] = original
+ original = acp_cases['invalid']['status']; acp_cases['invalid']['status'] = 401; put('data/pinned-ingress-observations.json',ingress); rejected(); acp_cases['invalid']['status'] = original
+ original = acp_cases['key-read']['status']; acp_cases['key-read']['status'] = 200; put('data/pinned-ingress-observations.json',ingress); rejected(); acp_cases['key-read']['status'] = original
+ original = acp_cases['oma-admin']['status']; acp_cases['oma-admin']['status'] = 200; put('data/pinned-ingress-observations.json',ingress); rejected(); acp_cases['oma-admin']['status'] = original
+ original = identity['addedSourceSha256'].pop(m.ACP_ROUTE); put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.ACP_ROUTE] = original
+ for name in ('originalSha256','executedSha256','processBoundarySha256','ownedProbeSha256'):
+  original = identity['addedSourceSha256'][m.ACP_REGISTRY][name]; identity['addedSourceSha256'][m.ACP_REGISTRY][name] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.ACP_REGISTRY][name] = original
+ original = ingress['acpHttp']['probeCount']; ingress['acpHttp']['probeCount'] = 0; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['acpHttp']['probeCount'] = original
+ original = ingress['acpHttp']['unstampedSessionStatus']; ingress['acpHttp']['unstampedSessionStatus'] = 200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['acpHttp']['unstampedSessionStatus'] = original
  original = identity['addedSourceSha256'].pop(m.REASONING_STORE); put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.REASONING_STORE] = original
  original = identity['addedSourceSha256'][m.REASONING_STORE]; identity['addedSourceSha256'][m.REASONING_STORE] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.REASONING_STORE] = original
  discovery = next(row for row in rows if row['case'] == 'GET /api/settings/cc-discovery-metrics')
@@ -1053,6 +1111,8 @@ with tempfile.TemporaryDirectory() as d:
  combo={'phase':'cold','driver':'node:sqlite','observations':[{'operation':op,'status':status,'mediaType':'application/json'} for op,status in cases],'grantAfterDelete':['combo/*'],'deletedAbsent':True,'importedPersisted':True,'exportSecretAbsent':True}
  cwarm={'phase':'warm','driver':'node:sqlite','importedPersisted':True,'deletedAbsent':True}
  for name,value in [('provider-lifecycle.json',provider),('provider-warm.json',pwarm),('provider-collection-lifecycle.json',collection),('provider-node-create.json',node),('cold-combo-lifecycle.json',combo),('warm-combo-lifecycle.json',cwarm)]: put(name,value)
+ sweeps=[{'phase':phase,'firstStatus':200,'secondStatus':200,'encryptedAfterFirst':success,'encryptedAfterSecond':success,'cacheInvalidated':success,'nativeBackupCalls':0,'backupCountBefore':0,'backupCountAfter':0} for phase,success in [('sweep-success',True),('sweep-failure',False)]]
+ for value in sweeps: put(value['phase']+'.json',value)
  def reject_without_export():
   reject()
   assert not (p/'export').exists(), 'invalid observation left partial success artifacts'
@@ -1064,6 +1124,7 @@ with tempfile.TemporaryDirectory() as d:
  combo['observations'][0]['status']=500; put('cold-combo-lifecycle.json',combo); reject_without_export(); combo['observations'][0]['status']=200; put('cold-combo-lifecycle.json',combo)
  cwarm['importedPersisted']=False; put('warm-combo-lifecycle.json',cwarm); reject_without_export(); cwarm['importedPersisted']=True; put('warm-combo-lifecycle.json',cwarm)
  (p/'provider-node-create.json').unlink(); reject_without_export(); put('provider-node-create.json',node)
+ sweeps[1]['encryptedAfterSecond']=True; put('sweep-failure.json',sweeps[1]); reject_without_export(); sweeps[1]['encryptedAfterSecond']=False; put('sweep-failure.json',sweeps[1])
  m.export_core_lifecycle(p,{})
  result=json.loads((p/'export/core-lifecycle.json').read_text())
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
@@ -1074,7 +1135,7 @@ with tempfile.TemporaryDirectory() as d:
  assert result['cold']['hotReloadFailure'] is False and result['warm']['hotReloadFailure'] is False
  assert result['cold']['tableSha256']==result['warm']['tableSha256'] and result['cold']['migrationSha256']==result['warm']['migrationSha256']
  assert result['isolation']=={'network':'private-loopback-only','capabilities':'dropped','source':'read-only','processes':'separate-cold-warm','startupRegressions':'passed'}
- for name in ('provider-lifecycle.json','provider-collection-lifecycle.json','provider-node-create.json','combo-lifecycle.json'):
+ for name in ('provider-lifecycle.json','provider-collection-lifecycle.json','provider-node-create.json','combo-lifecycle.json','deprecated-provider-sweep.json'):
   artifact=json.loads((p/'export'/name).read_text())
   assert artifact['qualification'] is False and 'private-canary' not in json.dumps(artifact)
 `;

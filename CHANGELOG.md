@@ -4,6 +4,19 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Preserve exact provenance bytes on Windows checkouts and isolate signature
+  verification from platform-specific absolute-path handling. Signature failures
+  expose only bounded diagnostic categories, never local paths or raw key output.
+- Add exact-source optional dashboard-session binding for the unavailable
+  authentication-status candidate. Reuse endpoint-bound management credentials
+  and cancellation; keep all other public requests credential-free and retain
+  human confirmation and no replay for possible onboarding writes.
+- Exercise deprecated-provider inventory through its actual handler and isolated
+  framework ingress. Bind separate fresh-database encryption success and caught
+  failure observations; keep possible first-read migration human-confirmed and
+  its settlement unknown, without retry or claims that backup completion was
+  established. Qualification still requires the exact joined evidence.
+
 - Qualify both public agent-discovery card GETs with actual anonymous Next.js
   requests outside the pinned proxy matcher, distinct source handlers and cache
   headers. Keep the client view filtered and distinguish advertised protocol

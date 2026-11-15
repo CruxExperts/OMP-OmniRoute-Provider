@@ -7,7 +7,9 @@ import { resolveDbHealthWorker } from './healthCheckRunner';
 import { getCliVersionOverride } from '@omniroute/open-sse/config/cliVersions.ts';
 
 const phase = process.argv[2];
-if (!['cold', 'warm'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== '/work/data' || SQLITE_FILE !== '/work/data/storage.sqlite') throw new Error('lifecycle isolation or phase mismatch');
+const sweep = phase === 'sweep-success' || phase === 'sweep-failure';
+const expectedDataDir = sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -25,6 +27,50 @@ const files = async () => {
   await walk(DATA_DIR);
   return result.sort((a, b) => a.name.localeCompare(b.name));
 };
+if (sweep) {
+  if ((await files()).some(x => x.name === 'storage.sqlite')) throw new Error('sweep database already exists');
+  await ensureDbInitialized();
+  try {
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite' || process.env.STORAGE_ENCRYPTION_KEY) throw new Error('sweep prerequisites mismatch');
+    await updateSettings({ requireLogin: false });
+    const marker = 'fixture-only-plaintext';
+    db.prepare('INSERT INTO provider_connections (id, provider, name, provider_specific_data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('sweep-fixture', 'gemini-cli', 'before', JSON.stringify({ ['api' + 'Key']: marker }), '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+    const cache = await import('./readCache.ts');
+    const initialCache = await cache.getCachedRawProviderConnections({ provider: 'gemini-cli' });
+    if (initialCache.length !== 1 || initialCache[0].name !== 'before') throw new Error('sweep cache setup failed');
+    db.prepare('UPDATE provider_connections SET name = ? WHERE id = ?').run('after', 'sweep-fixture');
+    if (phase === 'sweep-failure') db.prepare("CREATE TRIGGER fixture_sweep_failure BEFORE UPDATE OF provider_specific_data ON provider_connections BEGIN SELECT RAISE(FAIL, 'fixture sweep failure'); END").run();
+    process.env.STORAGE_ENCRYPTION_KEY = 'fixture-only-encryption-key-not-for-production';
+    let nativeBackupCalls = 0;
+    const nativeBackup = db.backup.bind(db);
+    db.backup = (...args) => { nativeBackupCalls++; return nativeBackup(...args); };
+    const route = await import('../../app/api/providers/deprecated/route.ts');
+    const before = await files();
+    const call = async () => {
+      const response = await route.GET(new Request('http://127.0.0.1/api/providers/deprecated'));
+      return { status: response.status, body: await response.json() };
+    };
+    const first = await call();
+    const stored = () => JSON.parse(db.prepare('SELECT provider_specific_data FROM provider_connections WHERE id = ?').get('sweep-fixture').provider_specific_data).apiKey;
+    const encryptedAfterFirst = typeof stored() === 'string' && stored().startsWith('enc:v1:');
+    const cacheAfterFirst = await cache.getCachedRawProviderConnections({ provider: 'gemini-cli' });
+    const cacheInvalidated = cacheAfterFirst.length === 1 && cacheAfterFirst[0].name === 'after';
+    if (phase === 'sweep-failure') db.prepare('DROP TRIGGER fixture_sweep_failure').run();
+    const second = await call();
+    const encryptedAfterSecond = typeof stored() === 'string' && stored().startsWith('enc:v1:');
+    const after = await files();
+    const valid = result => result.status === 200 && Array.isArray(result.body.leftovers) && result.body.leftovers.length === 1 && result.body.leftovers[0].provider === 'gemini-cli' && JSON.stringify(result.body.leftovers[0].connectionIds) === '["sweep-fixture"]' && JSON.stringify(result.body.leftovers[0].names) === '["after"]' && !JSON.stringify(result.body).includes(marker);
+    if (!valid(first) || !valid(second) || encryptedAfterFirst !== (phase === 'sweep-success') || encryptedAfterSecond !== encryptedAfterFirst || cacheInvalidated !== (phase === 'sweep-success')) throw new Error('sweep observation mismatch');
+    const backupCount = entries => entries.filter(x => x.kind === 'file' && x.name.startsWith('db_backups/') && x.name.endsWith('.sqlite')).length;
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ phase, firstStatus: first.status, secondStatus: second.status, encryptedAfterFirst, encryptedAfterSecond, cacheInvalidated, nativeBackupCalls, backupCountBefore: backupCount(before), backupCountAfter: backupCount(after) }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally {
+    delete process.env.STORAGE_ENCRYPTION_KEY;
+    await closeDbInstance();
+  }
+  process.exit(0);
+}
 const before = await files();
 if (phase === 'cold' && before.some(x => x.name === 'storage.sqlite')) throw new Error('cold database already exists');
 if (phase === 'warm' && !before.some(x => x.name === 'storage.sqlite')) throw new Error('warm database missing');

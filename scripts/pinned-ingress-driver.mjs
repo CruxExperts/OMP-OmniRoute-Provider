@@ -17,26 +17,33 @@ const cookie = `auth_token=${payload}.${createHmac('sha256', secret).update(payl
 const db = new DatabaseSync(`${dir}/metrics.sqlite`);
 db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_input INTEGER, tokens_cache_read INTEGER, tokens_cache_creation INTEGER);
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
+const statusDb = new DatabaseSync(`${dir}/auth-status.sqlite`);
+statusDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
-const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true }, tokens: Object.entries(scopedTokens).map(([scope, token]) => ({ id: `fixture-${scope}`, token_hash: createHash('sha256').update(token).digest('hex'), token_prefix: 'oma_live_fixtu', name: `fixture-${scope}`, scope, created_at: '2025-01-01T00:00:00.000Z', last_used_at: null, expires_at: null, revoked_at: null })) };
+const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].map(scope => [scope, `fixture_api_key_${scope}`]));
+const ownedProbe = '/work/fixture/acp-owned-probe';
+const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true, customAgents: [{ id: 'owned', name: 'owned', binary: ownedProbe, versionCommand: `${ownedProbe} --version`, providerAlias: 'owned', spawnArgs: [], protocol: 'stdio' }] }, tokens: Object.entries(scopedTokens).map(([scope, token]) => ({ id: `fixture-${scope}`, token_hash: createHash('sha256').update(token).digest('hex'), token_prefix: 'oma_live_fixtu', name: `fixture-${scope}`, scope, created_at: '2025-01-01T00:00:00.000Z', last_used_at: null, expires_at: null, revoked_at: null })), apiKeys: Object.entries(managementKeys).map(([scope, key]) => ({ id: `key-${scope}`, key_hash: createHash('sha256').update(key).digest('hex'), is_active: 1, is_banned: 0, scopes: JSON.stringify([scope]) })) };
 await writeFile(`${dir}/state.json`, JSON.stringify(state), { mode: 0o600 });
 await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
+  cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
+});
+const acpChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/fixture/acp-server.mjs'], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret }, stdio: ['ignore', 'inherit', 'inherit'],
 });
 function assert(condition, name) { if (!condition) throw new Error(`INGRESS_ASSERTION:${name}`); }
-async function ready() {
+async function ready(target = child, targetPort = port) {
   const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
-    assert(child.exitCode === null && child.signalCode === null, 'server-exited');
-    const open = await new Promise(resolve => { const socket = connect({ host: '127.0.0.1', port }); socket.once('connect', () => { socket.destroy(); resolve(true); }); socket.once('error', () => resolve(false)); });
+    assert(target.exitCode === null && target.signalCode === null, 'server-exited');
+    const open = await new Promise(resolve => { const socket = connect({ host: '127.0.0.1', port: targetPort }); socket.once('connect', () => { socket.destroy(); resolve(true); }); socket.once('error', () => resolve(false)); });
     if (open) return;
     await delay(100);
   }
   throw new Error('INGRESS_START_TIMEOUT');
 }
-async function request(path, method = 'GET', headers = {}) {
-  const response = await fetch(`http://127.0.0.1:${port}${path}`, { method, headers, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+async function request(path, method = 'GET', headers = {}, targetPort = port) {
+  const response = await fetch(`http://127.0.0.1:${targetPort}${path}`, { method, headers, redirect: 'manual', signal: AbortSignal.timeout(10000) });
   const reader = response.body?.getReader();
   const chunks = []; let size = 0;
   if (reader) for (;;) {
@@ -61,17 +68,64 @@ async function transition(path, status) {
   }
   throw new Error(`INGRESS_TRANSITION_TIMEOUT:${path}:${status}`);
 }
-async function stop() {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = new Promise(resolve => child.once('exit', resolve));
-  child.kill('SIGTERM');
+async function stop(target = child) {
+  if (target.exitCode !== null || target.signalCode !== null) return;
+  const exited = new Promise(resolve => target.once('exit', resolve));
+  target.kill('SIGTERM');
   if (await Promise.race([exited.then(() => true), delay(2000).then(() => false)])) return;
-  child.kill('SIGKILL');
+  target.kill('SIGKILL');
   assert(await Promise.race([exited.then(() => true), delay(2000).then(() => false)]), 'server-stop');
 }
 const results = [];
 try {
   await ready();
+  await ready(acpChild, 43180);
+  const statusPath = '/api/auth/status';
+  const statusRows = () => statusDb.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('setupComplete', 'requireLogin') ORDER BY key").all();
+  const statusBefore = statusRows();
+  const statusCases = {};
+  async function statusCase(name, headers, expected) {
+    const response = await request(statusPath, 'GET', headers);
+    assert(response.status === 200 && JSON.stringify(response.body) === JSON.stringify({ authenticated: expected }) && response.routeClass === 'PUBLIC', `auth-status:${name}`);
+    statusCases[name] = { status: response.status, routeClass: response.routeClass, authenticated: response.body.authenticated };
+  }
+  const expiredPayload = `${encode({ alg: 'HS256' })}.${encode({ authenticated: true, iat: now - 100, exp: now - 1 })}`;
+  const expiredCookie = `auth_token=${expiredPayload}.${createHmac('sha256', secret).update(expiredPayload).digest('base64url')}`;
+  const signatureStart = cookie.lastIndexOf('.') + 1;
+  const tamperedCookie = `${cookie.slice(0, signatureStart)}${cookie[signatureStart] === 'A' ? 'B' : 'A'}${cookie.slice(signatureStart + 1)}`;
+  await statusCase('anonymous', {}, false);
+  await statusCase('expired', { cookie: expiredCookie }, false);
+  await statusCase('tampered', { cookie: tamperedCookie }, false);
+  assert(statusRows().length === 0, 'auth-status-no-invalid-writes');
+  await statusCase('valid', { cookie }, true);
+  const statusAfter = statusRows();
+  assert(JSON.stringify(statusBefore) === '[]' && JSON.stringify(statusAfter) === JSON.stringify([{key:'requireLogin',value:'true'},{key:'setupComplete',value:'true'}]), 'auth-status-onboarding');
+  const setStatus = statusDb.prepare("INSERT OR REPLACE INTO key_value (namespace,key,value) VALUES ('settings',?,?)");
+  setStatus.run('revokedDashboardSessions', JSON.stringify([{jti:'fixture-session',exp:now+3600}]));
+  await statusCase('cachedRevocation', { cookie }, true);
+  await delay(5100);
+  await statusCase('revoked', { cookie }, false);
+  setStatus.run('revokedDashboardSessions', '[]');
+  setStatus.run('sessionsValidAfter', JSON.stringify(now+1));
+  await delay(5100);
+  await statusCase('passwordChanged', { cookie }, false);
+  statusDb.exec('DROP TABLE key_value');
+  await delay(5100);
+  await statusCase('settingsFailure', { cookie }, false);
+  const authStatusHttp = { cases: statusCases, onboardingBefore: statusBefore, onboardingAfter: statusAfter };
+  const acpCases = {};
+  const unstamped = await request('/api/acp/agents', 'GET', { cookie });
+  console.log('ACP_UNSTAMPED', unstamped.status, unstamped.routeClass);
+  const acpCredentials = { anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, ...Object.fromEntries(Object.entries(managementKeys).map(([name, key]) => [`key-${name}`, { authorization: `Bearer ${key}` }])), ...Object.fromEntries(Object.entries(scopedTokens).map(([name, key]) => [`oma-${name}`, { authorization: `Bearer ${key}` }])) };
+  for (const [name, headers] of Object.entries(acpCredentials)) {
+    const response = await request('/api/acp/agents', 'GET', headers, 43180);
+    const owned = response.body?.agents?.find(agent => agent.id === 'owned');
+    acpCases[name] = { status: response.status, routeClass: response.routeClass, owned: owned ? { installed: owned.installed, version: owned.version } : null };
+    console.log('ACP_CASE', name, response.status, response.routeClass, owned ? (owned.installed ? 'installed' : 'not-installed') : 'no-agent');
+  }
+  const probeRecords = (await readFile(`${dir}/acp-probe.jsonl`, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  assert(probeRecords.every(record => JSON.stringify(record) === JSON.stringify({ argv: ['--version'], cwd: dir, env: { PATH: '', HOME: '/work/home', TMPDIR: '/work/tmp' } })), 'acp-probe-boundary');
+  const acpHttp = { cases: acpCases, unstampedSessionStatus: unstamped.status, probeCount: probeRecords.length, processPlatform: process.platform };
   const config = JSON.parse(await readFile('/work/app/.build/next/server/functions-config-manifest.json', 'utf8'));
   const matchers = config.functions?.['/_middleware']?.matchers;
   assert(Array.isArray(matchers) && matchers.length > 0 && matchers.every(entry => typeof entry.regexp === 'string'), 'proxy-matchers-present');
@@ -193,6 +247,20 @@ try {
   const reasoningCached = await request(reasoningPath, 'GET', { cookie });
   assert(reasoningAllowed.status === 200 && JSON.stringify(reasoningAllowed.body) === '{"rules":[]}' && reasoningCached.status === 200 && JSON.stringify(reasoningCached.body) === '{"rules":[]}', 'reasoning-recovery-cache');
   const reasoningHttp = { denied: { status: reasoningDenied.status, routeClass: reasoningDenied.routeClass }, invalid: { status: reasoningInvalid.status, routeClass: reasoningInvalid.routeClass }, failure: reasoningFailureObservation, allowed: { status: reasoningAllowed.status, routeClass: reasoningAllowed.routeClass, body: reasoningAllowed.body }, cached: { status: reasoningCached.status, routeClass: reasoningCached.routeClass, body: reasoningCached.body } };
+  const deprecatedPath = '/api/providers/deprecated';
+  const deprecatedDenied = await request(deprecatedPath);
+  const deprecatedInvalid = await request(deprecatedPath, 'GET', { authorization: `Bearer ${invalidCredential}` });
+  const deprecatedFailure = await request(deprecatedPath, 'GET', { cookie });
+  const privateDeprecatedFailure = ['fixture_deprecated_providers', 'SQLITE_', '/work/', 'no such table'].some(marker => deprecatedFailure.text.includes(marker));
+  assert(deprecatedDenied.status === 401 && deprecatedInvalid.status === 401 && deprecatedFailure.status >= 500 && deprecatedFailure.status <= 599 && [null, 'MANAGEMENT'].includes(deprecatedFailure.routeClass) && !privateDeprecatedFailure, 'deprecated-handler-denial-or-failure');
+  db.exec('CREATE TABLE fixture_deprecated_providers (id TEXT, provider TEXT, name TEXT, priority INTEGER)');
+  const insertDeprecated = db.prepare('INSERT INTO fixture_deprecated_providers VALUES (?, ?, ?, ?)');
+  for (let index = 0; index < 105; index++) insertDeprecated.run(`fixture-${index}`, 'gemini-cli', `name-${index}`, index);
+  insertDeprecated.run('ignored', 'openai', 'ignored', 106);
+  const deprecatedAllowed = await request(deprecatedPath, 'GET', { cookie });
+  const group = deprecatedAllowed.body?.leftovers?.[0];
+  assert(deprecatedAllowed.status === 200 && deprecatedAllowed.body?.leftovers?.length === 1 && group?.provider === 'gemini-cli' && group?.migrateTo === 'gemini' && group?.connectionIds?.length === 105 && group?.names?.length === 105 && group.connectionIds.every((id, index) => id === `fixture-${index}` && group.names[index] === `name-${index}`), 'deprecated-handler-projection');
+  const deprecatedHttp = { denied: { status: deprecatedDenied.status, routeClass: deprecatedDenied.routeClass }, invalid: { status: deprecatedInvalid.status, routeClass: deprecatedInvalid.routeClass }, failure: { status: deprecatedFailure.status, routeClass: deprecatedFailure.routeClass, privateMarkerPresent: privateDeprecatedFailure }, allowed: { status: deprecatedAllowed.status, routeClass: deprecatedAllowed.routeClass, body: deprecatedAllowed.body } };
   for (const [method, path] of [['GET', '/api/model-combo-mappings'], ['POST', '/api/model-combo-mappings'], ['GET', '/api/model-combo-mappings/fixture-id'], ['PUT', '/api/model-combo-mappings/fixture-id'], ['DELETE', '/api/model-combo-mappings/fixture-id']]) {
     const denied = await request(path, method);
     const invalid = await request(path, method, { authorization: `Bearer ${invalidCredential}` });
@@ -227,6 +295,7 @@ try {
     ['GET', '/api/model-capability-overrides'],
     ['GET', '/api/provider-nodes'],
     ['GET', '/api/providers'],
+    ['GET', '/api/providers/deprecated'],
     ['GET', '/api/providers/fixture-id/cc-alias'],
     ['GET', '/api/providers/fixture-id/interception-rules'],
     ['GET', '/api/providers/fixture-id/param-filters'],
@@ -247,7 +316,7 @@ try {
     ['PUT', '/api/providers/fixture-id/param-filters'],
   ];
   for (const [method, path] of familyPolicyCases) {
-    const control = path === reasoningPath ? { 'x-ingress-policy-control': '1' } : {};
+    const control = path === reasoningPath || path === deprecatedPath ? { 'x-ingress-policy-control': '1' } : {};
     const denied = await request(path, method, control);
     const invalid = await request(path, method, { ...control, authorization: `Bearer ${invalidCredential}` });
     const allowed = await request(path, method, { ...control, cookie });
@@ -265,8 +334,10 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, wellKnown }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
+  statusDb.close();
   db.close();
+  await stop(acpChild);
   await stop();
 }

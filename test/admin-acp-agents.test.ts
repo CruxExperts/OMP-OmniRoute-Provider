@@ -1,7 +1,10 @@
 import { expect, spyOn, test } from "bun:test";
-import { ACP_AGENTS_GET_ID, AcpAgentsFixture, acpAgentsGetContract, acpAgentsGetDescriptor, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
+import { readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
-import { createAdminExecutor } from "../src/admin/executor.ts";
+import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 
 interface Agent extends CustomAgent { installed: boolean; version: string | null; isCustom: boolean }
 interface Body { agents: Agent[]; summary: { total: number; installed: number; notFound: number; builtIn: number; custom: number } }
@@ -106,10 +109,10 @@ test("candidate projects only status counts, not executable-controlled strings o
   expect(() => adapter.validate({ body: {} })).toThrow();
   const contract = acpAgentsGetContract();
   expect(contract.pagination).toEqual({ mode: "none", parameters: [] });
-  expect(contract.sideEffect).toBe("unknown");
+  expect(contract.sideEffect).toBe("lifecycle");
   expect(contract.confirmation.required).toBe(true);
   expect(contract.retry).toEqual({ allowed: false, maxAttempts: 1, statusCodes: [] });
-  expect(contract.auth.sourcePolicy).toEqual({ status: "unknown" });
+  expect(contract.auth.sourcePolicy).toEqual({ status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: true, handlerGuard: "isAuthenticated", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }] });
   const executor = createAdminExecutor({ registry: fixtureRegistry([acpAgentsGetDescriptor()]), dispatch: async () => { throw new Error("unexpected dispatch"); } });
   try { await expect(executor.read(ACP_AGENTS_GET_ID, {})).rejects.toMatchObject({ code: "confirmation-required" }); }
   finally { executor.shutdown(); }
@@ -120,15 +123,8 @@ test("confirmed ACP probes return only projected status while their effects rema
   fixture.settings.customAgents = [Object.assign(custom("private-agent", "fixture-extra", "fixture-extra --version"), { password: "private-password" })];
   fixture.outputs.set("fixture-extra", "private-version-output");
   const candidate = acpAgentsGetDescriptor();
-  // Synthetic mutation authority exercises the shared consumer only; ACP remains unqualified.
-  const descriptor: typeof candidate = {
-    ...candidate,
-    sideEffect: "mutation",
-    auth: { ...candidate.auth, sourcePolicy: {
-      status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false,
-      handlerGuard: "none", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }],
-    } },
-  };
+  // Fixture descriptor is not release authority; execute the actual lifecycle policy.
+  const descriptor = candidate;
   let calls = 0;
   const executor = createAdminExecutor({
     registry: fixtureRegistry([descriptor]),
@@ -150,6 +146,28 @@ test("confirmed ACP probes return only projected status while their effects rema
     expect(JSON.stringify(result)).not.toContain("fixture-extra");
     await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
     expect(calls).toBe(1);
+  } finally { executor.shutdown(); }
+});
+
+test("ACP lifecycle preview never probes and expiry, rotation and cancellation prevent dispatch", async () => {
+  let now = 0;
+  let calls = 0;
+  const executor = createAdminExecutor({ registry: fixtureRegistry([acpAgentsGetDescriptor()]), now: () => now, dispatch: async () => { calls++; throw new Error("unexpected dispatch"); } });
+  const bind = (apiKey: string) => executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey });
+  bind("fixture-key-one");
+  try {
+    const expired = await executor.plan(ACP_AGENTS_GET_ID, {});
+    expect(calls).toBe(0);
+    now = expired.expiresAt;
+    await expect(executor.apply(expired.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-expired" });
+    const rotated = await executor.plan(ACP_AGENTS_GET_ID, {});
+    bind("fixture-key-two");
+    await expect(executor.apply(rotated.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-invalidated" });
+    const cancelled = await executor.plan(ACP_AGENTS_GET_ID, {});
+    const controller = new AbortController();
+    controller.abort();
+    await expect(executor.apply(cancelled.planId, { confirmed: true, signal: controller.signal })).rejects.toThrow();
+    expect(calls).toBe(0);
   } finally { executor.shutdown(); }
 });
 
@@ -192,3 +210,254 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
   expect(fixture.settingsReads).toBe(1);
   expect(fixture.probes.length).toBeGreaterThan(0);
 });
+
+test.skipIf(process.platform !== "win32")("owned Windows fixture rejects an unsafe parent before creating files", () => {
+  const previous = process.env.ACP_FIXTURE_PARENT;
+  try {
+    process.env.ACP_FIXTURE_PARENT = "C:\\unsafe!\\fixture";
+    expect(() => new AcpOwnedProcesses()).toThrow("Windows owned fixture parent is not shell-safe");
+  } finally {
+    if (previous === undefined) delete process.env.ACP_FIXTURE_PARENT;
+    else process.env.ACP_FIXTURE_PARENT = previous;
+  }
+});
+
+// Candidate evidence only: the controlled process is not a qualification receipt,
+// and neither real ingress nor the production authorization policy is established.
+type AcpProcessObservation = { status: number | null; code: string; signal: string; stdout: string; error: string };
+type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string; tempForbiddenCodes?: number[]; parentForbiddenCodes?: number[];
+  environment?: { supplied: Record<string, { present: boolean; matches: boolean }>; extras: Record<string, boolean>; unknownCount: number; duplicateCount: number; unknownPrefixes: Record<string, number>; unknownLengths: number[]; unknownHasNonIdentifier: boolean; processorArchitecture: "ARM64" | "AMD64" | "absent" | "other" };
+  processes?: { recordCount: number | null; outcomeCount: number; probeCount: number; successProbeCount: number; normalizedProbeCount: number; caseInsensitiveProbeCount: number; successPathShellSafe: boolean; successPreflight: string; sourceProbes: { success: AcpProbeInspection | null; failure: AcpProbeInspection | null; stall: AcpProbeInspection | null }; sourceShell: boolean | null; rejections: Record<string, number>; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
+let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
+function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
+  acpObservation = { stage, category: "incomplete", ...(acpObservation.tempForbiddenCodes ? { tempForbiddenCodes: acpObservation.tempForbiddenCodes } : {}), ...(acpObservation.parentForbiddenCodes ? { parentForbiddenCodes: acpObservation.parentForbiddenCodes } : {}), ...(acpObservation.environment ? { environment: acpObservation.environment } : {}), ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
+  if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
+}
+async function ownedProcessCase(): Promise<void> {
+  const sentinel = "ACP_OWNED_PRIVATE_SENTINEL";
+  const previousSentinel = process.env[sentinel];
+  const forbiddenCodes = (value: string): number[] => [...new Set(value.split("").filter(char => !/^[A-Za-z0-9._+@:/\\-]$/.test(char)).map(char => char.charCodeAt(0)))].slice(0, 16);
+  if (process.platform === "win32") {
+    acpObservation.tempForbiddenCodes = forbiddenCodes(tmpdir());
+    acpObservation.parentForbiddenCodes = forbiddenCodes(process.env.ACP_FIXTURE_PARENT ?? tmpdir());
+  }
+  acpStage("initializing");
+  try {
+    if (process.platform === "win32") process.env[sentinel] = "private-fixture-sentinel";
+    await runOwnedProcessCase();
+    acpObservation.category = "passed";
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    acpObservation.category = name === "AssertionError" || name === "ExpectError" ? "assertion" : name === "TimeoutError" ? "timeout" : "other";
+    if (error instanceof Error && typeof error.stack === "string") {
+      const match = error.stack.match(/(?:^|[\\/])test[\\/]admin-acp-agents\.test\.ts:(\d{1,5}):(\d{1,5})(?:\)?\s|$)/m);
+      if (match) acpObservation.location = `test/admin-acp-agents.test.ts:${match[1]}:${match[2]}`;
+    }
+    throw error;
+  } finally {
+    if (process.platform === "win32") {
+      if (previousSentinel === undefined) delete process.env[sentinel];
+      else process.env[sentinel] = previousSentinel;
+    }
+    if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
+  }
+}
+
+async function runOwnedProcessCase(): Promise<void> {
+  const processes = new AcpOwnedProcesses();
+  let executor: AdminExecutor | undefined;
+  try {
+    acpStage("create-processes");
+    const success = processes.create("success");
+    const failure = processes.create("failure");
+    const stall = processes.create("stall");
+    const windows = process.platform === "win32";
+    const version = (binary: string) => `${windows ? `"${binary}"` : binary} --version`;
+    const unsupported = path.join(processes.directory, "not-owned");
+    const spaced = path.join(processes.directory, "not owned.cmd");
+    const fixture = new AcpAgentsFixture(processes);
+    fixture.settings = { customAgents: [
+      custom("success", success, version(success)),
+      custom("failure", failure, version(failure)),
+      custom("stall", stall, version(stall)),
+      custom("invalid-eval", success, `${windows ? `"${success}"` : success} -e`),
+      custom("invalid-extra", success, `${version(success)} extra`),
+      custom("invalid-shell", success, `${version(success)};bad`),
+      custom("invalid-mismatch", success, version(failure)),
+      custom("unsupported", unsupported, version(unsupported)),
+      ...(windows ? [custom("shell-unsafe-space", spaced, version(spaced))] : []),
+    ] };
+    acpStage("initial-request");
+    const controller = new AbortController();
+    controller.abort();
+    const response = await fixture.get(new Request("http://localhost/api/acp/agents", { signal: controller.signal }));
+    let recordCount: number | null = null;
+    try { recordCount = Math.min(processes.records().length, 1000); } catch { /* Diagnostic must not alter fixture behavior. */ }
+    const processObservation = (command: string): AcpProcessObservation | null => {
+      const index = processes.outcomes.findIndex(outcome => outcome.command === command);
+      const outcome = processes.outcomes[index];
+      if (!outcome) return null;
+      const status = typeof outcome.status === "number" && Number.isInteger(outcome.status) && Math.abs(outcome.status) <= 65535 ? outcome.status : null;
+      const code = outcome.code === null ? "none" : ["ENOENT", "EINVAL", "ETIMEDOUT"].includes(outcome.code) ? outcome.code : "other";
+      const signal = outcome.signal === null ? "none" : ["SIGKILL", "SIGTERM"].includes(outcome.signal) ? outcome.signal : "other";
+      const stdout = outcome.stdout === "" ? "empty" : outcome.stdout === "Owned agent 7.8.9-beta\n" ? "success" : outcome.stdout === "failed 3.2.1\n" ? "failure" : "other";
+      return { status, code, signal, stdout, error: processes.errorCategories[index] ?? "unknown" };
+    };
+    const normalizedSuccess = path.normalize(success);
+    const matchingProbe = fixture.probes.find(probe => probe.command === success);
+    const sourceOptions = matchingProbe?.options as { shell?: boolean } | undefined;
+    const inspect = (binary: string): AcpProbeInspection | null => {
+      try { return fixture.inspectProbe(binary, version(binary)); } catch { return null; }
+    };
+    acpObservation.processes = { recordCount, outcomeCount: Math.min(processes.outcomes.length, 1000),
+      probeCount: Math.min(fixture.probes.length, 1000), successProbeCount: Math.min(fixture.probes.filter(probe => probe.command === success).length, 1000),
+      normalizedProbeCount: Math.min(fixture.probes.filter(probe => path.normalize(probe.command) === normalizedSuccess).length, 1000),
+      caseInsensitiveProbeCount: Math.min(fixture.probes.filter(probe => probe.command.toLowerCase() === success.toLowerCase()).length, 1000),
+      sourceProbes: { success: inspect(success), failure: inspect(failure), stall: inspect(stall) }, sourceShell: sourceOptions ? Boolean(sourceOptions.shell) : null,
+      rejections: { ...processes.rejections }, successPathShellSafe: /^[A-Za-z0-9._+@:/\\-]+$/.test(success), successPreflight: processes.preflight.get("success") ?? "not-entered",
+      success: processObservation(success), failure: processObservation(failure), stall: processObservation(stall) };
+    acpStage("response-status", 200, response.status);
+    expect(response.status).toBe(200);
+    const body = await response.json() as Body;
+    acpStage("settings-reads", 1, fixture.settingsReads);
+    expect(fixture.settingsReads).toBe(1);
+    const successAgent = body.agents.find(a => a.id === "success");
+    acpStage("success-agent", 1, successAgent ? Number(successAgent.installed) : null);
+    expect(successAgent).toMatchObject({ installed: true, version: "7.8.9-beta" });
+    acpStage("invalid-agents");
+    for (const id of ["failure", "stall", "invalid-eval", "invalid-extra", "invalid-shell", "invalid-mismatch", "unsupported"]) {
+      const agent = body.agents.find(a => a.id === id);
+      acpStage(`invalid-agent-${id}`, 0, agent ? Number(agent.installed) : null);
+      expect(agent).toMatchObject({ installed: false, version: null });
+    }
+    acpStage("windows-unsafe-agent");
+    if (windows) expect(body.agents.find(a => a.id === "shell-unsafe-space")).toMatchObject({ installed: false, version: null });
+    acpStage("outcome-count", 3, processes.outcomes.length);
+    expect(processes.outcomes).toHaveLength(3);
+    acpStage("success-outcome", 0, processes.outcomes[0]?.status ?? null);
+    expect(processes.outcomes[0]).toEqual({ command: success, stdout: "Owned agent 7.8.9-beta\n", status: 0, signal: null, code: null });
+    acpStage("failure-outcome", 17, processes.outcomes[1]?.status ?? null);
+    expect(processes.outcomes[1]).toMatchObject({ command: failure, stdout: "failed 3.2.1\n", status: 17 });
+    acpStage("stall-outcome", null, processes.outcomes[2]?.status ?? null);
+    expect(processes.outcomes[2]).toMatchObject({ command: stall, stdout: "", status: null, code: "ETIMEDOUT" });
+    if (!windows) expect(processes.outcomes[2]?.signal).toBe("SIGKILL");
+    acpStage("probe-counts");
+    expect(fixture.probes.filter(p => p.command === success)).toHaveLength(1);
+    expect(fixture.probes.filter(p => p.command === failure)).toHaveLength(1);
+    expect(fixture.probes.some(p => p.command.endsWith("not-owned"))).toBe(true);
+    acpStage("windows-probe-arguments");
+    if (windows) {
+      expect(fixture.probes.some(p => p.command === spaced)).toBe(false);
+      for (const probe of fixture.probes.filter(p => [success, failure, stall].includes(p.command))) {
+        expect(probe.args).toEqual(["--version"]);
+        expect(probe.options).toMatchObject({ shell: true });
+      }
+    }
+    acpStage("read-records");
+    const records = processes.records();
+    // A real Windows subprocess must exit on its own deadline, not fake time.
+    acpStage("windows-stall-exit");
+    if (windows) {
+      const stallPid = records.find(record => record.mode === "stall")?.pid;
+      if (stallPid === undefined) throw new Error("stall fixture did not start");
+      const deadline = Date.now() + 5000;
+      while (true) {
+        try { process.kill(stallPid, 0); } catch { break; }
+        if (Date.now() >= deadline) throw new Error("stall fixture did not exit");
+        await Bun.sleep(50);
+      }
+    }
+    acpStage("record-modes", 3, records.length);
+    expect(records.map(r => r.mode)).toEqual(["success", "failure", "stall"]);
+    for (const record of records) {
+      acpStage("record-argv");
+      expect(record.argv).toEqual(["--version"]);
+      acpStage("record-cwd");
+      expect(record.cwd).toBe(processes.directory);
+      const expectedEnv: Record<string, string> = { PATH: "", HOME: processes.directory, TMPDIR: processes.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
+      if (windows) {
+        // cmd.exe's `set "PATH="` removes the variable; an absent PATH is exact here.
+        delete expectedEnv.PATH;
+        expectedEnv.SystemRoot = process.env.SystemRoot!;
+        expectedEnv.ComSpec = process.env.ComSpec!;
+        if (process.arch === "arm64") expectedEnv.PROCESSOR_ARCHITECTURE = "ARM64";
+      }
+      if (windows) {
+        const entries = Object.entries(record.env).map(([key, value]) => [key.toUpperCase(), value] as const);
+        const actualEnv = Object.fromEntries(entries);
+        const normalizedExpected = Object.fromEntries(Object.entries(expectedEnv).map(([key, value]) => [key.toUpperCase(), value]));
+        const extraNames = ["PATHEXT", "COMSPEC", "SYSTEMROOT", "TEMP", "TMP", "PROMPT", "SYSTEMDRIVE", "WINDIR", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "BUN_JSC_FORCERAMSIZE", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "__COMPAT_LAYER"];
+        const unknown = entries.map(([key]) => key).filter(key => !Object.hasOwn(normalizedExpected, key) && !extraNames.includes(key));
+        const prefixes = ["BUN_", "JSC_", "OMP_", "ACP_", "PROCESSOR_", "NODE_", "NPM_", "CI_", "GITHUB_", "RUNNER_", "__"];
+        const architecture = actualEnv.PROCESSOR_ARCHITECTURE;
+        acpObservation.environment = {
+          supplied: Object.fromEntries(Object.entries(normalizedExpected).map(([key, value]) => [key, { present: Object.hasOwn(actualEnv, key), matches: actualEnv[key] === value }])),
+          extras: Object.fromEntries(extraNames.map(key => [key, Object.hasOwn(actualEnv, key) && !Object.hasOwn(normalizedExpected, key)])),
+          unknownCount: Math.min(unknown.length, 1000),
+          unknownPrefixes: Object.fromEntries(prefixes.map(prefix => [prefix, Math.min(unknown.filter(key => key.startsWith(prefix)).length, 1000)])),
+          unknownLengths: unknown.slice(0, 16).map(key => Math.min(key.length, 256)).sort((a, b) => a - b),
+          unknownHasNonIdentifier: unknown.some(key => !/^[A-Z0-9_]+$/.test(key)),
+          processorArchitecture: architecture === "ARM64" || architecture === "AMD64" ? architecture : architecture === undefined ? "absent" : "other",
+          duplicateCount: Math.min(entries.length - Object.keys(actualEnv).length, 1000),
+        };
+        acpStage("record-environment");
+        expect(Object.hasOwn(actualEnv, "ACP_OWNED_PRIVATE_SENTINEL")).toBe(false);
+        expect(entries.length).toBe(Object.keys(actualEnv).length);
+        expect(actualEnv).toEqual(normalizedExpected);
+      } else {
+        acpStage("record-environment");
+        expect(record.env).toEqual(expectedEnv);
+      }
+      acpStage("record-process-exited");
+      expect(() => process.kill(record.pid, 0)).toThrow();
+    }
+    acpStage("workspace-files");
+    expect(readdirSync(processes.directory).sort()).toEqual(windows
+      ? ["counter.jsonl", "probe-failure.cmd", "probe-failure.js", "probe-stall.cmd", "probe-stall.js", "probe-success.cmd", "probe-success.js"]
+      : ["counter.jsonl", "probe-failure", "probe-stall", "probe-success"]);
+    acpStage("candidate-executor");
+    fixture.settings = {};
+    const descriptor = acpAgentsGetDescriptor();
+    executor = createAdminExecutor({ registry: fixtureRegistry([descriptor]), dispatch: async () => {
+      const result = await fixture.get();
+      return { kind: "response", status: result.status, body: await result.json() };
+    } });
+    executor.bindCredential({ profileId: "omniroute", endpoint: "http://127.0.0.1:20128", apiKey: "[REDACTED:auth_header]" });
+    acpStage("candidate-plan");
+    const plan = await executor.plan(ACP_AGENTS_GET_ID, {});
+    acpStage("candidate-apply");
+    const result = await executor.apply(plan.planId, { confirmed: true });
+    acpStage("candidate-result");
+    expect(result).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+    acpStage("candidate-summary");
+    expect(result.output).toMatchObject({ summary: body.summary });
+    acpStage("candidate-records");
+    expect(processes.records()).toEqual(records);
+    acpStage("candidate-reapply");
+    await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+    acpStage("candidate-records-after-reapply");
+    expect(processes.records()).toEqual(records);
+    acpStage("candidate-contract");
+    expect(acpAgentsGetContract()).toMatchObject({ sideEffect: "lifecycle", auth: { sourcePolicy: { status: "qualified", localOnly: true, handlerGuard: "isAuthenticated" } } });
+    acpStage("cleanup");
+  } finally {
+    executor?.shutdown();
+    // Windows may leave the owned stall child running briefly after its wrapper times out.
+    if (process.platform === "win32") {
+      const stallPid = processes.records().find(record => record.mode === "stall")?.pid;
+      if (stallPid !== undefined) {
+        const deadline = Date.now() + 8000;
+        while (true) {
+          try { process.kill(stallPid, 0); } catch { break; }
+          if (Date.now() >= deadline) throw new Error("owned stall fixture termination unconfirmed; workspace retained");
+          await Bun.sleep(50);
+        }
+      }
+    }
+    processes.cleanup();
+    expect(processes.cleaned).toBe(true);
+  }
+}
+
+test.skipIf(process.platform === "win32")("POSIX owned probes expose status, timeout, cache and abort behavior through the candidate consumer", ownedProcessCase, 20_000);
+test.skipIf(process.platform !== "win32")("Windows native owned ACP probes expose status, timeout, cache, validation and ignored cancellation", ownedProcessCase, 30_000);

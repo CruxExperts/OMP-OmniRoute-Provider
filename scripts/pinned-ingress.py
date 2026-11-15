@@ -388,12 +388,14 @@ def disk_usage(root):
 
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
 ROUTES += ('src/app/.well-known/agent-card.json/route.ts', 'src/app/.well-known/agent.json/route.ts', 'src/lib/a2a/agentCardMetadata.ts', 'src/lib/conductor/fleetSkills.ts', 'src/lib/wellKnown.ts', 'src/shared/constants/appConfig.ts')
+ROUTES += ('src/app/api/auth/status/route.ts',)
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
 POLICY_SOURCES += ('src/app/api/keys/route.ts', 'src/app/api/keys/[id]/route.ts', 'src/app/api/settings/proxies/assignments/route.ts', 'src/app/api/models/route.ts')
 POLICY_SOURCES += ('src/app/api/settings/route.ts', 'src/app/api/settings/proxies/route.ts')
 POLICY_SOURCES += ('src/app/api/settings/cc-discovery-metrics/route.ts', 'src/app/api/settings/reasoning-routing-rules/route.ts')
+POLICY_SOURCES += ('src/app/api/providers/deprecated/route.ts',)
 REASONING_ROUTE = 'src/app/api/settings/reasoning-routing-rules/route.ts'
 REASONING_STORE = 'src/lib/db/reasoningRoutingRules.ts'
 REASONING_WRAPPER = b'''import { GET as sourceGet } from "./fixture-source";
@@ -403,7 +405,59 @@ export async function GET(request: Request) {
   return request.headers.get("x-ingress-policy-control") === "1" ? policyGet() : sourceGet(request);
 }
 '''
+DEPRECATED_ROUTE = 'src/app/api/providers/deprecated/route.ts'
+DEPRECATED_HELPER = 'src/lib/providers/deprecatedProviderCleanup.ts'
+DEPRECATED_REGISTRY = 'open-sse/services/tokenRefresh.ts'
+DEPRECATED_BACKEND = b'''import { DatabaseSync } from "node:sqlite";
+let db: DatabaseSync | undefined;
+export async function getRawProviderConnections(filter: object, limit: unknown, offset: unknown, columns: unknown) {
+  if (JSON.stringify(filter) !== "{}" || limit !== undefined || offset !== undefined || JSON.stringify(columns) !== '["id","provider","name"]') throw new Error("fixture projection mismatch");
+  db ??= new DatabaseSync("/work/data/metrics.sqlite");
+  return db.prepare("SELECT id, provider, name FROM fixture_deprecated_providers ORDER BY priority ASC").all();
+}
+export function deleteProviderConnectionsByProvider(): never { throw new Error("fixture mutation unavailable"); }
+export function getAuditRequestContext(): never { throw new Error("fixture mutation unavailable"); }
+export function logAuditEvent(): never { throw new Error("fixture mutation unavailable"); }
+export function isValidationFailure(): never { throw new Error("fixture mutation unavailable"); }
+export function validateBody(): never { throw new Error("fixture mutation unavailable"); }
+'''
+def deprecated_ingress_source(route, helper, registry):
+    route = route.decode()
+    for old in ('@/lib/compliance/index', '@/lib/db/providers', '@/lib/db/providers/deletion', '@/shared/validation/helpers'):
+        route = replace_once(route, '"' + old + '"', '"./fixture-backend"')
+    route = replace_once(route, '"@omniroute/open-sse/services/tokenRefresh.ts"', '"@/lib/providers/fixture-deprecation-registry"')
+    helper = replace_once(helper.decode(), '"@omniroute/open-sse/services/tokenRefresh.ts"', '"./fixture-deprecation-registry"')
+    registry = registry.decode()
+    start = 'export const DEPRECATED_PROVIDERS:'
+    end = '/**\n * Get the proactive refresh lead time'
+    require(registry.count(start) == registry.count(end) == 1, 'deprecation registry boundary changed')
+    return route.encode(), helper.encode(), registry[registry.index(start):registry.index(end)].encode()
+
 LIVE_ROUTE = 'src/app/livez/route.ts'
+ACP_ROUTE = 'src/app/api/acp/agents/route.ts'
+ACP_REGISTRY = 'src/lib/acp/registry.ts'
+ACP_MANIFEST = 'config/cli-tools-manifest.json'
+ACP_PEER_STAMP = 'scripts/dev/peer-stamp.mjs'
+ACP_AUTH_SOURCES = ('src/server/authz/routeGuard.ts', 'src/shared/utils/apiAuth.ts', 'src/server/authz/peerStamp.ts')
+ACP_PROBE = b'''#!/runtime/node
+const fs = require("node:fs");
+fs.appendFileSync("/work/data/acp-probe.jsonl", JSON.stringify({argv: process.argv.slice(2), cwd: process.cwd(), env: process.env}) + "\\n");
+process.stdout.write("owned-probe 7.8.9\\n");
+'''
+
+def acp_process_boundary():
+    return ('''import { execFileSync as sourceExec } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+export function execFileSync(command: string, args: string[], options: { timeout: number; encoding: string; shell?: boolean }): string {
+  const owned = "/work/fixture/acp-owned-probe";
+  if (command !== owned || args.length !== 1 || args[0] !== "--version" || options.timeout !== 5000 || options.encoding !== "utf-8" || options.shell || createHash("sha256").update(readFileSync(owned)).digest("hex") !== "''' + sha(ACP_PROBE) + '''") throw new Error("unowned ACP probe");
+  return sourceExec(owned, args, { cwd: "/work/data", env: { PATH: "", HOME: "/work/home", TMPDIR: "/work/tmp" }, timeout: 5000, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16384, killSignal: "SIGKILL" });
+}
+''').encode()
+
+def acp_registry_bytes(original):
+    return replace_once(original.decode(), 'import { execFileSync } from "child_process";', 'import { execFileSync } from "./fixture-process";').encode()
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
@@ -494,7 +548,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
 
 
 def materialize(real_core=False):
@@ -591,14 +645,27 @@ def materialize(real_core=False):
     (app / 'next-env.d.ts').touch()
     if not real_core:
         shutil.copyfile('/work/fixture/next.config.mjs', app / 'next.config.mjs')
+        registry = app / ACP_REGISTRY
+        original_registry = registry.read_bytes()
+        require(sha(original_registry) == manifest['additionalFiles'][ACP_REGISTRY]['sha256'], 'ACP registry identity mismatch')
+        put(app, 'src/lib/acp/fixture-process.ts', acp_process_boundary())
+        registry.write_bytes(acp_registry_bytes(original_registry))
+        put(Path('/work/fixture'), 'acp-owned-probe', ACP_PROBE, executable=True)
         control = Path('/work/fixture/routes/management.ts').read_bytes()
         for route in ('src/app/api/ingress-control/route.ts', 'src/app/api/providers/fixture/models/route.ts'):
             put(app, route, control)
         require(support[REASONING_ROUTE] == '8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018', 'reasoning route identity mismatch')
         put(app, 'src/app/api/settings/reasoning-routing-rules/fixture-source.ts', (app / REASONING_ROUTE).read_bytes())
         put(app, 'src/app/api/settings/reasoning-routing-rules/fixture-policy.ts', control)
+        deprecated_route, deprecated_helper, deprecated_registry = deprecated_ingress_source(
+            (app / DEPRECATED_ROUTE).read_bytes(), (effective / DEPRECATED_HELPER).read_bytes(), (effective / DEPRECATED_REGISTRY).read_bytes())
+        put(app, 'src/app/api/providers/deprecated/fixture-source.ts', deprecated_route)
+        put(app, 'src/app/api/providers/deprecated/fixture-backend.ts', DEPRECATED_BACKEND)
+        put(app, 'src/app/api/providers/deprecated/fixture-policy.ts', control)
+        put(app, DEPRECATED_HELPER, deprecated_helper)
+        put(app, 'src/lib/providers/fixture-deprecation-registry.ts', deprecated_registry)
         for route in POLICY_SOURCES:
-            replace_policy_control(app, route, support[route], REASONING_WRAPPER if route == REASONING_ROUTE else control)
+            replace_policy_control(app, route, support[route], REASONING_WRAPPER if route in (REASONING_ROUTE, DEPRECATED_ROUTE) else control)
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
     return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA, **source_identity}
@@ -612,6 +679,35 @@ def ping_declaration(source_core):
     require(len(matches) == 1, 'source pingDb declaration unavailable or ambiguous')
     return matches[0]
 
+
+AUTH_STATUS = 'src/app/api/auth/status/route.ts'
+AUTH_SESSION = 'src/shared/utils/dashboardSessionToken.ts'
+AUTH_SETTINGS = 'src/lib/db/settings.ts'
+AUTH_SHARED = 'src/lib/db/settings/shared.ts'
+
+def auth_status_closure(source, cache):
+    """Keep source declarations intact; redirect only this route's private storage graph."""
+    route = replace_once(source[AUTH_STATUS].decode(), '@/shared/utils/dashboardSessionToken', '@/shared/utils/fixtureDashboardSessionToken').encode()
+    session = replace_once(source[AUTH_SESSION].decode(), '@/lib/db/readCache', '@/lib/db/fixtureAuthStatusCache').encode()
+    require(cache.decode().count('@/lib/db/settings') == 2, 'auth cache import boundary changed')
+    private_cache = cache.decode().replace('@/lib/db/settings', '@/lib/db/fixtureAuthStatusSettings').encode()
+    settings = source[AUTH_SETTINGS].decode()
+    def span(start, end):
+        require(settings.count(start) == settings.count(end) == 1, 'auth settings boundary changed')
+        return settings[settings.index(start):settings.index(end)]
+    private_settings = ('''import { DatabaseSync } from "node:sqlite";
+import { toRecord } from "./settings/shared";
+import { decrypt } from "./encryption";
+import { requestBodyLimitMbFromEnv } from "@/shared/constants/bodySize";
+import { DEFAULT_RESPONSES_PREVIOUS_RESPONSE_ID_MODE } from "@/shared/constants/responsesPreviousResponseId";
+import { PROXY_BULK_IMPORT_LIMIT_DEFAULT } from "@/shared/constants/proxyBulkImport";
+const db = new DatabaseSync("/work/data/auth-status.sqlite");
+function getDbInstance() { return db; }
+''' + span('const ENCRYPTED_SETTING_KEYS:', 'type ProxyValue =')
+        + span('function isTruthyEnvFlag(', 'let proxyConfigGeneration =')
+        + span('function applySessionAffinityLegacyFallback(', 'export async function getSettings()')
+        + span('export async function getSettings()', '/**\n * The `maxBodySizeMb`')).encode()
+    return {AUTH_STATUS: route, AUTH_SESSION: session, 'src/lib/db/fixtureAuthStatusCache.ts': private_cache, 'src/lib/db/fixtureAuthStatusSettings.ts': private_settings}
 
 READ_CLOSURES = {
     'src/lib/db/apiKeys.ts': '4e9bc2be404d6c74e1fbf9fc1d62b03853a84eead453ce70e2fc8cadd33673eb',
@@ -787,7 +883,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | {LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | {DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -829,6 +925,10 @@ def provision(material):
             else:
                 target.write_bytes(data)
             identities[name] = sha(data)
+    for name in (ACP_ROUTE, ACP_MANIFEST, ACP_PEER_STAMP, *ACP_AUTH_SOURCES):
+        identities[name] = sha((app / name).read_bytes())
+    registry_base = json.loads((fixture / 'source-manifest.json').read_text())['additionalFiles'][ACP_REGISTRY]['sha256']
+    identities[ACP_REGISTRY] = {'originalSha256': registry_base, 'executedSha256': sha((app / ACP_REGISTRY).read_bytes()), 'processBoundarySha256': sha((app / 'src/lib/acp/fixture-process.ts').read_bytes()), 'ownedProbeSha256': sha((fixture / 'acp-owned-probe').read_bytes())}
     degradation_route = app / 'src/app/api/health/degradation/route.ts'
     original = degradation_route.read_bytes()
     control = (fixture / 'extracted/degradation-control.ts').read_bytes()
@@ -857,6 +957,17 @@ def provision(material):
     require((app / REASONING_ROUTE).read_bytes() == REASONING_WRAPPER and (app / 'src/app/api/settings/reasoning-routing-rules/fixture-policy.ts').read_bytes() == (fixture / 'routes/management.ts').read_bytes(), 'reasoning wrapper mismatch')
     identities[REASONING_ROUTE] = {'originalSha256': reasoning_original, 'executedSha256': reasoning_original, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': sha((fixture / 'routes/management.ts').read_bytes())}
     identities[REASONING_STORE] = sha((app / REASONING_STORE).read_bytes())
+    with tarfile.open(archive_path, 'r:gz') as archive:
+        originals = {}
+        for name in (DEPRECATED_ROUTE, DEPRECATED_HELPER, DEPRECATED_REGISTRY):
+            member = archive.getmember('OmniRoute-v3.8.53/' + name)
+            require(member.isfile() and member.size <= 2 * 1024 * 1024, 'invalid deprecated source member')
+            originals[name] = archive.extractfile(member).read()
+    executed = deprecated_ingress_source(originals[DEPRECATED_ROUTE], originals[DEPRECATED_HELPER], originals[DEPRECATED_REGISTRY])
+    generated = ('src/app/api/providers/deprecated/fixture-source.ts', DEPRECATED_HELPER, 'src/lib/providers/fixture-deprecation-registry.ts')
+    require(all((app / name).read_bytes() == value for name, value in zip(generated, executed)), 'deprecated executed source mismatch')
+    require((app / DEPRECATED_ROUTE).read_bytes() == REASONING_WRAPPER and (app / 'src/app/api/providers/deprecated/fixture-backend.ts').read_bytes() == DEPRECATED_BACKEND, 'deprecated ingress boundary mismatch')
+    identities[DEPRECATED_ROUTE] = {'originalSha256': sha(originals[DEPRECATED_ROUTE]), 'executedSha256': sha(executed[0]), 'wrapperSha256': sha(REASONING_WRAPPER), 'backendSha256': sha(DEPRECATED_BACKEND), 'helperOriginalSha256': sha(originals[DEPRECATED_HELPER]), 'helperExecutedSha256': sha(executed[1]), 'registryOriginalSha256': sha(originals[DEPRECATED_REGISTRY]), 'registryExecutedSha256': sha(executed[2])}
     identities['src/app/api/health/route.ts'] = sha((app / 'src/app/api/health/route.ts').read_bytes())
     live_bytes = (app / LIVE_ROUTE).read_bytes()
     live_expected = json.loads((fixture / 'source-manifest.json').read_text())['additionalFiles'][LIVE_ROUTE]['sha256']
@@ -871,6 +982,14 @@ def provision(material):
     for name, data in closure.items():
         (app / name).write_bytes(data)
         identities[name] = {'originalSha256': READ_CLOSURES[name], 'executedSha256': sha(data)}
+    auth_source = {name: (app / name).read_bytes() for name in (AUTH_STATUS, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED)}
+    auth_graph = auth_status_closure(auth_source, closure['src/lib/db/readCache.ts'])
+    (app / AUTH_STATUS).write_bytes(auth_graph[AUTH_STATUS])
+    put(app, 'src/shared/utils/fixtureDashboardSessionToken.ts', auth_graph[AUTH_SESSION])
+    for name in ('src/lib/db/fixtureAuthStatusCache.ts', 'src/lib/db/fixtureAuthStatusSettings.ts'):
+        put(app, name, auth_graph[name])
+    identities[AUTH_STATUS] = {'originalSha256': sha(auth_source[AUTH_STATUS]), 'executedSha256': sha(auth_graph[AUTH_STATUS])}
+    auth_identity = {'sources': {name: sha(data) for name, data in auth_source.items()}, 'executed': {name: sha(data) for name, data in auth_graph.items()}}
     executed_overlays = apply_overlays(app, fixture, aliases)
     versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('next', 'react', 'react-dom')}
     require(versions == {'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime package mismatch')
@@ -886,6 +1005,7 @@ def provision(material):
         'nodeSha256': sha(Path('/runtime/node').read_bytes()),
         'runtime': {'node': '24.17.0', **versions},
         'runtimeInputSha256': {name: sha((Path('/fixture-src') / name).read_bytes()) for name in inputs},
+        'authStatusClosure': auth_identity,
         'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
@@ -1134,6 +1254,14 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         log = Path('/work/' + phase + '-lifecycle.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, env)
         validate_lifecycle_log(log)
+    for phase in ('sweep-success', 'sweep-failure'):
+        worker_stage('coldLifecycle')
+        data_dir = Path('/work') / (phase + '-data')
+        data_dir.mkdir(mode=0o700)
+        scenario_env = {**env, 'DATA_DIR': str(data_dir)}
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, scenario_env)
+        validate_lifecycle_log(log)
     save(Path('/work/result.json'), {'status': 'research-observed', 'qualification': False, 'scenario': 'actual-core-cold-warm'})
 
 
@@ -1203,6 +1331,14 @@ def export_core_lifecycle(output, hashes):
             and collection['deletedAbsent'] is True and type(collection['nodeCount']) is int and 0 <= collection['nodeCount'] <= 10000, 'provider collection lifecycle mismatch')
     node_create = bounded_json(output / 'provider-node-create.json')
     require(node_create == {'status': 201, 'persisted': True, 'prefix': 'native-fixture-node'}, 'provider node creation mismatch')
+    sweeps = [bounded_json(output / (phase + '.json')) for phase in ('sweep-success', 'sweep-failure')]
+    for phase, value in zip(('sweep-success', 'sweep-failure'), sweeps):
+        success = phase == 'sweep-success'
+        require(isinstance(value, dict) and set(value) == {'phase', 'firstStatus', 'secondStatus', 'encryptedAfterFirst', 'encryptedAfterSecond', 'cacheInvalidated', 'nativeBackupCalls', 'backupCountBefore', 'backupCountAfter'}
+                and value['phase'] == phase and value['firstStatus'] == value['secondStatus'] == 200
+                and value['encryptedAfterFirst'] is success and value['encryptedAfterSecond'] is success
+                and value['cacheInvalidated'] is success and type(value['nativeBackupCalls']) is int and 0 <= value['nativeBackupCalls'] <= (1 if success else 0)
+                and all(type(value[key]) is int and 0 <= value[key] <= 4096 for key in ('backupCountBefore', 'backupCountAfter')), 'deprecated provider sweep observation mismatch')
     combo_cold = bounded_json(output / 'cold-combo-lifecycle.json')
     combo_warm = bounded_json(output / 'warm-combo-lifecycle.json')
     expected_combo = [
@@ -1236,6 +1372,11 @@ def export_core_lifecycle(output, hashes):
     save(export / 'provider-node-create.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Direct node handler and source-store read-back in the real cold core; no ingress or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': node_create})
+    save(export / 'deprecated-provider-sweep.json', {'status': 'research-observed', 'qualification': False,
+         'boundary': 'Separate disposable native SQLite processes, fixture-only encryption key and direct source handler; not ingress or operation qualification. Backup counts are snapshots, not proof of asynchronous backup completion.',
+         'inputSha256': hashes, 'identity': public_identity,
+         'scenarioArguments': [runner_arguments + [phase] for phase in ('sweep-success', 'sweep-failure')],
+         'scenarioEnvironment': {'encryptionKey': 'fixture-only', 'database': 'fresh-per-process', 'auth': 'disabled'}, 'scenarios': sweeps})
     save(export / 'combo-lifecycle.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Pinned combo handlers and stores in the real cold core with a separate warm read; not an ingress or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': combo_cold, 'warm': combo_warm})
@@ -1433,6 +1574,8 @@ def export_observations(output, hashes):
     source = approved_source()
     identity_names = set(ROUTES) | set(POLICY_SOURCES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
     source_hashes = {name: sha(source[name]) for name in identity_names}
+    source_hashes.update({name: sha(source[name]) for name in (ACP_ROUTE, ACP_MANIFEST, ACP_PEER_STAMP, *ACP_AUTH_SOURCES)})
+    source_hashes[ACP_REGISTRY] = {'originalSha256': sha(source[ACP_REGISTRY]), 'executedSha256': sha(acp_registry_bytes(source[ACP_REGISTRY])), 'processBoundarySha256': sha(acp_process_boundary()), 'ownedProbeSha256': sha(ACP_PROBE)}
     for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
         data = source[name]
         executed = b'import "./fixture-control";\n' + data if name.endswith('/route.ts') else data
@@ -1442,6 +1585,8 @@ def export_observations(output, hashes):
     reasoning_sha = sha(source[REASONING_ROUTE])
     source_hashes[REASONING_ROUTE] = {'originalSha256': reasoning_sha, 'executedSha256': reasoning_sha, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': hashes['test/fixtures/pinned-ingress/routes/management.ts']}
     source_hashes[REASONING_STORE] = sha(source[REASONING_STORE])
+    route, helper, registry = deprecated_ingress_source(source[DEPRECATED_ROUTE], source[DEPRECATED_HELPER], source[DEPRECATED_REGISTRY])
+    source_hashes[DEPRECATED_ROUTE] = {'originalSha256': sha(source[DEPRECATED_ROUTE]), 'executedSha256': sha(route), 'wrapperSha256': sha(REASONING_WRAPPER), 'backendSha256': sha(DEPRECATED_BACKEND), 'helperOriginalSha256': sha(source[DEPRECATED_HELPER]), 'helperExecutedSha256': sha(helper), 'registryOriginalSha256': sha(source[DEPRECATED_REGISTRY]), 'registryExecutedSha256': sha(registry)}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
     with tempfile.TemporaryDirectory() as temporary:
         app = Path(temporary)
@@ -1450,7 +1595,13 @@ def export_observations(output, hashes):
         manifest_for_closures = json.loads((FIXTURE / 'source-manifest.json').read_bytes())
         closure = read_closures(app, manifest_for_closures)
     source_hashes.update({name: {'originalSha256': READ_CLOSURES[name], 'executedSha256': sha(data)} for name, data in closure.items()})
+    auth_graph = auth_status_closure(source, closure['src/lib/db/readCache.ts'])
+    source_hashes[AUTH_STATUS] = {'originalSha256': sha(source[AUTH_STATUS]), 'executedSha256': sha(auth_graph[AUTH_STATUS])}
+    require(identity['authStatusClosure'] == {'sources': {name: sha(source[name]) for name in (AUTH_STATUS, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in auth_graph.items()}}, 'auth status closure mismatch')
     require(identity['addedSourceSha256'] == source_hashes and identity['pingDeclarationSha256'] == sha(declaration.encode()), 'source identity mismatch')
+    auth_status_observation = ingress['authStatusHttp']
+    expected_status = {'anonymous': False, 'expired': False, 'tampered': False, 'valid': True, 'cachedRevocation': True, 'revoked': False, 'passwordChanged': False, 'settingsFailure': False}
+    require(auth_status_observation == {'cases': {name: {'status': 200, 'routeClass': 'PUBLIC', 'authenticated': value} for name, value in expected_status.items()}, 'onboardingBefore': [], 'onboardingAfter': [{'key': 'requireLogin', 'value': 'true'}, {'key': 'setupComplete', 'value': 'true'}]}, 'auth status HTTP outcome mismatch')
     manifest_bytes = (FIXTURE / 'source-manifest.json').read_bytes()
     require(sha(manifest_bytes) == hashes['test/fixtures/pinned-ingress/source-manifest.json'], 'manifest bytes changed')
     manifest = json.loads(manifest_bytes)
@@ -1511,6 +1662,7 @@ def export_observations(output, hashes):
         'GET /api/combos', 'GET /api/combos/fixture-id', 'GET /api/combos/auto', 'GET /api/combos/builder/options',
         'GET /api/combos/export', 'GET /api/combos/metrics', 'GET /api/fallback/chains',
         'GET /api/model-capability-overrides', 'GET /api/provider-nodes', 'GET /api/providers',
+        'GET /api/providers/deprecated',
         'GET /api/providers/fixture-id/cc-alias', 'GET /api/providers/fixture-id/interception-rules',
         'GET /api/providers/fixture-id/param-filters', 'PATCH /api/combos/fixture-id',
         'PATCH /api/model-capability-overrides', 'PATCH /api/providers', 'POST /api/combos',
@@ -1588,6 +1740,14 @@ def export_observations(output, hashes):
                               'readScopeStatus': read_scope['status'], 'writeScopeStatus': write_scope['status'], 'adminScopeStatus': admin_scope['status']})
     require(any(e.get('event') == 'sqlite:read' for e in ingress['events']) and not any(str(e.get('event', '')).startswith('unsupported:') for e in ingress['events']), 'SQLite boundary evidence mismatch')
     reasoning_http = validate_reasoning_http(ingress['reasoningHttp'], ingress['events'])
+    deprecated_http = ingress['deprecatedHttp']
+    require(isinstance(deprecated_http, dict) and set(deprecated_http) == {'denied', 'invalid', 'failure', 'allowed'} and deprecated_http['denied'] == {'status': 401, 'routeClass': 'MANAGEMENT'} and deprecated_http['invalid'] == {'status': 401, 'routeClass': 'MANAGEMENT'}, 'deprecated HTTP observation mismatch')
+    failure = deprecated_http['failure']
+    require(isinstance(failure, dict) and set(failure) == {'status', 'routeClass', 'privateMarkerPresent'} and type(failure['status']) is int and 500 <= failure['status'] <= 599 and failure['routeClass'] in (None, 'MANAGEMENT') and failure['privateMarkerPresent'] is False, 'deprecated HTTP failure mismatch')
+    allowed = deprecated_http['allowed']
+    require(isinstance(allowed, dict) and set(allowed) == {'status', 'routeClass', 'body'} and allowed['status'] == 200 and allowed['routeClass'] == 'MANAGEMENT' and isinstance(allowed['body'], dict) and set(allowed['body']) == {'leftovers'} and isinstance(allowed['body']['leftovers'], list) and len(allowed['body']['leftovers']) == 1, 'deprecated HTTP response mismatch')
+    group = allowed['body']['leftovers'][0]
+    require(isinstance(group, dict) and set(group) == {'provider', 'migrateTo', 'reason', 'connectionIds', 'names'} and group['provider'] == 'gemini-cli' and group['migrateTo'] == 'gemini' and isinstance(group['reason'], str) and group['connectionIds'] == [f'fixture-{i}' for i in range(105)] and group['names'] == [f'name-{i}' for i in range(105)], 'deprecated HTTP grouping mismatch')
     fixture_hashes = {name.removeprefix('test/fixtures/pinned-ingress/'): value for name, value in hashes.items() if name.startswith('test/fixtures/pinned-ingress/')}
     require(all(identity['runtimeInputSha256'][n] == fixture_hashes[n] for n in ('source-manifest.json', 'dependencies.json', 'runtime.json')), 'manifest bytes changed')
     executed_fixture = identity['fixtureSha256']
@@ -1620,6 +1780,9 @@ def export_observations(output, hashes):
     artifact['publicHealthIpFilter'] = {'enabled': True, 'mode': 'blacklist', 'configReadObserved': True, 'forwardedAddressFallback': {'deniedStatus': 403, 'error': 'IP blacklisted', 'recoveryStatus': 200, 'routeClass': 'PUBLIC', 'requestIdUuid': True, 'allowedOriginEchoed': True}}
     artifact['publicLivenessHttp'] = {'method': 'GET', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live) for name in ('anonymous', 'invalidCredential', 'session')}}
     artifact['publicLivenessHeadHttp'] = {'method': 'HEAD', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live_head) for name in ('anonymous', 'invalidCredential', 'session')}}
+    artifact['authStatusHttp'] = auth_status_observation
+    artifact['authStatusClosure'] = identity['authStatusClosure']
+    artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
     artifact['wellKnownHttp'] = public_cards
     artifact['limitations'].append('Well-known cards observe anonymous Next GET with no hub configured; hub failure, cache and projection behavior require separately bound handler tests.')
     artifact['limitations'].append('Liveness observes only GET and HEAD on isolated Next with the pinned matcher and handler; it does not establish full application or production persistence behavior.')
@@ -1629,6 +1792,16 @@ def export_observations(output, hashes):
     artifact['modelComboMappingPolicy'] = mapping_policy
     artifact['familyPolicy'] = family_policy
     artifact['reasoningHttp'] = reasoning_http
+    artifact['deprecatedProviderHttp'] = deprecated_http
+    acp = ingress['acpHttp']
+    expected_acp_status = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 401, 'oma-write': 401, 'oma-admin': 401}
+    require(set(acp) == {'cases', 'unstampedSessionStatus', 'probeCount', 'processPlatform'} and acp['unstampedSessionStatus'] == 403 and acp['processPlatform'] == 'linux' and set(acp['cases']) == set(expected_acp_status), 'ACP cases incomplete')
+    # Central management returns 403 for an invalid ordinary bearer and 401
+    # when absent; the handler independently rejects the scoped OMA tokens.
+    require(all(set(row) == {'status', 'routeClass', 'owned'} and row['status'] == expected_acp_status[name] and row['routeClass'] == 'MANAGEMENT' and (row['owned'] == {'installed': True, 'version': '7.8.9'} if row['status'] == 200 else row['owned'] is None) for name, row in acp['cases'].items()), 'ACP outcome mismatch')
+    require(acp['probeCount'] == 3, 'ACP process evidence mismatch')
+    artifact['acpAgentsHttp'] = acp
+    artifact['limitations'].append('ACP uses the pinned handler, registry and manifest with a verified POSIX owned-executable boundary. A fixture Next server invokes pinned peer stamping on its accepted TCP connection; this is not the production custom server. Arbitrary production executables and Windows process behavior are not established. Source does not check request cancellation; a response cannot settle external effects.')
     artifact['limitations'].append('Reasoning GET uses the pinned handler and store with an isolated query-specific SQLite fault and recovery; policy controls are separate and production persistence is not established.')
     artifact['limitations'].append('Family policy uses exact method/path reachability controls with scoped tokens, not the pinned handlers, persistence, API-key scope alternatives, or executor safety.')
     artifact['limitations'].append('Mapping ingress exercises policy with a reachability control at the exact method and path; it does not execute mapping handlers or cold database initialization.')

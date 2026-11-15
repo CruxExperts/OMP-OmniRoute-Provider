@@ -182,6 +182,70 @@ class PortableSourceTests(DerivedSourceTests):
             self.portable()
         self.assertEqual((self.official / "file.txt").read_bytes(), b"base\n")
 
+    def test_gpg_uses_isolated_relative_paths_and_exact_bytes(self):
+        self.sign()
+        record = self.record_path.read_bytes()
+        signature = Path(str(self.record_path) + ".asc").read_bytes()
+        key = (self.key_root / ".github/crux-experts-release-signing-key.asc").read_bytes()
+        run = subprocess.run
+        calls = []
+        def observing_gpg(args, **kwargs):
+            home = Path(kwargs["cwd"])
+            self.assertTrue(home.is_absolute())
+            self.assertTrue(home.is_dir())
+            self.assertEqual(kwargs["env"]["GNUPGHOME"], ".")
+            self.assertEqual((home / "manifest.json").read_bytes(), record)
+            self.assertEqual((home / "manifest.json.asc").read_bytes(), signature)
+            calls.append((args, kwargs))
+            return run(args, **kwargs)
+        with patch.object(module.subprocess, "run", side_effect=observing_gpg):
+            module._verify_signature(self.record_path, self.key_root)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0], ["gpg", "--batch", "--no-options", "--status-fd=1", "--import"])
+        self.assertEqual(calls[0][1]["input"], key)
+        self.assertEqual(calls[1][0], ["gpg", "--batch", "--no-options", "--status-fd=1", "--verify", "manifest.json.asc", "manifest.json"])
+        self.assertEqual(calls[0][1]["cwd"], calls[1][1]["cwd"])
+        self.assertFalse(Path(calls[0][1]["cwd"]).exists())
+
+    def test_modified_signed_manifest_fails_verification(self):
+        self.sign()
+        self.record_path.write_bytes(self.record_path.read_bytes() + b" ")
+        with self.assertRaisesRegex(ValueError, "GPG verify failed"):
+            self.portable()
+        self.assertFalse(self.output.exists())
+
+    def test_invalid_public_key_reports_import_category(self):
+        self.sign()
+        key = self.key_root / ".github/crux-experts-release-signing-key.asc"
+        key.write_bytes(b"not an OpenPGP public key")
+        with self.assertRaisesRegex(ValueError, "GPG import failed: category=invalid-openpgp-data"):
+            self.portable()
+        self.assertFalse(self.output.exists())
+
+    def test_windows_gpg_failure_is_sanitized_and_cleans_home(self):
+        self.sign()
+        calls = []
+        def failed_gpg(args, **kwargs):
+            calls.append((args, kwargs))
+            if "--version" in args:
+                return subprocess.CompletedProcess(args, 0, b"gpg (GnuPG) 2.4.5\nprivate host data", b"")
+            return subprocess.CompletedProcess(args, 2, b"[GNUPG:] FAILURE import 33587281\n",
+                                               b"gpg: C:\\private\\secret.asc: No such file or directory\n")
+        with patch.object(module.subprocess, "run", side_effect=failed_gpg), \
+             patch.object(module.shutil, "which", return_value=r"C:\Program Files\Git\usr\bin\gpg.exe"):
+            with self.assertRaises(ValueError) as caught:
+                self.portable()
+        message = str(caught.exception)
+        self.assertIn("category=file-not-found status=33587281 exit=2 version=2.4.5 executable=git-usr-bin", message)
+        self.assertNotIn("private", message)
+        self.assertNotIn("secret", message)
+        self.assertIn("--batch", calls[0][0])
+        self.assertIn("--no-options", calls[0][0])
+        self.assertEqual(calls[0][1]["env"]["GNUPGHOME"], ".")
+        self.assertEqual(calls[0][1]["cwd"], calls[1][1]["cwd"])
+        self.assertFalse(Path(calls[0][1]["cwd"]).exists())
+        self.assertFalse(self.output.exists())
+
     def test_invalid_manifest_and_signature(self):
         for mutation in ("base", "duplicate_path", "traversal", "duplicate_key", "signer"):
             with self.subTest(mutation=mutation):

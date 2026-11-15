@@ -40,6 +40,7 @@ export interface OperationQualificationReceipt {
   readonly test: OperationQualificationTest;
   readonly ingressSha256?: string;
   readonly lifecycleSha256?: string;
+  readonly effectSha256?: string;
 }
 export type OperationSourceContract = Pick<OperationDescriptor,
   "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation"> &
@@ -56,6 +57,7 @@ export interface OperationEligibilityRecord {
   readonly test?: OperationQualificationTest;
   readonly ingressSha256?: string;
   readonly lifecycleSha256?: string;
+  readonly effectSha256?: string;
 }
 interface EligibilityDocument {
   readonly releaseCommit?: string;
@@ -79,6 +81,7 @@ export const FAMILY_INGRESS_OPERATIONS: readonly string[] = Object.freeze([
   "GET /api/combos", "GET /api/combos/{id}", "GET /api/combos/auto", "GET /api/combos/builder/options",
   "GET /api/combos/export", "GET /api/combos/metrics", "GET /api/fallback/chains",
   "GET /api/model-capability-overrides", "GET /api/provider-nodes", "GET /api/providers",
+  "GET /api/providers/deprecated",
   "GET /api/providers/{id}/cc-alias", "GET /api/providers/{id}/interception-rules", "GET /api/providers/{id}/param-filters",
   "GET /api/keys", "GET /api/keys/{id}", "GET /api/models", "GET /api/settings/proxies/assignments",
   "GET /api/settings", "GET /api/settings/proxies", "GET /api/settings/cc-discovery-metrics", "GET /api/settings/reasoning-routing-rules",
@@ -93,6 +96,7 @@ export function operationRequiresIngressEvidence(operationId: string): boolean {
   return FAMILY_INGRESS_SET.has(operationId) || operationId === "GET /livez" || operationId === "HEAD /livez"
     || operationId === "GET /api/health" || operationId === "GET /api/health/degradation"
     || operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics"
+    || operationId === "GET /api/acp/agents"
     || operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json"
     || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId)
     || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId);
@@ -137,6 +141,11 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     if (!derived || !record(lifecycle) || Object.keys(lifecycle).sort().join(",") !== "artifact,sha256" || !sha(lifecycle.sha256, 64)
       || lifecycle.artifact !== `provenance/qualification/core-lifecycle-${lifecycle.sha256}.json`) return undefined;
   } else if (lifecycle !== undefined) return undefined;
+  const effect = value.effectEvidence;
+  if (value.operationId === "GET /api/providers/deprecated") {
+    if (!databaseRequired || !record(effect) || Object.keys(effect).sort().join(",") !== "artifact,sha256" || !sha(effect.sha256, 64)
+      || effect.artifact !== `provenance/qualification/deprecated-provider-sweep-${effect.sha256}.json`) return undefined;
+  } else if (effect !== undefined) return undefined;
   if (!Array.isArray(evidence) || evidence.length === 0 || evidence.some(item => !record(item) || typeof item.kind !== "string" || !item.kind || typeof item.detail !== "string" || !item.detail)) return undefined;
   return freeze({ operationId: value.operationId, status: "verified", reason: value.reason,
     source: { file: source.file, sha256: source.sha256, gitBlobSha: source.gitBlobSha },
@@ -146,6 +155,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     test: { id: test.id, caseSha256: test.caseSha256, outcomeSha256: test.outcomeSha256 },
     ...(record(ingress) ? { ingressSha256: ingress.sha256 as string } : {}),
     ...(record(lifecycle) ? { lifecycleSha256: lifecycle.sha256 as string } : {}),
+    ...(record(effect) ? { effectSha256: effect.sha256 as string } : {}),
     evidence: evidence.map(item => ({ kind: String(item.kind), detail: String(item.detail) })) });
 }
 function loadDocument(): EligibilityDocument {
@@ -201,6 +211,9 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
       || !binding.sourceDerivation || !sha(item.lifecycleSha256, 64) || item.lifecycleSha256 !== qualification.lifecycleSha256) return false;
   } else if (binding.databaseInitializationRequired !== undefined || item.binding.databaseInitializationRequired !== undefined
     || qualification.binding.databaseInitializationRequired !== undefined || item.lifecycleSha256 !== undefined || qualification.lifecycleSha256 !== undefined) return false;
+  if (item.operationId === "GET /api/providers/deprecated") {
+    if (!sha(item.effectSha256, 64) || item.effectSha256 !== qualification.effectSha256) return false;
+  } else if (item.effectSha256 !== undefined || qualification.effectSha256 !== undefined) return false;
   if (binding.sideEffect === "unknown" || item.binding.sideEffect !== binding.sideEffect) return false;
   for (const key of HASH_FIELDS) if (!sha(binding[key], 64) || item.binding[key] !== binding[key] || qualification.binding[key] !== binding[key]) return false;
   for (const candidate of [item.binding, qualification.binding]) {

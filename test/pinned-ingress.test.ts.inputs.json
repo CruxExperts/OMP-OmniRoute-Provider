@@ -13,6 +13,7 @@
     "scripts/pinned-ingress.py",
     "scripts/pinned-ingress-driver.mjs",
     "test/fixtures/pinned-ingress/alias-map.json",
+    "test/fixtures/pinned-ingress/acp-server.mjs",
     "test/fixtures/pinned-ingress/backend/core.ts",
     "test/fixtures/pinned-ingress/backend/settings.ts",
     "test/fixtures/pinned-ingress/combo-lifecycle.mjs",

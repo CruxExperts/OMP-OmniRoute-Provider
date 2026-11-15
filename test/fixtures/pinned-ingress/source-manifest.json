@@ -2045,6 +2045,10 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/acp/agents/route.ts": { "sha256": "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3", "gitBlob": "1aa6c1a3305aab27f6e011defda696cab62a945e" },
+    "src/lib/acp/registry.ts": { "sha256": "323b34d33ff2dad09a6cc1b37afad1a37b817f6f9312bb9771f0bb247255bdb8", "gitBlob": "62525e85cd8a0d78e881a7d560a9b74d7cde6b04" },
+    "config/cli-tools-manifest.json": { "sha256": "e181ca128364cfad090f8c38744709629c87aec2f14b8c802a637f2ec690f5f0", "gitBlob": "b356ff31168462c768d9529053711c2f973ca7f4" },
+    "scripts/dev/peer-stamp.mjs": { "sha256": "321183ecbe309b6e8f19a26c0d70ba761b3b7ec8a16b780d79cda6e6f5b29445", "gitBlob": "452968a22b9f2076d2d4a938e37eb37282869196" },
     "src/app/.well-known/agent-card.json/route.ts": { "sha256": "6dec4e641f952837884e55b1e3c1c2fadd65651c692b98441de4d45e70cd89fb", "gitBlob": "77e7bea33364777c272065900c71858263fc23cd" },
     "src/app/.well-known/agent.json/route.ts": { "sha256": "b3a6898d06386799c03a06d06abbc8f4a4c0d636c78db972212cef7c193ebdf8", "gitBlob": "5ab1c1bb31ca6c425ae57253e99134318a4f3615" },
     "src/lib/a2a/agentCardMetadata.ts": { "sha256": "64cd2472c6881076f88b053b33dd36b9846e707f8372d36945b7149a6623cf72", "gitBlob": "ea311a6b806eef7b093c3da39be94455031fc467" },

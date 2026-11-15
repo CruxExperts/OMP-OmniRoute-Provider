@@ -31,9 +31,9 @@ import { reasoningRulesGetContract, REASONING_RULES_GET_ID } from "../src/admin/
 import type { OperationSourceContract } from "../src/admin/eligibility.ts";
 import { MODEL_COMBO_MAPPING_OPERATION_IDS, MODEL_COMBO_MAPPING_SOURCE_CONTRACTS } from "./fixtures/model-combo-mappings.fixture.ts";
 
-test("cache metrics and ping require exact ingress evidence", () => {
-  for (const id of ["GET /api/settings/cache-metrics", "DELETE /api/settings/cache-metrics", "GET /api/health/ping"]) expect(operationRequiresIngressEvidence(id)).toBe(true);
-  for (const id of ["POST /api/settings/cache-metrics", "HEAD /api/health/ping"]) expect(operationRequiresIngressEvidence(id)).toBe(false);
+test("cache metrics, ping and ACP require exact ingress evidence", () => {
+  for (const id of ["GET /api/settings/cache-metrics", "DELETE /api/settings/cache-metrics", "GET /api/health/ping", "GET /api/acp/agents"]) expect(operationRequiresIngressEvidence(id)).toBe(true);
+  for (const id of ["POST /api/settings/cache-metrics", "HEAD /api/health/ping", "POST /api/acp/agents"]) expect(operationRequiresIngressEvidence(id)).toBe(false);
 });
 
 test("derived lifecycle research joins independent identities and cold/warm observations", () => {
@@ -113,6 +113,35 @@ function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("fixture value must be an object");
   return value as Record<string, unknown>;
 }
+
+test("source contract binding rejects unsupported legacy guard alternatives and scopes", () => {
+  const operationId = "GET /api/health/degradation";
+  const base = degradationContract();
+  const policy = {
+    status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false,
+    handlerGuard: "isAuthenticated", bootstrap: "none", alternatives: [
+      { kind: "management-api-key", anyOf: ["manage", "admin"] },
+      { kind: "dashboard-session" },
+      { kind: "auth-disabled", when: "central-and-handler-auth-not-required" },
+    ],
+  };
+  const bind = (sourcePolicy: unknown) => operationEvidenceBinding(operationId, {
+    ...base, auth: { ...base.auth, sourcePolicy },
+  });
+  expect(() => bind(policy)).not.toThrow();
+  expect(() => bind({ ...policy, alternatives: [...policy.alternatives, { kind: "oma-access-token", minimumScope: "read" }] })).toThrow(/isAuthenticated contains an unproven/);
+  for (const alternative of [
+    { kind: "runtime-api-key", sourceScopes: [] },
+    { kind: "metadata-api-key", sourceScopes: [] },
+    { kind: "trusted-local", loopbackOnly: true },
+    { kind: "management-api-key", anyOf: ["read"] },
+  ]) expect(() => bind({ ...policy, alternatives: [...policy.alternatives, alternative] })).toThrow();
+  for (const changed of [
+    { ...policy, handlerGuard: "other" },
+    { ...policy, bootstrap: "oma-whoami" },
+    { ...policy, routeClass: "client-api" },
+  ]) expect(() => bind(changed)).toThrow();
+});
 
 test("release source validation binds configured derivation and tree across both contracts and every qualification", () => {
   const root = resolve(import.meta.dir, "..");
@@ -619,6 +648,39 @@ test("health ingress evidence separately rejects missing, stale and contradictor
         expect(() => validateHealthIngressEvidence(malformedHttp, familyBinding, operationId)).toThrow(/reasoning HTTP observation mismatch/);
       }
     }
+    // Synthetic values exercise the guard, not the independent producer.
+    const acpId = "GET /api/acp/agents";
+    const acpBinding = { ...binding, handlerSha256: String(added["src/app/api/acp/agents/route.ts"]), handlerGitBlobSha: "1aa6c1a3305aab27f6e011defda696cab62a945e" };
+    const acpStatuses: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-admin": 200, "key-manage": 200, "oma-read": 401, "oma-write": 401, "oma-admin": 401 };
+    const acpCases = Object.fromEntries(Object.entries(acpStatuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", owned: status === 200 ? { installed: true, version: "7.8.9" } : null }]));
+    const acpArtifact = { ...artifact, acpAgentsHttp: { cases: acpCases, unstampedSessionStatus: 403, probeCount: 3, processPlatform: "linux" } };
+    const acpEvidence = await save(acpArtifact);
+    expect(() => validateHealthIngressEvidence(acpEvidence, acpBinding, acpId)).not.toThrow();
+    expect(() => validateHealthIngressEvidence(acpEvidence, { ...acpBinding, handlerGitBlobSha: "0".repeat(40) }, acpId)).toThrow(/ACP source mismatch/);
+    for (const key of Object.keys(acpStatuses)) {
+      const changed = structuredClone(acpArtifact);
+      delete changed.acpAgentsHttp.cases[key];
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, acpBinding, acpId)).toThrow(/ACP HTTP observation mismatch/);
+    }
+    for (const [key, value] of [["unstampedSessionStatus", 200], ["probeCount", 4], ["processPlatform", "win32"]] as const) {
+      const changed = structuredClone(acpArtifact);
+      record(changed.acpAgentsHttp)[key] = value;
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, acpBinding, acpId)).toThrow(/ACP HTTP observation mismatch/);
+    }
+    for (const key of ["originalSha256", "executedSha256", "processBoundarySha256", "ownedProbeSha256"]) {
+      const changed = structuredClone(acpArtifact);
+      record(record(changed.source.addedSourceSha256)["src/lib/acp/registry.ts"])[key] = "0".repeat(64);
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, acpBinding, acpId)).toThrow(/source identity mismatch/);
+    }
+    for (const name of ["src/server/authz/routeGuard.ts", "src/shared/utils/apiAuth.ts", "src/server/authz/peerStamp.ts"]) {
+      const changed = structuredClone(acpArtifact);
+      record(changed.source.addedSourceSha256)[name] = "0".repeat(64);
+      const evidence = await save(changed);
+      expect(() => validateHealthIngressEvidence(evidence, acpBinding, acpId)).toThrow(/source identity mismatch/);
+    }
     await save(artifact);
     // Cached expectations must not be mutable by callers, and changed transformation
     // bytes must force a new verification rather than reuse the prior derivation.
@@ -656,8 +718,7 @@ test("health ingress evidence separately rejects missing, stale and contradictor
           env: { ...process.env, PYTHONPYCACHEPREFIX: resolve("pycache") },
         });
         const text = bytes.toString("utf8");
-        assert.equal(text.split("metrics.sqlite").length, 2);
-        const changed = Buffer.from(text.replace("metrics.sqlite", "metrics.sqlitf"));
+        const changed = Buffer.from(text.replace('sqlite ??= new DatabaseSync("/work/data/metrics.sqlite")', 'sqlite ??= new DatabaseSync("/work/data/metrics.sqlitf")'));
         assert.equal(changed.length, bytes.length);
         await writeFile(runner, changed);
         await utimes(runner, info.atime, info.mtime);

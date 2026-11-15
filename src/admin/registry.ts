@@ -30,7 +30,7 @@ export type OperationSourceAuthorizationPolicy =
       readonly source: "omniroute-v3.8.53";
       readonly routeClass: "management";
       readonly localOnly: boolean;
-      readonly handlerGuard: "none" | "requireManagementAuth";
+      readonly handlerGuard: "none" | "requireManagementAuth" | "isAuthenticated";
       readonly bootstrap: "none" | "oma-whoami";
       readonly alternatives: readonly ManagementAuthorizationAlternative[];
     }
@@ -46,6 +46,7 @@ export type OperationSourceAuthorizationPolicy =
       readonly source: "omniroute-v3.8.53";
       readonly routeClass: "public";
       readonly alternatives: readonly [{ readonly kind: "anonymous" }];
+      readonly optionalSessionCookie?: "dashboard-session";
     }
   | {
       readonly status: "qualified";
@@ -422,7 +423,7 @@ function assertSourceAuthorizationPolicy(descriptor: OperationDescriptor): void 
   const routeClass = policy.routeClass;
   if (routeClass === "management") {
     exactKeys(policy, ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"], operationId);
-    if (typeof policy.localOnly !== "boolean" || (policy.handlerGuard !== "none" && policy.handlerGuard !== "requireManagementAuth")
+    if (typeof policy.localOnly !== "boolean" || (policy.handlerGuard !== "none" && policy.handlerGuard !== "requireManagementAuth" && policy.handlerGuard !== "isAuthenticated")
       || (policy.bootstrap !== "none" && policy.bootstrap !== "oma-whoami")) {
       throw new RegistryError("invalid-inventory", "management authorization policy is invalid", operationId);
     }
@@ -430,7 +431,13 @@ function assertSourceAuthorizationPolicy(descriptor: OperationDescriptor): void 
     exactKeys(policy, ["status", "source", "routeClass", "localOnly", "alternatives"], operationId);
     if (typeof policy.localOnly !== "boolean") throw new RegistryError("invalid-inventory", "client API authorization policy is invalid", operationId);
   } else if (routeClass === "public") {
-    exactKeys(policy, ["status", "source", "routeClass", "alternatives"], operationId);
+    exactKeys(policy, policy.optionalSessionCookie === undefined ? ["status", "source", "routeClass", "alternatives"] : ["status", "source", "routeClass", "alternatives", "optionalSessionCookie"], operationId);
+    if (policy.optionalSessionCookie !== undefined && (policy.optionalSessionCookie !== "dashboard-session"
+      || operationId !== "GET /api/auth/status" || descriptor.method !== "GET" || descriptor.pathTemplate !== "/api/auth/status"
+      || descriptor.source.file !== "src/app/api/auth/status/route.ts" || descriptor.source.sha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede"
+      || descriptor.sideEffect !== "unknown" || !descriptor.confirmation.required || descriptor.retry.allowed || descriptor.retry.maxAttempts !== 1 || descriptor.retry.statusCodes.length !== 0)) {
+      throw new RegistryError("invalid-inventory", "optional session cookie is not bound to its exact gated source", operationId);
+    }
   } else if (routeClass === "local") {
     exactKeys(policy, ["status", "source", "routeClass", "localOnly", "alternatives"], operationId);
     if (policy.localOnly !== true) throw new RegistryError("invalid-inventory", "local authorization policy must be loopback-only", operationId);
@@ -438,6 +445,11 @@ function assertSourceAuthorizationPolicy(descriptor: OperationDescriptor): void 
     throw new RegistryError("invalid-inventory", "authorization route class is unsupported", operationId);
   }
   for (const alternative of policy.alternatives) assertAuthorizationAlternative(alternative, routeClass, descriptor);
+  if (routeClass === "management" && policy.handlerGuard === "isAuthenticated"
+    && (policy.bootstrap !== "none" || policy.alternatives.some(item => !isRecord(item)
+      || !["management-api-key", "dashboard-session", "auth-disabled"].includes(String(item.kind))))) {
+    throw new RegistryError("invalid-inventory", "isAuthenticated policy contains an unproven authorization alternative", operationId);
+  }
   if (routeClass === "public" && (policy.alternatives.length !== 1
     || !isRecord(policy.alternatives[0]) || policy.alternatives[0].kind !== "anonymous")) {
     throw new RegistryError("invalid-inventory", "public authorization must be an explicit anonymous alternative", operationId);

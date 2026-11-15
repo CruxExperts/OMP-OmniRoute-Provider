@@ -162,6 +162,10 @@ export function createAdminRuntime(options: AdminRuntimeOptions): AdminRuntime {
             throw new Error("management authority changed");
           }
         }
+      } else if (adapter.descriptor.auth.sourcePolicy.status === "qualified"
+        && adapter.descriptor.auth.sourcePolicy.routeClass === "public"
+        && adapter.descriptor.auth.sourcePolicy.optionalSessionCookie === "dashboard-session") {
+        await executor.authorize(request, context.auth);
       } else {
         const current = await resolveAuth(adapter.descriptor, context.auth);
         if (!current || !sameIdentity(current, context.auth) || current.signal?.aborted) throw new Error("operation authority changed");

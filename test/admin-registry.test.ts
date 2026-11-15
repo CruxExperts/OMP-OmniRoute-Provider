@@ -233,6 +233,37 @@ test("unknown and source-justified non-invokable IDs fail closed", () => {
   expect(() => getOperationRegistry().require("POST /api/openapi/try")).toThrow();
   expect(() => new OperationRegistry([fixtureOperation(), fixtureOperation()], { records: [] })).toThrow();
 });
+test("legacy isAuthenticated policy accepts only source-supported management alternatives", () => {
+  const base = fixtureOperation();
+  const policy = {
+    status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false,
+    handlerGuard: "isAuthenticated", bootstrap: "none", alternatives: [
+      { kind: "management-api-key", anyOf: ["manage", "admin"] },
+      { kind: "dashboard-session" },
+      { kind: "auth-disabled", when: "central-and-handler-auth-not-required" },
+    ],
+  } as const;
+  const descriptor = (sourcePolicy: unknown): OperationDescriptor => ({
+    ...base, auth: { ...base.auth, domain: "management", sourcePolicy: sourcePolicy as OperationDescriptor["auth"]["sourcePolicy"] },
+  });
+  expect(() => new OperationRegistry([descriptor(policy)], { records: [] })).not.toThrow();
+  expect(() => new OperationRegistry([descriptor({ ...policy, alternatives: [...policy.alternatives, { kind: "oma-access-token", minimumScope: "write" }] })], { records: [] })).toThrow(/isAuthenticated policy/);
+  for (const alternative of [
+    { kind: "runtime-api-key", sourceScopes: [] },
+    { kind: "metadata-api-key", sourceScopes: [] },
+    { kind: "trusted-local", loopbackOnly: true },
+    { kind: "management-api-key", anyOf: ["read"] },
+  ]) {
+    expect(() => new OperationRegistry([descriptor({ ...policy, alternatives: [...policy.alternatives, alternative] })], { records: [] })).toThrow();
+  }
+  for (const changed of [
+    { ...policy, handlerGuard: "other" },
+    { ...policy, bootstrap: "oma-whoami" },
+    { ...policy, routeClass: "client-api" },
+  ]) expect(() => new OperationRegistry([descriptor(changed)], { records: [] })).toThrow();
+  expect(new OperationRegistry([descriptor({ status: "unknown" })], { records: [] }).getEligibility(base.operationId).status).toBe("unavailable");
+});
+
 
 test("source-only approvals and changed authentication or reconciliation contracts cannot grant execution", () => {
   const descriptor = fixtureOperation();

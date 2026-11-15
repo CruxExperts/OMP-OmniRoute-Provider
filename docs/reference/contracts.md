@@ -126,6 +126,19 @@ only that annotation when the exact source commit, document digest, location, an
 malformed value match. It infers no response type or runtime behavior from the typo.
 Other unsupported schema keywords still fail verification.
 
+The pinned v3.8.53 `GET /api/system/version` remains unqualified. With update
+notifications enabled, its handler fetches the external news feed and calls
+`response.json()` without a response-size limit, timeout, or request cancellation
+signal. Client-side response limits and timeouts do not bound that server-side
+fetch and parsing. The separate version-metadata lookup has its own bounded HTTP
+reader and timeout, but can also invoke npm; it does not bound the news fetch.
+Disabling notifications in an isolated fixture is not proof of the normal
+production path. The handler also inspects update configuration and can execute
+runtime probes depending on deployment mode. Its current version comes from the
+pinned package version through `APP_CONFIG`, not from a version-manager query.
+Source inspection alone does not establish the handler's HTTP error responses or
+its complete ingress authorization behavior.
+
 ## Qualify behavior independently
 
 Implement the operation contract, strict input checks, authorization domain,

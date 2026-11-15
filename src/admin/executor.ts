@@ -60,6 +60,7 @@ export interface AdminExecutor {
   clearAdminBinding(): void;
   bindCredential(input: AdminCredentialInput): AdminCredentialBinding;
   getCredentialBinding(): AdminCredentialBinding | undefined;
+  authorize(request: AdminRequest, auth: AdminOperationAuthBinding): Promise<void>;
   clearCredential(): void;
   logout(): void;
   disable(): void;
@@ -438,6 +439,23 @@ export class AdminExecutorImpl implements AdminExecutor {
     return this.#credential ? safeBinding(this.#credential) : undefined;
   }
 
+  async authorize(request: AdminRequest, auth: AdminOperationAuthBinding): Promise<void> {
+    throwIfAborted(auth.signal, request.operationId);
+    const adapter = this.#requireAdapter(request.operationId);
+    this.#assertEligible(adapter);
+    const descriptor = adapter.descriptor;
+    const policy = descriptor.auth.sourcePolicy;
+    if (request.operation !== descriptor || policy.status !== "qualified" || policy.routeClass !== "public"
+      || policy.optionalSessionCookie !== "dashboard-session" || request.method !== descriptor.method
+      || request.path !== descriptor.pathTemplate || request.url !== `${auth.endpoint}${request.path}`
+      || request.queryParameters.length !== 0 || request.body !== undefined) {
+      throw this.#error("operation-unavailable", "authorization request does not match its source-qualified operation", request.operationId);
+    }
+    const current = await this.#resolveOperationAuth(descriptor, { profileId: auth.profileId, endpoint: auth.endpoint }, request);
+    throwIfAborted(auth.signal, request.operationId);
+    this.#assertAuthUnchanged(auth, current, descriptor);
+  }
+
   clearCredential(): void {
     if (!this.#credential) return;
     this.#invalidateManagementPlans();
@@ -492,7 +510,10 @@ export class AdminExecutorImpl implements AdminExecutor {
   #invalidateManagementPlans(): void {
     for (const plan of this.#plans.values()) {
       if ((plan.state === "pending" || plan.state === "applying")
-        && (plan.auth.domain === "management" || plan.targetAuth?.domain === "management")) {
+        && (plan.auth.domain === "management" || plan.targetAuth?.domain === "management"
+          || (plan.operation.descriptor.auth.sourcePolicy.status === "qualified"
+            && plan.operation.descriptor.auth.sourcePolicy.routeClass === "public"
+            && plan.operation.descriptor.auth.sourcePolicy.optionalSessionCookie === "dashboard-session"))) {
         plan.state = "invalidated";
       }
     }
@@ -892,6 +913,19 @@ export class AdminExecutorImpl implements AdminExecutor {
 
     if (domain === "public") {
       if (policy.routeClass !== "public") throw this.#error("operation-unavailable", "public authentication contract is inconsistent", descriptor.operationId);
+      if (policy.optionalSessionCookie === "dashboard-session") {
+        const credential = this.#credential;
+        if (credential?.enabled && (credential.profileId !== selection.profileId || credential.endpoint !== selection.endpoint || credential.epoch !== this.#managementEpoch)) {
+          throw this.#error("credential-mismatch", "management binding changed", descriptor.operationId);
+        }
+        const cookie = credential?.enabled ? credential.cookie : undefined;
+        return {
+          domain, profileId: selection.profileId, endpoint: selection.endpoint, epoch: this.#managementEpoch,
+          authority: cookie === undefined ? { kind: "uncredentialed", boundary: "public" } : { kind: "server-enforced", credentialKind: "cookie" },
+          ...(cookie === undefined ? {} : { credential: { kind: "cookie" as const, value: cookie } }),
+          signal: this.#managementController.signal,
+        };
+      }
       return {
         domain,
         profileId: selection.profileId,

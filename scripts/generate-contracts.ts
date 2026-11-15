@@ -312,7 +312,13 @@ for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.
 identities['src/app/livez/route.ts'] = {'originalSha256': m.sha(source['src/app/livez/route.ts']), 'executedSha256': m.sha(source['src/app/livez/route.ts'])}
 identities[m.REASONING_ROUTE] = {'originalSha256': m.sha(source[m.REASONING_ROUTE]), 'executedSha256': m.sha(source[m.REASONING_ROUTE]), 'wrapperSha256': m.sha(m.REASONING_WRAPPER), 'policySha256': m.sha((m.FIXTURE / 'routes/management.ts').read_bytes())}
 identities[m.REASONING_STORE] = m.sha(source[m.REASONING_STORE])
+route, helper, registry = m.deprecated_ingress_source(source[m.DEPRECATED_ROUTE], source[m.DEPRECATED_HELPER], source[m.DEPRECATED_REGISTRY])
+identities[m.DEPRECATED_ROUTE] = {'originalSha256': m.sha(source[m.DEPRECATED_ROUTE]), 'executedSha256': m.sha(route), 'wrapperSha256': m.sha(m.REASONING_WRAPPER), 'backendSha256': m.sha(m.DEPRECATED_BACKEND), 'helperOriginalSha256': m.sha(source[m.DEPRECATED_HELPER]), 'helperExecutedSha256': m.sha(helper), 'registryOriginalSha256': m.sha(source[m.DEPRECATED_REGISTRY]), 'registryExecutedSha256': m.sha(registry)}
+identities.update({name: m.sha(source[name]) for name in (m.ACP_ROUTE, m.ACP_MANIFEST, m.ACP_PEER_STAMP, *m.ACP_AUTH_SOURCES)})
+identities[m.ACP_REGISTRY] = {'originalSha256': m.sha(source[m.ACP_REGISTRY]), 'executedSha256': m.sha(m.acp_registry_bytes(source[m.ACP_REGISTRY])), 'processBoundarySha256': m.sha(m.acp_process_boundary()), 'ownedProbeSha256': m.sha(m.ACP_PROBE)}
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
+auth_graph = m.auth_status_closure(source, closures['src/lib/db/readCache.ts'])
+identities[m.AUTH_STATUS] = {'originalSha256': m.sha(source[m.AUTH_STATUS]), 'executedSha256': m.sha(auth_graph[m.AUTH_STATUS])}
 print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
@@ -360,16 +366,18 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const added = requireRecord(source.addedSourceSha256, `${label}.source.addedSourceSha256`);
   const degradationSource = requireRecord(added["src/app/api/health/degradation/route.ts"], `${label}.degradation source`);
   const livenessSource = (operationId === "GET /livez" || operationId === "HEAD /livez") ? requireRecord(added["src/app/livez/route.ts"], `${label}.liveness source`) : undefined;
+  const deprecatedSource = operationId === "GET /api/providers/deprecated" ? requireRecord(added["src/app/api/providers/deprecated/route.ts"], `${label}.deprecated source`) : undefined;
   const reasoningSource = operationId === REASONING_OPERATION ? requireRecord(added[REASONING_ROUTE], `${label}.reasoning source`) : undefined;
   if (reasoningSource !== undefined && (reasoningSource.originalSha256 !== REASONING_SHA256 || reasoningSource.executedSha256 !== REASONING_SHA256
     || binding.handlerSha256 !== REASONING_SHA256 || binding.handlerGitBlobSha !== REASONING_GIT_BLOB)) throw new Error(`${label} reasoning source mismatch`);
+  if (operationId === "GET /api/acp/agents" && (added["src/app/api/acp/agents/route.ts"] !== binding.handlerSha256 || binding.handlerSha256 !== "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3" || binding.handlerGitBlobSha !== "1aa6c1a3305aab27f6e011defda696cab62a945e")) throw new Error(`${label} ACP source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
-    || source.archiveSha256 !== manifest.archiveSha256 || (reasoningSource !== undefined ? reasoningSource.originalSha256 : livenessSource !== undefined ? livenessSource.originalSha256 : specialSource !== undefined ? specialSource : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
+    || source.archiveSha256 !== manifest.archiveSha256 || (deprecatedSource !== undefined ? deprecatedSource.originalSha256 : reasoningSource !== undefined ? reasoningSource.originalSha256 : livenessSource !== undefined ? livenessSource.originalSha256 : specialSource !== undefined ? specialSource : operationId === "GET /api/health" ? added["src/app/api/health/route.ts"] : operationId === "GET /api/agent-skills" ? added["src/app/api/agent-skills/route.ts"] : operationId === "GET /api/agent-skills/{id}" ? added["src/app/api/agent-skills/[id]/route.ts"] : operationId === "GET /api/agent-skills/coverage" ? added["src/app/api/agent-skills/coverage/route.ts"] : operationId.includes("/api/model-combo-mappings") ? added[operationId.endsWith("{id}") ? "src/app/api/model-combo-mappings/[id]/route.ts" : "src/app/api/model-combo-mappings/route.ts"] : Object.hasOwn(FAMILY_POLICY_SOURCES, operationId) ? added[FAMILY_POLICY_SOURCES[operationId]!] : degradationSource.originalSha256) !== binding.handlerSha256
     || (livenessSource !== undefined && livenessSource.executedSha256 !== binding.handlerSha256)) {
     throw new Error(`${label} source mismatch`);
   }
@@ -485,9 +493,32 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedPolicy = { method, path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: mutation ? 403 : 200, writeScopeStatus: adminRequired ? 403 : 200, adminScopeStatus: 200 };
     if (rows.length !== 1 || canonicalJson(toJson(rows[0], label)) !== canonicalJson(toJson(expectedPolicy, label))) throw new Error(`${label} family policy observation mismatch`);
   }
+  if (operationId === "GET /api/providers/deprecated") {
+    const http = requireRecord(artifact.deprecatedProviderHttp, `${label}.deprecated HTTP observation`);
+    const allowed = requireRecord(http.allowed, `${label}.deprecated HTTP allowed`);
+    const body = requireRecord(allowed.body, `${label}.deprecated HTTP body`);
+    const groups = requireArray(body.leftovers, `${label}.deprecated HTTP leftovers`);
+    const group = requireRecord(groups[0], `${label}.deprecated HTTP group`);
+    assertKeys(http, `${label}.deprecated HTTP observation`, ["denied", "invalid", "failure", "allowed"]);
+    assertKeys(allowed, `${label}.deprecated HTTP allowed`, ["status", "routeClass", "body"]);
+    if (canonicalJson(toJson(http.denied, label)) !== canonicalJson({ status: 401, routeClass: "MANAGEMENT" })
+      || canonicalJson(toJson(http.invalid, label)) !== canonicalJson({ status: 401, routeClass: "MANAGEMENT" })
+      || !isRecord(http.failure) || Object.keys(http.failure).sort().join(",") !== "privateMarkerPresent,routeClass,status" || !Number.isInteger(http.failure.status) || Number(http.failure.status) < 500 || Number(http.failure.status) > 599 || ![null, "MANAGEMENT"].includes(http.failure.routeClass as string | null) || http.failure.privateMarkerPresent !== false
+      || allowed.status !== 200 || allowed.routeClass !== "MANAGEMENT" || groups.length !== 1
+      || Object.keys(body).join(",") !== "leftovers" || Object.keys(group).sort().join(",") !== "connectionIds,migrateTo,names,provider,reason"
+      || group.provider !== "gemini-cli" || group.migrateTo !== "gemini" || typeof group.reason !== "string"
+      || canonicalJson(toJson(group.connectionIds, label)) !== canonicalJson(Array.from({ length: 105 }, (_, i) => `fixture-${i}`))
+      || canonicalJson(toJson(group.names, label)) !== canonicalJson(Array.from({ length: 105 }, (_, i) => `name-${i}`))) throw new Error(`${label} deprecated HTTP observation mismatch`);
+  }
   if (operationId === REASONING_OPERATION) {
     const expectedReasoning = { method: "GET", path: "/api/settings/reasoning-routing-rules", denied: { status: 401, routeClass: "MANAGEMENT" }, invalid: { status: 401, routeClass: "MANAGEMENT" }, failure: { status: 500, routeClass: "MANAGEMENT", contentType: null, bodyCategory: "empty", privateMarkerPresent: false }, allowed: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, cached: { status: 200, routeClass: "MANAGEMENT", body: { rules: [] } }, sqliteReadCount: 2, sqliteFaultCount: 1 };
     if (!isRecord(artifact.reasoningHttp) || canonicalJson(toJson(artifact.reasoningHttp, label)) !== canonicalJson(toJson(expectedReasoning, label))) throw new Error(`${label} reasoning HTTP observation mismatch`);
+  }
+  if (operationId === "GET /api/acp/agents") {
+    const statuses: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-admin": 200, "key-manage": 200, "oma-read": 401, "oma-write": 401, "oma-admin": 401 };
+    const cases = Object.fromEntries(Object.entries(statuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", owned: status === 200 ? { installed: true, version: "7.8.9" } : null }]));
+    const expectedAcp = { cases, unstampedSessionStatus: 403, probeCount: 3, processPlatform: "linux" };
+    if (canonicalJson(toJson(artifact.acpAgentsHttp, label)) !== canonicalJson(toJson(expectedAcp, label))) throw new Error(`${label} ACP HTTP observation mismatch`);
   }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   // Older exports used the unwrapped route hash and omitted the reasoning store;
@@ -497,6 +528,13 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const reasoning = requireRecord(expectedAdded[REASONING_ROUTE], `${label}.expected reasoning source`);
     expectedAdded[REASONING_ROUTE] = reasoning.originalSha256;
     delete expectedAdded["src/lib/db/reasoningRoutingRules.ts"];
+  }
+  // Historical receipts predate the ACP research inputs; ACP itself never accepts them.
+  if (operationId !== "GET /api/acp/agents") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/acp/agents/route.ts", "src/lib/acp/registry.ts", "config/cli-tools-manifest.json", "scripts/dev/peer-stamp.mjs", "src/server/authz/routeGuard.ts", "src/shared/utils/apiAuth.ts", "src/server/authz/peerStamp.ts"]) {
+      if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+    }
   }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
@@ -517,7 +555,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
 const coreLifecycleIdentityCache = new Map<string, unknown>();
 
 /** Join a research-only cold/warm observation to independently rerun producer identities. */
-export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">): void {
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown): void {
   const label = "core lifecycle evidence";
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -554,7 +592,46 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     coreLifecycleIdentityCache.set(key, expected);
   }
   validateCoreLifecycleObservation(artifact, binding, expected);
+  if (effectValue !== undefined) {
+    const effect = requireRecord(effectValue, "deprecated provider effect evidence");
+    assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
+    const digest = requireString(effect.sha256, "deprecated provider effect digest");
+    const path = requireString(effect.artifact, "deprecated provider effect artifact");
+    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/deprecated-provider-sweep-${digest}.json`) throw new Error("deprecated provider effect path mismatch");
+    const file = resolve(packageRoot, path);
+    const info = lstatSync(file);
+    if (!info.isFile() || info.nlink !== 1 || realpathSync(file) !== file || info.size > 2 * 1024 * 1024) throw new Error("deprecated provider effect artifact invalid");
+    const bytes = readFileSync(file);
+    if (createHash("sha256").update(bytes).digest("hex") !== digest) throw new Error("deprecated provider effect digest mismatch");
+    const observed = JSON.parse(bytes.toString("utf8")) as unknown;
+    const independent = requireRecord(expected, label).deprecatedSweep;
+    validateDeprecatedProviderSweepObservation(observed, independent);
+  }
 }
+/** Compare bounded outcomes against a separately executed native producer. */
+export function validateDeprecatedProviderSweepObservation(value: unknown, independentValue: unknown): void {
+  const label = "deprecated provider effect observation";
+  const observed = requireRecord(value, label);
+  const independent = requireRecord(independentValue, `independent ${label}`);
+  const keys = ["status", "qualification", "boundary", "inputSha256", "identity", "scenarioArguments", "scenarioEnvironment", "scenarios"];
+  assertKeys(observed, label, keys);
+  assertKeys(independent, `independent ${label}`, keys);
+  for (const field of keys.filter(key => key !== "scenarios")) {
+    if (canonicalJson(toJson(observed[field], label)) !== canonicalJson(toJson(independent[field], label))) throw new Error(`${label} ${field} mismatch`);
+  }
+  const stable = (input: unknown) => requireArray(input, label).map(item => {
+    const row = requireRecord(item, label);
+    assertKeys(row, label, ["phase", "firstStatus", "secondStatus", "encryptedAfterFirst", "encryptedAfterSecond", "cacheInvalidated", "nativeBackupCalls", "backupCountBefore", "backupCountAfter"]);
+    const { nativeBackupCalls: calls, backupCountBefore: before, backupCountAfter: after, ...rest } = row;
+    const maxCalls = row.phase === "sweep-success" ? 1 : 0;
+    if (!Number.isSafeInteger(calls) || Number(calls) < 0 || Number(calls) > maxCalls
+      || !Number.isSafeInteger(before) || Number(before) < 0 || Number(before) > 4096
+      || !Number.isSafeInteger(after) || Number(after) < 0 || Number(after) > 4096) throw new Error(`${label} backup observation invalid`);
+    return rest;
+  });
+  if (canonicalJson(toJson(stable(observed.scenarios), label)) !== canonicalJson(toJson(stable(independent.scenarios), label))) throw new Error(`${label} independent outcome mismatch`);
+}
+
 
 /** Validate observations against an independently computed identity. */
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
@@ -1442,7 +1519,7 @@ function eligibilityRecords(): Map<string, RecordValue> {
   const result = new Map<string, RecordValue>();
   for (const value of records) {
     const record = requireRecord(value, "eligibility record");
-    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence", "lifecycleEvidence"]);
+    assertKeys(record, "eligibility record", ["operationId", "status", "reason", "source", "contract", "binding", "test", "evidence"], ["ingressEvidence", "lifecycleEvidence", "effectEvidence"]);
     const operationId = requireString(record.operationId, "eligibility operationId");
     if (result.has(operationId)) throw new Error(`duplicate eligibility record ${operationId}`);
     if (record.status !== "verified") throw new Error(`eligibility entries must be verified or omitted: ${operationId}`);
@@ -1521,6 +1598,9 @@ function validateEligibility(
   binding: EvidenceBinding,
 ): boolean {
   if (!record) return false;
+  // The retained Linux-owned probes do not establish Windows executable effects.
+  // Do not admit a receipt until cross-platform process evidence has a verifier.
+  if (operationId === "GET /api/acp/agents") throw new Error(`eligibility requires verified cross-platform ACP process effects: ${operationId}`);
   if (binding.sideEffect === "unknown") throw new Error(`eligibility requires a source-qualified side-effect classification: ${operationId}`);
   const source = requireRecord(record.source, `${operationId}.eligibility.source`);
   if (record.status !== "verified"
@@ -1561,8 +1641,10 @@ function validateEligibility(
     validateHealthIngressEvidence(ingress, expectedBinding, operationId);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding);
+  if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined);
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
+  if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
   return true;
@@ -2046,8 +2128,13 @@ function validateSourceAuthorizationPolicy(value: unknown, domain: string, opera
   }
   if (routeClass === "management") {
     assertKeys(policy, `${operationId}.sourcePolicy`, ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"]);
-    if (typeof policy.localOnly !== "boolean" || !["none", "requireManagementAuth"].includes(String(policy.handlerGuard))
+    if (typeof policy.localOnly !== "boolean" || typeof policy.handlerGuard !== "string" || !["none", "requireManagementAuth", "isAuthenticated"].includes(policy.handlerGuard)
       || !["none", "oma-whoami"].includes(String(policy.bootstrap))) throw new Error(`${operationId}.auth.sourcePolicy management fields are invalid`);
+    if (policy.handlerGuard === "isAuthenticated"
+      && (policy.bootstrap !== "none" || alternatives.some(item => !isRecord(item)
+        || !["management-api-key", "dashboard-session", "auth-disabled"].includes(String(item.kind))))) {
+      throw new Error(`${operationId}.auth.sourcePolicy isAuthenticated contains an unproven authorization alternative`);
+    }
     const bootstrapCount = alternatives.filter(item => isRecord(item) && item.kind === "oma-whoami-bootstrap").length;
     if (policy.bootstrap === "oma-whoami") {
       if (operationId !== "GET /api/cli/whoami" || bootstrapCount !== 1) throw new Error(`${operationId}.auth.sourcePolicy bootstrap is not the exact whoami operation`);
@@ -2058,7 +2145,8 @@ function validateSourceAuthorizationPolicy(value: unknown, domain: string, opera
     assertKeys(policy, `${operationId}.sourcePolicy`, ["status", "source", "routeClass", "localOnly", "alternatives"]);
     if (typeof policy.localOnly !== "boolean") throw new Error(`${operationId}.auth.sourcePolicy client API localOnly must be boolean`);
   } else if (routeClass === "public") {
-    assertKeys(policy, `${operationId}.sourcePolicy`, ["status", "source", "routeClass", "alternatives"]);
+    assertKeys(policy, `${operationId}.sourcePolicy`, policy.optionalSessionCookie === undefined ? ["status", "source", "routeClass", "alternatives"] : ["status", "source", "routeClass", "alternatives", "optionalSessionCookie"]);
+    if (policy.optionalSessionCookie !== undefined && (policy.optionalSessionCookie !== "dashboard-session" || operationId !== "GET /api/auth/status")) throw new Error(`${operationId}.auth.sourcePolicy optional session is not source-bound`);
     if (alternatives.length !== 1) throw new Error(`${operationId}.auth.sourcePolicy public route must have one anonymous alternative`);
   } else {
     assertKeys(policy, `${operationId}.sourcePolicy`, ["status", "source", "routeClass", "localOnly", "alternatives"]);
@@ -2086,6 +2174,16 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
   const domain = requireString(auth.domain, `${operationId}.contract.auth.domain`);
   if (!["public", "runtime", "metadata", "management", "local"].includes(domain)) throw new Error(`${operationId}.contract.auth.domain must be source-qualified`);
   validateSourceAuthorizationPolicy(auth.sourcePolicy, domain, operationId);
+  const policy = requireRecord(auth.sourcePolicy, `${operationId}.auth.sourcePolicy`);
+  if (policy.optionalSessionCookie !== undefined) {
+    const source = requireRecord(base.source, `${operationId}.source`);
+    const confirmation = requireRecord(contract.confirmation, `${operationId}.confirmation`);
+    const retry = requireRecord(contract.retry, `${operationId}.retry`);
+    if (source.file !== "src/app/api/auth/status/route.ts" || source.sha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede"
+      || contract.sideEffect !== "unknown" || confirmation.required !== true || retry.allowed !== false || retry.maxAttempts !== 1) {
+      throw new Error(`${operationId}.optional session requires the exact gated source`);
+    }
+  }
   const baseAuth = requireRecord(base.auth, `${operationId}.base.auth`);
   if (canonicalJson(toJson(auth.specificationAlternatives, `${operationId}.auth.specificationAlternatives`))
     !== canonicalJson(toJson(baseAuth.specificationAlternatives, `${operationId}.base.auth.specificationAlternatives`))) {
@@ -2338,6 +2436,7 @@ function makeOperation(
       },
       ...(operationRequiresIngressEvidence(operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
       ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
+      ...(operationId === "GET /api/providers/deprecated" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
     };
   }
   return effective;

@@ -4,12 +4,11 @@ OMP OmniRoute Provider runs inside Oh My Pi. OmniRoute runs the gateway and owns
 providers, keys, routing rules, and access controls. Installing this client does
 not install or configure an OmniRoute server.
 
-Administration qualification is being rebuilt for the pinned OmniRoute v3.8.53
-source and mutation-safety contract. Earlier reads, provider configuration,
-fallback chains, aliases, and model mappings are historical evidence, not active
-candidate qualification. The current candidate qualifies only `GET /api/health`;
-other examples describe intended workflows until fresh source-bound evidence is
-accepted. Unqualified calls remain blocked; consult the generated inventory.
+Administration qualification is bound to the pinned OmniRoute source and the
+mutation-safety contract. Availability depends on current source-bound evidence;
+unqualified calls remain blocked. Consult the [generated operation inventory](../contracts/operations.json)
+for the current status of each operation. Examples below describe workflows and do
+not by themselves establish qualification.
 
 The liveness read has an independently exercised pinned handler and a separate
 isolated Next ingress observation of anonymous access, shutdown, CORS, and IP
@@ -26,6 +25,19 @@ source registry has no cardinality bound. Projection removes reasons that may
 contain exception messages; these observations do not establish production
 deployment or persistence behavior. Availability still requires matching
 source-bound eligibility and qualification receipts.
+
+The unqualified `GET /api/auth/status` candidate has an optional, endpoint-bound
+dashboard session cookie. A valid session can persist onboarding settings, so
+the candidate requires confirmation, reports uncertain effects, and never retries.
+Anonymous use remains possible; other public routes never receive this cookie or
+an API key. Cold lifecycle and platform qualification remain required before use.
+
+The qualified deprecated-provider inventory read requires confirmation: its first
+read may encrypt legacy provider metadata, start a backup, and invalidate caches.
+A successful HTTP 200 can hide a caught migration failure, so the effect remains
+unknown and the client does not retry. The returned view exposes provider IDs and
+names, not secrets. These observations are bound to the pinned source and isolated
+environment; they do not establish production deployment behavior.
 
 ## Start with read access
 

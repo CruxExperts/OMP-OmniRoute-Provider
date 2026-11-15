@@ -12,6 +12,24 @@ export const PROVIDER_FAMILY_OPERATION_IDS = [
 ] as const;
 
 const EMPTY_OBJECT_SCHEMA: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
+export const GET_DEPRECATED_PROVIDERS = "GET /api/providers/deprecated";
+
+/** Candidate only; lifecycle, actual ingress and platform evidence must be bound before eligibility. */
+export function deprecatedProviderContract(): ProviderFamilyContract {
+  const template = operationContractTemplate(GET_DEPRECATED_PROVIDERS) as unknown as ProviderFamilyContract;
+  const strings: JsonSchema = { type: "array", items: { type: "string" } };
+  const group = objectSchema({ provider: { type: "string" }, migrateTo: { type: "string" }, reason: { type: "string" }, connectionIds: strings, names: strings }, ["provider", "migrateTo", "reason", "connectionIds", "names"]);
+  const view = objectSchema({ leftovers: { type: "array", items: group } }, ["leftovers"]);
+  return {
+    request: { ...template.request, pathSchema: EMPTY_OBJECT_SCHEMA, querySchema: EMPTY_OBJECT_SCHEMA, pathParameters: [], parameters: [], body: null },
+    auth: managementAuth(template, "read"), response: responseContract(template.response, "200", view, template.response.statusCodes),
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "lifecycle", pagination: { mode: "none", parameters: [] },
+    streaming: { mode: "json", framing: "application/json" },
+    confirmation: { required: true, reason: "The first provider read can encrypt legacy plaintext metadata, initiate a backup and invalidate caches; its outcome is not independently settled by the response." },
+    retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null,
+    mutationSafety: { preflight: { kind: "not-applicable", sourceReason: "No independent read can determine whether the first-read migration will run or complete." }, reconciliation: { kind: "unknown" }, settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null } },
+  };
+}
 const ERROR_BODY_SCHEMA: JsonSchema = { type: "object" };
 const CONNECTION_SCHEMA: JsonSchema = {
   type: "object",

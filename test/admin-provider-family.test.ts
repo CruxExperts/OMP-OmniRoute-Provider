@@ -13,12 +13,15 @@ import { invokeJsonAdapter } from "../src/admin/adapters.ts";
 import {
   canonicalizeJson,
   getOperation,
+  OperationRegistry,
   type OperationAdapter,
   type OperationDescriptor,
 } from "../src/admin/registry.ts";
 import { mapRelationInput, projectRelationSnapshot, relationOutcomeMatches } from "../src/admin/relations.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import {
+  deprecatedProviderContract,
+  GET_DEPRECATED_PROVIDERS,
   PROVIDER_FAMILY_OPERATION_IDS,
   PROVIDER_FAMILY_SOURCE_CONTRACTS,
   type ProviderConnectionFixture,
@@ -272,29 +275,116 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  const artifactCandidates = PROVIDER_FAMILY_OPERATION_IDS.filter(operationId =>
-    !HELD_SOURCE_ONLY_OPERATION_IDS.has(operationId)
-      && REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId))
-      && operationObservations.has(operationId),
-  );
+  const artifactCandidates: string[] = [
+    ...PROVIDER_FAMILY_OPERATION_IDS.filter(operationId =>
+      !HELD_SOURCE_ONLY_OPERATION_IDS.has(operationId)
+        && REQUIRED_CASES[operationId].every(caseId => completedCases.get(operationId)?.has(caseId))
+        && operationObservations.has(operationId)),
+    ...(["source-grouping", "confirmed-unknown"].every(caseId => completedCases.get(GET_DEPRECATED_PROVIDERS)?.has(caseId))
+      && operationObservations.has(GET_DEPRECATED_PROVIDERS) ? [GET_DEPRECATED_PROVIDERS] : []),
+  ];
   if (artifactCandidates.length === 0) return;
   const observationDirectory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(observationDirectory, { recursive: true, mode: 0o700 });
   for (const operationId of artifactCandidates) {
     const observation = operationObservations.get(operationId);
     if (!observation) continue;
-    const binding = operationEvidenceBinding(operationId, PROVIDER_FAMILY_SOURCE_CONTRACTS[operationId]);
+    const contract = operationId === GET_DEPRECATED_PROVIDERS ? deprecatedProviderContract() : PROVIDER_FAMILY_SOURCE_CONTRACTS[operationId as typeof PROVIDER_FAMILY_OPERATION_IDS[number]];
+    const binding = operationEvidenceBinding(operationId, contract);
     const caseSha256 = testCaseSourceHash(TEST_ID);
     const artifactPath = outcomeArtifactPath(operationId);
     const artifact = { operationId, testId: TEST_ID, caseSha256, binding, observation };
     await writeFile(resolve(process.cwd(), artifactPath), `${canonicalizeJson(artifact)}\n`, { mode: 0o600 });
-    testOutcomeHash(operationId, TEST_ID, caseSha256, binding, PROVIDER_FAMILY_SOURCE_CONTRACTS[operationId], artifactPath);
+    testOutcomeHash(operationId, TEST_ID, caseSha256, binding, contract, artifactPath);
   }
 });
 
 
 
 describe("pinned `/api/providers` family semantics", () => {
+  test("deprecated GET groups every matching source row without exposing credential data", async () => {
+    const deprecated = Array.from({ length: 105 }, (_, index) => ({
+      id: `deprecated-${index}`, provider: "gemini-cli", name: `Fixture ${index}`, isActive: true, priority: index,
+      providerSpecificData: { runtimeKey: "private-fixture-marker" },
+    }));
+    const fixture = new ProviderFamilyFixture([...deprecated, ...seededConnections()], { clock: () => FIXTURE_TIME });
+    fixtures.push(fixture);
+    const endpoint = `${fixture.endpoint}/api/providers/deprecated`;
+    expect((await fetch(endpoint)).status).toBe(401);
+    expect((await fetch(endpoint, { headers: { authorization: `Bearer ${"fixture-invalid"}` } })).status).toBe(403);
+    expect((await fetch(endpoint, { method: "POST" })).status).toBe(405);
+    const response = await fetch(endpoint, { headers: { authorization: `Bearer ${MANAGEMENT_KEY}` } });
+    expect(response.status).toBe(200);
+    const body = responseRecord(await response.json());
+    expect(Object.keys(body)).toEqual(["leftovers"]);
+    const groups = body.leftovers as unknown[];
+    expect(groups).toHaveLength(1);
+    const group = responseRecord(groups[0]);
+    expect(Object.keys(group).sort()).toEqual(["connectionIds", "migrateTo", "names", "provider", "reason"]);
+    expect(group.provider).toBe("gemini-cli");
+    expect(group.migrateTo).toBe("gemini");
+    expect(group.connectionIds).toHaveLength(105);
+    expect(new Set(group.connectionIds as string[])).toEqual(new Set(deprecated.map(row => row.id)));
+    expect(group.names).toHaveLength(105);
+    const ids = group.connectionIds as string[];
+    const names = group.names as string[];
+    expect(ids.every((id, index) => names[index] === deprecated.find(row => row.id === id)?.name)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("private-fixture-marker");
+    const contract = deprecatedProviderContract();
+    expect(contract.sideEffect).toBe("lifecycle");
+    expect(contract.confirmation.required).toBe(true);
+    expect(contract.retry.allowed).toBe(false);
+    expect(contract.mutationSafety?.settlement.responseComplete.statusCodes).toEqual([]);
+    fixture.authRequired = false;
+    expect((await fetch(endpoint)).status).toBe(200);
+    fixture.authRequired = true;
+    fixture.failNextList();
+    const failure = await fetch(endpoint, { headers: { authorization: `Bearer ${MANAGEMENT_KEY}` } });
+    expect(failure.status).toBe(500);
+    expect(await failure.text()).not.toContain("private-fixture-marker");
+    observeSourceOnly(GET_DEPRECATED_PROVIDERS, "source-grouping", { before: { connectionCount: deprecated.length }, after: { matchingCount: ids.length }, result: { status: response.status, body } });
+  });
+  test("candidate plans without dispatch and confirmed execution remains unknown without retry", async () => {
+    const source = getOperation(GET_DEPRECATED_PROVIDERS);
+    if (!source) throw new Error("deprecated provider operation missing");
+    const contract = deprecatedProviderContract();
+    const descriptor = { ...source, ...contract, mediaType: { request: null, response: contract.response.mediaType }, coverage: { status: "invokable" as const, adapterId: "typed.fixture.deprecated-providers", reason: null } };
+    const candidateRegistry = fixtureRegistry([descriptor]);
+    const baked = candidateRegistry.getOperation(GET_DEPRECATED_PROVIDERS)!;
+    const proof = candidateRegistry.getEligibility(GET_DEPRECATED_PROVIDERS);
+    expect(proof.status).toBe("verified");
+    const { effectSha256: _effect, ...withoutEffect } = proof;
+    expect(new OperationRegistry([baked], { records: [withoutEffect] }).getEligibility(GET_DEPRECATED_PROVIDERS).status).toBe("unavailable");
+    expect(new OperationRegistry([baked], { records: [{ ...proof, effectSha256: "1".repeat(64) }] }).getEligibility(GET_DEPRECATED_PROVIDERS).status).toBe("unavailable");
+    const { effectSha256: _receiptEffect, ...withoutReceiptEffect } = baked.qualification!;
+    expect(new OperationRegistry([{ ...baked, qualification: withoutReceiptEffect }], { records: [proof] }).getEligibility(GET_DEPRECATED_PROVIDERS).status).toBe("unavailable");
+    const adapter = candidateRegistry.require(GET_DEPRECATED_PROVIDERS);
+    expect(adapter.validate({})).toEqual({ path: {}, query: {} });
+    expect(() => adapter.validate({ query: { limit: 1 } })).toThrow();
+    expect(() => adapter.validate({ body: {} })).toThrow();
+    const fixture = new ProviderFamilyFixture([{ id: "deprecated-fixture", provider: "gemini-cli", name: "Fixture", isActive: true, priority: 1 }], { clock: () => FIXTURE_TIME });
+    fixtures.push(fixture);
+    let calls = 0;
+    const executor = createAdminExecutor({ registry: candidateRegistry, dispatch: async () => {
+      calls++;
+      const response = await fetch(`${fixture.endpoint}/api/providers/deprecated`, { headers: { authorization: `Bearer ${MANAGEMENT_KEY}` } });
+      return { kind: "response", status: response.status, body: await response.json() };
+    } });
+    executors.push(executor);
+    executor.setAdminBinding({ profileId: PROFILE_ID, endpoint: fixture.endpoint }, true);
+    executor.bindCredential({ profileId: PROFILE_ID, endpoint: fixture.endpoint, ["api" + "Key"]: MANAGEMENT_KEY } as Parameters<typeof executor.bindCredential>[0]);
+    await expect(executor.read(GET_DEPRECATED_PROVIDERS, {})).rejects.toMatchObject({ code: "confirmation-required" });
+    const plan = await executor.plan(GET_DEPRECATED_PROVIDERS, {});
+    expect(calls).toBe(0);
+    const result = await executor.apply(plan.planId, { confirmed: true });
+    expect(result).toMatchObject({ status: "unknown", plan: { state: "unknown" }, error: { code: "uncertain-outcome" } });
+    expect(responseRecord(result.output).leftovers).toHaveLength(1);
+    await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
+    expect(calls).toBe(1);
+    completeCase(GET_DEPRECATED_PROVIDERS, "confirmed-unknown");
+  });
+
+
   test("provider collection handlers admit anonymous requests only under the source's disabled-auth setting", async () => {
     const fixture = new ProviderFamilyFixture(seededConnections(), { clock: () => FIXTURE_TIME });
     fixtures.push(fixture);
