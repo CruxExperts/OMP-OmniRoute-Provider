@@ -217,6 +217,15 @@ The observation does not establish that the remaining helpers complete: only
 successful official native Windows jobs for the final archive can supply that
 qualification evidence.
 
+Official [diagnostic run `43054655900`](https://github.com/CruxExperts/OMP-OmniRoute-Provider/actions/runs/43054655900)
+subsequently completed both `windows-x64` and `windows-arm64` target qualifiers.
+Their terminal results report `target-passed` for source
+`8d1a0da3be91584b451e42243005eec387f55b5b` and package SHA-256
+`4ac403aa455cb649a8dfd11d22c593f2007e2b16f62daee386c0af87d25ccd91`.
+The earlier incomplete diagnostic snapshots are not evidence of a continuing
+login failure. These results qualify those tested Windows inputs only; the final
+integrated source and archive still require fresh results for all eight targets.
+
 When native Windows login stalls after command rendering, manually run
 `windows-input-diagnostic.yml` to compare terminal transport with the pinned host.
 The transport jobs send only fixture `/login` text and one carriage return to an

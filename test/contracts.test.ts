@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -597,39 +597,48 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     const exposed = expectedHealthIngressIdentities("3.8.53", source.commit);
     record(exposed.addedSourceSha256)["src/proxy.ts"] = "0".repeat(64);
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
-    const overlayPath = resolve(root, "test/fixtures/pinned-ingress/backend/core.ts");
-    const originalOverlay = await readFile(overlayPath);
+    const isolatedRoot = await mkdtemp(join(tmpdir(), "ingress-derivation-"));
     try {
-      await writeFile(overlayPath, Buffer.concat([originalOverlay, Buffer.from("\n")]));
-      expect(() => expectedHealthIngressIdentities("3.8.53", source.commit)).toThrow();
+      for (const directory of ["scripts", "src", "test", "provenance", ".github"]) {
+        await cp(resolve(root, directory), join(isolatedRoot, directory), { recursive: true });
+      }
+      await symlink(resolve(root, "node_modules"), join(isolatedRoot, "node_modules"), "junction");
+      const archive = `.agents/state/omp-provider-release/upstream/omniroute-v3.8.53-${source.commit}.tar.gz`;
+      await mkdir(resolve(isolatedRoot, archive, ".."), { recursive: true });
+      await copyFile(resolve(root, archive), resolve(isolatedRoot, archive));
+      // A separate process resolves the static import from the disposable root;
+      // the parent test's evidence closure remains statically bindable.
+      const program = `
+        import assert from "node:assert/strict";
+        import { readFile, writeFile, stat, utimes } from "node:fs/promises";
+        import { execFileSync } from "node:child_process";
+        import { resolve } from "node:path";
+        import { expectedHealthIngressIdentities } from "./scripts/generate-contracts.ts";
+        const commit = process.argv[1];
+        const original = expectedHealthIngressIdentities("3.8.53", commit);
+        const overlay = resolve("test/fixtures/pinned-ingress/backend/core.ts");
+        const originalOverlay = await readFile(overlay);
+        await writeFile(overlay, Buffer.concat([originalOverlay, Buffer.from("\\n")]));
+        assert.throws(() => expectedHealthIngressIdentities("3.8.53", commit));
+        await writeFile(overlay, originalOverlay);
+        const runner = resolve("scripts/pinned-ingress.py");
+        const bytes = await readFile(runner);
+        const info = await stat(runner);
+        execFileSync("python3", ["-m", "py_compile", runner], {
+          env: { ...process.env, PYTHONPYCACHEPREFIX: resolve("pycache") },
+        });
+        const text = bytes.toString("utf8");
+        assert.equal(text.split("metrics.sqlite").length, 2);
+        const changed = Buffer.from(text.replace("metrics.sqlite", "metrics.sqlitf"));
+        assert.equal(changed.length, bytes.length);
+        await writeFile(runner, changed);
+        await utimes(runner, info.atime, info.mtime);
+        const after = expectedHealthIngressIdentities("3.8.53", commit);
+        assert.notEqual(after.executedOverlaySha256["backend/core.ts"], original.executedOverlaySha256["backend/core.ts"]);
+      `;
+      execFileSync(process.execPath, ["-e", program, source.commit], { cwd: isolatedRoot, timeout: 120_000 });
     } finally {
-      await writeFile(overlayPath, originalOverlay);
-    }
-    const runnerPath = resolve(root, "scripts/pinned-ingress.py");
-    const runnerBytes = await readFile(runnerPath);
-    const runnerStat = await stat(runnerPath);
-    const cacheDirectory = await mkdtemp(join(tmpdir(), "ingress-pyc-"));
-    const previousCachePrefix = process.env.PYTHONPYCACHEPREFIX;
-    try {
-      process.env.PYTHONPYCACHEPREFIX = cacheDirectory;
-      execFileSync("python3", ["-m", "py_compile", runnerPath], { env: process.env });
-      const original = 'metrics.sqlite';
-      const replacement = 'metrics.sqlitf';
-      const runnerText = runnerBytes.toString("utf8");
-      expect(runnerText.split(original)).toHaveLength(2);
-      const changed = Buffer.from(runnerText.replace(original, replacement));
-      expect(changed.length).toBe(runnerBytes.length);
-      await writeFile(runnerPath, changed);
-      await utimes(runnerPath, runnerStat.atime, runnerStat.mtime);
-      const changedIdentities = expectedHealthIngressIdentities("3.8.53", source.commit);
-      expect(record(changedIdentities.executedOverlaySha256)["backend/core.ts"])
-        .not.toBe(record(identities.executedOverlaySha256)["backend/core.ts"]);
-    } finally {
-      await writeFile(runnerPath, runnerBytes);
-      await utimes(runnerPath, runnerStat.atime, runnerStat.mtime);
-      if (previousCachePrefix === undefined) delete process.env.PYTHONPYCACHEPREFIX;
-      else process.env.PYTHONPYCACHEPREFIX = previousCachePrefix;
-      await rm(cacheDirectory, { recursive: true, force: true });
+      await rm(isolatedRoot, { recursive: true, force: true });
     }
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
     expect(() => validateHealthIngressEvidence({ ...valid, sha256: "0".repeat(64) }, binding)).toThrow(/digest mismatch/);

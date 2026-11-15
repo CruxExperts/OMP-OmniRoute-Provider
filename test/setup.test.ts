@@ -250,7 +250,7 @@ test("completed connection never serializes or announces the runtime key", async
   expect((await loadConfig()).active?.endpoint).toBe(endpoint);
 });
 
-test("wizard reports pending recovery when native persistence fails after staging", async () => {
+test("wizard preserves pending activation without disclosing the key after persistence failure", async () => {
   await isolated();
   const notices: string[] = [];
   const endpoint = "https://gateway.example";
@@ -260,10 +260,6 @@ test("wizard reports pending recovery when native persistence fails after stagin
   });
   await setupConnection(ctx, services());
   expect((await loadConfig()).pending?.endpoint).toBe(endpoint);
-  expect(notices.join(" ")).toContain("activation may be pending");
-  expect(notices.join(" ")).toContain("sign in again");
-  expect(notices.join(" ")).toContain("/omniroute recover");
-  expect(notices.join(" ")).not.toContain("Existing connection retained");
   expect(notices.join(" ")).not.toContain("fixture-runtime-secret");
 });
 

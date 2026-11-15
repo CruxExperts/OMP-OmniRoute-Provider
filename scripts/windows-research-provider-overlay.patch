@@ -51,9 +51,10 @@
 +			}
  		},
  	};
-@@ -538,7 +559,9 @@
+@@ -574,8 +585,10 @@
  			if (invitationFlight) await settleInvitation();
  			readinessIssue = undefined;
+ 			pendingFailure = undefined;
  			const previousActiveGeneration = config.active?.generation;
 +			researchStartup(30);
  			const loaded = ctx ? await loadConfig() : await loadStartupConfig(startupSignal);

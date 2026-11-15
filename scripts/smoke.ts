@@ -2058,7 +2058,7 @@ export interface SmokeResult {
 /** Research-only mutation of an already verified disposable installation. */
 export async function applyWindowsResearchOverlay(installedRoot: string, patchPath: string): Promise<JsonObject> {
   const files = [
-    { file: "src/index.ts", originalSha256: "272882f6f2de289d09bebedc60c5fd618267ba7f77629f8344cc56f33f5affcf" },
+    { file: "src/index.ts", originalSha256: "0e958aed58b3599009a8f9a2b7652e45e02fa44cc027c34482891bff92b32c43" },
     { file: "src/config.ts", originalSha256: "a7655f0f85e7d7b5241c307a0fbe7800ac40dca0ba6d0a2752bdb7670f190564" },
     { file: "src/private-path.ts", originalSha256: "9de094fc1cf0011909b6b7c2d126bbdd514642419a3a2193ea3f88fa78a0ae0e" },
   ];
@@ -2079,7 +2079,7 @@ export async function applyWindowsResearchOverlay(installedRoot: string, patchPa
   const expectedHeaders = files.flatMap(({ file }) => [`--- a/${file}`, `+++ b/${file}`]);
   if (!isDeepStrictEqual(headers, expectedHeaders)) throw new Error("research overlay file allowlist mismatch");
   const patchSha256 = createHash("sha256").update(patchBytes).digest("hex");
-  if (patchSha256 !== "8c6dea6568699739f1993c6641d397cb8f35c976152acd396d23cc8fe9cfdc68") throw new Error("research overlay patch digest mismatch");
+  if (patchSha256 !== "5a54cdba74cb09c569dc31575befe134efe2b35f5e5c614028859dba37ed8768") throw new Error("research overlay patch digest mismatch");
   const options = { cwd: installedRoot, env: cleanEnvironment(process.env), timeoutMs: 5_000 };
   requireSuccess(await runCommand("git", ["apply", "--check", "--whitespace=error", patchPath], options), "research overlay applicability");
   requireSuccess(await runCommand("git", ["apply", "--whitespace=error", patchPath], options), "research overlay application");
@@ -2334,7 +2334,9 @@ export async function runSmoke(): Promise<SmokeResult> {
     requireGuardedModels(requireModelList(refreshJson, "models refresh"), "models refresh");
 
     const nativeEnvironment = cleanEnvironment(process.env, profile);
-    const setupVersion = await runCommand(binary, ["config", "set", "setupVersion", "2"], { cwd: workspace, env: nativeEnvironment });
+    // OMP 18.20.2 adds onboarding version 3; the fixture tests provider setup,
+    // not the host's optional first-run feature installation wizard.
+    const setupVersion = await runCommand(binary, ["config", "set", "setupVersion", "3"], { cwd: workspace, env: nativeEnvironment });
     requireSuccess(setupVersion, "setup version initialization");
     const cancelled = await nativePromptCancel(binary, workspace, nativeEnvironment, diagnosticIdentity);
     const wizard = await nativeWizardCancel(binary, workspace, nativeEnvironment);

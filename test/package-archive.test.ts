@@ -39,17 +39,22 @@ function extract(path: string, destination: string): string {
 }
 
 function archivePackageFiles(repository: string, destination: string): string {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key) && key !== "NODE_OPTIONS"));
   const output = execFileSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], {
     cwd: repository,
     encoding: "utf8",
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const parsed: unknown = JSON.parse(output);
-  if (!Array.isArray(parsed) || parsed.length !== 1 || typeof parsed[0] !== "object" || parsed[0] === null
-    || !("filename" in parsed[0]) || typeof parsed[0].filename !== "string") {
+  // npm versions may return either an array or a keyed object, as the verifier accepts.
+  const entries = Array.isArray(parsed) ? parsed : parsed && typeof parsed === "object" ? Object.values(parsed) : [];
+  const metadata: unknown = entries.length === 1 ? entries[0] : undefined;
+  if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)
+    || !("filename" in metadata) || typeof metadata.filename !== "string") {
     throw new Error("npm pack did not return one safe archive filename");
   }
-  const filename = parsed[0].filename;
+  const filename = metadata.filename;
   if (filename.length === 0 || filename !== filename.split(/[\\/]/).at(-1)) {
     throw new Error("npm pack returned an unsafe archive filename");
   }
