@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { validateAuthStatusContract } from "../scripts/generate-contracts.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
 import type { AdminOperationAuthBinding } from "../src/admin/types.ts";
 import { OperationRegistry, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
@@ -85,11 +86,23 @@ test("valid session cache miss can durably complete onboarding and cannot be an 
     expect(rows.all()).toEqual([]);
     await expectStatus(await fixture.handle(token, undefined, "fixture-onboarding-password"), true);
     expect(rows.all()).toEqual([{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }]);
-    expect(authStatusContract().sideEffect).toBe("unknown");
+    expect(authStatusContract().sideEffect).toBe("lifecycle");
     expect(authStatusContract().confirmation.required).toBe(true);
     expect(authStatusContract().retry.allowed).toBe(false);
   } finally { fixture.close(); }
 });
+test("auth status admission preserves lifecycle and uncertain settlement", () => {
+  const contract = authStatusContract();
+  expect(() => validateAuthStatusContract(contract)).not.toThrow();
+  for (const changed of [
+    { ...contract, sideEffect: "read" },
+    { ...contract, confirmation: { ...contract.confirmation, required: false } },
+    { ...contract, retry: { allowed: true, maxAttempts: 2, statusCodes: [500] } },
+    { ...contract, mutationSafety: { ...contract.mutationSafety!, settlement: { responseComplete: { statusCodes: [200] }, definiteRejection: null } } },
+    { ...contract, auth: { ...contract.auth, sourcePolicy: { ...contract.auth.sourcePolicy, optionalSessionCookie: undefined } } },
+  ]) expect(() => validateAuthStatusContract(changed)).toThrow();
+});
+
 
 test("candidate projection is bounded and forbids caller-supplied cookies or arbitrary input", () => {
   const adapter = fixtureRegistry([authStatusDescriptor()]).require(AUTH_STATUS_ID);
@@ -165,6 +178,9 @@ test("optional cookie capability rejects altered source and ungated descriptors"
   const descriptor = authStatusDescriptor();
   expect(() => fixtureRegistry([{ ...descriptor, operationId: "GET /fixture/other", pathTemplate: "/fixture/other" }])).toThrow();
   expect(() => fixtureRegistry([{ ...descriptor, source: { ...descriptor.source, sha256: "0".repeat(64) } }])).toThrow();
+  expect(() => fixtureRegistry([{ ...descriptor, sideEffect: "read" }])).toThrow();
+  expect(() => fixtureRegistry([{ ...descriptor, confirmation: { required: false, reason: "incorrect" } }])).toThrow();
+  expect(() => fixtureRegistry([{ ...descriptor, retry: { allowed: false, maxAttempts: 1, statusCodes: [503] } }])).toThrow();
   expect(() => fixtureRegistry([{ ...descriptor, sideEffect: "read", confirmation: { required: false, reason: "incorrect" } }])).toThrow();
   expect(() => fixtureRegistry([{ ...descriptor, retry: { allowed: true, maxAttempts: 2, statusCodes: [503] } }])).toThrow();
 });

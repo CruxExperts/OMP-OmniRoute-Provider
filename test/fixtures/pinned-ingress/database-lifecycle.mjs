@@ -6,10 +6,12 @@ import { getSettings, updateSettings } from './settings';
 import { resolveDbHealthWorker } from './healthCheckRunner';
 import { getCliVersionOverride } from '@omniroute/open-sse/config/cliVersions.ts';
 
+import { SignJWT } from 'jose';
 const phase = process.argv[2];
 const sweep = phase === 'sweep-success' || phase === 'sweep-failure';
-const expectedDataDir = sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const auth = phase === 'auth-cold' || phase === 'auth-warm';
+const expectedDataDir = auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -69,6 +71,47 @@ if (sweep) {
     delete process.env.STORAGE_ENCRYPTION_KEY;
     await closeDbInstance();
   }
+  process.exit(0);
+}
+if (auth) {
+  const cold = phase === 'auth-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('auth database phase mismatch');
+  const { GET: authStatus } = await import('/work/app/src/app/api/auth/status/pinnedLifecycleRoute.ts');
+  const status = async token => {
+    globalThis.__pinnedAuthCookie = token;
+    const response = await authStatus();
+    const body = await response.json();
+    if (response.status !== 200 || Object.keys(body).join(',') !== 'authenticated' || typeof body.authenticated !== 'boolean') throw new Error('auth status response mismatch');
+    return body.authenticated;
+  };
+  const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+  const now = Math.floor(Date.now() / 1000);
+  const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now).setExpirationTime(now + 3600).setJti('fixture-session').sign(secret);
+  if (await status('invalid')) throw new Error('invalid session accepted');
+  if (cold && (await files()).some(x => x.name === 'storage.sqlite')) throw new Error('invalid session initialized database');
+  await ensureDbInitialized();
+  try {
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('auth database driver mismatch');
+    const rows = () => db.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('requireLogin', 'setupComplete') ORDER BY key").all();
+    const expected = [{ key: 'requireLogin', value: 'true' }, { key: 'setupComplete', value: 'true' }];
+    if (JSON.stringify(rows()) !== JSON.stringify(cold ? [] : expected)) throw new Error('auth onboarding before mismatch');
+    if (!(await status(token)) || JSON.stringify(rows()) !== JSON.stringify(expected)) throw new Error('auth onboarding after mismatch');
+    if (!cold) {
+      const setAuth = db.prepare("INSERT OR REPLACE INTO key_value (namespace, key, value) VALUES ('settings', ?, ?)");
+      setAuth.run('revokedDashboardSessions', JSON.stringify([{ jti: 'fixture-session', exp: now + 3600 }]));
+      if (!(await status(token))) throw new Error('cached session unexpectedly revoked');
+      await new Promise(resolve => setTimeout(resolve, 5100));
+      if (await status(token)) throw new Error('revoked session accepted after cache expiry');
+      setAuth.run('revokedDashboardSessions', '[]');
+      setAuth.run('sessionsValidAfter', JSON.stringify(now + 1));
+      await new Promise(resolve => setTimeout(resolve, 5100));
+      if (await status(token)) throw new Error('password cutoff ignored after cache expiry');
+    }
+    const observation = { invalidRejected: true, validAccepted: true, databaseExistedBefore: existed, onboardingBefore: cold ? 'absent' : 'persisted', onboardingAfter: 'persisted', ...(cold ? { invalidNoDatabase: true } : { cachedRevocation: true, revocationAfterExpiry: true, passwordCutoffAfterExpiry: true }) };
+    await writeFile(`/work/${phase}.json`, JSON.stringify(observation) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
   process.exit(0);
 }
 const before = await files();

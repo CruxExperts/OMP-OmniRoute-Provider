@@ -11,6 +11,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   authentication-status candidate. Reuse endpoint-bound management credentials
   and cancellation; keep all other public requests credential-free and retain
   human confirmation and no replay for possible onboarding writes.
+- Characterize authentication status as a lifecycle candidate: an authenticated
+  settings cache miss can complete headless onboarding. Independent isolated
+  ingress and native cold/warm research observe the settings and cache boundaries;
+  confirmation and uncertain settlement remain, and qualification is not implied.
 - Exercise deprecated-provider inventory through its actual handler and isolated
   framework ingress. Bind separate fresh-database encryption success and caught
   failure observations; keep possible first-read migration human-confirmed and

@@ -25,6 +25,7 @@ const ownedProbe = '/work/fixture/acp-owned-probe';
 const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true, customAgents: [{ id: 'owned', name: 'owned', binary: ownedProbe, versionCommand: `${ownedProbe} --version`, providerAlias: 'owned', spawnArgs: [], protocol: 'stdio' }] }, tokens: Object.entries(scopedTokens).map(([scope, token]) => ({ id: `fixture-${scope}`, token_hash: createHash('sha256').update(token).digest('hex'), token_prefix: 'oma_live_fixtu', name: `fixture-${scope}`, scope, created_at: '2025-01-01T00:00:00.000Z', last_used_at: null, expires_at: null, revoked_at: null })), apiKeys: Object.entries(managementKeys).map(([scope, key]) => ({ id: `key-${scope}`, key_hash: createHash('sha256').update(key).digest('hex'), is_active: 1, is_banned: 0, scopes: JSON.stringify([scope]) })) };
 await writeFile(`${dir}/state.json`, JSON.stringify(state), { mode: 0o600 });
 await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
+await writeFile(`${dir}/auth-status-reads.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
@@ -95,8 +96,11 @@ try {
   const tamperedCookie = `${cookie.slice(0, signatureStart)}${cookie[signatureStart] === 'A' ? 'B' : 'A'}${cookie.slice(signatureStart + 1)}`;
   await statusCase('anonymous', {}, false);
   await statusCase('expired', { cookie: expiredCookie }, false);
+  await statusCase('invalid', { cookie: 'auth_token=invalid' }, false);
   await statusCase('tampered', { cookie: tamperedCookie }, false);
   assert(statusRows().length === 0, 'auth-status-no-invalid-writes');
+  const invalidSettingsReads = (await readFile(`${dir}/auth-status-reads.jsonl`, 'utf8')).split('\n').filter(Boolean).length;
+  assert(invalidSettingsReads === 0, 'auth-status-no-invalid-reads');
   await statusCase('valid', { cookie }, true);
   const statusAfter = statusRows();
   assert(JSON.stringify(statusBefore) === '[]' && JSON.stringify(statusAfter) === JSON.stringify([{key:'requireLogin',value:'true'},{key:'setupComplete',value:'true'}]), 'auth-status-onboarding');
@@ -112,7 +116,7 @@ try {
   statusDb.exec('DROP TABLE key_value');
   await delay(5100);
   await statusCase('settingsFailure', { cookie }, false);
-  const authStatusHttp = { cases: statusCases, onboardingBefore: statusBefore, onboardingAfter: statusAfter };
+  const authStatusHttp = { cases: statusCases, invalidSettingsReads, onboardingBefore: statusBefore, onboardingAfter: statusAfter };
   const acpCases = {};
   const unstamped = await request('/api/acp/agents', 'GET', { cookie });
   console.log('ACP_UNSTAMPED', unstamped.status, unstamped.routeClass);

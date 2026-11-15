@@ -898,8 +898,8 @@ with tempfile.TemporaryDirectory() as temp:
  acp_status = {'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':401,'oma-write':401,'oma-admin':401}
  acp_cases = {name:{'status':status,'routeClass':'MANAGEMENT','owned':{'installed':True,'version':'7.8.9'} if status == 200 else None} for name,status in acp_status.items()}
  ingress['acpHttp'] = {'cases':acp_cases,'unstampedSessionStatus':403,'probeCount':3,'processPlatform':'linux'}
- status_expected = {'anonymous':False,'expired':False,'tampered':False,'valid':True,'cachedRevocation':True,'revoked':False,'passwordChanged':False,'settingsFailure':False}
- ingress['authStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'PUBLIC','authenticated':value} for name,value in status_expected.items()},'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
+ status_expected = {'anonymous':False,'invalid':False,'expired':False,'tampered':False,'valid':True,'cachedRevocation':True,'revoked':False,'passwordChanged':False,'settingsFailure':False}
+ ingress['authStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'PUBLIC','authenticated':value} for name,value in status_expected.items()},'invalidSettingsReads':0,'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
  ingress['events'].extend([{'event':'reasoning:read'},{'event':'reasoning:fault'},{'event':'reasoning:read'}])
  put('data/observations.json',auth); put('data/pinned-ingress-observations.json',ingress)
  m.export_observations(p, hashes)
@@ -937,6 +937,7 @@ with tempfile.TemporaryDirectory() as temp:
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
  original = ingress['authStatusHttp']['cases']['revoked']['authenticated']; ingress['authStatusHttp']['cases']['revoked']['authenticated'] = True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['authStatusHttp']['cases']['revoked']['authenticated'] = original
+ ingress['authStatusHttp']['invalidSettingsReads'] = 1; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['authStatusHttp']['invalidSettingsReads'] = 0
  original = identity['authStatusClosure']['executed'][m.AUTH_SESSION]; identity['authStatusClosure']['executed'][m.AUTH_SESSION] = 'a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['authStatusClosure']['executed'][m.AUTH_SESSION] = original
  original = ingress.pop('acpHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['acpHttp'] = original
  original = acp_cases.pop('key-manage'); put('data/pinned-ingress-observations.json',ingress); rejected(); acp_cases['key-manage'] = original
@@ -1069,8 +1070,11 @@ with tempfile.TemporaryDirectory() as d:
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
- (p/'cold-lifecycle.private').write_text('normal output\n'); (p/'warm-lifecycle.private').write_text('normal output\n')
+ authcold={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':False,'onboardingBefore':'absent','onboardingAfter':'persisted','invalidNoDatabase':True}
+ authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
+ for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
+ put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
  def reject():
   try: m.export_core_lifecycle(p,{})
   except (RuntimeError,ValueError,KeyError,TypeError): return
@@ -1125,10 +1129,12 @@ with tempfile.TemporaryDirectory() as d:
  cwarm['importedPersisted']=False; put('warm-combo-lifecycle.json',cwarm); reject_without_export(); cwarm['importedPersisted']=True; put('warm-combo-lifecycle.json',cwarm)
  (p/'provider-node-create.json').unlink(); reject_without_export(); put('provider-node-create.json',node)
  sweeps[1]['encryptedAfterSecond']=True; put('sweep-failure.json',sweeps[1]); reject_without_export(); sweeps[1]['encryptedAfterSecond']=False; put('sweep-failure.json',sweeps[1])
+ authwarm['databaseExistedBefore']=False; put('auth-warm.json',authwarm); reject_without_export(); authwarm['databaseExistedBefore']=True; put('auth-warm.json',authwarm)
  m.export_core_lifecycle(p,{})
  result=json.loads((p/'export/core-lifecycle.json').read_text())
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
  assert result['cold']['databaseExistedBefore'] is False and result['warm']['databaseExistedBefore'] is True
+ assert result['authStatus']=={'cold':authcold,'warm':authwarm}
  assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
  assert result['identity']['runnerArguments']==identity['runnerArguments'] and 'runnerOutputSha256' not in result['identity']
  assert result['cold']['runtimeSettingApplied'] is True and result['warm']['runtimeSettingApplied'] is False

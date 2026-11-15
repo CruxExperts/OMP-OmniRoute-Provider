@@ -16,9 +16,9 @@ export function authStatusContract(): OperationSourceContract {
     request: { ...template.request, pathSchema: empty, querySchema: empty, pathParameters: [], parameters: [], body: null },
     auth: { ...template.auth, domain: "public", sourcePolicy: { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }], optionalSessionCookie: "dashboard-session" } },
     response: { ...template.response, mediaType: "application/json", schema: view },
-    secrets: { inputFields: [], outputFields: [] }, sideEffect: "unknown",
+    secrets: { inputFields: [], outputFields: [] }, sideEffect: "lifecycle",
     pagination: { mode: "none", parameters: [] }, streaming: { mode: "json", framing: "application/json" },
-    confirmation: { required: true, reason: "A valid session on a settings cache miss can persist headless onboarding settings; cold initialization is not established." },
+    confirmation: { required: true, reason: "A valid session on a settings cache miss can persist headless onboarding settings; the response does not independently settle lifecycle effects." },
     retry: { allowed: false, maxAttempts: 1, statusCodes: [] }, reconciliation: null,
     mutationSafety: { preflight: { kind: "not-applicable", sourceReason: "No independent read establishes the session-dependent onboarding effect." }, reconciliation: { kind: "unknown" }, settlement: { responseComplete: { statusCodes: [] }, definiteRejection: null } },
   };

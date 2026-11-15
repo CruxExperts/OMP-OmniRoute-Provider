@@ -69,9 +69,10 @@ test("native ACP target projections reject missing, duplicated and altered stage
 test("derived lifecycle research joins independent identities and cold/warm observations", () => {
   const binding = { sourceDerivation: { record: "provenance/derivations/omniroute-3.8.53-startup/manifest.json", sha256: "a".repeat(64) }, effectiveTreeSha256: "b".repeat(64) };
   const phase = (name: "cold" | "warm") => ({ phase: name, driver: "node:sqlite", ping: true, healthWorker: true, healthy: true, settingsPersisted: true, databaseExistedBefore: name === "warm", runtimeSettingApplied: name === "cold", hotReloadFailure: false, tableCount: 2, migrationCount: 3, tableSha256: "c".repeat(64), migrationSha256: "d".repeat(64) });
-  const expected = { identity: { ...binding, runnerSourceSha256: "e".repeat(64), runnerArguments: ["/runtime/node", "--import", "tsx/esm", "/work/app/src/lib/db/pinnedLifecycleFixture.mjs"], workerOutputSha256: "f".repeat(64) }, inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm") };
+  const authStatus = { cold: { invalidRejected: true, validAccepted: true, databaseExistedBefore: false, onboardingBefore: "absent", onboardingAfter: "persisted", invalidNoDatabase: true }, warm: { invalidRejected: true, validAccepted: true, databaseExistedBefore: true, onboardingBefore: "persisted", onboardingAfter: "persisted", cachedRevocation: true, revocationAfterExpiry: true, passwordCutoffAfterExpiry: true } };
+  const expected = { identity: { ...binding, runnerSourceSha256: "e".repeat(64), runnerArguments: ["/runtime/node", "--import", "tsx/esm", "/work/app/src/lib/db/pinnedLifecycleFixture.mjs"], workerOutputSha256: "f".repeat(64) }, inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm"), authStatus };
   // This exercises the join in isolation; it is not a producer receipt.
-  const artifact = { status: "research-observed", qualification: false, boundary: "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.", identity: structuredClone(expected.identity), inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm") };
+  const artifact = { status: "research-observed", qualification: false, boundary: "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.", identity: structuredClone(expected.identity), inputSha256: { "scripts/pinned-ingress.py": "1".repeat(64) }, isolation: { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" }, cold: phase("cold"), warm: phase("warm"), authStatus: structuredClone(authStatus) };
   expect(() => validateCoreLifecycleObservation(artifact, binding, expected)).not.toThrow();
   for (const changed of [
     { ...artifact, qualification: true },
@@ -81,6 +82,8 @@ test("derived lifecycle research joins independent identities and cold/warm obse
     { ...artifact, identity: { ...artifact.identity, effectiveTreeSha256: "0".repeat(64) } },
     { ...artifact, inputSha256: {} },
     { ...artifact, isolation: { ...artifact.isolation, capabilities: "retained" } },
+    { ...artifact, authStatus: { ...artifact.authStatus, cold: { ...artifact.authStatus.cold, invalidNoDatabase: false } } },
+    { ...artifact, authStatus: { ...artifact.authStatus, warm: { ...artifact.authStatus.warm, onboardingBefore: "absent" } } },
     { ...artifact, cold: { ...artifact.cold, databaseExistedBefore: true } },
     { ...artifact, cold: { ...artifact.cold, runtimeSettingApplied: false } },
     { ...artifact, cold: { ...artifact.cold, hotReloadFailure: true } },

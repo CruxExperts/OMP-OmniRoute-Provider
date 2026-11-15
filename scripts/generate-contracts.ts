@@ -328,7 +328,7 @@ identities[m.ACP_REGISTRY] = {'originalSha256': m.sha(source[m.ACP_REGISTRY]), '
 identities.update({name: {'originalSha256': m.READ_CLOSURES[name], 'executedSha256': m.sha(data)} for name, data in closures.items()})
 auth_graph = m.auth_status_closure(source, closures['src/lib/db/readCache.ts'])
 identities[m.AUTH_STATUS] = {'originalSha256': m.sha(source[m.AUTH_STATUS]), 'executedSha256': m.sha(auth_graph[m.AUTH_STATUS])}
-print(json.dumps({'addedSourceSha256': identities, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
+print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
   // This generator requires python3 and the prepared pinned archive; fail closed if
@@ -380,8 +380,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (reasoningSource !== undefined && (reasoningSource.originalSha256 !== REASONING_SHA256 || reasoningSource.executedSha256 !== REASONING_SHA256
     || binding.handlerSha256 !== REASONING_SHA256 || binding.handlerGitBlobSha !== REASONING_GIT_BLOB)) throw new Error(`${label} reasoning source mismatch`);
   if (operationId === "GET /api/acp/agents" && (added["src/app/api/acp/agents/route.ts"] !== binding.handlerSha256 || binding.handlerSha256 !== "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3" || binding.handlerGitBlobSha !== "1aa6c1a3305aab27f6e011defda696cab62a945e")) throw new Error(`${label} ACP source mismatch`);
+  const authSource = operationId === "GET /api/auth/status" ? requireRecord(added["src/app/api/auth/status/route.ts"], `${label}.auth status source`) : undefined;
+  if (authSource !== undefined && (authSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede" || binding.handlerGitBlobSha !== "50f8b6c4b7983ffc191eed84009a9eda9c138d19")) throw new Error(`${label} auth status source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -529,7 +531,13 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedAcp = { cases, unstampedSessionStatus: 403, probeCount: 3, processPlatform: "linux" };
     if (canonicalJson(toJson(artifact.acpAgentsHttp, label)) !== canonicalJson(toJson(expectedAcp, label))) throw new Error(`${label} ACP HTTP observation mismatch`);
   }
+  if (operationId === "GET /api/auth/status") {
+    const statuses: Record<string, boolean> = { anonymous: false, invalid: false, expired: false, tampered: false, valid: true, cachedRevocation: true, revoked: false, passwordChanged: false, settingsFailure: false };
+    const expected = { cases: Object.fromEntries(Object.entries(statuses).map(([name, authenticated]) => [name, { status: 200, routeClass: "PUBLIC", authenticated }])), invalidSettingsReads: 0, onboardingBefore: [], onboardingAfter: [{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }] };
+    if (canonicalJson(toJson(artifact.authStatusHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} auth status HTTP mismatch`);
+  }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
+  if (operationId === "GET /api/auth/status" && canonicalJson(toJson(artifact.authStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.authStatusClosure, label))) throw new Error(`${label} auth status closure mismatch`);
   // Older exports used the unwrapped route hash and omitted the reasoning store;
   // they cannot establish reasoning HTTP behavior but remain valid for other routes.
   if (operationId !== REASONING_OPERATION && typeof added[REASONING_ROUTE] === "string" && !Object.hasOwn(added, "src/lib/db/reasoningRoutingRules.ts")) {
@@ -646,8 +654,8 @@ export function validateDeprecatedProviderSweepObservation(value: unknown, indep
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
   const label = "core lifecycle evidence";
   const artifact = requireRecord(value, label);
-  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm"]);
-  if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
+  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"]);
+  if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
   const identity = requireRecord(artifact.identity, `${label}.identity`);
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
     || canonicalJson(toJson(identity.sourceDerivation, label)) !== canonicalJson(toJson(binding.sourceDerivation, label))
@@ -658,6 +666,13 @@ export function validateCoreLifecycleObservation(value: unknown, binding: Pick<O
   const isolation = { network: "private-loopback-only", capabilities: "dropped", source: "read-only", processes: "separate-cold-warm", startupRegressions: "passed" };
   if (canonicalJson(toJson(artifact.isolation, label)) !== canonicalJson(toJson(isolation, label))) throw new Error(`${label} isolation mismatch`);
   const expected = requireRecord(independentValue, `${label}.expected`);
+  const authStatus = requireRecord(artifact.authStatus, `${label}.authStatus`);
+  const independentAuth = requireRecord(expected.authStatus, `${label}.expected.authStatus`);
+  assertKeys(authStatus, `${label}.authStatus`, ["cold", "warm"]);
+  for (const phase of ["cold", "warm"] as const) {
+    const expectedPhase = phase === "cold" ? { invalidRejected: true, validAccepted: true, databaseExistedBefore: false, onboardingBefore: "absent", onboardingAfter: "persisted", invalidNoDatabase: true } : { invalidRejected: true, validAccepted: true, databaseExistedBefore: true, onboardingBefore: "persisted", onboardingAfter: "persisted", cachedRevocation: true, revocationAfterExpiry: true, passwordCutoffAfterExpiry: true };
+    if (canonicalJson(toJson(authStatus[phase], label)) !== canonicalJson(toJson(expectedPhase, label)) || canonicalJson(toJson(authStatus[phase], label)) !== canonicalJson(toJson(independentAuth[phase], label))) throw new Error(`${label} auth status ${phase} mismatch`);
+  }
   for (const key of ["identity", "inputSha256", "isolation"] as const) {
     if (canonicalJson(toJson(artifact[key], label)) !== canonicalJson(toJson(expected[key], label))) throw new Error(`${label} ${key} mismatch`);
   }
@@ -1566,7 +1581,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
     ...effectiveSourceBinding(manifest),
-    ...(requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
+    ...(operation.operationId === "GET /api/auth/status" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
@@ -1674,6 +1689,18 @@ export function validateAcpContract(value: unknown): void {
   if (contract.sideEffect !== "lifecycle" || auth.domain !== "management" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: true, handlerGuard: "isAuthenticated", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }] }) || confirmation.required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || preflight.kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || !same(response.schema, view)) throw new Error("ACP source contract safety mismatch");
 }
 
+export function validateAuthStatusContract(value: unknown): void {
+  const contract = requireRecord(value, "auth status contract");
+  const same = (actual: unknown, expected: unknown) => canonicalJson(toJson(actual, "auth status contract")) === canonicalJson(toJson(expected, "auth status contract"));
+  const auth = requireRecord(contract.auth, "auth status auth");
+  const confirmation = requireRecord(contract.confirmation, "auth status confirmation");
+  const safety = requireRecord(contract.mutationSafety, "auth status mutation safety");
+  const preflight = requireRecord(safety.preflight, "auth status preflight");
+  const response = requireRecord(contract.response, "auth status response");
+  const view = { type: "object", properties: { authenticated: { type: "boolean" } }, required: ["authenticated"], additionalProperties: false };
+  if (contract.sideEffect !== "lifecycle" || auth.domain !== "public" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }], optionalSessionCookie: "dashboard-session" }) || confirmation.required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || preflight.kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("auth status contract does not match source-bound lifecycle behavior");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -1683,6 +1710,10 @@ function validateEligibility(
   if (!record) return false;
   if (operationId === "GET /api/acp/agents") { validateAcpContract(record.contract); validateAcpNativeEvidence(record.nativeEvidence, binding); }
   else if (record.nativeEvidence !== undefined) throw new Error(`native evidence is unsupported for ${operationId}`);
+  if (operationId === "GET /api/auth/status") {
+    validateAuthStatusContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/status/route.ts" || route.sha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede" || route.gitBlobSha !== "50f8b6c4b7983ffc191eed84009a9eda9c138d19") throw new Error("auth status requires the exact lifecycle source");
+  }
   if (binding.sideEffect === "unknown") throw new Error(`eligibility requires a source-qualified side-effect classification: ${operationId}`);
   const source = requireRecord(record.source, `${operationId}.eligibility.source`);
   if (record.status !== "verified"
@@ -2262,7 +2293,7 @@ function validateOperationContract(value: unknown, base: RecordValue, operationI
     const confirmation = requireRecord(contract.confirmation, `${operationId}.confirmation`);
     const retry = requireRecord(contract.retry, `${operationId}.retry`);
     if (source.file !== "src/app/api/auth/status/route.ts" || source.sha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede"
-      || contract.sideEffect !== "unknown" || confirmation.required !== true || retry.allowed !== false || retry.maxAttempts !== 1) {
+      || !["unknown", "lifecycle"].includes(String(contract.sideEffect)) || confirmation.required !== true || retry.allowed !== false || retry.maxAttempts !== 1 || !Array.isArray(retry.statusCodes) || retry.statusCodes.length !== 0) {
       throw new Error(`${operationId}.optional session requires the exact gated source`);
     }
   }
@@ -2439,7 +2470,7 @@ function makeOperation(
     operationId,
     method,
     pathTemplate: path,
-    ...(requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
+    ...(operationId === "GET /api/auth/status" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
     request,
     response,
     mediaType: { request: requestMediaType, response: responseMediaType },

@@ -30,7 +30,12 @@ The unqualified `GET /api/auth/status` candidate has an optional, endpoint-bound
 dashboard session cookie. A valid session can persist onboarding settings, so
 the candidate requires confirmation, reports uncertain effects, and never retries.
 Anonymous use remains possible; other public routes never receive this cookie or
-an API key. Cold lifecycle and platform qualification remain required before use.
+an API key. The research producer is designed to exercise real Next HTTP with
+instrumented private settings reads, and native cold/warm SQLite with the pinned
+session verifier and an explicit cookie boundary. Cached revocation and password
+cutoff visibility are limited to the observed cache behavior. These observations
+do not establish production behavior or qualify the operation; matching source,
+lifecycle, ingress, and platform evidence remain required before use.
 
 The qualified deprecated-provider inventory read requires confirmation: its first
 read may encrypt legacy provider metadata, start a backup, and invalidate caches.

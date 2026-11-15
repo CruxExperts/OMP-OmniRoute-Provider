@@ -435,7 +435,7 @@ function assertSourceAuthorizationPolicy(descriptor: OperationDescriptor): void 
     if (policy.optionalSessionCookie !== undefined && (policy.optionalSessionCookie !== "dashboard-session"
       || operationId !== "GET /api/auth/status" || descriptor.method !== "GET" || descriptor.pathTemplate !== "/api/auth/status"
       || descriptor.source.file !== "src/app/api/auth/status/route.ts" || descriptor.source.sha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede"
-      || descriptor.sideEffect !== "unknown" || !descriptor.confirmation.required || descriptor.retry.allowed || descriptor.retry.maxAttempts !== 1 || descriptor.retry.statusCodes.length !== 0)) {
+      || !["unknown", "lifecycle"].includes(descriptor.sideEffect) || !descriptor.confirmation.required || descriptor.retry.allowed || descriptor.retry.maxAttempts !== 1 || descriptor.retry.statusCodes.length !== 0)) {
       throw new RegistryError("invalid-inventory", "optional session cookie is not bound to its exact gated source", operationId);
     }
   } else if (routeClass === "local") {

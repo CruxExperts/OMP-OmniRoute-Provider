@@ -548,7 +548,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
 
 
 def materialize(real_core=False):
@@ -636,8 +636,8 @@ def materialize(real_core=False):
         package = json.loads((package_root / 'package.json').read_text())
         require(package.get('name') == name and package.get('version') == item['version'], 'package manifest mismatch: ' + name)
     if real_core:
-        versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('tsx', 'sql.js', 'esbuild', '@esbuild/linux-x64')}
-        require(versions == {'tsx': '4.23.13', 'sql.js': '1.14.2', 'esbuild': '0.28.2', '@esbuild/linux-x64': '0.28.2'}, 'startup dependency version mismatch')
+        versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('tsx', 'sql.js', 'esbuild', '@esbuild/linux-x64', 'jose')}
+        require(versions == {'tsx': '4.23.13', 'sql.js': '1.14.2', 'esbuild': '0.28.2', '@esbuild/linux-x64': '0.28.2', 'jose': '6.2.10'}, 'startup dependency version mismatch')
     shutil.copytree(fixture, '/work/fixture', ignore=shutil.ignore_patterns('__pycache__'))
     shutil.copyfile('/driver.mjs', '/work/fixture/pinned-ingress-driver.mjs')
     (app / '.build').mkdir(exist_ok=True)
@@ -695,7 +695,8 @@ def auth_status_closure(source, cache):
     def span(start, end):
         require(settings.count(start) == settings.count(end) == 1, 'auth settings boundary changed')
         return settings[settings.index(start):settings.index(end)]
-    private_settings = ('''import { DatabaseSync } from "node:sqlite";
+    private_settings = ('''import { appendFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { toRecord } from "./settings/shared";
 import { decrypt } from "./encryption";
 import { requestBodyLimitMbFromEnv } from "@/shared/constants/bodySize";
@@ -706,7 +707,7 @@ function getDbInstance() { return db; }
 ''' + span('const ENCRYPTED_SETTING_KEYS:', 'type ProxyValue =')
         + span('function isTruthyEnvFlag(', 'let proxyConfigGeneration =')
         + span('function applySessionAffinityLegacyFallback(', 'export async function getSettings()')
-        + span('export async function getSettings()', '/**\n * The `maxBodySizeMb`')).encode()
+        + replace_once(span('export async function getSettings()', '/**\n * The `maxBodySizeMb`'), 'export async function getSettings() {', 'export async function getSettings() {\n  appendFileSync("/work/data/auth-status-reads.jsonl", "read\\n");')).encode()
     return {AUTH_STATUS: route, AUTH_SESSION: session, 'src/lib/db/fixtureAuthStatusCache.ts': private_cache, 'src/lib/db/fixtureAuthStatusSettings.ts': private_settings}
 
 READ_CLOSURES = {
@@ -1222,6 +1223,10 @@ def core_lifecycle(material, deadline):
     fixture = Path('/work/fixture/database-lifecycle.mjs')
     entry = app / 'src/lib/db/pinnedLifecycleFixture.mjs'
     require(not entry.exists(), 'lifecycle fixture collides with source')
+    route_dir = app / 'src/app/api/auth/status'
+    route = (route_dir / 'route.ts').read_text()
+    (route_dir / 'pinnedLifecycleRoute.ts').write_text(replace_once(route, 'from "next/headers"', 'from "./pinnedLifecycleCookies"'))
+    (route_dir / 'pinnedLifecycleCookies.ts').write_text('export async function cookies() { return { get(name: string) { return name === "auth_token" && globalThis.__pinnedAuthCookie ? { value: globalThis.__pinnedAuthCookie } : undefined; } }; }\n')
     shutil.copyfile(fixture, entry)
     source = material['configSupportSha256']
     migrations = {name: value for name, value in source.items() if name.startswith('src/lib/db/migrations/') and name.endswith('.sql')}
@@ -1241,7 +1246,7 @@ def core_lifecycle(material, deadline):
     worker_stage('build')
     import_check = """import { realpathSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', '1.14.2', 'sql.js']]) {
+for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', '1.14.2', 'sql.js'], ['jose', '6.2.10', 'jose']]) {
   const root = `/work/app/node_modules/${name}`;
   const pkg = JSON.parse(readFileSync(`${root}/package.json`, 'utf8'));
   if (pkg.name !== name || pkg.version !== version || !realpathSync(fileURLToPath(import.meta.resolve(entry))).startsWith(realpathSync(root) + '/')) throw new Error(`unexpected ${name} resolution`);
@@ -1253,6 +1258,14 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         worker_stage('coldLifecycle' if phase == 'cold' else 'warmLifecycle')
         log = Path('/work/' + phase + '-lifecycle.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, env)
+        validate_lifecycle_log(log)
+    auth_dir = Path('/work/auth-data')
+    auth_dir.mkdir(mode=0o700)
+    auth_env = {**env, 'DATA_DIR': str(auth_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'}
+    for phase in ('auth-cold', 'auth-warm'):
+        worker_stage('coldLifecycle' if phase == 'auth-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, auth_env)
         validate_lifecycle_log(log)
     for phase in ('sweep-success', 'sweep-failure'):
         worker_stage('coldLifecycle')
@@ -1270,6 +1283,12 @@ def export_core_lifecycle(output, hashes):
     cold = bounded_json(output / 'cold-lifecycle.json')
     warm = bounded_json(output / 'warm-lifecycle.json')
     identity = bounded_json(output / 'core-identity.json')
+    auth_cold = bounded_json(output / 'auth-cold.json')
+    auth_warm = bounded_json(output / 'auth-warm.json')
+    for phase in ('auth-cold', 'auth-warm'):
+        validate_lifecycle_log(output / (phase + '.private'))
+    require(auth_cold == {'invalidRejected': True, 'validAccepted': True, 'databaseExistedBefore': False, 'onboardingBefore': 'absent', 'onboardingAfter': 'persisted', 'invalidNoDatabase': True}, 'cold auth status mismatch')
+    require(auth_warm == {'invalidRejected': True, 'validAccepted': True, 'databaseExistedBefore': True, 'onboardingBefore': 'persisted', 'onboardingAfter': 'persisted', 'cachedRevocation': True, 'revocationAfterExpiry': True, 'passwordCutoffAfterExpiry': True}, 'warm auth status mismatch')
     observations = []
     for phase, value in (('cold', cold), ('warm', warm)):
         validate_lifecycle_log(output / (phase + '-lifecycle.private'))
@@ -1362,7 +1381,7 @@ def export_core_lifecycle(output, hashes):
     require(combo_warm == {'phase': 'warm', 'driver': 'node:sqlite', 'importedPersisted': True, 'deletedAbsent': True}, 'combo warm lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
-    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in two isolated Node processes; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1]})
+    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}})
     save(export / 'provider-lifecycle.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Pinned handlers and source stores in the real cold core with authentication disabled; separate warm alias read. No ingress or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': provider['results'], 'warmAlias': warm_provider})
@@ -1600,8 +1619,8 @@ def export_observations(output, hashes):
     require(identity['authStatusClosure'] == {'sources': {name: sha(source[name]) for name in (AUTH_STATUS, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in auth_graph.items()}}, 'auth status closure mismatch')
     require(identity['addedSourceSha256'] == source_hashes and identity['pingDeclarationSha256'] == sha(declaration.encode()), 'source identity mismatch')
     auth_status_observation = ingress['authStatusHttp']
-    expected_status = {'anonymous': False, 'expired': False, 'tampered': False, 'valid': True, 'cachedRevocation': True, 'revoked': False, 'passwordChanged': False, 'settingsFailure': False}
-    require(auth_status_observation == {'cases': {name: {'status': 200, 'routeClass': 'PUBLIC', 'authenticated': value} for name, value in expected_status.items()}, 'onboardingBefore': [], 'onboardingAfter': [{'key': 'requireLogin', 'value': 'true'}, {'key': 'setupComplete', 'value': 'true'}]}, 'auth status HTTP outcome mismatch')
+    expected_status = {'anonymous': False, 'invalid': False, 'expired': False, 'tampered': False, 'valid': True, 'cachedRevocation': True, 'revoked': False, 'passwordChanged': False, 'settingsFailure': False}
+    require(auth_status_observation == {'cases': {name: {'status': 200, 'routeClass': 'PUBLIC', 'authenticated': value} for name, value in expected_status.items()}, 'invalidSettingsReads': 0, 'onboardingBefore': [], 'onboardingAfter': [{'key': 'requireLogin', 'value': 'true'}, {'key': 'setupComplete', 'value': 'true'}]}, 'auth status HTTP outcome mismatch')
     manifest_bytes = (FIXTURE / 'source-manifest.json').read_bytes()
     require(sha(manifest_bytes) == hashes['test/fixtures/pinned-ingress/source-manifest.json'], 'manifest bytes changed')
     manifest = json.loads(manifest_bytes)
