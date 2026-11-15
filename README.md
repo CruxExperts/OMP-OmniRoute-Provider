@@ -251,7 +251,7 @@ The relevant question is whether your gateway exposes the model through a suppor
 | Distribution | GitHub release assets and tagged GitHub source |
 | Optional administration | Availability is defined by the current operation inventory |
 
-A declared version range is not the same as a completed test matrix. The supplied startup screenshot displays OMP **18.12.6**, while the repository's generated reference lists **18.12.2, 18.12.5, 18.12.6, and 18.16.0** as its requested host test matrix. A screenshot is not a substitute for release verification. The gateway screenshot displays **3.8.51** and a customized label; it is an illustration of that user's setup, not a claim to show the latest OmniRoute release.
+A declared version range is not the same as a completed test matrix. The supplied startup screenshot displays OMP **18.12.6**; the [generated compatibility reference](docs/reference/generated.md#version-and-compatibility) owns the current requested host matrix, now including the separately verified Linux x64 OMP **18.20.2** host. That bounded compatibility check is not final-release or eight-platform qualification. The gateway screenshot displays **3.8.51** and a customized label; it illustrates that user's setup rather than the latest OmniRoute release.
 
 [Compatibility reference](docs/reference/generated.md#version-and-compatibility) · [Changelog](CHANGELOG.md) · [Upgrade or remove the plugin](docs/upgrading.md)
 
