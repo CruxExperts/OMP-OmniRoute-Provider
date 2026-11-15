@@ -182,6 +182,38 @@ class PortableSourceTests(DerivedSourceTests):
             self.portable()
         self.assertEqual((self.official / "file.txt").read_bytes(), b"base\n")
 
+    def test_gpg_uses_isolated_relative_paths_and_exact_bytes(self):
+        self.sign()
+        record = self.record_path.read_bytes()
+        signature = Path(str(self.record_path) + ".asc").read_bytes()
+        key = (self.key_root / ".github/crux-experts-release-signing-key.asc").read_bytes()
+        run = subprocess.run
+        calls = []
+        def observing_gpg(args, **kwargs):
+            home = Path(kwargs["cwd"])
+            self.assertTrue(home.is_absolute())
+            self.assertTrue(home.is_dir())
+            self.assertEqual(kwargs["env"]["GNUPGHOME"], ".")
+            self.assertEqual((home / "manifest.json").read_bytes(), record)
+            self.assertEqual((home / "manifest.json.asc").read_bytes(), signature)
+            calls.append((args, kwargs))
+            return run(args, **kwargs)
+        with patch.object(module.subprocess, "run", side_effect=observing_gpg):
+            module._verify_signature(self.record_path, self.key_root)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][0], ["gpg", "--batch", "--no-options", "--status-fd=1", "--import"])
+        self.assertEqual(calls[0][1]["input"], key)
+        self.assertEqual(calls[1][0], ["gpg", "--batch", "--no-options", "--status-fd=1", "--verify", "manifest.json.asc", "manifest.json"])
+        self.assertEqual(calls[0][1]["cwd"], calls[1][1]["cwd"])
+        self.assertFalse(Path(calls[0][1]["cwd"]).exists())
+
+    def test_modified_signed_manifest_fails_verification(self):
+        self.sign()
+        self.record_path.write_bytes(self.record_path.read_bytes() + b" ")
+        with self.assertRaisesRegex(ValueError, "GPG verify failed"):
+            self.portable()
+        self.assertFalse(self.output.exists())
+
     def test_invalid_public_key_reports_import_category(self):
         self.sign()
         key = self.key_root / ".github/crux-experts-release-signing-key.asc"
@@ -209,7 +241,9 @@ class PortableSourceTests(DerivedSourceTests):
         self.assertNotIn("secret", message)
         self.assertIn("--batch", calls[0][0])
         self.assertIn("--no-options", calls[0][0])
-        self.assertFalse(Path(calls[0][1]["env"]["GNUPGHOME"]).exists())
+        self.assertEqual(calls[0][1]["env"]["GNUPGHOME"], ".")
+        self.assertEqual(calls[0][1]["cwd"], calls[1][1]["cwd"])
+        self.assertFalse(Path(calls[0][1]["cwd"]).exists())
         self.assertFalse(self.output.exists())
 
     def test_invalid_manifest_and_signature(self):

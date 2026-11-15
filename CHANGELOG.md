@@ -4,6 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Preserve exact provenance bytes on Windows checkouts and isolate signature
+  verification from platform-specific absolute-path handling. Signature failures
+  expose only bounded diagnostic categories, never local paths or raw key output.
+
 - Qualify both public agent-discovery card GETs with actual anonymous Next.js
   requests outside the pinned proxy matcher, distinct source handlers and cache
   headers. Keep the client view filtered and distinguish advertised protocol

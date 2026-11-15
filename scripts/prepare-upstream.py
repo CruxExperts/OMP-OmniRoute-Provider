@@ -230,7 +230,7 @@ def verify_effective_tree(root, source_archive_sha256, derivation):
     return receipt
 
 
-def _gpg_failure(stage, result, env):
+def _gpg_failure(stage, result, env, home):
     # Only fixed categories and numeric status codes leave this boundary; GPG
     # diagnostics can contain host paths, key identities, and other local data.
     stderr = result.stderr.decode("utf-8", errors="replace").lower()
@@ -249,7 +249,7 @@ def _gpg_failure(stage, result, env):
     executable = (shutil.which("gpg") or "").replace("\\", "/").lower()
     flavor = "git-usr-bin" if "/git/usr/bin/" in executable else "gnupg-bin" if "/gnupg/bin/" in executable else "other"
     try:
-        version = subprocess.run(["gpg", "--version"], env=env, stdout=subprocess.PIPE,
+        version = subprocess.run(["gpg", "--version"], env=env, cwd=home, stdout=subprocess.PIPE,
                                  stderr=subprocess.DEVNULL, timeout=10, check=False).stdout[:256]
         match = re.match(rb"gpg \(GnuPG\) ([0-9]+(?:\.[0-9]+){1,3})", version)
         version = match.group(1).decode("ascii") if match else "unknown"
@@ -264,18 +264,21 @@ def _verify_signature(record_path, root):
     key = root / ".github/crux-experts-release-signing-key.asc"
     for path in (record_path, signature, key):
         _no_symlinks(path)
-        _regular(path, 1024 * 1024)
+    record_bytes, signature_bytes, key_bytes = (_regular(path, 1024 * 1024)
+                                                for path in (record_path, signature, key))
     with tempfile.TemporaryDirectory() as home:
         os.chmod(home, 0o700)
-        env = {**os.environ, "GNUPGHOME": home, "LC_ALL": "C"}
-        imported = subprocess.run(["gpg", "--batch", "--no-options", "--status-fd=1", "--import", str(key)],
-                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (Path(home) / "manifest.json").write_bytes(record_bytes)
+        (Path(home) / "manifest.json.asc").write_bytes(signature_bytes)
+        env = {**os.environ, "GNUPGHOME": ".", "LC_ALL": "C"}
+        imported = subprocess.run(["gpg", "--batch", "--no-options", "--status-fd=1", "--import"],
+                                  input=key_bytes, cwd=home, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if imported.returncode:
-            _gpg_failure("import", imported, env)
-        result = subprocess.run(["gpg", "--batch", "--no-options", "--status-fd=1", "--verify", str(signature), str(record_path)],
-                                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            _gpg_failure("import", imported, env, home)
+        result = subprocess.run(["gpg", "--batch", "--no-options", "--status-fd=1", "--verify", "manifest.json.asc", "manifest.json"],
+                                cwd=home, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if result.returncode:
-            _gpg_failure("verify", result, env)
+            _gpg_failure("verify", result, env, home)
         valid = [line.split() for line in result.stdout.decode("ascii").splitlines() if line.startswith("[GNUPG:] VALIDSIG ")]
         if len(valid) != 1 or valid[0][2] != SIGNING_FINGERPRINT:
             raise ValueError("Derivation signature signer mismatch")
