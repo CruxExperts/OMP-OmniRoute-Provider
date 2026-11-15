@@ -24,7 +24,7 @@ import {
   nativeAdminInitialStep,
   nativeAdminIoTimeoutMs,
   nativeAdminNewPlanPattern,
-  nativeAdminPromptPattern,
+  nativePromptPattern,
   nativeAdminSelectorSnapshot,
   nativeAdminUnknownOutcomePattern,
   nativeEnvironmentSwitchConfirmationPattern,
@@ -396,11 +396,15 @@ test("native operation availability is tied to that operation's complete descrip
   )).toBe(false);
 });
 
-test("native administration prompt accepts the model selected by earlier inference", () => {
-  expect(nativeAdminPromptPattern.test("π-omniroute-smoke > ⬢ fixture-responses-model > 📁 workspace >"))
+test("native prompt accepts host-selected models and rejects incomplete status lines", () => {
+  expect(nativePromptPattern.test("π-omniroute-smoke > ⬢ fixture-responses-model > 📁 workspace >"))
     .toBe(true);
-  expect(nativeAdminPromptPattern.test("π-omniroute-smoke > ⬢ no-model > 📁 workspace >"))
+  expect(nativePromptPattern.test("π-omniroute-smoke > ⬢ no-model > 📁 workspace >"))
     .toBe(true);
+  expect(nativePromptPattern.test("π-omniroute-smoke > ◒ Opus 5.5 (US) > 🗑 workspace"))
+    .toBe(true);
+  for (const output of ["", "Update Available\n╰─", "π-omniroute-smoke >  >", "π-omniroute-smoke > ◒ Opus 5.5 (US)"])
+    expect(nativePromptPattern.test(output)).toBe(false);
 });
 
 test("native login confirms an affirmative switch away from environment credentials", () => {
@@ -464,7 +468,7 @@ test("login submits only after Tab completion renders, including output during w
   const enterWritten = Promise.withResolvers<void>();
   const cancelWritten = Promise.withResolvers<void>();
   const scheduler = createDialogueScheduler([
-    { when: /initial prompt/, text: "/login", afterMs: 0, captureDuringDispatch: true },
+    { when: nativePromptPattern, text: "/login", afterMs: 0, captureDuringDispatch: true },
     { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
     { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
     { when: /Select provider to login/, text: "cancel", afterMs: 0 },
@@ -479,7 +483,9 @@ test("login submits only after Tab completion renders, including output during w
     } else if (index === 2) enterWritten.resolve();
     else cancelWritten.resolve();
   });
-  expect(scheduler.observe("initial prompt")).toBe(true);
+  expect(scheduler.observe("OMP OmniRoute Provider: connect your gateway with /omniroute setup.\nUpdate Available\nNew version 18.20.2 is available. Run: omp update\n")).toBe(false);
+  expect(scheduler.observe("\u001b[0m π-omniroute-smoke > ◒ Opus 5.5 (US) ")).toBe(false);
+  expect(scheduler.observe("> 🗑 workspace ▶─1%────\r\n╰─      ⇧⇥ to change thinking effort\r\n")).toBe(true);
   await writeStarted.promise;
   scheduler.observe("╰─ /login\r\n❯ ⤵  login           Login: choose ");
   scheduler.observe("provider\r\n");

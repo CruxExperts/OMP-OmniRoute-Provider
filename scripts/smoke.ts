@@ -900,7 +900,8 @@ export const nativeLoginCommandCompletedPattern = /\/login[ \t]+\[provider\|redi
 
 // Native readiness requires the committed binding and a live chat catalog.
 export const nativeSetupActivatedPattern = /omniroute:[ \t]*source=native profile;\s*(?:runtime environment overrides ignored; native source never falls back;\s*)?catalog ready;\s*chat models=[1-9]\d*;\s*live rows=[1-9]\d*/i;
-export const nativeAdminPromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*⬢ [^>\r\n]{1,120}[ \t]*>/u;
+// The host status line uses provider-specific icons and may select a default model.
+export const nativePromptPattern = /π-omniroute-smoke[ \t]*>[ \t]*[^>\r\n]{0,119}[^>\s][ \t]*>/u;
 export const nativeAdminInitialStep: DialogueStep = {
   when: /omniroute operations: (?:disabled|enabled); \/omniroute-admin enable, disable, or search; mutations require an interactive human confirmation/,
   text: "/omniroute-admin enable\n",
@@ -1403,13 +1404,13 @@ export async function writeNativeLoginDiagnostic(path: string, identity: NativeL
 
 async function nativePromptCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv, diagnosticIdentity?: NativeLoginDiagnosticIdentity, research?: { instrumented: boolean; observations: JsonObject }): Promise<{ prompted: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
+    { when: nativePromptPattern, text: "/login", afterMs: 4_000, captureDuringDispatch: true },
     // Complete the visible command with Tab before submitting it with Enter.
     { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
     { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
     { when: /Select provider to login[\s\S]*?Type to search/i, text: "omniroute\n", afterMs: 250 },
     { when: /OmniRoute base URL/i, text: "\u001b", afterMs: 250 },
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
+    { when: nativePromptPattern, text: "__SIGTERM__", afterMs: 250 },
   ];
   const diagnosticPath = process.env.OMP_SMOKE_LOGIN_DIAGNOSTIC_PATH;
   const endpoint = diagnosticPath || research ? (process.platform === "win32" ? `\\\\.\\pipe\\cruxomni-smoke-${randomUUID()}` : join(tmpdir(), `cruxomni-${randomUUID()}.sock`)) : undefined;
@@ -1475,9 +1476,9 @@ async function nativePromptCancel(binary: string, cwd: string, environment: Node
 
 async function nativeWizardCancel(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<{ rendered: boolean; cancelled: boolean }> {
   const dialogue = [
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "/omniroute setup\n", afterMs: 4_000 },
+    { when: nativePromptPattern, text: "/omniroute setup\n", afterMs: 4_000 },
     { when: new RegExp(`${DISPLAY_NAME}\\s+—\\s+Setup`, "i"), text: "\u001b", afterMs: 500 },
-    { when: /π-omniroute-smoke\s*>\s*⬢ no-model\s*>/u, text: "__SIGTERM__", afterMs: 250 },
+    { when: nativePromptPattern, text: "__SIGTERM__", afterMs: 250 },
   ];
   const result = await runPtyCommand(binary, { cwd, env: environment, timeoutMs: 35_000, dialogue });
   const output = normalizeTerminalOutput(`${result.stdout}\n${result.stderr}`);
@@ -1510,7 +1511,7 @@ async function nativePromptSetup(
   let stagingFailed = false;
   let postSwitchEnvironmentRequestIndex: number | undefined;
   const dialogue: DialogueStep[] = [
-    { when: nativeAdminPromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login", afterMs: scripted ? 0 : 4_000, captureDuringDispatch: !scripted },
+    { when: nativePromptPattern, text: scripted ? "__OBSERVE_ONLY__" : "/login", afterMs: scripted ? 0 : 4_000, captureDuringDispatch: !scripted },
     ...(!scripted ? [
       { when: nativeLoginCommandRenderedPattern, text: "\t", afterMs: 0, captureDuringDispatch: true },
       { when: nativeLoginCommandCompletedPattern, text: "\r", afterMs: 0, captureDuringDispatch: true },
@@ -1590,7 +1591,7 @@ async function nativePromptSetup(
 }
 
 async function nativeAdminWalkthrough(binary: string, cwd: string, environment: NodeJS.ProcessEnv): Promise<void> {
-  const prompt = nativeAdminPromptPattern;
+  const prompt = nativePromptPattern;
   const dialogue = [
     nativeAdminInitialStep,
     { when: nativeAdminEnableConfirmationPattern, text: "\n", afterMs: 250 },
