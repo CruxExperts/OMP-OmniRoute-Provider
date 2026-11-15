@@ -56,27 +56,20 @@ export interface CustomAgent {
 
 type ProcessMode = "success" | "failure" | "stall";
 
-export function ownedWindowsDrivePath(value: string): string {
-  return value.replace(/^\\\\\?\\(?=[A-Za-z]:\\)/, "");
-}
-
 function ownedDirectory(): string {
-  const created = mkdtempSync(path.join(tmpdir(), "acp-owned-"));
-  if (process.platform !== "win32") return created;
-  const usable = ownedWindowsDrivePath(created);
-  if (usable !== created) {
-    try {
-      const original = lstatSync(created);
-      const converted = lstatSync(usable);
-      if (!original.isDirectory() || !converted.isDirectory() || original.dev !== converted.dev || original.ino !== converted.ino) {
-        throw new Error("Owned temporary directory identity mismatch");
-      }
-    } catch (error) {
-      rmSync(created, { recursive: true, force: true });
-      throw error;
-    }
+  if (process.platform !== "win32") return mkdtempSync(path.join(tmpdir(), "acp-owned-"));
+  const parent = process.env.ACP_FIXTURE_PARENT ?? tmpdir();
+  if (!/^[A-Za-z]:[\\/]/.test(parent) || !/^[A-Za-z0-9._+@:/\\-]+$/.test(parent)) {
+    throw new Error("Windows owned fixture parent is not shell-safe");
   }
-  return usable;
+  const info = lstatSync(parent);
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid Windows owned fixture parent");
+  const created = mkdtempSync(path.join(parent, "acp-owned-"));
+  if (!/^[A-Za-z0-9._+@:/\\-]+$/.test(created)) {
+    rmSync(created, { recursive: true, force: true });
+    throw new Error("Windows owned fixture directory is not shell-safe");
+  }
+  return created;
 }
 
 /** Owns all executable fixtures and their only writable counter; not a sandbox for arbitrary code. */
@@ -165,7 +158,7 @@ export class AcpOwnedProcesses {
   }
 }
 
-export interface AcpProbeInspection { resolved: boolean; exact: boolean; normalized: boolean; caseInsensitive: boolean; shell: boolean; shellSafe: boolean; hasWhitespace: boolean; driveNamespace: boolean }
+export interface AcpProbeInspection { resolved: boolean; exact: boolean; normalized: boolean; caseInsensitive: boolean; shell: boolean; shellSafe: boolean; hasWhitespace: boolean }
 
 /** Direct handler and pinned registry; process mode is restricted to owned fixtures. */
 export class AcpAgentsFixture {
@@ -213,7 +206,7 @@ export class AcpAgentsFixture {
       return { resolved: probe !== null, exact: command === binary,
         normalized: path.normalize(command) === path.normalize(binary), caseInsensitive: command.toLowerCase() === binary.toLowerCase(),
         shell: Boolean(probe && useShell(command)),
-        shellSafe: Boolean(probe && shellSafe(command)), hasWhitespace: /\s/.test(binary), driveNamespace: ownedWindowsDrivePath(binary) !== binary };
+        shellSafe: Boolean(probe && shellSafe(command)), hasWhitespace: /\s/.test(binary) };
     };
     const headers = loadPinnedModule("src/server/authz/headers.ts", s => { throw new Error(`Unexpected headers import: ${s}`); });
     const guard = loadPinnedModule("src/server/authz/routeGuard.ts", s => {

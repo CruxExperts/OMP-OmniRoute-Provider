@@ -1,7 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
 import { readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, ownedWindowsDrivePath, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
+import { ACP_AGENTS_GET_ID, AcpAgentsFixture, AcpOwnedProcesses, acpAgentsGetContract, acpAgentsGetDescriptor, type AcpProbeInspection, type CustomAgent } from "./fixtures/acp-agents.fixture.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 
@@ -195,30 +196,33 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
   expect(fixture.probes.length).toBeGreaterThan(0);
 });
 
-test("owned Windows drive namespace conversion preserves unsafe inputs", () => {
-  const fixture = new AcpAgentsFixture();
-  const drive = ownedWindowsDrivePath(String.raw`\\?\C:\safe\probe.cmd`);
-  expect(drive).toBe(String.raw`C:\safe\probe.cmd`);
-  expect(fixture.inspectProbe(drive, `"${drive}" --version`).shellSafe).toBe(true);
-  for (const value of [String.raw`\\?\UNC\server\share\probe.cmd`, String.raw`\\?\C:\bad!\probe.cmd`, String.raw`C:\bad!\probe.cmd`]) {
-    const converted = ownedWindowsDrivePath(value);
-    if (value.includes("UNC")) expect(converted).toBe(value);
-    else expect(converted).toContain("!");
-    expect(fixture.inspectProbe(converted, `"${converted}" --version`).shellSafe).toBe(false);
+test.skipIf(process.platform !== "win32")("owned Windows fixture rejects an unsafe parent before creating files", () => {
+  const previous = process.env.ACP_FIXTURE_PARENT;
+  try {
+    process.env.ACP_FIXTURE_PARENT = "C:\\unsafe!\\fixture";
+    expect(() => new AcpOwnedProcesses()).toThrow("Windows owned fixture parent is not shell-safe");
+  } finally {
+    if (previous === undefined) delete process.env.ACP_FIXTURE_PARENT;
+    else process.env.ACP_FIXTURE_PARENT = previous;
   }
 });
 
 // Candidate evidence only: the controlled process is not a qualification receipt,
 // and neither real ingress nor the production authorization policy is established.
 type AcpProcessObservation = { status: number | null; code: string; signal: string; stdout: string; error: string };
-type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string;
+type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string; tempForbiddenCodes?: number[]; parentForbiddenCodes?: number[];
   processes?: { recordCount: number | null; outcomeCount: number; probeCount: number; successProbeCount: number; normalizedProbeCount: number; caseInsensitiveProbeCount: number; successPathShellSafe: boolean; successPreflight: string; sourceProbes: { success: AcpProbeInspection | null; failure: AcpProbeInspection | null; stall: AcpProbeInspection | null }; sourceShell: boolean | null; rejections: Record<string, number>; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
 let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
 function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
-  acpObservation = { stage, category: "incomplete", ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
+  acpObservation = { stage, category: "incomplete", ...(acpObservation.tempForbiddenCodes ? { tempForbiddenCodes: acpObservation.tempForbiddenCodes } : {}), ...(acpObservation.parentForbiddenCodes ? { parentForbiddenCodes: acpObservation.parentForbiddenCodes } : {}), ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
   if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
 }
 async function ownedProcessCase(): Promise<void> {
+  const forbiddenCodes = (value: string): number[] => [...new Set(value.split("").filter(char => !/^[A-Za-z0-9._+@:/\\-]$/.test(char)).map(char => char.charCodeAt(0)))].slice(0, 16);
+  if (process.platform === "win32") {
+    acpObservation.tempForbiddenCodes = forbiddenCodes(tmpdir());
+    acpObservation.parentForbiddenCodes = forbiddenCodes(process.env.ACP_FIXTURE_PARENT ?? tmpdir());
+  }
   acpStage("initializing");
   try {
     await runOwnedProcessCase();

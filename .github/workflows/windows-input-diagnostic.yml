@@ -203,6 +203,7 @@ jobs:
         env:
           ACP_TARGET: ${{ matrix.id }}
           ACP_OBSERVATION_PATH: ${{ runner.temp }}/windows-acp-stage.json
+          ACP_FIXTURE_PARENT: ${{ runner.temp }}
         run: |
           '{"stage":"not-started","category":"incomplete"}' | Set-Content -Encoding utf8 $env:ACP_OBSERVATION_PATH
           $result = [ordered]@{
