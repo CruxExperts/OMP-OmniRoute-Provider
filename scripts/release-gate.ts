@@ -1,12 +1,15 @@
 import { createHash, type Hash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, readFile, readdir, realpath } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { isMuslTarget, validateMuslRuntimeEvidence } from "./musl-runtime.ts";
 import { validateNativeSmokeOutput } from "./qualify-release.ts";
-import { REPOSITORY_SLUG } from "../src/identity.ts";
+import { GITHUB_REPOSITORY, REPOSITORY_SLUG } from "../src/identity.ts";
 import { resolveQualificationSource } from "./route-source-store.ts";
+import { testCaseSourceHash } from "./generate-contracts.ts";
+import ts from "typescript";
 
 const execFileAsync = promisify(execFile);
 const defaultRoot = resolve(import.meta.dir, "..");
@@ -164,6 +167,186 @@ export function verifyQualificationRunMetadata(options: { run: unknown; jobs: un
   }
   return { workflowPath, workflowName, targets: qualificationTargetIds.length };
 }
+/** Validate authenticated Actions responses; caller must obtain them from GitHub. */
+export function validateAcpRunMetadata(options: { run: unknown; jobs: unknown; artifacts: unknown; repository: string; runId: string; sourceRevision: string }): { attempt: number; artifacts: Record<"windows-x64" | "windows-arm64", { id: number; digest: string }> } {
+  const { repository, runId, sourceRevision } = options;
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !/^[1-9][0-9]{0,18}$/.test(runId) || !gitShaPattern.test(sourceRevision)) throw new Error("Invalid native ACP run identity");
+  const run = objectValue(options.run, "native ACP run");
+  if (String(run.id) !== runId || objectValue(run.repository, "native ACP repository").full_name !== repository || run.head_sha !== sourceRevision ||
+      run.path !== ".github/workflows/windows-input-diagnostic.yml" || run.name !== "windows-input-diagnostic" || run.event !== "workflow_dispatch" ||
+      run.status !== "completed" || run.conclusion !== "success" || run.run_attempt !== 1) throw new Error("Native ACP run identity or result mismatch");
+  const jobsRoot = objectValue(options.jobs, "native ACP jobs");
+  const jobs = recordArray(jobsRoot.jobs, "native ACP jobs list");
+  if (!Number.isSafeInteger(jobsRoot.total_count) || jobsRoot.total_count !== jobs.length) throw new Error("Native ACP jobs response is incomplete");
+  const artifactRoot = objectValue(options.artifacts, "native ACP artifacts");
+  const artifactList = recordArray(artifactRoot.artifacts, "native ACP artifacts list");
+  if (!Number.isSafeInteger(artifactRoot.total_count) || artifactRoot.total_count !== artifactList.length) throw new Error("Native ACP artifacts response is incomplete");
+  const selected = {} as Record<"windows-x64" | "windows-arm64", { id: number; digest: string }>;
+  for (const target of ["windows-x64", "windows-arm64"] as const) {
+    const found = jobs.filter(job => job.name === `native-owned-acp-${target}`);
+    if (found.length !== 1 || String(found[0]!.run_id) !== runId || found[0]!.status !== "completed" || found[0]!.conclusion !== "success" || found[0]!.head_sha !== sourceRevision) throw new Error(`Native ACP job missing or mismatched: ${target}`);
+    const matches = artifactList.filter(item => item.name === `windows-owned-acp-${target}`);
+    const artifact = matches[0];
+    if (matches.length !== 1 || !artifact || artifact.expired !== false || !Number.isSafeInteger(artifact.id) || (artifact.id as number) <= 0 || typeof artifact.digest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest) || String(objectValue(artifact.workflow_run, "artifact workflow run").id) !== runId || objectValue(artifact.workflow_run, "artifact workflow run").head_sha !== sourceRevision) throw new Error(`Native ACP artifact missing or mismatched: ${target}`);
+    selected[target] = { id: artifact.id as number, digest: artifact.digest.slice(7) };
+  }
+  if (selected["windows-x64"].id === selected["windows-arm64"].id) throw new Error("Native ACP artifacts must be distinct");
+  return { attempt: run.run_attempt as number, artifacts: selected };
+}
+
+type AcpTarget = "windows-x64" | "windows-arm64";
+export interface AcpNativeInputs {
+  caseSha256: string; lockfileSha256: string; packageSha256: string; compilerPackageSha256: string; compilerSha256: string; compilerVersion: string;
+  workflowSha256: string; upstreamManifestSha256: string; sourceManifestSha256: string; fixtureSha256: string; testSha256: string;
+  sourceDerivation: { record: string; sha256: string }; effectiveTreeSha256: string;
+}
+
+/** Checks artifact assertions only against independently computed expected inputs. */
+export function validateAcpNativeReceipt(value: unknown, target: AcpTarget, revision: string, expected: AcpNativeInputs): void {
+  const receipt = objectValue(value, "native ACP receipt");
+  const names = ["schemaVersion", "target", "commit", "os", "architecture", "bun", "bunArchitecture", "outcome", ...Object.keys(expected)].sort();
+  if (Object.keys(receipt).sort().join("\0") !== names.join("\0") || receipt.schemaVersion !== 2 || receipt.target !== target || receipt.commit !== revision || receipt.outcome !== "passed" ||
+      receipt.architecture !== (target === "windows-x64" ? "X64" : "ARM64") || receipt.bunArchitecture !== (target === "windows-x64" ? "x64" : "arm64") || receipt.bun !== "1.4.2" || typeof receipt.os !== "string" || receipt.os.length > 256 || /[\r\n\0]/.test(receipt.os)) throw new Error(`Native ACP receipt identity mismatch: ${target}`);
+  for (const [key, expectedValue] of Object.entries(expected)) {
+    if (key === "sourceDerivation") {
+      const derivation = objectValue(receipt[key], "native ACP derivation");
+      if (Object.keys(derivation).sort().join(",") !== "record,sha256" || derivation.record !== expected.sourceDerivation.record || derivation.sha256 !== expected.sourceDerivation.sha256) throw new Error(`Native ACP receipt source mismatch: ${target}`);
+    } else if (receipt[key] !== expectedValue) throw new Error(`Native ACP receipt input mismatch: ${target} ${key}`);
+  }
+}
+
+export function verifyAcpArchiveDigest(archive: Uint8Array, expected: string): string {
+  if (!sha256Pattern.test(expected)) throw new Error("Invalid native ACP artifact digest");
+  const actual = createHash("sha256").update(archive).digest("hex");
+  if (actual !== expected) throw new Error("Native ACP artifact digest mismatch");
+  return actual;
+}
+
+async function boundedAcpCommand(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; maxBuffer?: number } = {}): Promise<Buffer> {
+  try {
+    const result = await execFileAsync(command, args, { ...options, encoding: "buffer", timeout: 120_000, maxBuffer: options.maxBuffer ?? 2 * 1024 * 1024 });
+    return Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout);
+  } catch { throw new Error(`Native ACP ${command} operation failed`); }
+}
+
+/** Fetch GitHub evidence for a clean signed checkout; the output still requires review. */
+export async function readAcpEvidenceArchive(archivePath: string): Promise<{ receiptBytes: Buffer; stageBytes: Buffer }> {
+  const entries = (await boundedAcpCommand("unzip", ["-Z", "-1", archivePath], { maxBuffer: 4096 })).toString("utf8").trimEnd().split(/\r?\n/).sort();
+  if (entries.join("\0") !== ["windows-acp-result.json", "windows-acp-stage.json"].join("\0")) throw new Error("Native ACP artifact contents mismatch");
+  return {
+    receiptBytes: await boundedAcpCommand("unzip", ["-p", archivePath, "windows-acp-result.json"], { maxBuffer: 1024 * 1024 }),
+    stageBytes: await boundedAcpCommand("unzip", ["-p", archivePath, "windows-acp-stage.json"], { maxBuffer: 1024 * 1024 }),
+  };
+}
+
+export function validateAcpStage(value: unknown, target: AcpTarget): Record<string, unknown> {
+  const stage = objectValue(value, "native ACP stage");
+  const exactKeys = (value: Record<string, unknown>, keys: string[]) => Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+  const fail = () => { throw new Error(`Native ACP stage incomplete: ${target}`); };
+  if (!exactKeys(stage, ["stage", "category", "tempForbiddenCodes", "parentForbiddenCodes", "environment", "processes"]) || stage.category !== "passed" || stage.stage !== "cleanup") fail();
+  for (const name of ["tempForbiddenCodes", "parentForbiddenCodes"]) {
+    const codes = stage[name];
+    if (!Array.isArray(codes) || codes.length > 16 || codes.some(code => !Number.isInteger(code) || code < 0 || code > 65535)) fail();
+  }
+  const environment = objectValue(stage.environment, "native ACP environment");
+  if (!exactKeys(environment, ["supplied", "extras", "unknownCount", "unknownPrefixes", "unknownLengths", "unknownHasNonIdentifier", "processorArchitecture", "duplicateCount"]) || environment.unknownCount !== 0 || environment.duplicateCount !== 0 || environment.unknownHasNonIdentifier !== false || !Array.isArray(environment.unknownLengths) || environment.unknownLengths.length !== 0 || environment.processorArchitecture !== (target === "windows-arm64" ? "ARM64" : "absent")) fail();
+  const supplied = objectValue(environment.supplied, "native ACP supplied environment");
+  const suppliedNames = ["HOME", "TMPDIR", "BUN_DISABLE_TRANSPILER_CACHE", "SYSTEMROOT", "COMSPEC", ...(target === "windows-arm64" ? ["PROCESSOR_ARCHITECTURE"] : [])];
+  if (!exactKeys(supplied, suppliedNames)) fail();
+  for (const name of suppliedNames) {
+    const item = objectValue(supplied[name], "native ACP supplied variable");
+    if (!exactKeys(item, ["present", "matches"]) || item.present !== true || item.matches !== true) fail();
+  }
+  const extras = objectValue(environment.extras, "native ACP environment extras");
+  if (!exactKeys(extras, ["PATHEXT", "COMSPEC", "SYSTEMROOT", "TEMP", "TMP", "PROMPT", "SYSTEMDRIVE", "WINDIR", "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "BUN_JSC_FORCERAMSIZE", "BUN_RUNTIME_TRANSPILER_CACHE_PATH", "__COMPAT_LAYER"]) || Object.values(extras).some(item => item !== false)) fail();
+  const prefixes = objectValue(environment.unknownPrefixes, "native ACP unknown prefixes");
+  if (!exactKeys(prefixes, ["BUN_", "JSC_", "OMP_", "ACP_", "PROCESSOR_", "NODE_", "NPM_", "CI_", "GITHUB_", "RUNNER_", "__"]) || Object.values(prefixes).some(item => item !== 0)) fail();
+  const processes = objectValue(stage.processes, "native ACP processes");
+  if (!exactKeys(processes, ["recordCount", "outcomeCount", "probeCount", "successProbeCount", "normalizedProbeCount", "caseInsensitiveProbeCount", "sourceProbes", "sourceShell", "rejections", "successPathShellSafe", "successPreflight", "success", "failure", "stall"]) || processes.recordCount !== 3 || processes.outcomeCount !== 3 || processes.successProbeCount !== 1 || processes.normalizedProbeCount !== 1 || processes.caseInsensitiveProbeCount !== 1 || processes.sourceShell !== true || processes.successPathShellSafe !== true || processes.successPreflight !== "execute" || !Number.isInteger(processes.probeCount) || (processes.probeCount as number) < 3 || (processes.probeCount as number) > 1000) fail();
+  const probes = objectValue(processes.sourceProbes, "native ACP source probes");
+  if (!exactKeys(probes, ["success", "failure", "stall"])) fail();
+  for (const name of ["success", "failure", "stall"]) {
+    const probe = objectValue(probes[name], "native ACP source probe");
+    if (!exactKeys(probe, ["resolved", "exact", "normalized", "caseInsensitive", "shell", "shellSafe", "hasWhitespace"]) || ["resolved", "exact", "normalized", "caseInsensitive", "shell", "shellSafe"].some(key => probe[key] !== true) || probe.hasWhitespace !== false) fail();
+  }
+  const rejections = objectValue(processes.rejections, "native ACP rejected probes");
+  if (!exactKeys(rejections, ["ownership", "integrity", "options", "windows-shell", "execute"]) || Object.values(rejections).some(item => !Number.isInteger(item) || (item as number) < 0 || (item as number) > 1000) || rejections.integrity !== 0 || rejections.options !== 0 || rejections["windows-shell"] !== 0) fail();
+  const expected = { success: { status: 0, code: "none", signal: "none", stdout: "success", error: "none" }, failure: { status: 17, code: "none", signal: "none", stdout: "failure", error: "other" }, stall: { status: null, code: "ETIMEDOUT", signal: "SIGKILL", stdout: "empty", error: "timeout" } };
+  for (const name of ["success", "failure", "stall"] as const) {
+    const outcome = objectValue(processes[name], "native ACP process outcome");
+    if (!exactKeys(outcome, ["status", "code", "signal", "stdout", "error"]) || Object.entries(expected[name]).some(([key, item]) => outcome[key] !== item)) fail();
+  }
+  return { stage: "cleanup", category: "passed", recordCount: 3, outcomeCount: 3, environmentMatches: true, unknownEnvironmentCount: 0, sentinelAssertionPassed: true, outcomes: expected };
+}
+
+export async function collectAcpNativeProof(runId: string, revision: string): Promise<Record<string, unknown>> {
+  if (!/^[1-9][0-9]{0,18}$/.test(runId) || !gitShaPattern.test(revision) || !process.env.GH_TOKEN) throw new Error("Native ACP verification requires run ID, signed revision and GitHub token");
+  const root = defaultRoot;
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+  env.GIT_CONFIG_NOSYSTEM = "1";
+  env.GIT_CONFIG_GLOBAL = process.platform === "win32" ? "NUL" : "/dev/null";
+  const temporary = await mkdtemp(resolve(tmpdir(), "acp-proof-"));
+  try {
+    const git = (...args: string[]) => boundedAcpCommand("git", args, { cwd: root, env });
+    if ((await git("rev-parse", "HEAD")).toString("utf8").trim() !== revision || (await git("status", "--porcelain", "--untracked-files=all")).length !== 0) throw new Error("Native ACP source checkout is not clean at the requested revision");
+    const gpgEnv = { ...env, GNUPGHOME: temporary };
+    await boundedAcpCommand("gpg", ["--batch", "--no-options", "--import", resolve(root, ".github/crux-experts-release-signing-key.asc")], { env: gpgEnv });
+    let signature: string;
+    try {
+      const result = await execFileAsync("git", ["-c", "gpg.program=gpg", "verify-commit", "--raw", revision], { cwd: root, env: gpgEnv, timeout: 120_000, maxBuffer: 1024 * 1024 });
+      signature = result.stderr;
+    } catch { throw new Error("Native ACP source signature verification failed"); }
+    const signers = [...signature.matchAll(/^\[GNUPG:\] VALIDSIG ([A-F0-9]{40})\b/gm)];
+    if (signers.length !== 1 || signers[0]![1] !== "AF7968466B5B39C5E928FEFE716342D3EFBA5522") throw new Error("Native ACP source signer mismatch");
+    const source = objectValue(JSON.parse((await boundedAcpCommand("python3", ["scripts/prepare-upstream.py", "--verify-qualification-source"], { cwd: root, env })).toString("utf8")) as unknown, "verified native ACP source");
+    const derivation = objectValue(source.derivation, "verified native ACP derivation");
+    if (typeof derivation.record !== "string" || typeof derivation.sha256 !== "string" || !sha256Pattern.test(derivation.sha256) || typeof source.treeSha256 !== "string" || !sha256Pattern.test(source.treeSha256)) throw new Error("Invalid verified native ACP source");
+    const expected: AcpNativeInputs = {
+      caseSha256: testCaseSourceHash("test/admin-acp-agents.test.ts"), lockfileSha256: await hashFile(resolve(root, "bun.lock")), packageSha256: await hashFile(resolve(root, "package.json")),
+      compilerPackageSha256: await hashFile(resolve(root, "node_modules/typescript/package.json")), compilerSha256: await hashFile(resolve(root, "node_modules/typescript/lib/typescript.js")), compilerVersion: ts.version,
+      workflowSha256: await hashFile(resolve(root, ".github/workflows/windows-input-diagnostic.yml")), upstreamManifestSha256: await hashFile(resolve(root, "provenance/upstreams.json")),
+      sourceManifestSha256: await hashFile(resolve(root, "provenance/route-sources.json")), fixtureSha256: await hashFile(resolve(root, "test/fixtures/acp-agents.fixture.ts")), testSha256: await hashFile(resolve(root, "test/admin-acp-agents.test.ts")),
+      sourceDerivation: { record: derivation.record, sha256: derivation.sha256 }, effectiveTreeSha256: source.treeSha256,
+    };
+    const api = `repos/${GITHUB_REPOSITORY}/actions`;
+    const gh = (suffix: string) => boundedAcpCommand("gh", ["api", "--hostname", "github.com", `${api}/${suffix}`], { cwd: root, maxBuffer: 8 * 1024 * 1024 });
+    const json = async (suffix: string) => objectValue(JSON.parse((await gh(suffix)).toString("utf8")) as unknown, "GitHub native ACP metadata");
+    const run = await json(`runs/${runId}`);
+    const paged = async (suffix: string, key: "jobs" | "artifacts") => {
+      const all: unknown[] = []; let total: number | undefined;
+      for (let page = 1; page <= 10; page++) {
+        const response = await json(`${suffix}?per_page=100&page=${page}`);
+        if (!Number.isSafeInteger(response.total_count) || (total !== undefined && response.total_count !== total) || !Array.isArray(response[key])) throw new Error("Incomplete native ACP metadata");
+        total = response.total_count as number;
+        const entries = response[key] as unknown[]; all.push(...entries);
+        if (all.length === total) return { total_count: total, [key]: all };
+        if (all.length > total || entries.length === 0) break;
+      }
+      throw new Error("Incomplete native ACP metadata");
+    };
+    const jobs = await paged(`runs/${runId}/attempts/1/jobs`, "jobs");
+    const artifacts = await paged(`runs/${runId}/artifacts`, "artifacts");
+    const metadata = validateAcpRunMetadata({ run, jobs, artifacts, repository: GITHUB_REPOSITORY, runId, sourceRevision: revision });
+    const results: Array<{ target: AcpTarget; artifactId: number; archiveSha256: string; receiptSha256: string; stageSha256: string; stage: Record<string, unknown> }> = [];
+    for (const target of ["windows-x64", "windows-arm64"] as const) {
+      const artifact = metadata.artifacts[target];
+      const archive = await gh(`artifacts/${artifact.id}/zip`);
+      const digest = verifyAcpArchiveDigest(archive, artifact.digest);
+      const archivePath = resolve(temporary, `${target}.zip`);
+      await writeFile(archivePath, archive, { flag: "wx" });
+      const { receiptBytes, stageBytes } = await readAcpEvidenceArchive(archivePath);
+      const receipt = JSON.parse(receiptBytes.toString("utf8").replace(/^\uFEFF/, "")) as unknown;
+      const stage = JSON.parse(stageBytes.toString("utf8").replace(/^\uFEFF/, "")) as unknown;
+      validateAcpNativeReceipt(receipt, target, revision, expected);
+      const stageView = validateAcpStage(stage, target);
+      results.push({ target, artifactId: artifact.id, archiveSha256: digest, receiptSha256: createHash("sha256").update(receiptBytes).digest("hex"), stageSha256: createHash("sha256").update(stageBytes).digest("hex"), stage: stageView });
+    }
+    if ((await git("rev-parse", "HEAD")).toString("utf8").trim() !== revision || (await git("status", "--porcelain", "--untracked-files=all")).length !== 0) throw new Error("Native ACP source changed during collection");
+    return { schemaVersion: 1, kind: "native-acp-actions-proof", repository: GITHUB_REPOSITORY, runId, attempt: metadata.attempt, sourceRevision: revision, inputs: expected, results };
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+}
+
+
 
 export function verifyReleaseEnvironmentMetadata(value: unknown, expectedName = "release"): { name: string; reviewerCount: number; requiredReviewerRules: number } {
   const environment = objectValue(value, "GitHub release environment response");
@@ -269,7 +452,7 @@ async function validateManifest(root: string, releaseDirectory: string): Promise
   const sourceRevision = stringValue(parsed.sourceRevision, "release manifest sourceRevision");
   const publication = objectValue(parsed.publication, "release manifest publication");
   if (parsed.schemaVersion !== 1 || parsed.package !== packageName || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error("release manifest identity or version is invalid");
-  if (!gitShaPattern.test(sourceRevision) || publication.status !== "prepared" || publication.target !== "github-release-and-npm") throw new Error("release manifest is not a prepared receipt for this release workflow");
+  if (!gitShaPattern.test(sourceRevision) || publication.status !== "prepared" || (publication.target !== "github-only" && publication.target !== "github-and-npm")) throw new Error("release manifest is not a prepared receipt for this release workflow");
   if (!sha256Pattern.test(stringValue(parsed.lockfileSha256, "release manifest lockfileSha256"))) throw new Error("release manifest lockfile hash is invalid");
   const artifacts = recordArray(parsed.artifacts, "release manifest artifacts").map((item, index) => {
     const name = stringValue(item.name, `release artifact ${index} name`);
@@ -479,9 +662,10 @@ async function validateQualification(root: string, manifest: ReleaseManifest, pa
   return { targets: receipt.targets.length, operations: coverage.invokable, nonInvokable: coverage.nonInvokable, receiptBytes };
 }
 
-export async function createReleaseApprovalReceipt(options: { root?: string; releaseDirectory: string; qualificationPath: string }): Promise<{ status: "ready-for-protected-approval"; approvalReceiptSha256: string; manifestSha256: string; qualificationSha256: string; targets: number; qualifiedOperations: number; sourceRevision: string }> {
+export async function createReleaseApprovalReceipt(options: { root?: string; releaseDirectory: string; qualificationPath: string; destination?: "github-only" | "github-and-npm" }): Promise<{ status: "ready-for-protected-approval"; approvalReceiptSha256: string; manifestSha256: string; qualificationSha256: string; targets: number; qualifiedOperations: number; sourceRevision: string }> {
   const root = resolve(options.root ?? defaultRoot);
   const { manifest, bytes: manifestBytes, packageArtifact } = await validateManifest(root, resolve(options.releaseDirectory));
+  if (manifest.publication.target !== (options.destination ?? "github-and-npm")) throw new Error("release publication destination differs from qualified manifest");
   const qualification = await validateQualification(root, manifest, packageArtifact, resolve(options.qualificationPath));
   const manifestSha256 = createHash("sha256").update(manifestBytes).digest("hex");
   const qualificationSha256 = createHash("sha256").update(qualification.receiptBytes).digest("hex");
@@ -497,7 +681,7 @@ export async function createReleaseApprovalReceipt(options: { root?: string; rel
   };
 }
 
-export async function verifyReleaseApproval(options: { root?: string; releaseDirectory: string; qualificationPath: string; expectedReceiptSha256: string }): Promise<Awaited<ReturnType<typeof createReleaseApprovalReceipt>>> {
+export async function verifyReleaseApproval(options: { root?: string; releaseDirectory: string; qualificationPath: string; expectedReceiptSha256: string; destination?: "github-only" | "github-and-npm" }): Promise<Awaited<ReturnType<typeof createReleaseApprovalReceipt>>> {
   if (!sha256Pattern.test(options.expectedReceiptSha256)) throw new Error("expected approval receipt must be a lowercase SHA-256 digest");
   const receipt = await createReleaseApprovalReceipt(options);
   if (receipt.approvalReceiptSha256 !== options.expectedReceiptSha256) throw new Error(`exact release approval receipt mismatch: generated ${receipt.approvalReceiptSha256}`);
@@ -589,6 +773,7 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
   if ((destination !== "github-only" && destination !== "github-and-npm") || !/^v\d+\.\d+\.\d+$/.test(tag) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !token || (destination === "github-and-npm" && !npmToken)) throw new Error("invalid publication identity, destination, or missing credentials");
   const command = dependencies.command ?? (async (name: string, args: string[], env?: NodeJS.ProcessEnv) => execFileAsync(name, args, { env }));
   const manifest = await readJson(resolve(releaseDirectory, "release-manifest.json"), "release manifest");
+  if (objectValue(manifest.publication, "release manifest publication").target !== destination) throw new Error("release publication destination differs from qualified manifest");
   const version = stringValue(manifest.version, "release version");
   if (tag !== `v${version}` || manifest.package !== packageName) throw new Error("publication tag or package does not match manifest");
   const artifacts = recordArray(manifest.artifacts, "release artifacts");
@@ -697,10 +882,23 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "verify-native-acp") {
+    const [runId, revision, outputDirectory] = args;
+    if (!runId || !revision || !outputDirectory || args.length !== 3) throw new Error("usage: bun run scripts/release-gate.ts verify-native-acp <run-id> <signed-revision> <private-output-directory>");
+    const proof = await collectAcpNativeProof(runId, revision);
+    const bytes = Buffer.from(`${JSON.stringify(proof)}\n`);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const directory = resolve(outputDirectory);
+    const info = await lstat(directory);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Native ACP proof output must be an existing directory");
+    await writeFile(resolve(directory, `${digest}.json`), bytes, { flag: "wx", mode: 0o600 });
+    process.stdout.write(`${JSON.stringify({ status: "native-acp-evidence-collected-review-required", sha256: digest })}\n`);
+    return;
+  }
   if (command === "publish") {
     const [releaseDirectory, evidenceDirectory, tag, repository, qualificationPath, approval, destination] = args;
     if (!releaseDirectory || !evidenceDirectory || !tag || !repository || !qualificationPath || !approval || (destination !== "github-only" && destination !== "github-and-npm")) throw new Error("usage: bun run scripts/release-gate.ts publish <release-directory> <evidence-directory> <tag> <repository> <qualification-receipt.json> <approval-sha256> <github-only|github-and-npm>");
-    await verifyReleaseApproval({ releaseDirectory, qualificationPath, expectedReceiptSha256: approval });
+    await verifyReleaseApproval({ releaseDirectory, qualificationPath, expectedReceiptSha256: approval, destination });
     await publishApprovedRelease(releaseDirectory, evidenceDirectory, tag, repository, process.env.GH_TOKEN ?? "", destination === "github-and-npm" ? process.env.NODE_AUTH_TOKEN ?? "" : "", {}, destination);
     return;
   }
@@ -728,15 +926,17 @@ async function main(): Promise<void> {
     return;
   }
 
-  const [releaseDirectory, qualificationPath, expectedReceiptSha256] = args;
+  const [releaseDirectory, qualificationPath, expectedReceiptSha256, requestedDestination] = args;
+  const destination = command === "receipt" ? expectedReceiptSha256 ?? "github-and-npm" : requestedDestination ?? "github-and-npm";
+  if (destination !== "github-only" && destination !== "github-and-npm") throw new Error("invalid release publication destination");
   if (!releaseDirectory || !qualificationPath || (command !== "receipt" && (command !== "approve" || !expectedReceiptSha256))) {
     throw new Error("usage: bun run scripts/release-gate.ts verify-environment <environment.json> <environment-name> | verify-run <run.json> <jobs.json> <owner/repository> <run-id> <source-revision> | receipt <release-directory> <qualification-receipt.json> | approve <release-directory> <qualification-receipt.json> <expected-approval-sha256>");
   }
   if (command === "receipt") {
-    process.stdout.write(`${JSON.stringify(await createReleaseApprovalReceipt({ releaseDirectory, qualificationPath }), null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(await createReleaseApprovalReceipt({ releaseDirectory, qualificationPath, destination }), null, 2)}\n`);
     return;
   }
-  process.stdout.write(`${JSON.stringify(await verifyReleaseApproval({ releaseDirectory, qualificationPath, expectedReceiptSha256: expectedReceiptSha256! }), null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(await verifyReleaseApproval({ releaseDirectory, qualificationPath, expectedReceiptSha256: expectedReceiptSha256!, destination }), null, 2)}\n`);
 }
 
 if (import.meta.main) {

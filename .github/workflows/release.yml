@@ -80,6 +80,7 @@ jobs:
       - name: Verify qualification and exact manual approval receipt
         env:
           APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          RELEASE_DESTINATION: ${{ inputs.destination }}
           QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -115,7 +116,7 @@ jobs:
           test "$(jq -r .producer.workflowPath "$qualification_receipt")" = ".github/workflows/qualification.yml"
           test "$(jq -r .producer.workflowName "$qualification_receipt")" = "release-qualification"
           test "$(jq -r .producer.workflowSha256 "$qualification_receipt")" = "$(sha256sum .github/workflows/qualification.yml | cut -d ' ' -f 1)"
-          bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" > "$RUNNER_TEMP/cruxomni-release-approval.json"
+          bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" "$RELEASE_DESTINATION" > "$RUNNER_TEMP/cruxomni-release-approval.json"
           approval="$(jq -r .approvalReceiptSha256 "$RUNNER_TEMP/cruxomni-release-approval.json")"
           source_revision="$(jq -r .sourceRevision "$RUNNER_TEMP/cruxomni-release-approval.json")"
           qualified_operations="$(jq -r .qualifiedOperations "$RUNNER_TEMP/cruxomni-release-approval.json")"
@@ -180,6 +181,7 @@ jobs:
       - name: Retrieve and revalidate the exact qualified artifacts
         env:
           APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+          RELEASE_DESTINATION: ${{ inputs.destination }}
           QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -215,7 +217,7 @@ jobs:
           test "$(jq -r .producer.workflowPath "$qualification_receipt")" = ".github/workflows/qualification.yml"
           test "$(jq -r .producer.workflowName "$qualification_receipt")" = "release-qualification"
           test "$(jq -r .producer.workflowSha256 "$qualification_receipt")" = "$(sha256sum .github/workflows/qualification.yml | cut -d ' ' -f 1)"
-          bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" > "$RUNNER_TEMP/cruxomni-release-approval.json"
+          bun run scripts/release-gate.ts approve release "$qualification_receipt" "$APPROVAL_SHA256" "$RELEASE_DESTINATION" > "$RUNNER_TEMP/cruxomni-release-approval.json"
           cp "$qualification_receipt" "$RUNNER_TEMP/release-qualification-receipt.json"
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf - -C "$qualification_directory" evidence | gzip -n > "$RUNNER_TEMP/release-qualification-evidence.tar.gz"
           cp "$RUNNER_TEMP/cruxomni-release-approval.json" "$RUNNER_TEMP/release-approval.json"
@@ -238,7 +240,7 @@ jobs:
           APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
         run: |
           set -euo pipefail
-          bun run scripts/release-gate.ts approve release "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" > /dev/null
+          bun run scripts/release-gate.ts approve release "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" github-and-npm > /dev/null
           npmrc="$RUNNER_TEMP/cruxomni-npmrc"
           trap 'rm -f "$npmrc"' EXIT
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$npmrc"

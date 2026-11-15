@@ -197,6 +197,47 @@ jobs:
         run: |
           bun install --frozen-lockfile --ignore-scripts
           bun run prepare:upstream
+      - name: Bind exact source and test inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/prepare-upstream.py --verify-qualification-source > "$RUNNER_TEMP/acp-verified-source.private.json"
+          bun -e '
+          import { readFileSync, writeFileSync } from "node:fs";
+          import { createHash } from "node:crypto";
+          import ts from "typescript";
+          import { execFileSync } from "node:child_process";
+          import { lstatSync } from "node:fs";
+          import { testCaseSourceHash } from "./scripts/generate-contracts.ts";
+          const hash = file => createHash("sha256").update(readFileSync(file)).digest("hex");
+          const tracked = execFileSync("git", ["--no-replace-objects", "ls-tree", "-r", "-z", "HEAD"], { maxBuffer: 8 * 1024 * 1024 }).toString("utf8").split("\0").filter(Boolean);
+          if (tracked.length > 20000) throw new Error("Tracked source count exceeds verification bound");
+          let total = 0;
+          for (const entry of tracked) {
+            const match = /^(100644|100755|120000) blob ([a-f0-9]{40})\t(.+)$/.exec(entry);
+            if (!match) throw new Error("Invalid tracked source entry");
+            const [, mode, expectedBlob, file] = match;
+            if (file.startsWith("assets/")) continue;
+            if (!(/\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|json|py|yml|yaml)$/.test(file) || file === "bun.lock" || file === ".gitattributes" || file === ".github/crux-experts-release-signing-key.asc" || file.startsWith("provenance/derivations/"))) continue;
+            if (mode === "120000" || file.startsWith("-") || file.includes("\\") || file.split("/").some(part => !part || part === "." || part === "..")) throw new Error("Invalid tracked source path");
+            const info = lstatSync(file);
+            if (!info.isFile() || info.isSymbolicLink() || info.size > 64 * 1024 * 1024 || (total += info.size) > 512 * 1024 * 1024) throw new Error("Invalid tracked source file");
+            const bytes = readFileSync(file);
+            const actualBlob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+            if (actualBlob !== expectedBlob) throw new Error("Tracked source checkout differs from Git blob");
+          }
+          const verified = JSON.parse(readFileSync(process.env.RUNNER_TEMP + "/acp-verified-source.private.json", "utf8"));
+          const sha = value => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+          if (!sha(verified.derivation?.sha256) || !sha(verified.treeSha256) || typeof verified.derivation?.record !== "string") throw new Error("Invalid verified source identity");
+          const inputs = { schemaVersion: 2, caseSha256: testCaseSourceHash("test/admin-acp-agents.test.ts"),
+            lockfileSha256: hash("bun.lock"), packageSha256: hash("package.json"),
+            compilerPackageSha256: hash("node_modules/typescript/package.json"), compilerSha256: hash("node_modules/typescript/lib/typescript.js"), compilerVersion: ts.version,
+            workflowSha256: hash(".github/workflows/windows-input-diagnostic.yml"),
+            upstreamManifestSha256: hash("provenance/upstreams.json"),
+            sourceDerivation: verified.derivation, effectiveTreeSha256: verified.treeSha256 };
+          if (!sha(inputs.caseSha256) || !/^[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9.-]+)?$/.test(inputs.compilerVersion)) throw new Error("Invalid test or compiler identity");
+          writeFileSync(process.env.RUNNER_TEMP + "/acp-bound-inputs.json", JSON.stringify(inputs));
+          '
       - name: Run focused native owned ACP fixture
         shell: pwsh
         env:
@@ -205,11 +246,23 @@ jobs:
           ACP_FIXTURE_PARENT: ${{ runner.temp }}
         run: |
           '{"stage":"not-started","category":"incomplete"}' | Set-Content -Encoding utf8 $env:ACP_OBSERVATION_PATH
+          $inputs = Get-Content -Raw "$env:RUNNER_TEMP/acp-bound-inputs.json" | ConvertFrom-Json
           $result = [ordered]@{
+            schemaVersion = $inputs.schemaVersion
+            caseSha256 = $inputs.caseSha256
+            lockfileSha256 = $inputs.lockfileSha256
+            packageSha256 = $inputs.packageSha256
+            compilerPackageSha256 = $inputs.compilerPackageSha256
+            compilerSha256 = $inputs.compilerSha256
+            compilerVersion = $inputs.compilerVersion
+            workflowSha256 = $inputs.workflowSha256
+            upstreamManifestSha256 = $inputs.upstreamManifestSha256
+            sourceDerivation = $inputs.sourceDerivation
+            effectiveTreeSha256 = $inputs.effectiveTreeSha256
             target = $env:ACP_TARGET
             commit = $env:GITHUB_SHA
             os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
-            architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToUpperInvariant()
             bun = (bun --version).Trim()
             bunArchitecture = (bun -e 'process.stdout.write(process.arch)').Trim()
             sourceManifestSha256 = (Get-FileHash provenance/route-sources.json -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -219,13 +272,13 @@ jobs:
           }
           $expectedArch = if ($env:ACP_TARGET -eq 'windows-arm64') { 'ARM64' } else { 'X64' }
           if ($result.architecture -ne $expectedArch -or $result.bunArchitecture -ne $expectedArch.ToLowerInvariant()) {
-            $result | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-acp-result.json"
+            $result | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-acp-result.json"
             throw 'Native runner architecture mismatch.'
           }
           bun test test/admin-acp-agents.test.ts --test-name-pattern 'Windows native owned ACP probes' --timeout=30000 *> $null
           $code = $LASTEXITCODE
           if ($code -eq 0) { $result.outcome = 'passed' }
-          $result | ConvertTo-Json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-acp-result.json"
+          $result | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/windows-acp-result.json"
           if ($code -ne 0) { throw 'Native owned ACP fixture failed; raw output withheld.' }
       - name: Upload bounded ACP observation
         if: always()

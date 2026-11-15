@@ -127,7 +127,9 @@ async function replaceOutput(staged: string, output: string): Promise<void> {
   }
 }
 
-export async function exportRelease(options: { root?: string; outputDirectory?: string; packageVerifier?: PackageVerifier } = {}): Promise<{ directory: string; sourceRevision: string; artifacts: string[] }> {
+export async function exportRelease(options: { root?: string; outputDirectory?: string; packageVerifier?: PackageVerifier; destination?: "github-only" | "github-and-npm" } = {}): Promise<{ directory: string; sourceRevision: string; artifacts: string[] }> {
+  const destination = options.destination ?? "github-and-npm";
+  if (destination !== "github-only" && destination !== "github-and-npm") throw new Error("invalid publication destination");
   const root = resolve(options.root ?? defaultRoot);
   const output = resolve(options.outputDirectory ?? process.env.CRUXOMNI_RELEASE_DIR ?? join(root, "release"));
   const outputInsideSource = relative(root, output);
@@ -186,7 +188,7 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
       package: packageManifest.name,
       version: packageManifest.version,
       sourceRevision: reviewed.sourceRevision,
-      publication: { status: "prepared", target: "github-release-and-npm" },
+      publication: { status: "prepared", target: destination },
       artifacts: await Promise.all(names.map(async name => ({ name, sha256: await sha(join(stage, name)) }))),
       lockfileSha256: packageEvidence.lockfile.sha256,
     };
@@ -208,7 +210,11 @@ export async function exportRelease(options: { root?: string; outputDirectory?: 
 }
 
 if (import.meta.main) {
-  exportRelease().then(result => {
+  const args = process.argv.slice(2);
+  if (args.length !== 0 && (args.length !== 2 || args[0] !== "--publication-target" || (args[1] !== "github-only" && args[1] !== "github-and-npm"))) {
+    process.stderr.write("usage: bun run export:release [--publication-target github-only|github-and-npm]\n");
+    process.exitCode = 1;
+  } else exportRelease(args.length ? { destination: args[1] as "github-only" | "github-and-npm" } : {}).then(result => {
     process.stdout.write(`${JSON.stringify({ status: "prepared", ...result }, null, 2)}\n`);
   }).catch(error => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

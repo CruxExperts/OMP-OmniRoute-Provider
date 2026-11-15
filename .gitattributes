@@ -1,6 +1,24 @@
 # Preserve literal terminal output and third-party license formatting.
 assets/native/**/terminal-transcript.txt -whitespace
 assets/native/**/third-party-notices.txt -whitespace
+# Source and workflow evidence must use identical checkout bytes on every host.
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.mts text eol=lf
+*.cts text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+bun.lock text eol=lf
+
+# Asset and terminal data keep their existing checkout behavior.
+assets/** !text !eol
 
 # Qualification digests and detached signatures bind exact repository bytes.
 provenance/** -text
+.github/crux-experts-release-signing-key.asc -text

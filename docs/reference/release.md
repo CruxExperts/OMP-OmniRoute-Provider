@@ -533,6 +533,21 @@ provenance, checks both digests and the checksum entry, and retains actual smoke
 output. The aggregate step validates the output bytes and identity before it
 writes the receipt and evidence bundle. The release gate also checks the
 successful workflow run and all eight native job names.
+Choose the publication destination when dispatching qualification; it is recorded
+in the prepared manifest and must match the later release workflow destination.
+Changing the destination requires a new qualified archive and approval receipt.
+
+For the separate Windows ACP owned-process investigation, run
+`bun run scripts/release-gate.ts verify-native-acp <run-id> <signed-revision> <private-output-directory>`
+from a clean checkout at the exact signed source revision with `GH_TOKEN` set.
+The existing output directory must be private. The collector authenticates GitHub
+Actions metadata, requires both Windows architectures in the same successful
+first-attempt run, verifies artifact archive digests and source/test bindings,
+and writes a content-addressed proof for review without printing credentials or
+private paths. This proof is not release approval and does not unlock ACP
+qualification; the owned fixture does not establish confinement of arbitrary
+production executables. Historical native observations cannot substitute for
+evidence bound to the current source and test bytes.
 
 The Windows parent smoke deadline is 55 minutes, covering the sequential setup,
 persisted inference, and administration allowances; other native targets retain
@@ -613,8 +628,8 @@ On a clean checkout of the tagged commit, create release assets and calculate
 the exact approval receipt:
 
 ```sh
-bun run scripts/export-release.ts
-bun run scripts/release-gate.ts receipt release /path/to/qualification-receipt.json
+bun run scripts/export-release.ts --publication-target github-only
+bun run scripts/release-gate.ts receipt release /path/to/qualification-receipt.json github-only
 ```
 
 The command prints `approvalReceiptSha256`, which binds the exact bytes of both
@@ -623,7 +638,7 @@ binds the versioned release notes to `CHANGELOG.md`. To verify the digest
 before dispatching the workflow:
 
 ```sh
-bun run scripts/release-gate.ts approve release /path/to/qualification-receipt.json <approvalReceiptSha256>
+bun run scripts/release-gate.ts approve release /path/to/qualification-receipt.json <approvalReceiptSha256> github-only
 ```
 
 The gate checks all artifact hashes, rejects stale or unmanifested files, binds

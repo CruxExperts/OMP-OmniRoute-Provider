@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { exportRelease } from "../scripts/export-release.ts";
 import { cleanupNativeQualification, createQualificationSourceSnapshot, DockerCommandError, nativeSmokeTimeoutMs, prepareQualificationDependencyMount, runBoundedQualificationCommand, runOwnedMuslDockerTask, validateNativeSmokeOutput, writeNativeQualificationEvidence, type OwnedMuslDockerResources } from "../scripts/qualify-release.ts";
 import { validateMuslRuntimeEvidence } from "../scripts/musl-runtime.ts";
-import { createReleaseApprovalReceipt, publishApprovedRelease, recoverPublication, verifyQualificationRunMetadata, verifyReleaseApproval, verifyReleaseEnvironmentMetadata } from "../scripts/release-gate.ts";
+import { createReleaseApprovalReceipt, publishApprovedRelease, readAcpEvidenceArchive, recoverPublication, validateAcpNativeReceipt, validateAcpRunMetadata, validateAcpStage, verifyAcpArchiveDigest, verifyQualificationRunMetadata, verifyReleaseApproval, verifyReleaseEnvironmentMetadata, type AcpNativeInputs } from "../scripts/release-gate.ts";
 import { cleanEnvironment, nativeAdminIoTimeoutMs, nativeInferenceTimeoutMs } from "../scripts/smoke.ts";
 import { checkVersion, planVersion, setVersion } from "../scripts/version.ts";
 import type { PackageVerificationResult } from "../scripts/verify-package.ts";
@@ -344,6 +344,100 @@ afterEach(async () => {
 });
 
 describe("release automation", () => {
+  it("rejects forged or incomplete native ACP metadata and input drift", () => {
+    const runId = "12345";
+    const repository = "CruxExperts/OMP-OmniRoute-Provider";
+    const run = { id: 12345, repository: { full_name: repository }, head_sha: gitHash, path: ".github/workflows/windows-input-diagnostic.yml", name: "windows-input-diagnostic", event: "workflow_dispatch", status: "completed", conclusion: "success", run_attempt: 1 };
+    const targets = ["windows-x64", "windows-arm64"] as const;
+    const jobs = { total_count: 2, jobs: targets.map(target => ({ name: `native-owned-acp-${target}`, run_id: 12345, status: "completed", conclusion: "success", head_sha: gitHash })) };
+    const artifacts = { total_count: 2, artifacts: targets.map((target, index) => ({ name: `windows-owned-acp-${target}`, id: index + 1, expired: false, digest: `sha256:${hashA}`, workflow_run: { id: 12345, head_sha: gitHash } })) };
+    const metadata = { run, jobs, artifacts, repository, runId, sourceRevision: gitHash };
+    expect(validateAcpRunMetadata(metadata).attempt).toBe(1);
+    expect(() => validateAcpRunMetadata({ ...metadata, run: { ...run, head_sha: "0".repeat(40) } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, run: { ...run, path: ".github/workflows/other.yml" } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, run: { ...run, run_attempt: 2 } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, jobs: { ...jobs, total_count: 3 } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, jobs: { total_count: 1, jobs: jobs.jobs.slice(0, 1) } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, artifacts: { ...artifacts, artifacts: [{ ...artifacts.artifacts[0]!, digest: "sha256:bad" }, artifacts.artifacts[1]!] } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, jobs: { total_count: 3, jobs: [...jobs.jobs, jobs.jobs[0]!] } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, artifacts: { ...artifacts, total_count: 3 } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, artifacts: { ...artifacts, artifacts: [{ ...artifacts.artifacts[0]!, expired: true }, artifacts.artifacts[1]!] } })).toThrow();
+    expect(() => validateAcpRunMetadata({ ...metadata, artifacts: { ...artifacts, artifacts: [{ ...artifacts.artifacts[0]!, workflow_run: { id: 999 } }, artifacts.artifacts[1]!] } })).toThrow();
+    const archive = Buffer.from("independent native archive fixture");
+    const digest = createHash("sha256").update(archive).digest("hex");
+    expect(verifyAcpArchiveDigest(archive, digest)).toBe(digest);
+    expect(() => verifyAcpArchiveDigest(Buffer.from("changed"), digest)).toThrow("artifact digest mismatch");
+    const inputs: AcpNativeInputs = { caseSha256: hashA, lockfileSha256: hashA, packageSha256: hashA, compilerPackageSha256: hashA, compilerSha256: hashA, compilerVersion: "5.9.0", workflowSha256: hashA, upstreamManifestSha256: hashA, sourceManifestSha256: hashA, fixtureSha256: hashA, testSha256: hashA, sourceDerivation: { record: "provenance/derivation.json", sha256: hashA }, effectiveTreeSha256: hashA };
+    const receipt = { schemaVersion: 2, target: "windows-x64", commit: gitHash, os: "Windows", architecture: "X64", bun: "1.4.2", bunArchitecture: "x64", outcome: "passed", ...inputs };
+    expect(() => validateAcpNativeReceipt(receipt, "windows-x64", gitHash, inputs)).not.toThrow();
+    const armReceipt = { ...receipt, target: "windows-arm64", architecture: "ARM64", bunArchitecture: "arm64" };
+    expect(() => validateAcpNativeReceipt(armReceipt, "windows-arm64", gitHash, inputs)).not.toThrow();
+    expect(() => validateAcpNativeReceipt({ ...armReceipt, architecture: "Arm64" }, "windows-arm64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...armReceipt, architecture: "X64" }, "windows-arm64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, caseSha256: hashB }, "windows-x64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, target: "windows-arm64" }, "windows-x64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, workflowSha256: hashB }, "windows-x64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, effectiveTreeSha256: hashB }, "windows-x64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, compilerSha256: hashB }, "windows-x64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, outcome: "failed" }, "windows-x64", gitHash, inputs)).toThrow();
+    for (const field of ["lockfileSha256", "packageSha256", "compilerPackageSha256", "sourceManifestSha256", "fixtureSha256", "testSha256", "upstreamManifestSha256"] as const) {
+      expect(() => validateAcpNativeReceipt({ ...receipt, [field]: hashB }, "windows-x64", gitHash, inputs)).toThrow();
+    }
+    expect(() => validateAcpNativeReceipt({ ...receipt, sourceDerivation: { ...inputs.sourceDerivation, sha256: hashB } }, "windows-x64", gitHash, inputs)).toThrow();
+    expect(() => validateAcpNativeReceipt({ ...receipt, extra: true }, "windows-x64", gitHash, inputs)).toThrow();
+  });
+  it.skipIf(process.platform === "win32")("rejects malformed native archive content and incomplete stages", async () => {
+    const directory = await temporaryDirectory("cruxomni-native-archive-");
+    const archive = join(directory, "artifact.zip");
+    await writeFile(archive, "not a zip");
+    await expect(readAcpEvidenceArchive(archive)).rejects.toThrow();
+    execFileSync("python3", ["-c", "import sys,zipfile; z=zipfile.ZipFile(sys.argv[1], 'w'); [z.writestr(n, '{}') for n in ('../escape','windows-acp-result.json','windows-acp-stage.json')]; z.close()", archive]);
+    await expect(readAcpEvidenceArchive(archive)).rejects.toThrow("artifact contents mismatch");
+    execFileSync("python3", ["-c", "import sys,zipfile,json; z=zipfile.ZipFile(sys.argv[1], 'w'); z.writestr('windows-acp-result.json', json.dumps(dict(schemaVersion=2))); z.writestr('windows-acp-stage.json', json.dumps(dict(category='passed'))); z.close()", archive]);
+    const valid = await readAcpEvidenceArchive(archive);
+    expect(JSON.parse(valid.receiptBytes.toString()).schemaVersion).toBe(2);
+    const stage = {
+      stage: "cleanup", category: "passed", tempForbiddenCodes: [126], parentForbiddenCodes: [],
+      environment: {
+        supplied: { HOME: { present: true, matches: true }, TMPDIR: { present: true, matches: true }, BUN_DISABLE_TRANSPILER_CACHE: { present: true, matches: true }, SYSTEMROOT: { present: true, matches: true }, COMSPEC: { present: true, matches: true } },
+        extras: { PATHEXT: false, COMSPEC: false, SYSTEMROOT: false, TEMP: false, TMP: false, PROMPT: false, SYSTEMDRIVE: false, WINDIR: false, PROCESSOR_ARCHITECTURE: false, PROCESSOR_ARCHITEW6432: false, BUN_JSC_FORCERAMSIZE: false, BUN_RUNTIME_TRANSPILER_CACHE_PATH: false, __COMPAT_LAYER: false },
+        unknownCount: 0, unknownPrefixes: { BUN_: 0, JSC_: 0, OMP_: 0, ACP_: 0, PROCESSOR_: 0, NODE_: 0, NPM_: 0, CI_: 0, GITHUB_: 0, RUNNER_: 0, __: 0 }, unknownLengths: [], unknownHasNonIdentifier: false, processorArchitecture: "absent", duplicateCount: 0,
+      },
+      processes: {
+        recordCount: 3, outcomeCount: 3, probeCount: 18, successProbeCount: 1, normalizedProbeCount: 1, caseInsensitiveProbeCount: 1,
+        sourceProbes: Object.fromEntries(["success", "failure", "stall"].map(name => [name, { resolved: true, exact: true, normalized: true, caseInsensitive: true, shell: true, shellSafe: true, hasWhitespace: false }])),
+        sourceShell: true, rejections: { ownership: 15, integrity: 0, options: 0, "windows-shell": 0, execute: 2 }, successPathShellSafe: true, successPreflight: "execute",
+        success: { status: 0, code: "none", signal: "none", stdout: "success", error: "none" }, failure: { status: 17, code: "none", signal: "none", stdout: "failure", error: "other" }, stall: { status: null, code: "ETIMEDOUT", signal: "SIGKILL", stdout: "empty", error: "timeout" },
+      },
+    };
+    expect(validateAcpStage(stage, "windows-x64")).toMatchObject({ recordCount: 3, unknownEnvironmentCount: 0, sentinelAssertionPassed: true });
+    const armStage = { ...stage, environment: { ...stage.environment, supplied: { ...stage.environment.supplied, PROCESSOR_ARCHITECTURE: { present: true, matches: true } }, processorArchitecture: "ARM64" } };
+    expect(validateAcpStage(armStage, "windows-arm64")).toMatchObject({ recordCount: 3, environmentMatches: true });
+    expect(() => validateAcpStage({ ...armStage, environment: { ...armStage.environment, processorArchitecture: "AMD64" } }, "windows-arm64")).toThrow();
+    expect(() => validateAcpStage({ ...stage, privatePath: "private" }, "windows-x64")).toThrow();
+    expect(() => validateAcpStage({ ...stage, category: "assertion" }, "windows-x64")).toThrow();
+    expect(() => validateAcpStage({ ...stage, environment: { ...stage.environment, unknownCount: 1 } }, "windows-x64")).toThrow();
+    expect(() => validateAcpStage({ ...stage, processes: { ...stage.processes, success: { ...stage.processes.success, status: 1 } } }, "windows-x64")).toThrow();
+    expect(() => validateAcpStage({ ...stage, processes: { ...stage.processes, stall: { ...stage.processes.stall, code: "other" } } }, "windows-x64")).toThrow();
+    expect(() => validateAcpStage({}, "windows-x64")).toThrow();
+  });
+
+
+  it("binds explicit publication destination into the prepared manifest", async () => {
+    const root = await fixtureRepo();
+    for (const destination of ["github-only", "github-and-npm"] as const) {
+      const output = join(await temporaryDirectory("cruxomni-target-"), "release");
+      await exportRelease({ root, outputDirectory: output, destination, packageVerifier: () => fakePackageEvidence(root) });
+      const manifest = JSON.parse(await readFile(join(output, "release-manifest.json"), "utf8")) as { publication: { target: string } };
+      expect(manifest.publication.target).toBe(destination);
+      const wrongDestination = destination === "github-only" ? "github-and-npm" : "github-only";
+      await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: join(output, "not-read.json"), destination: wrongDestination })).rejects.toThrow("destination differs from qualified manifest");
+    }
+    let called = false;
+    await expect(exportRelease({ root, destination: "invalid" as "github-only", packageVerifier: async () => { called = true; return fakePackageEvidence(root); } })).rejects.toThrow("invalid publication destination");
+    expect(called).toBe(false);
+  });
+
   it("checks remote bytes and authenticated readback before publication effects", async () => {
     const dir = await temporaryDirectory("cruxomni-publication-readback-");
     const archive = Buffer.from("approved package");
@@ -353,9 +447,12 @@ describe("release automation", () => {
       ["SHA256SUMS.txt", Buffer.from("checksums")], ["release-qualification-receipt.json", Buffer.from("receipt")],
       ["release-approval.json", Buffer.from("approval")], ["release-qualification-evidence.tar.gz", Buffer.from("evidence")],
     ]);
-    const manifest = JSON.stringify({ package: projectName, version: "0.1.1", artifacts: [{ name: "package.tgz" }, { name: "review-release-notes.md" }] });
+    const manifest = JSON.stringify({ package: projectName, version: "0.1.1", publication: { target: "github-and-npm" }, artifacts: [{ name: "package.tgz" }, { name: "review-release-notes.md" }] });
     assets.set("release-manifest.json", Buffer.from(manifest));
     for (const [name, bytes] of assets) await writeFile(join(dir, name), bytes);
+    await expect(publishApprovedRelease(dir, dir, "v0.1.1", "owner/repo", "github-token", "", {
+      fetch: Object.assign(async () => { throw new Error("network must not be reached"); }, { preconnect: fetch.preconnect }),
+    }, "github-only")).rejects.toThrow("destination differs from qualified manifest");
     const sha = createHash("sha512").update(archive).digest("base64");
     for (const fault of ["none", "chunked", "npm-absent", "first-package", "first-package-publish-error", "npm-package-missing-version-present", "github-auth", "npm-auth", "npm-auth-missing", "npm-package-unauthorized", "npm-package-forbidden", "npm-package-error", "asset", "asset-oversized", "asset-short", "notes", "integrity", "tarball", "tarball-oversized", "tarball-short", "metadata-tag-oversized", "metadata-releases-oversized", "metadata-package-oversized", "metadata-version-oversized", "npm-version-error", "npm-version-unauthorized", "npm-inconsistent", "redirect-untrusted", "redirect-trusted"] as const) {
       const effects: string[] = [];
@@ -451,9 +548,12 @@ describe("release automation", () => {
       ["package.tgz", Buffer.from("approved package")], ["review-release-notes.md", Buffer.from(notes)],
       ["SHA256SUMS.txt", Buffer.from("checksums")], ["release-qualification-receipt.json", Buffer.from("receipt")],
       ["release-approval.json", Buffer.from("approval")], ["release-qualification-evidence.tar.gz", Buffer.from("evidence")],
-      ["release-manifest.json", Buffer.from(JSON.stringify({ package: projectName, version: "0.1.1", artifacts: [{ name: "package.tgz" }, { name: "review-release-notes.md" }] }))],
+      ["release-manifest.json", Buffer.from(JSON.stringify({ package: projectName, version: "0.1.1", publication: { target: "github-only" }, artifacts: [{ name: "package.tgz" }, { name: "review-release-notes.md" }] }))],
     ]);
     for (const [name, bytes] of assets) await writeFile(join(dir, name), bytes);
+    await expect(publishApprovedRelease(dir, dir, "v0.1.1", "owner/repo", "github-token", "npm-token", {
+      fetch: Object.assign(async () => { throw new Error("network must not be reached"); }, { preconnect: fetch.preconnect }),
+    }, "github-and-npm")).rejects.toThrow("destination differs from qualified manifest");
     const entries = [...assets.entries()];
     for (const scenario of ["absent", "draft", "published", "mismatch", "read-failure", "draft-unknown", "publish-unknown", "post-draft-read-failure"] as const) {
       let state: "absent" | "draft" | "published" = scenario === "draft" || scenario === "mismatch" || scenario === "publish-unknown" ? "draft" : scenario === "published" ? "published" : "absent";

@@ -8,6 +8,12 @@ on:
         type: choice
         options: [full, ingress-only, preflight-only]
         default: full
+      destination:
+        description: Publication destination bound to the reviewed manifest
+        type: choice
+        options: [github-only, github-and-npm]
+        required: true
+        default: github-only
       approved_node_archive_sha256:
         description: Explicitly approved Node 24.17.0 Linux x64 archive SHA256 (required except preflight-only)
         type: string
@@ -136,6 +142,7 @@ jobs:
           PINNED_INGRESS_ARCHIVE: ${{ runner.temp }}/pinned-ingress/source.tar.gz
           PINNED_INGRESS_DEPENDENCIES: ${{ runner.temp }}/pinned-ingress/dependencies
           PINNED_INGRESS_BWRAP: ${{ runner.temp }}/pinned-bwrap/bwrap
+          RELEASE_DESTINATION: ${{ inputs.destination }}
         run: |
           set -euo pipefail
           bun run prepare:upstream
@@ -150,7 +157,7 @@ jobs:
           bun run docs:check
           bun run verify:marketplace
           bun run verify:package
-          bun run export:release
+          bun run export:release --publication-target "$RELEASE_DESTINATION"
           (cd release && sha256sum -c SHA256SUMS.txt)
       - name: Upload the immutable package and manifest once
         if: ${{ inputs.mode == 'full' }}
