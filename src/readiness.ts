@@ -12,6 +12,8 @@ export interface ReadinessFacts {
   pending: boolean;
   recoveryBlocked: boolean;
   credential: CredentialPresence;
+  pendingFailure?: "rejected" | "offline" | "unavailable" | undefined;
+  pendingChecking?: boolean | undefined;
   issue?: ReadinessIssue | undefined;
   health: Pick<HealthSnapshot, "state" | "modelCount" | "rawModelCount" | "stale">;
 }
@@ -30,7 +32,7 @@ export function formatReadiness(facts: ReadinessFacts): string {
   else if (facts.issue === "config") parts.push("configuration unavailable or invalid; inspect and repair the OMP profile configuration");
   else if (facts.issue === "credential-lookup") parts.push("credential lookup failed; inspect OMP credential storage or sign in again");
   else if (facts.issue === "binding") parts.push("connection binding unavailable; inspect setup and retry");
-  else if (facts.pending) parts.push("activation pending; use /omniroute recover in an interactive terminal or sign in again");
+  else if (facts.pending) parts.push(`activation pending; models unavailable${facts.pendingChecking ? "; checking saved key and live catalog" : facts.pendingFailure === "rejected" ? "; saved key or model access rejected" : facts.pendingFailure === "offline" ? "; verification offline" : facts.pendingFailure === "unavailable" ? "; verification or credential unavailable" : ""}; retry /omniroute refresh, use /omniroute recover in an interactive terminal, or sign in again`);
   else if (facts.credential === "missing") parts.push("runtime key missing; sign in again or complete the selected source");
   else if (facts.credential === "unavailable") parts.push("native credential list unavailable; inspect OMP credential storage or sign in again");
   else if (!facts.profileConfigured && facts.source !== "environment") parts.push("setup required; use /omniroute setup");
@@ -44,6 +46,7 @@ export function formatReadiness(facts: ReadinessFacts): string {
     else if (state === "degraded") parts.push("catalog unavailable or invalid; inspect the connection and retry /omniroute refresh");
     else parts.push("connection not ready; inspect setup and retry /omniroute refresh");
   }
+  if (facts.credential === "present") parts.push("credential saved or supplied; saved does not mean currently verified");
   if (facts.credential === "multiple") parts.push("multiple native credential rows; recovery requires exactly one; inspect OMP credentials");
   if (facts.credential === "unsupported") parts.push("native credential is not an eligible API key; sign in again");
   parts.push("catalog access does not independently verify the runtime key");

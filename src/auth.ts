@@ -225,7 +225,7 @@ async function confirmInsecure(callbacks: OAuthLoginCallbacks, endpoint: string)
 }
 
 
-async function validateCandidate(endpoint: string, key: string, request: typeof requestJson, signal?: AbortSignal): Promise<{ raw: number; usable: number }> {
+async function validateCandidate(endpoint: string, key: string, request: typeof requestJson, signal?: AbortSignal, beforeCatalog?: () => Promise<void>): Promise<{ raw: number; usable: number }> {
   checkCancelled(signal);
   // Persisted endpoints may include a /v1 suffix. Resolve protected and live
   // paths from the same gateway root used by runtime discovery.
@@ -256,6 +256,7 @@ async function validateCandidate(endpoint: string, key: string, request: typeof 
     throw new AuthError("invalid-response", "OmniRoute key verification failed");
   }
   checkCancelled(signal);
+  await beforeCatalog?.();
   try {
     const catalog = await request({ endpoint: root, path: "/v1/models" }, key,
       { totalBudgetMs: 10_000, maxBytes: 8 * 1024 * 1024, maxDepth: 24 }, signal,
@@ -427,6 +428,8 @@ export async function recoverPendingInteractively(options: {
   confirm(pending: PendingBinding): Promise<boolean>;
   signal: AbortSignal;
   isCurrent(): boolean;
+  expected?: { pending: PendingBinding; revision: string };
+  onVerified?: (credential: string) => void;
   request?: typeof requestJson;
 }): Promise<{ raw: number; usable: number }> {
   const invalid = (): never => { throw new AuthError("persistence-failed", "Pending connection or saved native credential changed; sign in again."); };
@@ -443,6 +446,10 @@ export async function recoverPendingInteractively(options: {
   const initial = await loadConfig();
   current();
   if (initial.runtimeSource !== "native" || !initial.pending || initial.revision === undefined) invalid();
+  if (options.expected && (initial.revision !== options.expected.revision
+    || initial.pending?.status !== "validated"
+    || initial.pending.endpoint !== options.expected.pending.endpoint
+    || initial.pending.generation !== options.expected.pending.generation)) invalid();
   const pending = initial.pending!;
   const row = readRow();
   if (!(await loginStep(options.confirm(pending), options.signal))) throw new AuthError("cancelled", "Pending connection recovery cancelled.");
@@ -456,7 +463,7 @@ export async function recoverPendingInteractively(options: {
     current();
   };
   await recheck();
-  const validation = await validateCandidate(pending.endpoint, row.key, options.request ?? requestJson, options.signal);
+  const validation = await validateCandidate(pending.endpoint, row.key, options.request ?? requestJson, options.signal, recheck);
   await recheck();
   const committed = await commitPendingConfig(pending, { expectedRevision: initial.revision! });
   try {
@@ -480,6 +487,7 @@ export async function recoverPendingInteractively(options: {
       throw Object.assign(new Error("Activation was saved but its current binding could not be confirmed", { cause: error }), { code: "activation-uncertain" });
     }
   }
+  options.onVerified?.(row.key);
   return validation;
 }
 

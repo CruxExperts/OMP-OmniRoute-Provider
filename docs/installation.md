@@ -97,10 +97,13 @@ protected authentication endpoint but paired with an empty or incompatible
 catalog is reported as “key verified, no compatible chat models available”
 in the informational `no-models` state. While verification and discovery
 are pending, OMP reports a checking state; a completed empty catalog is never
-presented as a healthy model list. An interrupted pending login remains
-auth-only. Use `/omniroute recover` interactively to confirm and revalidate a
-single saved native key, or sign in again; `/omniroute refresh` forces
-rediscovery of an active connection.
+presented as a healthy model list. After restart or refresh, a validated
+pending native login can recover only after the single eligible saved key is
+rechecked against the pending endpoint and its live catalog, with the same
+profile revision and generation. The saved key cannot prove it was the original
+candidate. Other interrupted logins remain auth-only: use `/omniroute recover`
+in an interactive terminal to confirm and revalidate the saved key, or sign in
+again. `/omniroute refresh` also forces rediscovery of an active connection.
 Use `/omniroute` or the setup summary to inspect the selected native,
 environment, or legacy source. A native profile ignores runtime environment
 overrides and does not fall back to them. A partial environment pair must be

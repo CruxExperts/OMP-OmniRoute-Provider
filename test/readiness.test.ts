@@ -26,6 +26,10 @@ test("readiness explains source precedence, pending recovery and failures", () =
   expect(formatReadiness({ ...base, source: "environment", environmentUrl: true, issue: "environment-partial" })).toContain("requires both base URL and API key");
   expect(formatReadiness({ ...base, source: "legacy" })).toContain("source=legacy profile");
   expect(formatReadiness({ ...base, pending: true })).toContain("/omniroute recover");
+  expect(formatReadiness({ ...base, pending: true, pendingChecking: true })).toContain("checking saved key and live catalog");
+  expect(formatReadiness({ ...base, pending: true, pendingFailure: "rejected" })).toContain("saved key or model access rejected");
+  expect(formatReadiness({ ...base, pending: true, pendingFailure: "offline" })).toContain("verification offline");
+  expect(formatReadiness(base)).toContain("saved does not mean currently verified");
   expect(formatReadiness({ ...base, recoveryBlocked: true })).toContain("activation unconfirmed");
   expect(formatReadiness({ ...base, credential: "multiple" })).toContain("recovery requires exactly one");
   expect(formatReadiness({ ...base, credential: "missing" })).toContain("runtime key missing");

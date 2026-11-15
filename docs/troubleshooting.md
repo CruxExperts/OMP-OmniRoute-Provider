@@ -58,18 +58,27 @@ readiness is not independent key verification. A native profile ignores runtime
 environment overrides; an environment connection requires both its URL and key.
 OMP owns its model picker and JSON output; actionable startup guidance appears
 on standard error and does not change either surface.
+Headless startup writes actionable diagnostics to standard error; OMP's JSON
+model list remains host-owned and may be empty without an explanation. A
+headless runtime can use a complete environment pair when that source is
+selected; selecting a native profile and confirming recovery require an
+interactive OMP session. Native pending recovery is attempted once a session
+provides access to its credential store.
+
 
 ## Setup did not activate or remains auth-only
 
 This means the protected key check, live catalog check, native persistence,
-readback, or activation did not complete. A pending marker after process exit
-remains unusable until explicitly recovered or replaced. In an interactive
-OMP terminal, run `/omniroute recover` to confirm the pending endpoint and
-generation, then verify the one saved native key and live catalog. The saved
-key cannot prove it was the original candidate. Missing, ambiguous, changed,
-or rejected credentials require a fresh sign-in through OMP's masked prompt.
-Recovery does not use environment or legacy credential fallback. A valid empty
-catalog is accepted as a connection with no chat models.
+readback, or activation did not complete. After restart or refresh, a validated
+pending native login can be revalidated automatically using exactly one eligible
+saved native key, the pending endpoint, and a live catalog. The profile revision,
+endpoint, generation, and credential must remain unchanged. The saved key cannot
+prove it was the original candidate. Otherwise, in an interactive OMP terminal,
+run `/omniroute recover` to confirm the pending endpoint and generation and
+verify the saved key and catalog, or sign in again. Missing, ambiguous, changed,
+or rejected credentials require attention before activation. Recovery never uses
+environment or legacy credential fallback. A valid empty catalog is accepted as
+a connection with no chat models.
 
 For Windows native-login smoke investigations, the identity-bound diagnostic
 artifact records bounded configuration, credential, ACL, and staging outcomes

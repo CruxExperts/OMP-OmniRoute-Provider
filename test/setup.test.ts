@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverAuthStorage } from "@oh-my-pi/pi-coding-agent";
@@ -177,21 +177,30 @@ test("recovery restores pending after a commit-time lifecycle change, unless ano
   await isolated();
   for (const scenario of ["lifecycle", "key", "cancel", "conflict"] as const) {
     await updateConfig(current => ({ ...current, runtimeSource: "native", active: { endpoint: "https://old.example", generation: 1 }, pending: { endpoint: "https://new.example", generation: 2 } }));
-    let checks = 0;
-    let reads = 0;
+    let triggered = false;
     const controller = new AbortController();
+    const committed = () => {
+      const config = JSON.parse(readFileSync(getConfigPath(), "utf8"));
+      return config.active?.endpoint === "https://new.example" && config.active?.generation === 2 && !config.pending;
+    };
     await expect(recoverPendingInteractively({
-      credentials: { list: () => [{ id: 4, provider: "omniroute", credential: { type: "api_key", key: ++reads === 4 && scenario === "key" ? "replacement" : "native-key" }, disabledCause: null }] },
+      credentials: { list: () => {
+        const replace = scenario === "key" && committed();
+        if (replace) triggered = true;
+        return [{ id: 4, provider: "omniroute", credential: { type: "api_key", key: replace ? "replacement" : "native-key" }, disabledCause: null }];
+      } },
       signal: controller.signal,
       isCurrent: () => {
-        checks++;
-        if (checks === 9 && scenario === "conflict") appendFileSync(getConfigPath(), "\n");
-        if (checks === 9 && scenario === "cancel") controller.abort();
-        return checks < 9 || scenario === "key";
+        if (scenario === "key" || !committed()) return true;
+        triggered = true;
+        if (scenario === "conflict") appendFileSync(getConfigPath(), "\n");
+        if (scenario === "cancel") controller.abort();
+        return false;
       },
       confirm: async () => true,
       request: async target => typeof target !== "string" && target.path === "/api/cloud/auth" ? { connections: [], modelAliases: {} } : { data: [] },
     })).rejects.toMatchObject({ code: scenario === "conflict" ? "activation-uncertain" : "activation-restored" });
+    expect(triggered).toBe(true);
     const result = await loadConfig();
     expect(result.active?.endpoint).toBe(scenario === "conflict" ? "https://new.example" : "https://old.example");
     expect(Boolean(result.pending)).toBe(scenario !== "conflict");

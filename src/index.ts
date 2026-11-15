@@ -159,9 +159,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		} finally { clearTimeout(timer); }
 	};
 	let recoveryBlocked = false;
+	let recoveryEpoch = 0;
 	let credentialRevision = 0;
 	let credentialPresence: CredentialPresence = "unknown";
 	let readinessIssue: ReadinessIssue | undefined;
+	let pendingFailure: "rejected" | "offline" | "unavailable" | undefined;
+	let pendingChecking = false;
 	let observedAuthStorage: ContextLike["modelRegistry"]["authStorage"] | undefined;
 	let observedNativeKey: string | undefined;
 	let unsubscribeCredentials: (() => void) | undefined;
@@ -207,6 +210,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 
 	const onSetupComplete = async (endpoint: string, candidateKey: string): Promise<void> => {
 		if (stopped) return;
+		recoveryEpoch++;
 		recoveryBlocked = false;
 		// Activation still requires the native store to contain this candidate;
 		// the shared refresh leaves an unpersisted candidate auth-only.
@@ -389,7 +393,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				credential = rows.length > 1 ? "multiple" : !rows[0] ? "missing" : rows[0].disabledCause !== null || rows[0].credential.type !== "api_key" || !rows[0].credential.key.trim() ? "unsupported" : "present";
 			} catch { credential = "unavailable"; }
 		}
-		return formatReadiness({ source, environmentUrl, environmentKey, profileConfigured: Boolean(config.active), pending: Boolean(config.pending && source !== "environment"), recoveryBlocked, credential, issue: readinessIssue, health });
+		return formatReadiness({ source, environmentUrl, environmentKey, profileConfigured: Boolean(config.active), pending: Boolean(config.pending && source !== "environment"), recoveryBlocked, credential, pendingFailure, pendingChecking, issue: readinessIssue, health });
 	}
 	const runtimeProviderConfig = (
 		endpoint?: string,
@@ -566,11 +570,13 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 
 	async function synchronizeBinding(ctx: ContextLike | undefined): Promise<{ pendingValidated: boolean }> {
 		const revision = credentialRevision;
+		const epoch = recoveryEpoch;
 		let validConfiguration = false;
 		let phase: "config" | "credential" = "config";
 		try {
 			if (invitationFlight) await settleInvitation();
 			readinessIssue = undefined;
+			pendingFailure = undefined;
 			const previousActiveGeneration = config.active?.generation;
 			const loaded = ctx ? await loadConfig() : await loadStartupConfig(startupSignal);
 			config = loaded;
@@ -599,6 +605,42 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 				pricingCurrent = false;
 			}
 			publishCurrent();
+			if (pending && !pendingCandidateKey && pending.status === "validated" && loaded.runtimeSource === "native" && ctx && loaded.revision !== undefined) {
+				const controller = new AbortController();
+				recoveryAborter = controller;
+				pendingChecking = true;
+				let verifiedCredential: string | undefined;
+				try {
+					await recoverPendingInteractively({
+						credentials: ctx.modelRegistry.authStorage.credentials,
+						signal: controller.signal,
+						isCurrent: () => !stopped && revision === credentialRevision && recoveryAborter === controller,
+						onVerified: credential => { verifiedCredential = credential; },
+						expected: { pending, revision: loaded.revision },
+						confirm: async () => true,
+					});
+				} finally {
+					pendingChecking = false;
+					if (recoveryAborter === controller) recoveryAborter = undefined;
+				}
+				config = await loadConfig();
+				if (stopped || revision !== credentialRevision || config.pending || config.runtimeSource !== "native"
+					|| config.active?.endpoint !== pending.endpoint || config.active.generation !== pending.generation) {
+					throw Object.assign(new Error("recovered binding changed before discovery"), { code: "binding_changed" });
+				}
+				const credential = await resolveRuntimeCredential(ctx.modelRegistry, config);
+				const rows = ctx.modelRegistry.authStorage.credentials.list(PROVIDER_ID).filter(row => row.provider === PROVIDER_ID);
+				if (stopped || revision !== credentialRevision || !verifiedCredential || credential !== verifiedCredential
+					|| rows.length !== 1 || rows[0]?.disabledCause !== null || rows[0].credential.type !== "api_key"
+					|| rows[0].credential.key !== verifiedCredential) {
+					throw Object.assign(new Error("recovered credential changed before discovery"), { code: "binding_changed" });
+				}
+				credentialPresence = "present";
+				runtimeEndpoint = config.active.endpoint;
+				manager.setBinding(config.active.endpoint, credential, config.active.generation);
+				publishCurrent();
+				return { pendingValidated: false };
+			}
 			if ((!active && !pending) || (pending && (!pendingCandidateKey || pendingCandidateEndpoint !== pending.endpoint))) {
 				credentialPresence = "unknown";
 				manager.setBinding(undefined, undefined);
@@ -658,9 +700,17 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			publishCurrent();
 			return { pendingValidated: false };
 		} catch (error) {
-			if (!stopped && revision === credentialRevision) {
-				const code = safeDetail(error);
-				readinessIssue = code === "environment-partial" ? "environment-partial" : code === "config-conflict" || code === "corrupt-config" || code === "insecure-permissions" ? code : phase === "credential" || code === "persistence-failed" ? "credential-lookup" : code === "invalid-endpoint" || code === "insecure-http" ? "environment-invalid" : validConfiguration ? "binding" : "config";
+			const code = safeDetail(error);
+			const uncertain = code === "activation-uncertain";
+			if (!stopped && epoch === recoveryEpoch && (revision === credentialRevision || uncertain)) {
+				if (uncertain) {
+					recoveryBlocked = true;
+					administrationEpoch++;
+					runtimeEndpoint = undefined;
+					runtimeEnvironment = false;
+				}
+				if (config.pending) pendingFailure = code === "unauthorized" ? "rejected" : code === "network-failure" ? "offline" : "unavailable";
+				readinessIssue = code === "environment-partial" ? "environment-partial" : code === "config-conflict" || code === "corrupt-config" || code === "insecure-permissions" ? code : phase === "credential" || code === "persistence-failed" && !config.pending ? "credential-lookup" : code === "invalid-endpoint" || code === "insecure-http" ? "environment-invalid" : validConfiguration && !config.pending ? "binding" : validConfiguration ? undefined : "config";
 				if (!validConfiguration) {
 					runtimeEndpoint = undefined;
 					runtimeEnvironment = false;
@@ -691,12 +741,12 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 			}
 			synchronized = await bindingSyncFlight;
 		} catch (error) {
-			if (manual) notify(ctx, `omniroute: ${readiness()}`, "warning");
+			if (manual || config.pending) notify(ctx, `omniroute: ${readiness()}`, "warning");
 			return;
 		}
 		if (stopped) return;
 		if (!manager.currentBinding) {
-			if (manual) notify(ctx, `omniroute: ${readiness()}`, "info");
+			if (manual || config.pending) notify(ctx, `omniroute: ${readiness()}`, config.pending ? "warning" : "info");
 			return;
 		}
 		try {
@@ -787,6 +837,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 					if (recoveryAborter === controller) recoveryAborter = undefined;
 				}
 				if (!stopped) {
+					recoveryEpoch++;
 					recoveryBlocked = false;
 					await refresh(ctx, false);
 					const state = manager.status.state;
@@ -914,6 +965,7 @@ export default async function registerOmniRouteProvider(pi: ExtensionAPI): Promi
 		registry = undefined;
 		providerRegistered = false;
 		credentialRevision++;
+		recoveryEpoch++;
 		startupAborter?.abort();
 		unsubscribeCredentials?.();
 		unsubscribeCredentials = undefined;
