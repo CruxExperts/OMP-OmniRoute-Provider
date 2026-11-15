@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "recordKind": "omniroute-content-addressed-source",
-  "rootSha256": "041b71d6ff8ba13551f91f866623c351171d5e73e67ca426116d13043cfde419",
+  "rootSha256": "c5d4df1da5fdce531ff088a89fc3274d30551092d71cdc4940bcb6ed3accd9b0",
   "root": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "schemaVersion": 2,
@@ -223993,6 +223993,12 @@
         "responseHints": [
           {
             "method": "GET",
+            "statusCode": "200",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/settings/route.ts"
+          },
+          {
+            "method": "GET",
             "statusCode": "401",
             "mediaType": "application/json",
             "sourceFile": "src/lib/api/requireManagementAuth.ts"
@@ -224041,6 +224047,12 @@
           },
           {
             "method": "PATCH",
+            "statusCode": "409",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/settings/route.ts"
+          },
+          {
+            "method": "PATCH",
             "statusCode": "500",
             "mediaType": "application/json",
             "sourceFile": "src/app/api/settings/route.ts"
@@ -224074,6 +224086,12 @@
             "statusCode": "403",
             "mediaType": "application/json",
             "sourceFile": "src/lib/api/requireManagementAuth.ts"
+          },
+          {
+            "method": "PUT",
+            "statusCode": "409",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/settings/route.ts"
           },
           {
             "method": "PUT",
@@ -233294,7 +233312,14 @@
           ]
         },
         "gitBlobSha": "a834cfb9499ca019ae306f3038351455f159c6d4",
-        "responseHints": [],
+        "responseHints": [
+          {
+            "method": "GET",
+            "statusCode": "200",
+            "mediaType": "application/json",
+            "sourceFile": "src/app/api/sync/bundle/route.ts"
+          }
+        ],
         "centralResponseHints": [
           {
             "method": "GET",
