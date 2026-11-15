@@ -1,6 +1,8 @@
 import { operationContractTemplate, operationEvidenceBinding } from "../../scripts/generate-contracts.ts";
 import { requiredOmaScope } from "../../src/admin/authorization-policy.ts";
 import type { OperationSourceContract } from "../../src/admin/eligibility.ts";
+import { REASONING_RULES_GET_ID, reasoningRulesGetContract as reviewedReasoningRulesGetContract, reasoningRulesGetDescriptor as reviewedReasoningRulesGetDescriptor } from "../../src/admin/source-reasoning-rules.ts";
+export { REASONING_RULES_GET_ID } from "../../src/admin/source-reasoning-rules.ts";
 import { getOperation, type JsonSchema, type OperationDescriptor } from "../../src/admin/registry.ts";
 
 export const SETTINGS_GET_ID = "GET /api/settings";
@@ -41,4 +43,17 @@ export function settingsGetDescriptor(): OperationDescriptor {
   const binding = operationEvidenceBinding(SETTINGS_GET_ID, contract);
   if (binding.handlerSha256 !== original.source.sha256 || binding.handlerGitBlobSha !== original.source.gitBlobSha) throw new Error("Settings source contract does not match pinned handler");
   return { ...original, ...contract, mediaType: { request: null, response: contract.response.mediaType }, coverage: { status: "invokable", adapterId: "typed.fixture.settings.cloud-view", reason: null } };
+}
+
+export function reasoningRulesGetContract(): OperationSourceContract {
+  return reviewedReasoningRulesGetContract(operationContractTemplate(REASONING_RULES_GET_ID) as unknown as OperationSourceContract);
+}
+
+export function reasoningRulesGetDescriptor(): OperationDescriptor {
+  const original = getOperation(REASONING_RULES_GET_ID);
+  if (!original) throw new Error(`Missing pinned operation ${REASONING_RULES_GET_ID}`);
+  const contract = reasoningRulesGetContract();
+  const binding = operationEvidenceBinding(REASONING_RULES_GET_ID, contract);
+  if (binding.handlerSha256 !== original.source.sha256 || binding.handlerGitBlobSha !== original.source.gitBlobSha) throw new Error("Reasoning rules source contract does not match pinned handler");
+  return reviewedReasoningRulesGetDescriptor(original, operationContractTemplate(REASONING_RULES_GET_ID) as unknown as OperationSourceContract);
 }

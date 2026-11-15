@@ -141,8 +141,13 @@ def validate_bwrap(path):
 
 
 def ci_profile_context(approved):
+    event = os.environ.get('GITHUB_EVENT_NAME')
+    trusted_push = (event == 'push'
+                    and os.environ.get('GITHUB_REPOSITORY') == 'CruxExperts/OMP-OmniRoute-Provider'
+                    and os.environ.get('GITHUB_REF') in ('refs/heads/main', 'refs/heads/release/windows-recovery-20261110')
+                    and os.environ.get('PINNED_INGRESS_PUSH_CONSENT') == '14b5371b94572f6c9026888de35af0d48bfaafe10444dbdf9d26c9262496cb6c')
     require(approved and os.environ.get('CI') == 'true' and os.environ.get('GITHUB_ACTIONS') == 'true'
-            and os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+            and (event == 'workflow_dispatch' or trusted_push)
             and os.environ.get('RUNNER_ENVIRONMENT') == 'github-hosted'
             and os.environ.get('RUNNER_OS') == 'Linux' and sys.platform == 'linux'
             and os.uname().machine == 'x86_64', 'explicit approval and GitHub-hosted Linux x64 required')
@@ -387,6 +392,7 @@ POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/provider
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
 POLICY_SOURCES += ('src/app/api/keys/route.ts', 'src/app/api/keys/[id]/route.ts', 'src/app/api/settings/proxies/assignments/route.ts', 'src/app/api/models/route.ts')
 POLICY_SOURCES += ('src/app/api/settings/route.ts', 'src/app/api/settings/proxies/route.ts')
+POLICY_SOURCES += ('src/app/api/settings/cc-discovery-metrics/route.ts', 'src/app/api/settings/reasoning-routing-rules/route.ts')
 LIVE_ROUTE = 'src/app/livez/route.ts'
 
 def sha(data):
@@ -1457,7 +1463,7 @@ def export_observations(output, hashes):
         'POST /api/combos/duplicate', 'POST /api/combos/import', 'POST /api/combos/reorder',
         'POST /api/combos/test', 'POST /api/fallback/chains', 'POST /api/provider-nodes', 'POST /api/providers',
         'GET /api/keys', 'GET /api/keys/fixture-id', 'GET /api/settings/proxies/assignments', 'GET /api/models',
-        'GET /api/settings', 'GET /api/settings/proxies',
+        'GET /api/settings', 'GET /api/settings/proxies', 'GET /api/settings/cc-discovery-metrics', 'GET /api/settings/reasoning-routing-rules',
         'PUT /api/combos/fixture-id', 'PUT /api/providers/fixture-id/cc-alias',
         'PUT /api/providers/fixture-id/interception-rules', 'PUT /api/providers/fixture-id/param-filters',
     ]

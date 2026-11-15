@@ -566,6 +566,7 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       ["DELETE /api/providers/{id}/param-filters", "src/app/api/providers/[id]/param-filters/route.ts"],
       ["PATCH /api/model-capability-overrides", "src/app/api/model-capability-overrides/route.ts"],
       ["POST /api/fallback/chains", "src/app/api/fallback/chains/route.ts"],
+      ["GET /api/settings/reasoning-routing-rules", "src/app/api/settings/reasoning-routing-rules/route.ts"],
     ] as const;
     const familyPolicy = familyRoutes.map(([operationId]) => {
       const [method, template] = operationId.split(" ");

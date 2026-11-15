@@ -108,31 +108,24 @@ database contents and logs; only the bounded `export/core-lifecycle.json` is
 intended for sharing. This is not an HTTP, authorization, packaged-app, or
 operation qualification test, and it does not qualify any route.
 
-The first health-probe family has direct pinned-handler lifecycle observations,
-but not independent framework-ingress authorization evidence. Qualification must
-not infer public access from matcher source alone. Acquisition of the pinned
-`next@16.3.8` research runtime was stopped after critical advisories
-[GHSA-673q-mjm6-r5xr](https://github.com/advisories/GHSA-673q-mjm6-r5xr) and
-[GHSA-2464-fhr4-w9xw](https://github.com/advisories/GHSA-2464-fhr4-w9xw) were
-confirmed. Their patched Next.js version is `16.4.1`; substituting it would not
-prove the historical pin. Keep those operations unavailable until an approved
-upstream provenance refresh or isolated historical-runtime research procedure
-establishes actual ingress behavior. This is not a claim that the connector
-runtime depends on Next.js or that the health matcher exercises those flaws.
+The health family now has separately bound pinned-handler and actual isolated
+framework-ingress observations. Historical Next.js advisory findings remain
+dependency evidence, not a reason to reuse an old runtime or claim a historical
+pin was patched. Current research uses its explicitly reviewed runtime and source
+identities; the connector itself does not depend on Next.js.
 
-The `/api/health/ping` candidate remains unqualified. Its direct pinned-handler
-fixture exercises the source database ping using disposable in-memory SQLite,
-including database failures and bounded response projection. It bypasses Next.js
-and does not prove ingress access, durable persistence, or production database
-health. The route source describes these probes as public; the fixture does not
-impose a management credential or
-claim a denied-credential result. The pinned ping handler returns a fixed error
+The `/api/health/ping` operation binds a real source `SELECT 1` observation,
+including database failures and bounded response projection, to exact ingress
+and independent native cold/warm lifecycle evidence. Its direct fixture alone
+does not establish durable persistence or production database health. The route
+is public in the qualified source and observed ingress; it does not require a
+management credential. The pinned ping handler returns a fixed error
 body for an unexpected exception but also logs the exception server-side; the
 response redaction check is not a claim that server logs are secret-free.
 
-The cache-metrics GET and DELETE routes remain unqualified pending actual Next.js
-ingress evidence. Their candidate contracts describe the pinned management guard
-and responses, not a production authorization result. Both calculate metrics
+The cache-metrics GET and DELETE routes have source-bound handler and independent
+Next.js ingress evidence. Their contracts describe the pinned management guard
+and observed responses, not a claim about a production deployment. Both calculate metrics
 from usage history; the deprecated DELETE does not clear that history. A query
 failure can return zero metrics with HTTP 200, so zero is not proof that no cache
 activity occurred. Cost savings are an estimate using fixed source assumptions,
@@ -156,6 +149,9 @@ prove it was saved or will survive restart. Direct backing-store changes or
 another process's writes may also be invisible to that map. The client sends
 one confirmed attempt and never automatically replays it. This qualification
 covers conservative invocation, not proof of durable completion.
+An initial database load can also fail silently and cache an empty runtime map.
+An apparently absent chain therefore does not establish persisted absence; that
+visibility limit is shown in the confirmation before a change.
 
 ## Work with routing groups
 

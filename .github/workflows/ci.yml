@@ -1,6 +1,22 @@
 name: standalone-package
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      approved_node_archive_sha256:
+        description: Explicitly approved Node 24.17.0 Linux x64 archive SHA256
+        type: string
+        required: false
+      approved_bwrap_sha256:
+        description: Explicitly approved bubblewrap Debian package SHA256
+        type: string
+        required: false
+      approve_ci_apparmor:
+        description: Approve temporary exact-helper AppArmor on the disposable hosted runner
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +37,9 @@ env:
 jobs:
   package:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
+    env:
+      PINNED_INGRESS_PUSH_CONSENT: ${{ vars.PINNED_INGRESS_PUSH_CONSENT }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false, fetch-depth: 1 }
@@ -29,12 +47,50 @@ jobs:
         with: { bun-version: "1.4.2" }
       - name: Install exact locked dependencies
         run: bun install --frozen-lockfile --ignore-scripts
-      - name: Validate source, contracts, package, and marketplace metadata
+      - name: Validate nonprivileged source checks
         run: |
           set -euo pipefail
           bun run check:upstreams
           bun run prepare:upstream
           bun run typecheck
+      - name: Authorize the exact hosted sandbox recipe
+        env:
+          APPROVED_NODE_ARCHIVE_SHA256: ${{ inputs.approved_node_archive_sha256 }}
+          APPROVED_BWRAP_SHA256: ${{ inputs.approved_bwrap_sha256 }}
+          APPROVE_CI_APPARMOR: ${{ inputs.approve_ci_apparmor }}
+        run: |
+          set -euo pipefail
+          node_sha=ab343a1b747c7cbf3630dfd7dbf818c5423fab2eb4f5ad1afc896f6bd121a917
+          bwrap_sha=70aca4fa8daeacb677ec00e8063eb586f08ae3d94b1f11e684370b5524c43431
+          recipe=14b5371b94572f6c9026888de35af0d48bfaafe10444dbdf9d26c9262496cb6c
+          if [ "$GITHUB_REPOSITORY" != CruxExperts/OMP-OmniRoute-Provider ] || { [ "$GITHUB_REF" != refs/heads/main ] && [ "$GITHUB_REF" != refs/heads/release/windows-recovery-20261110 ]; }; then
+            echo '::error::Full package validation requires a trusted candidate push on an approved repository branch; PR source is never privileged.'
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$PINNED_INGRESS_PUSH_CONSENT" = "$recipe" ]; then
+            :
+          elif [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$APPROVE_CI_APPARMOR" = true ] && [ "$APPROVED_NODE_ARCHIVE_SHA256" = "$node_sha" ] && [ "$APPROVED_BWRAP_SHA256" = "$bwrap_sha" ]; then
+            :
+          else
+            echo '::error::Full package validation requires the approved trusted-push recipe or explicit workflow_dispatch inputs.'
+            exit 1
+          fi
+      - name: Stage approved sandbox and ingress inputs
+        id: ingress_stage
+        run: |
+          set -euo pipefail
+          python3 scripts/pinned-ingress.py --bwrap-stage-only --bwrap-stage-dir "$RUNNER_TEMP/pinned-bwrap" --approve-bwrap-sha256 70aca4fa8daeacb677ec00e8063eb586f08ae3d94b1f11e684370b5524c43431
+          python3 scripts/pinned-ingress.py --ci-apparmor-load --approve-ci-apparmor
+          python3 scripts/pinned-ingress.py --preflight-only --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap"
+          python3 scripts/pinned-ingress.py --bwrap "$RUNNER_TEMP/pinned-bwrap/bwrap" --stage-dir "$RUNNER_TEMP/pinned-ingress" --approve-node-archive-sha256 ab343a1b747c7cbf3630dfd7dbf818c5423fab2eb4f5ad1afc896f6bd121a917 > "$RUNNER_TEMP/pinned-ingress-paths.json"
+      - name: Validate source, contracts, package, and marketplace metadata
+        env:
+          PINNED_INGRESS_NODE: ${{ runner.temp }}/pinned-ingress/node
+          PINNED_INGRESS_ARCHIVE: ${{ runner.temp }}/pinned-ingress/source.tar.gz
+          PINNED_INGRESS_DEPENDENCIES: ${{ runner.temp }}/pinned-ingress/dependencies
+          PINNED_INGRESS_BWRAP: ${{ runner.temp }}/pinned-bwrap/bwrap
+        run: |
+          set -euo pipefail
           test_workers="$(( $(nproc) / 3 ))"
           if [ "$test_workers" -lt 1 ]; then test_workers=1; fi
           bun test --max-concurrency="$test_workers" --parallel="$test_workers" --timeout=15000
@@ -56,6 +112,9 @@ jobs:
             ${{ runner.temp }}/package-verification.json
           if-no-files-found: error
           retention-days: 14
+      - name: Remove temporary hosted CI AppArmor profile
+        if: ${{ always() && steps.ingress_stage.outcome != 'skipped' && steps.ingress_stage.outcome != '' }}
+        run: python3 scripts/pinned-ingress.py --ci-apparmor-cleanup --approve-ci-apparmor
 
   host-smoke:
     needs: package

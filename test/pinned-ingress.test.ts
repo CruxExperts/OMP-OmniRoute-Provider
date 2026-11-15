@@ -42,7 +42,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   const declaration = JSON.parse(readFileSync(resolve(root, declarationPath), "utf8")) as { files: string[] };
   const sha256 = Object.fromEntries(["test/pinned-ingress.test.ts", declarationPath, ...declaration.files].map(path => [path, createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex")]));
   const publicCase = (name: string, bypass: string) => ({ name, input: { method: "GET", path: "/api/health", bypass, credential: "none", requireLogin: true, setupComplete: true }, observed: { status: 200, routeClass: "PUBLIC", successMarkerPresent: true, usageStampObserved: false } });
-  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes", "/api/model-capability-overrides"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: 200, writeScopeStatus: 200, adminScopeStatus: 200 }));
+  const policies = ["/api/fallback/chains", "/api/providers/fixture-id/cc-alias", "/api/provider-nodes", "/api/model-capability-overrides", "/api/settings/cc-discovery-metrics", "/api/settings/reasoning-routing-rules"].map(path => ({ method: "GET", path, routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: 200, writeScopeStatus: 200, adminScopeStatus: 200 }));
   const artifact = {
     schemaVersion: 1, classification: "research-only-not-qualification",
     source: { version: "3.8.53", commit: manifest.commit, archiveSha256: manifest.archiveSha256, addedSourceSha256: identities.addedSourceSha256, pingDeclarationSha256: identities.pingDeclarationSha256, sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 },
@@ -59,6 +59,8 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     ["GET /api/providers/{id}/cc-alias", "src/app/api/providers/[id]/cc-alias/route.ts"],
     ["GET /api/provider-nodes", "src/app/api/provider-nodes/route.ts"],
     ["GET /api/model-capability-overrides", "src/app/api/model-capability-overrides/route.ts"],
+    ["GET /api/settings/cc-discovery-metrics", "src/app/api/settings/cc-discovery-metrics/route.ts"],
+    ["GET /api/settings/reasoning-routing-rules", "src/app/api/settings/reasoning-routing-rules/route.ts"],
   ] as const;
   function check(value: unknown, binding: OperationEvidenceBinding, operation: string, error?: RegExp) {
     const bytes = Buffer.from(JSON.stringify(value));
@@ -305,6 +307,7 @@ import importlib.util,os,pathlib,sys,types
 spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 m.sys.platform='linux'; m.os.uname=lambda: types.SimpleNamespace(machine='x86_64')
 root=pathlib.Path(sys.argv[2]); os.environ.update(CI='true',GITHUB_ACTIONS='true',GITHUB_EVENT_NAME='workflow_dispatch',RUNNER_ENVIRONMENT='github-hosted',RUNNER_OS='Linux',GITHUB_RUN_ID='123',GITHUB_RUN_ATTEMPT='1',RUNNER_TEMP=str(root))
+os.environ.pop('PINNED_INGRESS_PUSH_CONSENT',None)
 def rejected(f):
  try: f()
  except RuntimeError: return
@@ -312,6 +315,12 @@ def rejected(f):
 rejected(lambda: m.ci_profile_context(False))
 for key,value in [('RUNNER_ENVIRONMENT','self-hosted'),('GITHUB_EVENT_NAME','push'),('GITHUB_RUN_ID','123*')]:
  old=os.environ[key]; os.environ[key]=value; rejected(lambda: m.ci_profile_context(True)); os.environ[key]=old
+os.environ.update(GITHUB_EVENT_NAME='push',GITHUB_REPOSITORY='CruxExperts/OMP-OmniRoute-Provider',GITHUB_REF='refs/heads/main',PINNED_INGRESS_PUSH_CONSENT='14b5371b94572f6c9026888de35af0d48bfaafe10444dbdf9d26c9262496cb6c')
+m.ci_profile_context(True)
+os.environ['GITHUB_REF']='refs/heads/release/windows-recovery-20261110'; m.ci_profile_context(True)
+for key,value in [('GITHUB_EVENT_NAME','pull_request'),('GITHUB_REPOSITORY','fork/OMP-OmniRoute-Provider'),('GITHUB_REF','refs/heads/other'),('PINNED_INGRESS_PUSH_CONSENT',''),('PINNED_INGRESS_PUSH_CONSENT','0'*64),('RUNNER_ENVIRONMENT','self-hosted')]:
+ old=os.environ[key]; os.environ[key]=value; rejected(lambda: m.ci_profile_context(True)); os.environ[key]=old
+os.environ['GITHUB_EVENT_NAME']='workflow_dispatch'
 bad=root/'bad*path'; bad.mkdir(); os.environ['RUNNER_TEMP']=str(bad); rejected(lambda: m.ci_profile_context(True))
 os.environ['RUNNER_TEMP']=str(root)
 `;
@@ -776,7 +785,7 @@ with tempfile.TemporaryDirectory() as temp:
   '/api/providers': ('GET','POST','PATCH','DELETE'), '/api/providers/fixture-id/cc-alias': ('GET','PUT'),
   '/api/providers/fixture-id/interception-rules': ('GET','PUT','DELETE'), '/api/providers/fixture-id/param-filters': ('GET','PUT','DELETE'),
   '/api/keys': ('GET',), '/api/keys/fixture-id': ('GET',), '/api/settings/proxies/assignments': ('GET',), '/api/models': ('GET',),
-  '/api/settings': ('GET',), '/api/settings/proxies': ('GET',),
+  '/api/settings': ('GET',), '/api/settings/proxies': ('GET',), '/api/settings/cc-discovery-metrics': ('GET',), '/api/settings/reasoning-routing-rules': ('GET',),
  }
  for path,methods in family_methods.items():
   for method in methods:
@@ -798,12 +807,12 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['agentSkills']['ids'] == ['config-codex-cli'] and exported['agentSkills']['invalidCredentialStatus'] == 401
  assert [item['path'] for item in exported['agentSkillsReads']] == ['/api/agent-skills/config-codex-cli','/api/agent-skills/coverage']
  assert len(exported['modelComboMappingPolicy']) == 5 and exported['modelComboMappingPolicy'][1]['method'] == 'POST'
- assert len(exported['familyPolicy']) == 41
+ assert len(exported['familyPolicy']) == 43
  family = {item['method']+' '+item['path']:item for item in exported['familyPolicy']}
  assert family['POST /api/providers']['readScopeStatus'] == 403 and family['POST /api/providers']['writeScopeStatus'] == 403 and family['POST /api/providers']['adminScopeStatus'] == 200
  assert family['POST /api/provider-nodes']['readScopeStatus'] == 403 and family['POST /api/provider-nodes']['writeScopeStatus'] == 200
  assert family['GET /api/providers']['readScopeStatus'] == 200
- for path in ('/api/settings','/api/settings/proxies'):
+ for path in ('/api/settings','/api/settings/proxies','/api/settings/cc-discovery-metrics','/api/settings/reasoning-routing-rules'):
   assert family['GET '+path] == {'method':'GET','path':path,'routeClass':'MANAGEMENT','anonymousStatus':401,'invalidCredentialStatus':401,'authorizedStatus':200,'readScopeStatus':200,'writeScopeStatus':200,'adminScopeStatus':200}
  assert all(key not in exported for key in ('comboPolicy','modelCapabilityOverridesPolicy','readPolicy'))
  assert '198.51.100.' not in json.dumps(exported)
@@ -815,6 +824,15 @@ with tempfile.TemporaryDirectory() as temp:
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ discovery = next(row for row in rows if row['case'] == 'GET /api/settings/cc-discovery-metrics')
+ for name, bad in [('denied',200),('invalid',200),('allowed',403),('readScope',403),('writeScope',403),('adminScope',403)]:
+  original = discovery[name]['status']; discovery[name]['status'] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); discovery[name]['status'] = original
+  original = discovery.pop(name); put('data/pinned-ingress-observations.json',ingress); rejected(); discovery[name] = original
+ rows.remove(discovery); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.append(discovery)
+ rows.append(discovery); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.pop()
+ source_name = 'src/app/api/settings/cc-discovery-metrics/route.ts'; original = identity['addedSourceSha256'].pop(source_name)
+ put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][source_name] = 'a'*64
+ put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][source_name] = original
  for name in ('anonymous','invalidCredential','session'):
   for key,bad in [('status',401),('body','wrong'),('contentType','application/json'),('cacheControl','public'),('contentLength','2'),('routeClass','PUBLIC')]:
    original = ingress['liveness'][name][key]; ingress['liveness'][name][key] = bad; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['liveness'][name][key] = original

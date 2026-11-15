@@ -81,7 +81,7 @@ export const FAMILY_INGRESS_OPERATIONS: readonly string[] = Object.freeze([
   "GET /api/model-capability-overrides", "GET /api/provider-nodes", "GET /api/providers",
   "GET /api/providers/{id}/cc-alias", "GET /api/providers/{id}/interception-rules", "GET /api/providers/{id}/param-filters",
   "GET /api/keys", "GET /api/keys/{id}", "GET /api/models", "GET /api/settings/proxies/assignments",
-  "GET /api/settings", "GET /api/settings/proxies",
+  "GET /api/settings", "GET /api/settings/proxies", "GET /api/settings/cc-discovery-metrics", "GET /api/settings/reasoning-routing-rules",
   "PATCH /api/combos/{id}", "PATCH /api/model-capability-overrides", "PATCH /api/providers",
   "POST /api/combos", "POST /api/combos/duplicate", "POST /api/combos/import", "POST /api/combos/reorder",
   "POST /api/combos/test", "POST /api/fallback/chains", "POST /api/provider-nodes", "POST /api/providers",

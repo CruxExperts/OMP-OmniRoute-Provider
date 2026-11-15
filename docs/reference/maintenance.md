@@ -21,6 +21,22 @@ sources or documentation from being checked; successful independent findings can
 still be reconciled, and the run reports incomplete with a nonzero exit status.
 Dependency audit diagnostics remain private and are never copied into public issues.
 
+## Trusted package validation sandbox
+
+Full package validation stages the existing checksum-pinned ingress runtime and
+temporary helper-specific AppArmor profile on a disposable GitHub-hosted Ubuntu
+runner. Trusted pushes are limited to this repository's `main` and
+`release/windows-recovery-20261110` branches and require the exact
+`PINNED_INGRESS_PUSH_CONSENT` recipe identifier. Manual dispatch retains explicit
+runtime-digest and temporary-profile approval inputs. Cleanup is always attempted
+after staging, including partial failures.
+
+Pull-request, fork, and other branch code never receives this sandbox permission.
+Its nonprivileged source checks run first, but absent full qualification remains
+a failed check, not a passing exception. Validate an accepted candidate through
+its trusted push before integration; this does not weaken required checks or
+authorize persistent host changes.
+
 ## Upstream integrity checks
 
 `bun run check:upstreams` is the deterministic integrity check used by CI. It

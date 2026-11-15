@@ -4,6 +4,20 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Revalidate interrupted native activation on startup or refresh using the sole
+  eligible saved credential, exact endpoint and generation, protected key
+  verification, and a current catalog. Keep uncertain activation unavailable even
+  when credential rotation queues another refresh; never replay administration or
+  inference requests to recover it.
+- Explain saved versus verified authentication, pending activation, rejected
+  credentials, empty catalogs, and stale discovery with supported recovery actions.
+- Add verified Linux x64 glibc host compatibility for OMP 18.20.2 while retaining
+  the 18.12.5 SDK and source pins. Initialize the disposable host onboarding marker
+  separately from the provider's actual login and setup lifecycle.
+- Integrate the historical screenshot-led social composition with its original
+  capture caveats, embedded attribution, and the existing local media exporter;
+  no unsigned automated commit or repository-setting change is introduced.
+
 - Align scoped authorization with the pinned 3.8.53 key, reveal, and settings
   policy. Exercise key and proxy lifecycles with private target bindings, exact
   complete-list proofs, cancellation, credential rotation, and no replay after
@@ -47,6 +61,13 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   ingress observations, rejecting duplicate, wrong-method, altered, or mismatched
   source evidence. The deprecated cache-metrics DELETE delegates to the getter
   and leaves usage history unchanged; classify its observed behavior, not its verb.
+- Exercise fallback-chain mutations against the pinned SQLite persistence owner,
+  including a swallowed initial load, runtime/persisted-state divergence, and
+  one-shot unknown outcomes. Confirmations disclose that a cached empty runtime
+  map cannot establish persisted absence.
+- Add source-backed discovery usage-counter observations, preserving the upstream
+  behavior that database failures appear as successful zero counters rather than
+  claiming those zeros establish healthy storage.
 
 - Expand isolated management-policy observations to 39 exact family method/path
   cases with independent read/write/admin token outcomes. Keep policy controls,

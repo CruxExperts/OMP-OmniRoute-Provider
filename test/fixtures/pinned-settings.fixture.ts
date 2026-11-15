@@ -64,3 +64,46 @@ export function createPinnedSettingsFixture(sharedDb?: Database) {
     close() { if (!sharedDb) db.close(); },
   };
 }
+
+/** Warm SQLite and source-backed handler/store; not framework ingress or lifecycle evidence. */
+export function createPinnedReasoningRulesFixture() {
+  const db = new Database(":memory:");
+  const migration = readPinnedSource("src/lib/db/migrations/126_reasoning_routing_rules.sql");
+  const table = /CREATE TABLE IF NOT EXISTS reasoning_routing_rules\s*\([\s\S]*?\n\);/i.exec(migration)?.[0];
+  if (!table) throw new Error("Pinned reasoning rules schema unavailable");
+  db.exec(table);
+  let failOpen = false;
+  const auth = createPinnedManagementAuthorization({
+    isDashboardSession: token => token === "fixture-session",
+    verifyAccessToken: token => token === "oma_fixture-read" ? { id: "read", name: "read", scope: "read" } : null,
+    validateApiKey: key => key === "fixture-manage" || key === "fixture-unscoped",
+    getApiKeyMetadata: key => key === "fixture-manage" ? { id: "manage", scopes: ["manage"] } : key === "fixture-unscoped" ? { id: "unscoped", scopes: [] } : null,
+  });
+  const store = loadPinnedModule("src/lib/db/reasoningRoutingRules.ts", specifier => {
+    if (specifier === "node:crypto") return { randomUUID: () => { throw new Error("Unexpected write"); } };
+    if (specifier === "./core") return { getDbInstance: () => { if (failOpen) throw new Error("fixture-private-database-error"); return db; } };
+    if (specifier === "./stateReset") return { registerDbStateResetter: () => {} };
+    throw new Error(`Unexpected reasoning store import: ${specifier}`);
+  });
+  const route = loadPinnedModule("src/app/api/settings/reasoning-routing-rules/route.ts", specifier => {
+    if (specifier === "next/server") return { NextResponse: { json: Response.json.bind(Response) } };
+    if (specifier === "@/lib/api/requireManagementAuth") return { requireManagementAuth: auth.requireManagementAuth };
+    if (specifier === "@/lib/db/reasoningRoutingRules") return store;
+    if (specifier === "@/lib/reasoningRouting/input" || specifier === "@/shared/validation/schemas" || specifier === "@/shared/validation/helpers" || specifier === "@omniroute/open-sse/utils/error.ts") return {};
+    throw new Error(`Unexpected reasoning route import: ${specifier}`);
+  });
+  const get = route.GET as (request: Request) => Promise<Response>;
+  return {
+    db,
+    invalidate() { (store.invalidateReasoningRoutingRuleCache as () => void)(); },
+    setFailure(value: boolean) { failOpen = value; },
+    async handle(token?: string) {
+      const headers = new Headers();
+      if (token === "fixture-session") headers.set("cookie", `auth_token=${token}`);
+      else if (token) headers.set("authorization", `Bearer ${token}`);
+      const request = new Request("http://fixture.invalid/api/settings/reasoning-routing-rules", { headers });
+      return auth.dispatch(request, { centralAuthRequired: true, handlerAuthRequired: true }, get);
+    },
+    close() { db.close(); },
+  };
+}
