@@ -352,12 +352,12 @@ failure, incomplete observation, or baseline that does not reproduce stops the
 research; none is a passing result. These experimental hosts and observations
 cannot replace official, unmodified Windows qualification.
 
-The candidate is intended for the protected GitHub and npm publication workflow
-below. Prepared source, local checks, and refreshed operation evidence are not a
-publication receipt. Publication still requires complete operation coverage,
-eight native results for the same archive, verified signatures, and the protected
-`release` environment with its required reviewer and npm credential. Do not use
-the earlier GitHub-only distribution as an exception to those gates.
+The candidate uses the protected publication workflow below. The selected
+destination for 1.0.5 is `github-only`; npm publication is postponed. Prepared
+source, local checks, and refreshed operation evidence are not a publication
+receipt. Complete operation coverage, eight native results for the same archive,
+verified signatures, and the protected `release` environment with its required
+reviewer remain mandatory. GitHub-only does not relax these qualification gates.
 
 The current source inventory is pinned to OmniRoute v3.8.53. Earlier eligibility
 is retained as history, not carried forward as active acceptance. The
@@ -390,8 +390,9 @@ attributes, broad route exclusions, or successful catalog reads for qualificatio
 The protected environment must also allow the selected source branch or release
 tag. With self-review prevented, the account dispatching the publication cannot
 approve its own deployment; use a distinct authorized initiating account or a
-separately authorized reviewer. Provision `NPM_TOKEN` through GitHub environment
-secrets, never through release notes, issues, or committed configuration.
+separately authorized reviewer. Only the optional `github-and-npm` destination
+requires `NPM_TOKEN`, provisioned through GitHub environment secrets rather than
+release notes, issues, or committed configuration.
 
 ## Export a reviewed source snapshot
 
@@ -649,41 +650,39 @@ timings as platform qualification.
 
 ## Manual publication
 
-Run the `signed-release` workflow with the existing signed tag, the exact
-`approvalReceiptSha256`, and the successful qualification workflow run ID. The
-workflow validates the tag and source commit signatures in both jobs, retrieves
-the producer’s exact package and manifest, checks the qualification bundle and
-all eight named native jobs, and
-verifies the receipt before it reaches the `release` environment. The publish
-job repeats these checks after environment approval. It reads both destinations
-before changing either one, verifies the signed remote tag and exact release notes
-and asset bytes, and checks npm's exact version, downloaded archive SHA-256, and
-registry integrity against the approved archive. It creates a draft only when
-both destinations are absent, publishes npm only when the matching draft exists
-and npm is absent, and publishes GitHub only when both the matching draft and npm
-package exist. If both destinations are already published and exact, it makes no
-publication changes. Each effect is followed by another read of both destinations.
+Run `signed-release` with the existing signed tag, the exact
+`approvalReceiptSha256`, the successful qualification workflow run ID, and an
+explicit destination. `github-only` is the default for 1.0.5. It never reads an
+npm credential, queries npm, or publishes an npm package. It reads and verifies
+the exact GitHub tag, notes and assets, creates a draft only after confirmed
+absence, and publishes only a matching draft. An already exact published release
+requires no mutation. Each effect is followed by a fresh GitHub read; uncertain
+or mismatched state stops without replay.
+
+Both destinations retain tag and source signature validation, the producer's
+exact package and manifest, complete operation coverage, all eight named native
+jobs, and the approved receipt. The publish job repeats these checks after
+environment approval. The optional `github-and-npm` path additionally reads both
+destinations, verifies npm archive integrity, and requires the matching npm package
+before publishing GitHub. GitHub-only makes no claim about npm publication.
 
 Publication readback streams each asset with the approved file's exact byte
-length as its limit, compares its bytes, and verifies the npm archive SHA-256.
-Individual metadata responses are limited to 8 MiB; larger or incomplete
-readbacks stop reconciliation. The protected npm publish disables npm transport
-retries, so a failed publish must be reconciled rather than automatically replayed.
+length as its limit and compares its bytes. The combined destination also verifies
+the npm archive SHA-256 and disables npm transport retries. Metadata responses
+are limited to 8 MiB; larger or incomplete readbacks stop reconciliation.
 
 The repository must configure the `release` environment with at least one
-required reviewer and an `NPM_TOKEN` environment secret before publication can
-be authorized. Both release jobs query the actual GitHub environment API and
-validate its `name` and `protection_rules` response; this catches an absent or
-unprotected environment before preparation can proceed. The publish job repeats
-the check when it starts and verifies that `NPM_TOKEN` is non-empty before it
-creates a GitHub draft. These protections are repository settings
-and cannot be established by this workflow file alone. The API check follows
-GitHub's [deployment environments endpoint and response schema](https://docs.github.com/en/rest/deployments/environments#get-an-environment).
+required reviewer. Both release jobs query the actual GitHub environment API and
+validate its `name` and `protection_rules`; the publish job repeats that check
+after approval. Only `github-and-npm` additionally requires a non-empty
+`NPM_TOKEN` environment secret before any publication. These protections are
+repository settings and cannot be established by the workflow file alone.
+See GitHub's [deployment environments API](https://docs.github.com/en/rest/deployments/environments#get-an-environment).
 If a publication operation or readback fails, its outcome may be uncertain. Stop
-and reconcile both destinations before authorizing another protected workflow
-run; the workflow does not automatically repeat failed effects. Missing or extra
-assets, changed notes, mismatched tags or npm bytes, unavailable credentials, and
-inconsistent states block further mutation. No asset overwrite, unpublish, version
+and reconcile every selected destination before authorizing another protected
+workflow run; failed effects are not automatically repeated. Missing or extra
+assets, changed notes, mismatched tags or selected npm bytes, unavailable required
+credentials, and inconsistent states block further mutation. No asset overwrite, unpublish, version
 bump, or bypass of the protected environment is part of recovery. Evidence
 archives created by this workflow are reproducible; an older draft whose evidence
 archive differs must be investigated rather than overwritten.

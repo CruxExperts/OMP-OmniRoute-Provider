@@ -15,6 +15,14 @@ on:
         description: Successful release-qualification run with eight passed native target jobs and evidence artifact
         required: true
         type: string
+      destination:
+        description: Publication destination
+        required: true
+        type: choice
+        default: github-only
+        options:
+          - github-only
+          - github-and-npm
 
 permissions:
   contents: read
@@ -29,6 +37,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: Validate publication destination
+        env:
+          RELEASE_DESTINATION: ${{ inputs.destination }}
+        run: |
+          case "$RELEASE_DESTINATION" in
+            github-only|github-and-npm) ;;
+            *) echo "Invalid release destination" >&2; exit 1 ;;
+          esac
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ inputs.tag }}
@@ -126,14 +142,19 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with: { bun-version: "1.4.2" }
-      - name: Verify protected release environment and npm credential
+      - name: Verify protected release environment
         env:
           GH_TOKEN: ${{ github.token }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/environments/release" > "$RUNNER_TEMP/release-environment.json"
           bun run scripts/release-gate.ts verify-environment "$RUNNER_TEMP/release-environment.json" release
+      - name: Verify npm credential for combined publication
+        if: inputs.destination == 'github-and-npm'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
           if [[ -z "$NPM_TOKEN" ]]; then
             echo "The release environment must provide a non-empty NPM_TOKEN secret before publication." >&2
             exit 1
@@ -198,7 +219,17 @@ jobs:
           cp "$qualification_receipt" "$RUNNER_TEMP/release-qualification-receipt.json"
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner -cf - -C "$qualification_directory" evidence | gzip -n > "$RUNNER_TEMP/release-qualification-evidence.tar.gz"
           cp "$RUNNER_TEMP/cruxomni-release-approval.json" "$RUNNER_TEMP/release-approval.json"
-      - name: Reconcile and publish exact approved destinations
+      - name: Reconcile and publish GitHub only
+        if: inputs.destination == 'github-only'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          APPROVAL_SHA256: ${{ inputs.approval_sha256 }}
+        run: |
+          set -euo pipefail
+          bun run scripts/release-gate.ts publish release "$RUNNER_TEMP" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" github-only
+      - name: Reconcile and publish GitHub and npm
+        if: inputs.destination == 'github-and-npm'
         env:
           GH_TOKEN: ${{ github.token }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -212,4 +243,4 @@ jobs:
           trap 'rm -f "$npmrc"' EXIT
           printf '//registry.npmjs.org/:_authToken=%s\n' "$NODE_AUTH_TOKEN" > "$npmrc"
           chmod 600 "$npmrc"
-          NPM_CONFIG_USERCONFIG="$npmrc" bun run scripts/release-gate.ts publish release "$RUNNER_TEMP" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256"
+          NPM_CONFIG_USERCONFIG="$npmrc" bun run scripts/release-gate.ts publish release "$RUNNER_TEMP" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/cruxomni-qualification/qualification-receipt.json" "$APPROVAL_SHA256" github-and-npm

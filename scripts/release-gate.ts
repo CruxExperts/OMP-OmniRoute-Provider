@@ -506,16 +506,29 @@ export async function verifyReleaseApproval(options: { root?: string; releaseDir
 
 type PublicationState = "absent" | "draft" | "published";
 type PublicationIO = {
-  inspect: () => Promise<{ github: PublicationState; npm: "absent" | "published" }>;
+  inspect: () => Promise<{ github: PublicationState; npm?: "absent" | "published" }>;
   createDraft: () => Promise<void>;
   publishNpm: () => Promise<void>;
   publishGithub: () => Promise<void>;
 };
 
-// Every effect is followed by a new read of both destinations. A failed effect is
-// never retried here: it may have reached the server despite the error.
-export async function recoverPublication(io: PublicationIO): Promise<void> {
+// Every effect is followed by a new read of the selected destinations. A failed
+// effect is never retried: it may have reached the server despite the error.
+export async function recoverPublication(io: PublicationIO, destination: "github-only" | "github-and-npm" = "github-and-npm"): Promise<void> {
   let state = await io.inspect();
+  if (destination === "github-only") {
+    if (state.github === "absent") {
+      await io.createDraft();
+      state = await io.inspect();
+      if (state.github !== "draft") throw new Error("GitHub publication state changed; reconcile before further mutation");
+    }
+    if (state.github === "draft") {
+      await io.publishGithub();
+      state = await io.inspect();
+    }
+    if (state.github !== "published") throw new Error("GitHub publication state changed; reconcile before further mutation");
+    return;
+  }
   const requireState = (github: PublicationState, npm: "absent" | "published") => {
     if (state.github !== github || state.npm !== npm) throw new Error("publication state changed or is inconsistent; reconcile both destinations before further mutation");
   };
@@ -572,8 +585,8 @@ async function verifyPublicationBytes(response: Response, expected: Buffer, labe
   if (!matches || total !== expected.byteLength) throw new Error(`${label} bytes mismatch`);
 }
 
-export async function publishApprovedRelease(releaseDirectory: string, evidenceDirectory: string, tag: string, repository: string, token: string, npmToken: string, dependencies: { fetch?: typeof fetch; command?: (command: string, args: string[], env?: NodeJS.ProcessEnv) => Promise<{ stdout: string }> } = {}): Promise<void> {
-  if (!/^v\d+\.\d+\.\d+$/.test(tag) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !token || !npmToken) throw new Error("invalid publication identity or missing credentials");
+export async function publishApprovedRelease(releaseDirectory: string, evidenceDirectory: string, tag: string, repository: string, token: string, npmToken: string, dependencies: { fetch?: typeof fetch; command?: (command: string, args: string[], env?: NodeJS.ProcessEnv) => Promise<{ stdout: string }> } = {}, destination: "github-only" | "github-and-npm" = "github-and-npm"): Promise<void> {
+  if ((destination !== "github-only" && destination !== "github-and-npm") || !/^v\d+\.\d+\.\d+$/.test(tag) || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !token || (destination === "github-and-npm" && !npmToken)) throw new Error("invalid publication identity, destination, or missing credentials");
   const command = dependencies.command ?? (async (name: string, args: string[], env?: NodeJS.ProcessEnv) => execFileAsync(name, args, { env }));
   const manifest = await readJson(resolve(releaseDirectory, "release-manifest.json"), "release manifest");
   const version = stringValue(manifest.version, "release version");
@@ -591,7 +604,7 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
   const archiveIntegrity = `sha512-${createHash("sha512").update(archiveBytes).digest("base64")}`;
   const api = `https://api.github.com/repos/${repository}`;
   const githubHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cruxomni-release-gate" };
-  const npmHeaders = { Authorization: `Bearer ${npmToken}`, Accept: "application/json" };
+  const npmHeaders = destination === "github-and-npm" ? { Authorization: `Bearer ${npmToken}`, Accept: "application/json" } : undefined;
   const request = async (url: string, headers: Record<string, string>, allowMissing = false, asset = false): Promise<Response | null> => {
     let response = await (dependencies.fetch ?? fetch)(url, { headers, redirect: "manual", signal: AbortSignal.timeout(30_000) });
     if (asset && [301, 302, 303, 307, 308].includes(response.status)) {
@@ -606,10 +619,10 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
     if (!response.ok) { await response.body?.cancel(); throw new Error(`publication readback failed with HTTP ${response.status}; reconcile before mutation`); }
     return response;
   };
-  const inspect = async (): Promise<{ github: PublicationState; npm: "absent" | "published" }> => {
+  const inspect = async (): Promise<{ github: PublicationState; npm?: "absent" | "published" }> => {
     // Authenticate and establish repository visibility before interpreting a 404.
     await (await request(api, githubHeaders))!.body?.cancel();
-    await (await request("https://registry.npmjs.org/-/whoami", npmHeaders))!.body?.cancel();
+    if (npmHeaders) await (await request("https://registry.npmjs.org/-/whoami", npmHeaders))!.body?.cancel();
     const tagResponse = await request(`${api}/git/ref/tags/${encodeURIComponent(tag)}`, githubHeaders);
     const tagObject = objectValue(await readPublicationJson(tagResponse!, "GitHub tag reference"), "GitHub tag reference");
     const tagRef = objectValue(tagObject.object, "GitHub tag object");
@@ -640,6 +653,7 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
       }
       github = release.draft ? "draft" : "published";
     }
+    if (!npmHeaders) return { github };
     const packageResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, npmHeaders, true);
     if (!packageResponse) {
       const npmResponse = await request(`https://registry.npmjs.org/${encodeURIComponent(packageName)}/${encodeURIComponent(version)}`, npmHeaders, true);
@@ -678,16 +692,16 @@ export async function publishApprovedRelease(releaseDirectory: string, evidenceD
     createDraft: () => effect("gh", ["release", "create", tag, ...assetPaths, "--repo", repository, "--title", `OMP OmniRoute Provider ${version}`, "--notes-file", resolve(releaseDirectory, notes), "--draft", "--verify-tag"]),
     publishNpm: () => effect("npm", ["publish", resolve(releaseDirectory, archive), "--access", "public", "--ignore-scripts", "--fetch-retries=0"], { ...process.env, NODE_AUTH_TOKEN: npmToken }),
     publishGithub: () => effect("gh", ["release", "edit", tag, "--repo", repository, "--draft=false"]),
-  });
+  }, destination);
 }
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   if (command === "publish") {
-    const [releaseDirectory, evidenceDirectory, tag, repository, qualificationPath, approval] = args;
-    if (!releaseDirectory || !evidenceDirectory || !tag || !repository || !qualificationPath || !approval) throw new Error("usage: bun run scripts/release-gate.ts publish <release-directory> <evidence-directory> <tag> <repository> <qualification-receipt.json> <approval-sha256>");
+    const [releaseDirectory, evidenceDirectory, tag, repository, qualificationPath, approval, destination] = args;
+    if (!releaseDirectory || !evidenceDirectory || !tag || !repository || !qualificationPath || !approval || (destination !== "github-only" && destination !== "github-and-npm")) throw new Error("usage: bun run scripts/release-gate.ts publish <release-directory> <evidence-directory> <tag> <repository> <qualification-receipt.json> <approval-sha256> <github-only|github-and-npm>");
     await verifyReleaseApproval({ releaseDirectory, qualificationPath, expectedReceiptSha256: approval });
-    await publishApprovedRelease(releaseDirectory, evidenceDirectory, tag, repository, process.env.GH_TOKEN ?? "", process.env.NODE_AUTH_TOKEN ?? "");
+    await publishApprovedRelease(releaseDirectory, evidenceDirectory, tag, repository, process.env.GH_TOKEN ?? "", destination === "github-and-npm" ? process.env.NODE_AUTH_TOKEN ?? "" : "", {}, destination);
     return;
   }
   if (command === "verify-environment") {

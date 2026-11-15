@@ -444,6 +444,58 @@ describe("release automation", () => {
     }
   });
 
+  it("reconciles GitHub-only releases without npm access and stops on uncertain outcomes", async () => {
+    const dir = await temporaryDirectory("cruxomni-github-only-");
+    const notes = "reviewed notes\n";
+    const assets = new Map<string, Buffer>([
+      ["package.tgz", Buffer.from("approved package")], ["review-release-notes.md", Buffer.from(notes)],
+      ["SHA256SUMS.txt", Buffer.from("checksums")], ["release-qualification-receipt.json", Buffer.from("receipt")],
+      ["release-approval.json", Buffer.from("approval")], ["release-qualification-evidence.tar.gz", Buffer.from("evidence")],
+      ["release-manifest.json", Buffer.from(JSON.stringify({ package: projectName, version: "0.1.1", artifacts: [{ name: "package.tgz" }, { name: "review-release-notes.md" }] }))],
+    ]);
+    for (const [name, bytes] of assets) await writeFile(join(dir, name), bytes);
+    const entries = [...assets.entries()];
+    for (const scenario of ["absent", "draft", "published", "mismatch", "read-failure", "draft-unknown", "publish-unknown", "post-draft-read-failure"] as const) {
+      let state: "absent" | "draft" | "published" = scenario === "draft" || scenario === "mismatch" || scenario === "publish-unknown" ? "draft" : scenario === "published" ? "published" : "absent";
+      const effects: string[] = [];
+      let inspections = 0;
+      const request = async (input: string | URL | Request): Promise<Response> => {
+        const url = String(input);
+        expect(url).not.toContain("registry.npmjs.org");
+        const json = (value: unknown) => new Response(JSON.stringify(value));
+        if (url.endsWith("/repos/owner/repo")) {
+          inspections++;
+          if (scenario === "read-failure" || (scenario === "post-draft-read-failure" && inspections === 2)) throw new Error("transport unavailable");
+          return json({});
+        }
+        if (url.includes("/git/ref/tags/")) return json({ object: { type: "tag", sha: gitHash } });
+        if (url.includes("/releases?")) return json(state === "absent" ? [] : [{ tag_name: "v0.1.1", name: "OMP OmniRoute Provider 0.1.1", draft: state === "draft", prerelease: false, body: scenario === "mismatch" ? "wrong" : notes, assets: entries.map(([name], index) => ({ name, id: index + 1, state: "uploaded" })) }]);
+        if (url.includes("/releases/assets/")) return new Response(new Uint8Array(entries[Number(url.split("/").pop()) - 1]![1]));
+        throw new Error(`unexpected fixture URL ${url}`);
+      };
+      const operation = publishApprovedRelease(dir, dir, "v0.1.1", "owner/repo", "github-token", "", {
+        fetch: request as unknown as typeof fetch,
+        command: async (name, args) => {
+          if (name === "git") return { stdout: gitHash };
+          expect(name).toBe("gh");
+          const effect = args[1] === "create" ? "draft" : "publish";
+          effects.push(effect);
+          if ((scenario === "draft-unknown" && effect === "draft") || (scenario === "publish-unknown" && effect === "publish")) throw new Error("transport unavailable");
+          state = effect === "draft" ? "draft" : "published";
+          return { stdout: "" };
+        },
+      }, "github-only");
+      if (scenario === "absent" || scenario === "draft" || scenario === "published") {
+        await operation;
+        expect(effects).toEqual(scenario === "absent" ? ["draft", "publish"] : scenario === "draft" ? ["publish"] : []);
+        expect(inspections).toBe(effects.length + 1);
+      } else {
+        await expect(operation).rejects.toThrow();
+        expect(effects).toEqual(scenario === "draft-unknown" || scenario === "post-draft-read-failure" ? ["draft"] : scenario === "publish-unknown" ? ["publish"] : []);
+      }
+    }
+  });
+
   it("executes only missing protected publication effects and reconciles after each", async () => {
     for (const [initialGithub, initialNpm, expected] of [
       ["absent", "absent", ["draft", "npm", "github"]],
