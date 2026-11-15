@@ -197,10 +197,12 @@ test("direct isAuthenticated requires a management-scoped key, not a read-scoped
 
 // Candidate evidence only: the controlled process is not a qualification receipt,
 // and neither real ingress nor the production authorization policy is established.
-type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string };
+type AcpProcessObservation = { status: number | null; code: string; signal: string; stdout: string; error: string };
+type AcpObservation = { stage: string; category: string; expected?: number | null; actual?: number | null; location?: string;
+  processes?: { recordCount: number | null; outcomeCount: number; success: AcpProcessObservation | null; failure: AcpProcessObservation | null; stall: AcpProcessObservation | null } };
 let acpObservation: AcpObservation = { stage: "initializing", category: "incomplete" };
 function acpStage(stage: string, expected?: number | null, actual?: number | null): void {
-  acpObservation = { stage, category: "incomplete", ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
+  acpObservation = { stage, category: "incomplete", ...(acpObservation.processes ? { processes: acpObservation.processes } : {}), ...(expected === undefined ? {} : { expected }), ...(actual === undefined ? {} : { actual }) };
   if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
 }
 async function ownedProcessCase(): Promise<void> {
@@ -249,6 +251,20 @@ async function runOwnedProcessCase(): Promise<void> {
     const controller = new AbortController();
     controller.abort();
     const response = await fixture.get(new Request("http://localhost/api/acp/agents", { signal: controller.signal }));
+    let recordCount: number | null = null;
+    try { recordCount = Math.min(processes.records().length, 1000); } catch { /* Diagnostic must not alter fixture behavior. */ }
+    const processObservation = (command: string): AcpProcessObservation | null => {
+      const index = processes.outcomes.findIndex(outcome => outcome.command === command);
+      const outcome = processes.outcomes[index];
+      if (!outcome) return null;
+      const status = typeof outcome.status === "number" && Number.isInteger(outcome.status) && Math.abs(outcome.status) <= 65535 ? outcome.status : null;
+      const code = outcome.code === null ? "none" : ["ENOENT", "EINVAL", "ETIMEDOUT"].includes(outcome.code) ? outcome.code : "other";
+      const signal = outcome.signal === null ? "none" : ["SIGKILL", "SIGTERM"].includes(outcome.signal) ? outcome.signal : "other";
+      const stdout = outcome.stdout === "" ? "empty" : outcome.stdout === "Owned agent 7.8.9-beta\n" ? "success" : outcome.stdout === "failed 3.2.1\n" ? "failure" : "other";
+      return { status, code, signal, stdout, error: processes.errorCategories[index] ?? "unknown" };
+    };
+    acpObservation.processes = { recordCount, outcomeCount: Math.min(processes.outcomes.length, 1000),
+      success: processObservation(success), failure: processObservation(failure), stall: processObservation(stall) };
     acpStage("response-status", 200, response.status);
     expect(response.status).toBe(200);
     const body = await response.json() as Body;

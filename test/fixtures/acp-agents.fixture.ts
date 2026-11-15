@@ -62,6 +62,7 @@ export class AcpOwnedProcesses {
   readonly counter = path.join(this.directory, "counter.jsonl");
   readonly executables = new Map<string, { mode: ProcessMode; sha256: string; script?: string; scriptSha256?: string }>();
   readonly outcomes: Array<{ command: string; stdout: string; status: number | null; signal: string | null; code: string | null }> = [];
+  readonly errorCategories: Array<"none" | "not-found" | "invalid-argument" | "timeout" | "not-recognized" | "other"> = [];
   cleaned = false;
 
   create(mode: ProcessMode): string {
@@ -105,9 +106,15 @@ export class AcpOwnedProcesses {
     try {
       const stdout = execFileSync(command, args, { cwd: this.directory, env, shell: windows, timeout: sourceOptions.timeout, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 16_384, killSignal: "SIGKILL" });
       this.outcomes.push({ command, stdout, status: 0, signal: null, code: null });
+      this.errorCategories.push("none");
       return stdout;
     } catch (error) {
-      const failure = error as { stdout?: string | Buffer; status?: number | null; signal?: string | null; code?: string };
+      const failure = error as { stdout?: string | Buffer; stderr?: string | Buffer; message?: string; status?: number | null; signal?: string | null; code?: string };
+      const detail = `${failure.message ?? ""}\n${String(failure.stderr ?? "")}`.toLowerCase();
+      const category = failure.code === "ENOENT" || detail.includes("no such file or directory") || detail.includes("cannot find the file") ? "not-found" :
+        failure.code === "EINVAL" ? "invalid-argument" : failure.code === "ETIMEDOUT" ? "timeout" :
+        detail.includes("is not recognized as an internal or external command") ? "not-recognized" : "other";
+      this.errorCategories.push(category);
       this.outcomes.push({ command, stdout: String(failure.stdout ?? ""), status: failure.status ?? null, signal: failure.signal ?? null, code: failure.code ?? null });
       throw error;
     }
