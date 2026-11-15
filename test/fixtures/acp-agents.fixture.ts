@@ -95,9 +95,13 @@ export class AcpOwnedProcesses {
         mode === "failure" ? `process.stdout.write("failed 3.2.1\\n"); process.exit(17);\n` : windows ? `setTimeout(() => process.exit(0), 6500);\n` : `setInterval(() => {}, 1000);\n`);
     writeFileSync(script, source, { mode: 0o700, flag: "wx" });
     if (windows) {
-      if (/["%\r\n]/.test(process.execPath) || /["%\r\n]/.test(script)) throw new Error("unsafe fixture wrapper path");
-      // The wrapper is fixed at creation; no registry-controlled text enters it.
-      const wrapper = `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`;
+      const systemRoot = process.env.SystemRoot;
+      const comSpec = process.env.ComSpec;
+      if (!systemRoot || !comSpec || [process.execPath, script, this.directory, systemRoot, comSpec].some(value => /["%!\r\n]/.test(value))) throw new Error("unsafe fixture wrapper path");
+      // This confines only the owned fixture child, not arbitrary source-controlled probes.
+      const wrapper = `@echo off\r\nsetlocal DisableDelayedExpansion\r\nfor /f "delims==" %%V in ('set') do set "%%V="\r\n` +
+        `set "HOME=${this.directory}"\r\nset "TMPDIR=${this.directory}"\r\nset "BUN_DISABLE_TRANSPILER_CACHE=1"\r\n` +
+        `set "SystemRoot=${systemRoot}"\r\nset "ComSpec=${comSpec}"\r\n"${process.execPath}" "${script}" %*\r\n`;
       writeFileSync(executable, wrapper, { flag: "wx" });
       this.executables.set(executable, { mode, sha256: crypto.createHash("sha256").update(wrapper).digest("hex"), script, scriptSha256: crypto.createHash("sha256").update(source).digest("hex") });
     } else {

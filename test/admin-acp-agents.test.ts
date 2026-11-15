@@ -219,6 +219,8 @@ function acpStage(stage: string, expected?: number | null, actual?: number | nul
   if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
 }
 async function ownedProcessCase(): Promise<void> {
+  const sentinel = "ACP_OWNED_PRIVATE_SENTINEL";
+  const previousSentinel = process.env[sentinel];
   const forbiddenCodes = (value: string): number[] => [...new Set(value.split("").filter(char => !/^[A-Za-z0-9._+@:/\\-]$/.test(char)).map(char => char.charCodeAt(0)))].slice(0, 16);
   if (process.platform === "win32") {
     acpObservation.tempForbiddenCodes = forbiddenCodes(tmpdir());
@@ -226,6 +228,7 @@ async function ownedProcessCase(): Promise<void> {
   }
   acpStage("initializing");
   try {
+    if (process.platform === "win32") process.env[sentinel] = "private-fixture-sentinel";
     await runOwnedProcessCase();
     acpObservation.category = "passed";
   } catch (error) {
@@ -237,6 +240,10 @@ async function ownedProcessCase(): Promise<void> {
     }
     throw error;
   } finally {
+    if (process.platform === "win32") {
+      if (previousSentinel === undefined) delete process.env[sentinel];
+      else process.env[sentinel] = previousSentinel;
+    }
     if (process.env.ACP_OBSERVATION_PATH) writeFileSync(process.env.ACP_OBSERVATION_PATH, JSON.stringify(acpObservation));
   }
 }
@@ -353,7 +360,12 @@ async function runOwnedProcessCase(): Promise<void> {
       acpStage("record-cwd");
       expect(record.cwd).toBe(processes.directory);
       const expectedEnv: Record<string, string> = { PATH: "", HOME: processes.directory, TMPDIR: processes.directory, BUN_DISABLE_TRANSPILER_CACHE: "1" };
-      if (windows) { expectedEnv.SystemRoot = process.env.SystemRoot!; expectedEnv.ComSpec = process.env.ComSpec!; }
+      if (windows) {
+        // cmd.exe's `set "PATH="` removes the variable; an absent PATH is exact here.
+        delete expectedEnv.PATH;
+        expectedEnv.SystemRoot = process.env.SystemRoot!;
+        expectedEnv.ComSpec = process.env.ComSpec!;
+      }
       if (windows) {
         const entries = Object.entries(record.env).map(([key, value]) => [key.toUpperCase(), value] as const);
         const actualEnv = Object.fromEntries(entries);
@@ -366,6 +378,7 @@ async function runOwnedProcessCase(): Promise<void> {
           duplicateCount: Math.min(entries.length - Object.keys(actualEnv).length, 1000),
         };
         acpStage("record-environment");
+        expect(Object.hasOwn(actualEnv, "ACP_OWNED_PRIVATE_SENTINEL")).toBe(false);
         expect(entries.length).toBe(Object.keys(actualEnv).length);
         expect(actualEnv).toEqual(normalizedExpected);
       } else {
