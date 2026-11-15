@@ -6,7 +6,7 @@ import { createPinnedManagementAuthorization, loadExtractedPinnedDeclarations, l
 import { projectAssignment, projectAssignmentProof, projectAssignments, projectProxy, projectProxyList, projectProxyListProof, projectProxyProof, projectProxyUsage } from "./proxies.fixture.ts";
 
 /** Receipt-verified route and store, with SQLite and bounded infrastructure edges. */
-export function createPinnedProxyHandlers(sharedDb?: Database) {
+export function createPinnedProxyHandlers(sharedDb?: Database, options: { uuid?: () => string; date?: DateConstructor } = {}) {
   const db = sharedDb ?? new Database(":memory:");
   const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(readPinnedSource("src/lib/db/core.ts"))?.[1];
   if (!schema) throw new Error("Pinned core schema unavailable");
@@ -59,13 +59,13 @@ export function createPinnedProxyHandlers(sharedDb?: Database) {
     loading.add(path);
     try {
       const result = loadPinnedModule(path, specifier => {
-        if (specifier === "crypto" || specifier === "node:crypto") return crypto;
+        if (specifier === "crypto" || specifier === "node:crypto") return options.uuid && path === "src/lib/db/proxies.ts" ? { ...crypto, randomUUID: options.uuid } : crypto;
         if (specifier === "zod") return zod;
         if (specifier === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };
         if (specifier === "@omniroute/open-sse/utils/proxyDispatcher") return { clearDispatcherCache: noop, isSocks5ProxyEnabled: () => true };
         if (specifier === "@/shared/validation/schemas") return load("src/shared/validation/schemas/proxy.ts");
         return load(sourcePath(path, specifier));
-      });
+      }, options.date ? { date: options.date } : {});
       cache.set(path, result);
       return result;
     } finally { loading.delete(path); }

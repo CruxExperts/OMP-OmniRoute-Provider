@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
 import { canonicalizeJson, projectResponse } from "../src/admin/registry.ts";
 import { buildLivenessFixtureRegistry, JSON_HEALTH_IDS, jsonHealthContract, jsonHealthDescriptor, LIVENESS_ID, LIVENESS_TEST_ID, PinnedJsonHealthFixture, startPinnedLivenessHttp } from "./fixtures/pinned-health.fixture.ts";
+import { createPinnedFixtureDate } from "./fixtures/pinned-handler.fixture.ts";
 
 let livenessObservation: { before: null; after: null; result: { status: number; body: unknown } } | undefined;
 let pingObservation: { before: null; after: null; result: { status: number; body: unknown } } | undefined;
@@ -66,7 +67,7 @@ function expectTimestamp(value: unknown, before: number, after: number): void {
 }
 
 test("pinned JSON health routes report liveness and SQLite responsiveness without claiming ingress qualification", async () => {
-  const fixture = new PinnedJsonHealthFixture();
+  const fixture = new PinnedJsonHealthFixture({ pingDate: createPinnedFixtureDate("2026-01-01T00:00:00.000Z") });
   let observedPing: typeof pingObservation;
   try {
     for (const id of JSON_HEALTH_IDS) {
@@ -79,12 +80,13 @@ test("pinned JSON health routes report liveness and SQLite responsiveness withou
       expect(response.headers.get("cache-control")).toBe("no-store, no-cache, must-revalidate");
       const body = await response.json() as Record<string, unknown>;
       expect(body.status).toBe("ok");
-      expectTimestamp(body.timestamp, before, after);
+      if (id === JSON_HEALTH_IDS[0]) expectTimestamp(body.timestamp, before, after);
+      else expect(body.timestamp).toBe("2026-01-01T00:00:00.000Z");
       if (id === JSON_HEALTH_IDS[0]) {
         expect(Object.keys(body).sort()).toEqual(["status", "timestamp"]);
       } else {
         expect(Object.keys(body).sort()).toEqual(["latencyMs", "status", "timestamp"]);
-        expect(typeof body.latencyMs).toBe("number");
+        expect(body.latencyMs).toBe(0);
       }
       expect(projectResponse(descriptor, body)).toEqual(body);
       if (id === JSON_HEALTH_IDS[1]) {
@@ -92,7 +94,7 @@ test("pinned JSON health routes report liveness and SQLite responsiveness withou
         const schemaAfter = fixture.db.query("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
         // The fixture supplies an already-open database; this does not cover cold initialization.
         expect(schemaAfter).toEqual(schemaBefore);
-        observedPing = { before: null, after: null, result: { status: response.status, body: { ...body, timestamp: "2026-01-01T00:00:00.000Z" } } };
+        observedPing = { before: null, after: null, result: { status: response.status, body } };
       }
     }
     expect(fixture.db.query("SELECT 1 AS ok").get()).toEqual({ ok: 1 });

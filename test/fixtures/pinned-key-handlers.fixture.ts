@@ -6,7 +6,7 @@ import { KEY_POLICY_FIELDS } from "../../src/admin/source-keys.ts";
 import { projectKeyGrant, projectKeyGrantPage, projectCompleteKeyGrants } from "./keys.fixture.ts";
 
 /** Disposable SQLite only: route and apiKeys SQL are the receipt-verified source. */
-export function createPinnedKeyHandlers(sharedDb?: Database) {
+export function createPinnedKeyHandlers(sharedDb?: Database, options: { uuid?: () => string; date?: DateConstructor } = {}) {
   const db = sharedDb ?? new Database(":memory:");
   try {
   const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(readPinnedSource("src/lib/db/core.ts"))?.[1];
@@ -85,10 +85,10 @@ export function createPinnedKeyHandlers(sharedDb?: Database) {
     try {
       const result = loadPinnedModule(path, specifier => {
         if (specifier === "crypto" || specifier === "node:crypto") return crypto;
-        if (specifier === "uuid") return { v4: crypto.randomUUID };
+        if (specifier === "uuid") return { v4: options.uuid ?? crypto.randomUUID };
         if (specifier === "next/server") return { NextResponse: { json: (body: unknown, init?: ResponseInit) => Response.json(body, init) } };
         return load(sourcePath(path, specifier));
-      });
+      }, options.date ? { date: options.date } : {});
       cache.set(path, result);
       return result;
     } finally { loading.delete(path); }

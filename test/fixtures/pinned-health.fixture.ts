@@ -151,7 +151,7 @@ export class PinnedJsonHealthFixture {
   readonly #ping: () => Promise<Response>;
   failOpen = false;
   throwFromPing = false;
-  constructor() {
+  constructor(options: { pingDate?: DateConstructor } = {}) {
     const pingDb = sourcePingDb(() => {
       if (this.failOpen) throw new Error("fixture-private-backend-error");
       return this.db;
@@ -168,7 +168,7 @@ export class PinnedJsonHealthFixture {
         return pingDb();
       } };
       throw new Error(`Unexpected ping route dependency: ${specifier}`);
-    });
+    }, options.pingDate ? { date: options.pingDate } : {});
     this.#health = health.GET as () => Promise<Response>;
     this.#ping = ping.GET as () => Promise<Response>;
   }

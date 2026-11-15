@@ -13,7 +13,7 @@ import { requiredOmaScope } from "../src/admin/authorization-policy.ts";
 import { sourceRequestIssue } from "../src/admin/source-validation.ts";
 import { KEY_OPERATION_IDS, KEY_SOURCE_CONTRACTS, projectCompleteKeyGrants, projectKeyGrant, projectKeyGrantPage } from "./fixtures/keys.fixture.ts";
 import { createPinnedKeyHandlers } from "./fixtures/pinned-key-handlers.fixture.ts";
-import { loadPinnedAccessTokenAuth } from "./fixtures/pinned-handler.fixture.ts";
+import { createPinnedFixtureDate, loadPinnedAccessTokenAuth } from "./fixtures/pinned-handler.fixture.ts";
 
 // Mutations and the item read remain held pending their independent qualification.
 const REQUIRED_CASES: Readonly<Record<typeof KEY_OPERATION_IDS[number], readonly string[]>> = {
@@ -189,23 +189,30 @@ describe("pinned API key grant projection", () => {
   });
 
   test("source handlers create, enumerate, update, and delete disposable SQLite grants", async () => {
-    const fixture = createPinnedKeyHandlers();
+    const ids = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"];
+    const fixture = createPinnedKeyHandlers(undefined, {
+      uuid: () => { const id = ids.shift(); if (!id) throw new Error("Unexpected key UUID request"); return id; },
+      date: createPinnedFixtureDate("2026-01-01T00:00:00.000Z"),
+    });
     const token = "fixture-manage";
     try {
       const first = await fixture.request("POST", "/api/keys", { token, body: { name: "first", allowedCombos: ["Alpha", "combo/*"] } });
       expect(first.status).toBe(201);
       const grant = projectKeyGrant(first.data);
+      expect(grant.id).toBe("00000000-0000-4000-8000-000000000001");
       expect(grant.allowedCombos).toEqual(["Alpha", "combo/*"]);
       expect(Object.keys(grant).sort()).toEqual(["allowedCombos", "id"]);
       const second = await fixture.request("POST", "/api/keys", { token, body: { name: "second", allowedCombos: ["Beta"] } });
       expect(second.status).toBe(201);
       const secondGrant = projectKeyGrant(second.data);
+      expect(secondGrant.id).toBe("00000000-0000-4000-8000-000000000002");
       const beforeRead = projectCompleteKeyGrants((await fixture.request("GET", "/api/keys", { token })).data);
       const all = await fixture.request("GET", "/api/keys", { token });
       expect(all.status).toBe(200);
       const inventory = projectCompleteKeyGrants(all.data);
       expect(inventory.total).toBe(2);
       expect(inventory.keys).toContainEqual(grant);
+      expect(inventory.keys).toEqual([grant, secondGrant]);
       expect(inventory.keys).toContainEqual(secondGrant);
       const snapshot = keyGrantsPreflightSnapshot(all.data);
       expect(snapshot).toEqual({ kind: "collection", entries: [

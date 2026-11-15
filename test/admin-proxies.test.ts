@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
 import { createPinnedProxyHandlers } from "./fixtures/pinned-proxy-handlers.fixture.ts";
+import { createPinnedFixtureDate } from "./fixtures/pinned-handler.fixture.ts";
 import { buildProxyFixtureRegistry, HELD_SOURCE_ONLY_OPERATION_IDS, PROXY_OPERATION_IDS, projectProxyList, projectProxyListProof } from "./fixtures/proxies.fixture.ts";
 import { sourcePreflightReadInput, sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { assertSafetyReadRequest, assertSafetyReadResponse, mapRelationInput, projectRelationSnapshot } from "../src/admin/relations.ts";
@@ -92,7 +93,11 @@ test("missing assignment table is reported as an empty inventory by the source",
 });
 
 test("pinned proxy handlers persist and project CRUD and complete assignment state", async () => {
-  const fixture = createPinnedProxyHandlers();
+  let nextId = 0x11;
+  const fixture = createPinnedProxyHandlers(undefined, {
+    uuid: () => `00000000-0000-4000-8000-${(nextId++).toString(16).padStart(12, "0")}`,
+    date: createPinnedFixtureDate("2026-01-01T00:00:00.000Z"),
+  });
   try {
     expect(HELD_SOURCE_ONLY_OPERATION_IDS.size).toBe(PROXY_OPERATION_IDS.length - 1);
     expect((await fixture.request("GET", assignments)).status).toBe(401);
@@ -112,6 +117,7 @@ test("pinned proxy handlers persist and project CRUD and complete assignment sta
     expect(created.status).toBe(201);
     if (!created.data || !("id" in created.data) || typeof created.data.id !== "string") throw new Error("Missing created proxy ID");
     const id = created.data.id;
+    expect(id).toBe("00000000-0000-4000-8000-000000000011");
     expect(JSON.stringify(created.data)).not.toContain("fixture-secret");
     expect(JSON.stringify(created.data)).not.toContain("fixture.invalid");
     expect((await fixture.request("GET", `${collection}?id=${encodeURIComponent(id)}`, admin)).data).toEqual(created.data);
@@ -155,16 +161,17 @@ test("pinned proxy handlers persist and project CRUD and complete assignment sta
     expect(second.status).toBe(201);
     if (!second.data || !("id" in second.data) || typeof second.data.id !== "string") throw new Error("Missing second proxy ID");
     const secondId = second.data.id;
+    expect(secondId).toBe("00000000-0000-4000-8000-000000000012");
     const beforeCollection = await fixture.request("GET", collection, { ...admin, proxyProof: true });
     const publicCollection = await fixture.request("GET", collection, admin);
     const afterCollection = await fixture.request("GET", collection, { ...admin, proxyProof: true });
     expect(beforeCollection.status).toBe(200);
     expect(publicCollection.status).toBe(200);
     expect(afterCollection).toEqual(beforeCollection);
-    expect(publicCollection.data).toEqual({ items: expect.arrayContaining([
-      { id, name: "updated fixture", type: "http", status: "active" },
+    expect(publicCollection.data).toEqual({ items: [
       { id: secondId, name: "second fixture", type: "http", status: "active" },
-    ]), total: 2 });
+      { id, name: "updated fixture", type: "http", status: "active" },
+    ], total: 2 });
     expect(beforeCollection.data).toEqual({ items: expect.arrayContaining([
       expect.objectContaining({ id, host: "fixture.invalid", port: 8080 }),
       expect.objectContaining({ id: secondId, host: "other.invalid", port: 8081 }),
