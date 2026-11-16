@@ -8,9 +8,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   smoke and add its exact release asset to the compatibility matrix. Keep the
   18.12.5 source and SDK pins; final-archive release qualification remains required.
 
-- Add a source-bound SSO discovery candidate with fail-closed metadata projection,
-  anonymous dispatch, and independent ingress and cold/warm lifecycle proof gates.
-  Availability remains blocked until matching qualification evidence is joined.
+- Qualify the bounded public SSO discovery view with fail-closed metadata
+  projection, anonymous dispatch, and independently joined current-source HTTP
+  and cold/warm lifecycle evidence. Possible initialization effects retain
+  confirmation, unknown settlement, and no replay.
 - Qualify the restricted MFA status read with management authorization and a
   boolean/count projection, bound to source, actual ingress, and independent
   native lifecycle observations. Possible initialization writes require
