@@ -134,6 +134,47 @@ test("package secret scanning recognizes declared public identifiers without exe
   }
 });
 
+test("package secret scanning accepts only explicitly synthetic cookie pairs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "crux-package-cookie-scan-"));
+  const file = "headers.ts";
+  const issues: Parameters<typeof scanText>[2] = [];
+  const opaque = ["Qm7vN2pR8t", "L4wX9cD6fH", "3kJ5sV1zA0"].join("");
+  try {
+    await writeFile(join(root, file), 'headers.cookie = "auth_token=fixture-session";');
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+
+    await writeFile(join(root, file), 'headers.cookie = "auth_token=fixture-session; other=example-value";');
+    await scanText(root, [file], issues);
+    expect(issues).toEqual([]);
+
+    for (const value of [
+      `auth_token=${opaque}`,
+      `auth_token=fixture-session; other=${opaque}`,
+      `auth_token=${opaque}; other=fixture-session`,
+      "fixture-session; other=real-session",
+      "auth_token=fixture-session; invalid",
+    ]) {
+      issues.length = 0;
+      await writeFile(join(root, file), `headers.cookie = ${JSON.stringify(value)};`);
+      await scanText(root, [file], issues);
+      expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like literal" });
+    }
+
+    issues.length = 0;
+    await writeFile(join(root, file), `headers.authorization = ${JSON.stringify(`Bearer ${opaque}`)};`);
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like bearer literal" });
+
+    issues.length = 0;
+    await writeFile(join(root, file), `headers.secret = ${JSON.stringify("auth_token=fixture-session")};`);
+    await scanText(root, [file], issues);
+    expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like literal" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("package secret scanning distinguishes provenance names from secret-bearing JSON keys and values", async () => {
   const root = await mkdtemp(join(tmpdir(), "crux-package-scan-"));
   const file = "catalog.json";

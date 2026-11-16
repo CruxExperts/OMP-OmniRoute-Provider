@@ -4,6 +4,9 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Recognize explicitly synthetic cookie pairs in package secret scanning while
+  continuing to reject real or mixed cookie values and other credentials.
+
 - Verify OMP 18.21.0 on Linux x64 with the disposable packed-package lifecycle
   smoke and add its exact release asset to the compatibility matrix. Keep the
   18.12.5 source and SDK pins; final-archive release qualification remains required.

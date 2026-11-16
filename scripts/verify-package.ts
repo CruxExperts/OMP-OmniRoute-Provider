@@ -783,7 +783,12 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     if (absolutePathPattern.test(text) || privateTempPathPattern.test(text)) issues.push({ kind: "private-path", path: relativePath, detail: "private filesystem path marker" });
     for (const match of text.matchAll(credentialAssignmentPattern)) {
       const value = match[1] ?? match[2] ?? "";
-      if (!isNonLiteralReference(value) && !isPlaceholder(value)) issues.push({ kind: "secret", path: relativePath, detail: "credential-like literal" });
+      const cookiePairs = /^cookie\s*(?::|=)/i.test(match[0]) && /[=;]/.test(value);
+      const placeholder = cookiePairs ? value.split(";").every(part => {
+        const pair = /^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=([^\s;]+)\s*$/.exec(part);
+        return pair !== null && /^(?:fixture|example|placeholder|redacted|dummy|fake|sample|test|your|replace|change|insert|set)(?:[-_].*)?$/i.test(pair[1]!);
+      }) : isPlaceholder(value);
+      if (!isNonLiteralReference(value) && !placeholder) issues.push({ kind: "secret", path: relativePath, detail: "credential-like literal" });
     }
     for (const match of text.matchAll(unquotedCredentialPattern)) {
       const value = match[1] ?? "";
