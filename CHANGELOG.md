@@ -7,6 +7,8 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Verify OMP 18.21.0 on Linux x64 with the disposable packed-package lifecycle
   smoke and add its exact release asset to the compatibility matrix. Keep the
   18.12.5 source and SDK pins; final-archive release qualification remains required.
+- Keep the marketplace's tested-host metadata aligned with the package's OMP
+  compatibility matrix; mismatched manifests remain a failing release check.
 
 - Qualify the bounded public login-settings discovery view through exact source,
   independent HTTP and persisted cold/warm lifecycle observations. Dispatch stays
