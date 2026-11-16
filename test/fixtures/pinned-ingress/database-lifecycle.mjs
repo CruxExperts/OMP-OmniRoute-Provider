@@ -1,6 +1,7 @@
 // Direct core/settings research observation; not an HTTP or qualification test.
 import { writeFileSync } from 'node:fs';
 import { readdir, stat, writeFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { ensureDbInitialized, getDbInstance, pingDb, closeDbInstance, runManagedDbHealthCheck, DATA_DIR, SQLITE_FILE } from './core';
 import { getSettings, updateSettings } from './settings';
 import { resolveDbHealthWorker } from './healthCheckRunner';
@@ -11,8 +12,9 @@ const phase = process.argv[2];
 const sweep = phase === 'sweep-success' || phase === 'sweep-failure';
 const auth = phase === 'auth-cold' || phase === 'auth-warm';
 const mfa = phase === 'mfa-cold' || phase === 'mfa-warm';
-const expectedDataDir = mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const sso = phase === 'sso-cold' || phase === 'sso-warm';
+const expectedDataDir = sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -142,6 +144,44 @@ if (mfa) {
     const after = await files();
     const observation = { databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), beforeFileCount: before.length, afterFileCount: after.length, enabled: status.enabled, backupCodesRemaining: status.backupCodesRemaining, recoverySwitchSet: status.recoverySwitchSet, mfaRows: row.count, corruptEnabled, corruptCount, rowUnchanged };
     await writeFile(`/work/${phase}.json`, JSON.stringify(observation) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+if (sso) {
+  const cold = phase === 'sso-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('SSO database phase mismatch');
+  let onboardingBefore = 'absent';
+  if (!cold) {
+    const existing = new DatabaseSync(SQLITE_FILE, { readOnly: true });
+    try {
+      const rows = existing.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('requireLogin', 'setupComplete') ORDER BY key").all();
+      if (JSON.stringify(rows) !== JSON.stringify([{ key: 'requireLogin', value: 'true' }, { key: 'setupComplete', value: 'true' }])) throw new Error('SSO onboarding before mismatch');
+      onboardingBefore = 'persisted';
+    } finally { existing.close(); }
+  }
+  const { GET } = await import('/work/app/src/app/api/auth/sso/config/route.ts');
+  const call = async () => { const response = await GET(); return { status: response.status, body: await response.json() }; };
+  const first = await call();
+  try {
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('SSO database driver mismatch');
+    const rows = () => db.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('requireLogin', 'setupComplete') ORDER BY key").all();
+    const onboardingPersisted = JSON.stringify(rows()) === JSON.stringify([{ key: 'requireLogin', value: 'true' }, { key: 'setupComplete', value: 'true' }]);
+    const enabled = { enabled: true, authorityHost: 'https://login.example.test', tenantId: 'tenant.example', clientId: 'fixture-client', audience: 'api://fixture-audience', issuer: 'https://login.example.test/tenant.example/v2.0', scope: 'api://fixture-audience/.default' };
+    if (!onboardingPersisted || first.status !== 200 || JSON.stringify(first.body) !== JSON.stringify(cold ? { enabled: false } : enabled)) throw new Error('SSO first read mismatch');
+    let cached = null, refreshed = null;
+    if (cold) {
+      await updateSettings({ entraSsoEnabled: true, entraTenantId: 'tenant.example', entraClientId: 'fixture-client', entraApiAudience: 'api://fixture-audience', entraAuthorityHost: 'https://login.example.test' });
+    } else {
+      db.prepare("UPDATE key_value SET value = ? WHERE namespace = 'settings' AND key = 'entraSsoEnabled'").run('false');
+      cached = (await call()).body.enabled;
+      await new Promise(resolve => setTimeout(resolve, 5100));
+      refreshed = (await call()).body.enabled;
+      if (cached !== true || refreshed !== false) throw new Error('SSO cache observation mismatch');
+    }
+    const after = await files();
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), onboardingBefore, onboardingPersisted, first, cached, refreshed }) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { await closeDbInstance(); }
   process.exit(0);
 }

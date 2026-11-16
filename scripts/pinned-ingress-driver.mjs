@@ -22,6 +22,8 @@ const statusDb = new DatabaseSync(`${dir}/auth-status.sqlite`);
 statusDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const mfaDb = new DatabaseSync(`${dir}/mfa-status.sqlite`);
 mfaDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
+const ssoDb = new DatabaseSync(`${dir}/sso-config.sqlite`);
+ssoDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
 const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].map(scope => [scope, `fixture_api_key_${scope}`]));
 const ownedProbe = '/work/fixture/acp-owned-probe';
@@ -29,6 +31,7 @@ const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'f
 await writeFile(`${dir}/state.json`, JSON.stringify(state), { mode: 0o600 });
 await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/auth-status-reads.jsonl`, '', { mode: 0o600 });
+await writeFile(`${dir}/sso-config-reads.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
@@ -120,6 +123,27 @@ try {
   await delay(5100);
   await statusCase('settingsFailure', { cookie }, false);
   const authStatusHttp = { cases: statusCases, invalidSettingsReads, onboardingBefore: statusBefore, onboardingAfter: statusAfter };
+  const ssoPath = '/api/auth/sso/config';
+  const ssoCases = {};
+  const ssoCall = async (name, headers = {}) => {
+    const response = await request(ssoPath, 'GET', headers);
+    assert(response.status === 200 && response.routeClass === 'PUBLIC' && response.contentType === 'application/json' && !response.text.includes('fixture-private'), `sso:${name}`);
+    ssoCases[name] = { status: response.status, routeClass: response.routeClass, contentType: response.contentType, body: response.body, privateMarkerPresent: response.text.includes('fixture-private') };
+  };
+  await ssoCall('anonymous');
+  await ssoCall('invalid', { authorization: 'Bearer [REDACTED:auth_header]', cookie: 'auth_token=fixture-private-invalid' });
+  const ssoSet = ssoDb.prepare("INSERT OR REPLACE INTO key_value (namespace,key,value) VALUES ('settings',?,?)");
+  for (const [key, value] of Object.entries({ entraSsoEnabled: true, entraTenantId: ' tenant.example ', entraApiAudience: ' api://fixture-audience ', entraClientId: ' fixture-client ', entraAuthorityHost: ' https://login.example.test/// ', entraGraphClientSecret: 'fixture-private-secret', entraGroupMappings: [{ groupId: 'fixture-private-group', keyGroupId: 'fixture-private-key' }] })) ssoSet.run(key, JSON.stringify(value));
+  await ssoCall('cached');
+  await delay(5100);
+  await ssoCall('enabled');
+  ssoSet.run('entraApiAudience', JSON.stringify(''));
+  await delay(5100);
+  await ssoCall('incomplete');
+  ssoDb.exec('DROP TABLE key_value');
+  await delay(5100);
+  await ssoCall('failure');
+  const ssoConfigHttp = { cases: ssoCases };
   const mfaPath = '/api/auth/mfa/status';
   const mfaCases = {};
   const mfaCredentials = { anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, ...Object.fromEntries(Object.entries(managementKeys).map(([name, key]) => [`key-${name}`, { authorization: `Bearer ${key}` }])), ...Object.fromEntries(Object.entries(scopedTokens).map(([name, key]) => [`oma-${name}`, { authorization: `Bearer ${key}` }])) };
@@ -356,10 +380,11 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
   mfaDb.close();
+  ssoDb.close();
   db.close();
   await stop(acpChild);
   await stop();

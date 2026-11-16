@@ -142,6 +142,31 @@ source, artifacts, notes, checksums, and release receipt described in the
 [release guide](release.md), then obtain approval for that payload. A tag push alone
 does not publish. Reconcile any partial npm or GitHub publication before retrying.
 
+## OMP 18.21.0 compatibility review
+
+The disposable native smoke reported `verified` for the Linux x64 glibc OMP
+18.21.0 release asset, SHA-256
+`b00bd7ecdf7ad24d103ea56850969c9a8cc050527e1b9db64c25bbbf13fbedcc`.
+The release API digest, checksum-file digest, and binary checksum entry matched.
+The smoke installed the existing packed 1.0.5 archive, SHA-256
+`33555c223d434bdbbbd3f97875a3b878a2df671e1035d0963d9c1b17ade8360e`,
+through a credential-free loopback fixture registry. The runner used source
+checkpoint `fc723bf` plus the uncommitted host-matrix metadata for this review.
+
+It observed guided setup and cancellation, masked input and persistence,
+streaming inference, tool continuation, rejection of an unavailable cached model,
+and install, disable, enable, and uninstall lifecycle operations. Administration
+was limited to the model-combo-mappings fixture; uncertain outcomes remain
+unverified. The disposable profile bypassed the host's first-run onboarding.
+This is intermediate host-compatibility evidence, not source/archive equivalence,
+eight-platform qualification, or acceptance of the final release archive.
+
+The immutable source and SDK pins remain at 18.12.5. Exact-version OSV, GitHub
+Advisory Database, and deps.dev queries found no entries for the five OMP peer
+packages at 18.21.0; those queries do not establish the compiled host's complete
+transitive dependency exposure. A new Latest host still produces a maintenance
+finding and requires another bounded compatibility review.
+
 ## OMP 18.20.2 compatibility review
 
 The disposable native smoke reported `verified` for the Linux x64 glibc OMP

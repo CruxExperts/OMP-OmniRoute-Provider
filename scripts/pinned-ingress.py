@@ -390,6 +390,7 @@ ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metric
 ROUTES += ('src/app/.well-known/agent-card.json/route.ts', 'src/app/.well-known/agent.json/route.ts', 'src/lib/a2a/agentCardMetadata.ts', 'src/lib/conductor/fleetSkills.ts', 'src/lib/wellKnown.ts', 'src/shared/constants/appConfig.ts')
 ROUTES += ('src/app/api/auth/status/route.ts',)
 ROUTES += ('src/app/api/auth/mfa/status/route.ts', 'src/server/auth/dashboardMfa.ts', 'src/lib/db/dashboardMfa.ts', 'src/server/auth/mfaRouteSupport.ts')
+ROUTES += ('src/app/api/auth/sso/config/route.ts', 'src/server/authz/entra/config.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
@@ -549,7 +550,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
 
 
 def materialize(real_core=False):
@@ -689,6 +690,17 @@ MFA_STATUS = 'src/app/api/auth/mfa/status/route.ts'
 MFA_DASHBOARD = 'src/server/auth/dashboardMfa.ts'
 MFA_STORAGE = 'src/lib/db/dashboardMfa.ts'
 MFA_SUPPORT = 'src/server/auth/mfaRouteSupport.ts'
+SSO_CONFIG = 'src/app/api/auth/sso/config/route.ts'
+SSO_ENTRA = 'src/server/authz/entra/config.ts'
+
+def sso_config_closure(source, cache):
+    """Source route and Entra config with a route-private source settings/cache graph."""
+    auth = auth_status_closure(source, cache)
+    route = replace_once(source[SSO_CONFIG].decode(), '@/server/authz/entra/config', '@/server/authz/entra/fixtureSsoConfig').encode()
+    config = replace_once(source[SSO_ENTRA].decode(), '@/lib/db/readCache', '@/lib/db/fixtureSsoCache').encode()
+    private_cache = auth['src/lib/db/fixtureAuthStatusCache.ts'].decode().replace('fixtureAuthStatusSettings', 'fixtureSsoSettings').encode()
+    private_settings = auth['src/lib/db/fixtureAuthStatusSettings.ts'].decode().replace('auth-status.sqlite', 'sso-config.sqlite').replace('auth-status-reads.jsonl', 'sso-config-reads.jsonl').encode()
+    return {SSO_CONFIG: route, 'src/server/authz/entra/fixtureSsoConfig.ts': config, 'src/lib/db/fixtureSsoCache.ts': private_cache, 'src/lib/db/fixtureSsoSettings.ts': private_settings}
 
 def mfa_status_closure(source):
     """Retain the source route and declarations; isolate only the storage edge."""
@@ -1032,6 +1044,14 @@ def provision(material):
             put(app, name, data)
     identities[MFA_STATUS] = {'originalSha256': sha(mfa_source[MFA_STATUS]), 'executedSha256': sha(mfa_graph[MFA_STATUS])}
     mfa_identity = {'sources': {name: sha(data) for name, data in mfa_source.items()}, 'executed': {name: sha(data) for name, data in mfa_graph.items()}}
+    sso_source = {**auth_source, SSO_CONFIG: (app / SSO_CONFIG).read_bytes(), SSO_ENTRA: (app / SSO_ENTRA).read_bytes()}
+    sso_graph = sso_config_closure(sso_source, closure['src/lib/db/readCache.ts'])
+    (app / SSO_CONFIG).write_bytes(sso_graph[SSO_CONFIG])
+    for name, data in sso_graph.items():
+        if name != SSO_CONFIG:
+            put(app, name, data)
+    identities[SSO_CONFIG] = {'originalSha256': sha(sso_source[SSO_CONFIG]), 'executedSha256': sha(sso_graph[SSO_CONFIG])}
+    sso_identity = {'sources': {name: sha(sso_source[name]) for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in sso_graph.items()}}
     executed_overlays = apply_overlays(app, fixture, aliases)
     versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('next', 'react', 'react-dom')}
     require(versions == {'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime package mismatch')
@@ -1049,6 +1069,7 @@ def provision(material):
         'runtimeInputSha256': {name: sha((Path('/fixture-src') / name).read_bytes()) for name in inputs},
         'authStatusClosure': auth_identity,
         'mfaStatusClosure': mfa_identity,
+        'ssoConfigClosure': sso_identity,
         'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
@@ -1288,6 +1309,7 @@ def core_lifecycle(material, deadline):
     runner_arguments = ['/runtime/node', '--import', 'tsx/esm', '/work/app/src/lib/db/pinnedLifecycleFixture.mjs']
     identity = {'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA, 'sourceFilesSha256': source, 'migrationSqlSha256': migrations, 'workerSourceSha256': source[worker_source], 'productionRecipeSha256': source[recipe], 'workerBuildArguments': common, 'workerOutputSha256': file_sha(app / 'src/lib/db/healthCheckWorker.js'), 'runnerSourceSha256': file_sha(fixture), 'runnerArguments': runner_arguments}
     identity['mfaClosure'] = {'sources': {name: sha(data) for name, data in mfa_source.items()}, 'selectedSha256': sha(native_mfa.encode())}
+    identity['ssoClosure'] = {name: source[name] for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED, 'src/lib/db/readCache.ts')}
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1322,6 +1344,13 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         log = Path('/work/' + phase + '.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(mfa_dir)})
         validate_lifecycle_log(log)
+    sso_dir = Path('/work/sso-data')
+    sso_dir.mkdir(mode=0o700)
+    for phase in ('sso-cold', 'sso-warm'):
+        worker_stage('coldLifecycle' if phase == 'sso-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(sso_dir), 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
+        validate_lifecycle_log(log)
     for phase in ('sweep-success', 'sweep-failure'):
         worker_stage('coldLifecycle')
         data_dir = Path('/work') / (phase + '-data')
@@ -1342,6 +1371,13 @@ def export_core_lifecycle(output, hashes):
     auth_warm = bounded_json(output / 'auth-warm.json')
     mfa_cold = bounded_json(output / 'mfa-cold.json')
     mfa_warm = bounded_json(output / 'mfa-warm.json')
+    sso_cold = bounded_json(output / 'sso-cold.json')
+    sso_warm = bounded_json(output / 'sso-warm.json')
+    for phase in ('sso-cold', 'sso-warm'):
+        validate_lifecycle_log(output / (phase + '.private'))
+    sso_enabled = {'enabled': True, 'authorityHost': 'https://login.example.test', 'tenantId': 'tenant.example', 'clientId': 'fixture-client', 'audience': 'api://fixture-audience', 'issuer': 'https://login.example.test/tenant.example/v2.0', 'scope': 'api://fixture-audience/.default'}
+    require(sso_cold == {'databaseExistedBefore': False, 'databaseExistsAfter': True, 'onboardingBefore': 'absent', 'onboardingPersisted': True, 'first': {'status': 200, 'body': {'enabled': False}}, 'cached': None, 'refreshed': None}, 'cold SSO lifecycle mismatch')
+    require(sso_warm == {'databaseExistedBefore': True, 'databaseExistsAfter': True, 'onboardingBefore': 'persisted', 'onboardingPersisted': True, 'first': {'status': 200, 'body': sso_enabled}, 'cached': True, 'refreshed': False}, 'warm SSO lifecycle mismatch')
     for phase, value in (('mfa-cold', mfa_cold), ('mfa-warm', mfa_warm)):
         validate_lifecycle_log(output / (phase + '.private'))
         require(set(value) == {'databaseExistedBefore', 'databaseExistsAfter', 'beforeFileCount', 'afterFileCount', 'enabled', 'backupCodesRemaining', 'recoverySwitchSet', 'mfaRows', 'corruptEnabled', 'corruptCount', 'rowUnchanged'} and value['databaseExistedBefore'] is (phase == 'mfa-warm') and value['databaseExistsAfter'] is True and value['enabled'] is False and value['backupCodesRemaining'] == 0 and value['recoverySwitchSet'] is False and value['mfaRows'] == 0 and value['corruptEnabled'] is (True if phase == 'mfa-warm' else None) and value['corruptCount'] == (1 if phase == 'mfa-warm' else None) and value['rowUnchanged'] is (True if phase == 'mfa-warm' else None) and all(type(value[k]) is int and 0 <= value[k] <= 4096 for k in ('beforeFileCount', 'afterFileCount')), 'MFA lifecycle observation mismatch')
@@ -1381,6 +1417,8 @@ def export_core_lifecycle(output, hashes):
     public_identity = {k: identity[k] for k in ('sourceArchiveSha256', 'nodeSha256', 'workerSourceSha256', 'productionRecipeSha256', 'workerBuildArguments', 'workerOutputSha256', 'runnerSourceSha256', 'runnerArguments')}
     require(isinstance(identity.get('mfaClosure'), dict) and set(identity['mfaClosure']) == {'sources', 'selectedSha256'} and identity['mfaClosure']['sources'] == {name: source[name] for name in (MFA_STATUS, MFA_DASHBOARD, MFA_STORAGE, MFA_SUPPORT)} and re.fullmatch(r'[0-9a-f]{64}', identity['mfaClosure']['selectedSha256']), 'invalid native MFA closure identity')
     public_identity['mfaClosure'] = identity['mfaClosure']
+    require(identity.get('ssoClosure') == {name: source[name] for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED, 'src/lib/db/readCache.ts')}, 'invalid native SSO closure identity')
+    public_identity['ssoClosure'] = identity['ssoClosure']
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
@@ -1443,7 +1481,7 @@ def export_core_lifecycle(output, hashes):
     require(combo_warm == {'phase': 'warm', 'driver': 'node:sqlite', 'importedPersisted': True, 'deletedAbsent': True}, 'combo warm lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
-    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}})
+    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}, 'ssoConfig': {'cold': sso_cold, 'warm': sso_warm}})
     save(export / 'provider-lifecycle.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Pinned handlers and source stores in the real cold core with authentication disabled; separate warm alias read. No ingress or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': provider['results'], 'warmAlias': warm_provider})
@@ -1680,12 +1718,19 @@ def export_observations(output, hashes):
     source_hashes[AUTH_STATUS] = {'originalSha256': sha(source[AUTH_STATUS]), 'executedSha256': sha(auth_graph[AUTH_STATUS])}
     mfa_graph = mfa_status_closure(source)
     source_hashes[MFA_STATUS] = {'originalSha256': sha(source[MFA_STATUS]), 'executedSha256': sha(mfa_graph[MFA_STATUS])}
+    sso_graph = sso_config_closure(source, closure['src/lib/db/readCache.ts'])
+    source_hashes[SSO_CONFIG] = {'originalSha256': sha(source[SSO_CONFIG]), 'executedSha256': sha(sso_graph[SSO_CONFIG])}
+    require(identity['ssoConfigClosure'] == {'sources': {name: sha(source[name]) for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in sso_graph.items()}}, 'SSO config closure mismatch')
     require(identity['mfaStatusClosure'] == {'sources': {name: sha(source[name]) for name in (MFA_STATUS, MFA_DASHBOARD, MFA_STORAGE, MFA_SUPPORT)}, 'executed': {name: sha(data) for name, data in mfa_graph.items()}}, 'MFA status closure mismatch')
     require(identity['authStatusClosure'] == {'sources': {name: sha(source[name]) for name in (AUTH_STATUS, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in auth_graph.items()}}, 'auth status closure mismatch')
     require(identity['addedSourceSha256'] == source_hashes and identity['pingDeclarationSha256'] == sha(declaration.encode()), 'source identity mismatch')
     auth_status_observation = ingress['authStatusHttp']
     expected_status = {'anonymous': False, 'invalid': False, 'expired': False, 'tampered': False, 'valid': True, 'cachedRevocation': True, 'revoked': False, 'passwordChanged': False, 'settingsFailure': False}
     require(auth_status_observation == {'cases': {name: {'status': 200, 'routeClass': 'PUBLIC', 'authenticated': value} for name, value in expected_status.items()}, 'invalidSettingsReads': 0, 'onboardingBefore': [], 'onboardingAfter': [{'key': 'requireLogin', 'value': 'true'}, {'key': 'setupComplete', 'value': 'true'}]}, 'auth status HTTP outcome mismatch')
+    sso_observation = ingress['ssoConfigHttp']
+    sso_enabled = {'enabled': True, 'authorityHost': 'https://login.example.test', 'tenantId': 'tenant.example', 'clientId': 'fixture-client', 'audience': 'api://fixture-audience', 'issuer': 'https://login.example.test/tenant.example/v2.0', 'scope': 'api://fixture-audience/.default'}
+    sso_expected = {name: {'status': 200, 'routeClass': 'PUBLIC', 'contentType': 'application/json', 'body': sso_enabled if name == 'enabled' else {'enabled': False}, 'privateMarkerPresent': False} for name in ('anonymous', 'invalid', 'cached', 'enabled', 'incomplete', 'failure')}
+    require(sso_observation == {'cases': sso_expected}, 'SSO HTTP observation mismatch')
     mfa_status_observation = ingress['mfaStatusHttp']
     require(set(mfa_status_observation) == {'cases', 'enrolled', 'failure'} and set(mfa_status_observation['cases']) == {'anonymous', 'invalid', 'session', 'key-read', 'key-write', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'}, 'MFA status HTTP cases incomplete')
     mfa_statuses = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 403, 'oma-write': 403, 'oma-admin': 200}
@@ -1876,6 +1921,8 @@ def export_observations(output, hashes):
     artifact['authStatusClosure'] = identity['authStatusClosure']
     artifact['mfaStatusHttp'] = mfa_status_observation
     artifact['mfaStatusClosure'] = identity['mfaStatusClosure']
+    artifact['ssoConfigHttp'] = sso_observation
+    artifact['ssoConfigClosure'] = identity['ssoConfigClosure']
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]
     artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
     artifact['wellKnownHttp'] = public_cards

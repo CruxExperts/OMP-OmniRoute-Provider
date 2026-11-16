@@ -85,7 +85,6 @@ const upstreamsById: Record<string, { provenanceRepository: string; latestReposi
   omniroute: { provenanceRepository: "diegosouzapw/OmniRoute", latestRepository: "cheaper-inference/OmniRoute" },
 };
 
-const ompCompatibilityEvidence = "docs/reference/maintenance.md#omp-18202-compatibility-review";
 
 function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -96,8 +95,9 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
 function reviewedOmpLatest(root: string, pin: { id: string; release: { tag: string }; compatibility_review?: unknown }, observed: string): boolean {
   if (pin.id !== "omp") return false;
   const review = objectValue(pin.compatibility_review);
-  if (!review || review.source_tag !== pin.release.tag || review.latest_tag !== observed || review.decision !== "retain-source-pin" || review.evidence !== ompCompatibilityEvidence) return false;
   if (!/^v\d+\.\d+\.\d+$/.test(observed)) return false;
+  const evidence = `docs/reference/maintenance.md#omp-${observed.slice(1).replaceAll(".", "")}-compatibility-review`;
+  if (!review || review.source_tag !== pin.release.tag || review.latest_tag !== observed || review.decision !== "retain-source-pin" || review.evidence !== evidence) return false;
 
   try {
     if (!existsSync(resolve(root, "docs/reference/maintenance.md"))) return false;

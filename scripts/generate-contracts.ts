@@ -264,6 +264,11 @@ export function testOutcomeHash(
     if (canonicalJson(before) !== canonicalJson(expectedState) || canonicalJson(after) !== canonicalJson(expectedState)
       || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("MFA status observed outcome mismatch");
   }
+  if (operationId === "GET /api/auth/sso/config") {
+    const expectedState = { rows: 7, unchanged: true };
+    const expectedBody = { enabled: true, authorityHost: "https://login.example.test", tenantId: "tenant.example", clientId: "fixture-client", audience: "api://fixture-audience", issuer: "https://login.example.test/tenant.example/v2.0", scope: "api://fixture-audience/.default" };
+    if (canonicalJson(before) !== canonicalJson(expectedState) || canonicalJson(after) !== canonicalJson(expectedState) || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("SSO config observed outcome mismatch");
+  }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -336,7 +341,9 @@ auth_graph = m.auth_status_closure(source, closures['src/lib/db/readCache.ts'])
 identities[m.AUTH_STATUS] = {'originalSha256': m.sha(source[m.AUTH_STATUS]), 'executedSha256': m.sha(auth_graph[m.AUTH_STATUS])}
 mfa_graph = m.mfa_status_closure(source)
 identities[m.MFA_STATUS] = {'originalSha256': m.sha(source[m.MFA_STATUS]), 'executedSha256': m.sha(mfa_graph[m.MFA_STATUS])}
-print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
+sso_graph = m.sso_config_closure(source, closures['src/lib/db/readCache.ts'])
+identities[m.SSO_CONFIG] = {'originalSha256': m.sha(source[m.SSO_CONFIG]), 'executedSha256': m.sha(sso_graph[m.SSO_CONFIG])}
+print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'ssoConfigClosure': {'sources': {name: m.sha(source[name]) for name in (m.SSO_CONFIG, m.SSO_ENTRA, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in sso_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
   // This generator requires python3 and the prepared pinned archive; fail closed if
@@ -406,8 +413,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (authSource !== undefined && (authSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "fb7c44407ba45fa0cf7464cee27458d866d5ba80283ebfa6d5a1a544f3684ede" || binding.handlerGitBlobSha !== "50f8b6c4b7983ffc191eed84009a9eda9c138d19")) throw new Error(`${label} auth status source mismatch`);
   const mfaSource = operationId === "GET /api/auth/mfa/status" ? requireRecord(added["src/app/api/auth/mfa/status/route.ts"], `${label}.MFA status source`) : undefined;
   if (mfaSource !== undefined && (mfaSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "722f9a027e69d1b0179130ea59787a58d468cf649d2e9383cac4b8f3498d5509" || binding.handlerGitBlobSha !== "e6aa48caa7c3c499f9a1d08853b2b50f3b603cd3")) throw new Error(`${label} MFA status source mismatch`);
+  const ssoSource = operationId === "GET /api/auth/sso/config" ? requireRecord(added["src/app/api/auth/sso/config/route.ts"], `${label}.SSO config source`) : undefined;
+  if (ssoSource !== undefined && (ssoSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "16971949ae2e1b8f2de41c4d0c301ee531ff328683ad1f78f67c313306e503bd" || binding.handlerGitBlobSha !== "f31fd0f17a8a8cb89ee70e47689e5b71ff5e5f87")) throw new Error(`${label} SSO source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -562,6 +571,12 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   if (operationId === "GET /api/auth/status" && canonicalJson(toJson(artifact.authStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.authStatusClosure, label))) throw new Error(`${label} auth status closure mismatch`);
+  if (operationId === "GET /api/auth/sso/config") {
+    if (canonicalJson(toJson(artifact.ssoConfigClosure, label)) !== canonicalJson(toJson(expectedIdentities.ssoConfigClosure, label))) throw new Error(`${label} SSO closure mismatch`);
+    const enabled = { enabled: true, authorityHost: "https://login.example.test", tenantId: "tenant.example", clientId: "fixture-client", audience: "api://fixture-audience", issuer: "https://login.example.test/tenant.example/v2.0", scope: "api://fixture-audience/.default" };
+    const cases = Object.fromEntries(["anonymous", "invalid", "cached", "enabled", "incomplete", "failure"].map(name => [name, { status: 200, routeClass: "PUBLIC", contentType: "application/json", body: name === "enabled" ? enabled : { enabled: false }, privateMarkerPresent: false }]));
+    if (canonicalJson(toJson(artifact.ssoConfigHttp, label)) !== canonicalJson(toJson({ cases }, label))) throw new Error(`${label} SSO HTTP mismatch`);
+  }
   if (operationId === "GET /api/auth/mfa/status") {
     if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
     const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
@@ -600,6 +615,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
       if (!Object.hasOwn(added, name)) delete expectedAdded[name];
     }
   }
+  if (operationId !== "GET /api/auth/sso/config") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/auth/sso/config/route.ts", "src/server/authz/entra/config.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+  }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
     if (canonicalJson(toJson(source[key] ?? null, label)) !== canonicalJson(toJson(expectedIdentities[key] ?? null, label))) throw new Error(`${label} effective source identity mismatch: ${key}`);
@@ -619,7 +638,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
 const coreLifecycleIdentityCache = new Map<string, unknown>();
 
 /** Join a research-only cold/warm observation to independently rerun producer identities. */
-export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false): void {
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false): void {
   const label = "core lifecycle evidence";
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -667,6 +686,14 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
       if (row.databaseExistedBefore !== (phase === "warm") || row.databaseExistsAfter !== true || row.enabled !== false || row.backupCodesRemaining !== 0 || row.recoverySwitchSet !== false || row.mfaRows !== 0 || row.corruptEnabled !== (phase === "warm" ? true : null) || row.corruptCount !== (phase === "warm" ? 1 : null) || row.rowUnchanged !== (phase === "warm" ? true : null) || !Number.isSafeInteger(row.beforeFileCount) || !Number.isSafeInteger(row.afterFileCount) || canonicalJson(toJson(row, label)) !== canonicalJson(toJson(reference[phase], label))) throw new Error(`${label} MFA ${phase} mismatch`);
     }
   }
+  if (requireSso) {
+    const independent = requireRecord(expected, `${label}.independent`);
+    const actual = requireRecord(artifact.ssoConfig, `${label}.ssoConfig`);
+    const reference = requireRecord(independent.ssoConfig, `${label}.independent.ssoConfig`);
+    const enabled = { enabled: true, authorityHost: "https://login.example.test", tenantId: "tenant.example", clientId: "fixture-client", audience: "api://fixture-audience", issuer: "https://login.example.test/tenant.example/v2.0", scope: "api://fixture-audience/.default" };
+    const wanted = { cold: { databaseExistedBefore: false, databaseExistsAfter: true, onboardingBefore: "absent", onboardingPersisted: true, first: { status: 200, body: { enabled: false } }, cached: null, refreshed: null }, warm: { databaseExistedBefore: true, databaseExistsAfter: true, onboardingBefore: "persisted", onboardingPersisted: true, first: { status: 200, body: enabled }, cached: true, refreshed: false } };
+    if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(wanted, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(reference, label))) throw new Error(`${label} SSO lifecycle mismatch`);
+  }
   if (effectValue !== undefined) {
     const effect = requireRecord(effectValue, "deprecated provider effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
@@ -712,7 +739,7 @@ export function validateDeprecatedProviderSweepObservation(value: unknown, indep
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
   const label = "core lifecycle evidence";
   const artifact = requireRecord(value, label);
-  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"])]);
+  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"])]);
   if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
   const identity = requireRecord(artifact.identity, `${label}.identity`);
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
@@ -1639,7 +1666,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
     ...effectiveSourceBinding(manifest),
-    ...(operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
+    ...(operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
@@ -1771,6 +1798,20 @@ export function validateMfaStatusContract(value: unknown): void {
   const preflight = requireRecord(safety.preflight, "MFA status preflight");
   if (contract.sideEffect !== "lifecycle" || auth.domain !== "management" || !same(auth.sourcePolicy, policy) || confirmation.required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || preflight.kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("MFA status contract does not match source-bound lifecycle behavior");
 }
+export function validateSsoConfigContract(value: unknown): void {
+  const contract = requireRecord(value, "SSO config contract");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "SSO config")) === canonicalJson(toJson(b, "SSO config"));
+  const auth = requireRecord(contract.auth, "SSO auth"), safety = requireRecord(contract.mutationSafety, "SSO safety"), response = requireRecord(contract.response, "SSO response");
+  const identifier = { type: "string", maxLength: 255, pattern: "^[A-Za-z0-9._-]*$" };
+  const authority = { type: "string", maxLength: 512, pattern: "^(https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?|http://(?:localhost|127\\.0\\.0\\.1|\\[::1\\])(?::[0-9]{1,5})?)$" };
+  const uri = { type: "string", maxLength: 1024, pattern: "^(?:[A-Za-z][A-Za-z0-9+.-]*://[A-Za-z0-9._~:\\[\\]-]+(?:/[A-Za-z0-9._~:/-]*)?|[A-Za-z][A-Za-z0-9+.-]*:[A-Za-z0-9._~:/-]+|[A-Za-z0-9._-]+(?:/[A-Za-z0-9._~-]+)*)$" };
+  const view = { type: "object", properties: { enabled: { type: "boolean" }, authorityHost: authority, tenantId: identifier, clientId: identifier, audience: uri, issuer: uri, scope: uri }, required: ["enabled"], additionalProperties: false };
+  const request = requireRecord(contract.request, "SSO request");
+  const empty = { type: "object", properties: {}, additionalProperties: false };
+  const success = requireArray(response.variants, "SSO response variants").filter(item => isRecord(item) && item.statusCode === "200");
+  if (!same(request.pathSchema, empty) || !same(request.querySchema, empty) || !same(request.pathParameters, []) || !same(request.parameters, []) || request.body !== null || !same(contract.secrets, { inputFields: [], outputFields: ["graphClientSecret", "groupMappings", "defaultKeyGroupId"] }) || !same(contract.pagination, { mode: "none", parameters: [] }) || !same(contract.streaming, { mode: "json", framing: "application/json" }) || success.length !== 1 || !same(requireRecord(success[0], "SSO success").content, [{ mediaType: "application/json", schema: view, sourceFile: "src/app/api/auth/sso/config/route.ts" }])) throw new Error("SSO request or success projection mismatch");
+  if (contract.sideEffect !== "lifecycle" || auth.domain !== "public" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] }) || requireRecord(contract.confirmation, "SSO confirmation").required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || requireRecord(safety.preflight, "SSO preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("SSO config contract does not match source-bound lifecycle behavior");
+}
 
 function validateEligibility(
   record: RecordValue | undefined,
@@ -1788,6 +1829,10 @@ function validateEligibility(
   if (operationId === "GET /api/auth/mfa/status") {
     validateMfaStatusContract(record.contract);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/mfa/status/route.ts" || route.sha256 !== "722f9a027e69d1b0179130ea59787a58d468cf649d2e9383cac4b8f3498d5509" || route.gitBlobSha !== "e6aa48caa7c3c499f9a1d08853b2b50f3b603cd3") throw new Error("MFA status requires the exact lifecycle source");
+  }
+  if (operationId === "GET /api/auth/sso/config") {
+    validateSsoConfigContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/sso/config/route.ts" || route.sha256 !== "16971949ae2e1b8f2de41c4d0c301ee531ff328683ad1f78f67c313306e503bd" || route.gitBlobSha !== "f31fd0f17a8a8cb89ee70e47689e5b71ff5e5f87") throw new Error("SSO config requires exact lifecycle source");
   }
   if (binding.sideEffect === "unknown") throw new Error(`eligibility requires a source-qualified side-effect classification: ${operationId}`);
   const source = requireRecord(record.source, `${operationId}.eligibility.source`);
@@ -1840,7 +1885,7 @@ function validateEligibility(
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status");
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -2561,7 +2606,7 @@ function makeOperation(
     operationId,
     method,
     pathTemplate: path,
-    ...(operationId === "GET /api/auth/status" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
+    ...(operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
     request,
     response,
     mediaType: { request: requestMediaType, response: responseMediaType },

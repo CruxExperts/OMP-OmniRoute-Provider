@@ -319,6 +319,18 @@
       "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.20.2/SHA256SUMS.txt",
       "checksums_sha256": "e0e6a635e7bc94d6b8a81c1f64898dc837c0f9c43e4f07d27acab3b57767513c",
       "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omp-linux-x64-18.21.0",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v18.21.0",
+      "peeled_commit": "6f03614d761366972e80e84e25d1418ed678d2c7",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.21.0/omp-linux-x64",
+      "sha256": "b00bd7ecdf7ad24d103ea56850969c9a8cc050527e1b9db64c25bbbf13fbedcc",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.21.0/SHA256SUMS.txt",
+      "checksums_sha256": "0ca1e64be186cefab58ccb0f42346bbd7c65ebd39092bd3f8dbe32dbd70c287a",
+      "status": "verified_disposable_acquisition"
     }
   ]
 }

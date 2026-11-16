@@ -28,23 +28,35 @@ function fixture() {
   return { api, issues, setLost: () => { lostResponse = true; }, counts: () => ({ creates, updates }), labels: () => createdLabels };
 }
 
-type UpstreamsFixture = { upstreams: Array<{ id: string; compatibility_review?: Record<string, unknown> | null }> };
+type UpstreamsFixture = { upstreams: Array<{ id: string; repository: string; release: { tag: string }; compatibility_review?: Record<string, unknown> | null }> };
 
 async function withMaintenanceRoot<T>(edit: (provenance: UpstreamsFixture) => void, run: (root: string) => Promise<T>): Promise<T> {
-  const sourceRoot = resolve(import.meta.dir, "..");
   const root = await mkdtemp(join(tmpdir(), "cruxomni-maintenance-test-"));
   try {
-    for (const path of ["package.json", "provenance/upstreams.json", "provenance/release-artifacts.json", "docs/reference/maintenance.md"]) {
+    const provenance: UpstreamsFixture = { upstreams: [
+      { id: "omniroute", repository: "diegosouzapw/OmniRoute", release: { tag: "v3.8.52" } },
+      { id: "omp", repository: "can1357/oh-my-pi", release: { tag: "v18.12.5" }, compatibility_review: {
+        source_tag: "v18.12.5", latest_tag: "v18.20.2", decision: "retain-source-pin",
+        evidence: "docs/reference/maintenance.md#omp-18202-compatibility-review",
+      } },
+    ] };
+    edit(provenance);
+    const files = {
+      "package.json": JSON.stringify({ omp: { compatibility: { tested: ["18.20.2"] } } }),
+      "provenance/upstreams.json": JSON.stringify(provenance),
+      "provenance/release-artifacts.json": JSON.stringify({ artifacts: [{
+        id: "omp-linux-x64-18.20.2", upstream: "omp", kind: "release_asset", release_tag: "v18.20.2",
+        peeled_commit: "1".repeat(40), sha256: "2".repeat(64), checksums_sha256: "3".repeat(64),
+        url: "https://github.com/can1357/oh-my-pi/releases/download/v18.20.2/omp-linux-x64",
+        checksums_url: "https://github.com/can1357/oh-my-pi/releases/download/v18.20.2/SHA256SUMS.txt",
+        status: "verified_disposable_acquisition",
+      }] }),
+      "docs/reference/maintenance.md": "# Repository maintenance\n\n## OMP 18.20.2 compatibility review\n",
+    };
+    for (const [path, contents] of Object.entries(files)) {
       const target = join(root, path);
       await mkdir(dirname(target), { recursive: true });
-      const contents = await readFile(resolve(sourceRoot, path), "utf8");
-      if (path === "provenance/upstreams.json") {
-        const provenance = JSON.parse(contents) as UpstreamsFixture;
-        edit(provenance);
-        await writeFile(target, JSON.stringify(provenance, null, 2));
-      } else {
-        await writeFile(target, contents);
-      }
+      await writeFile(target, contents);
     }
     return await run(root);
   } finally {
@@ -126,6 +138,29 @@ test("the reviewed OMP latest is suppressed only while the pin and tested releas
   await withMaintenanceRoot(() => {}, async root => {
     const result = await collectFindings(root, latestCollectors("v18.20.2"));
 
+    expect(result.collectionErrors).toEqual([]);
+    expect(result.findings.map(item => item.findingId)).not.toContain("upstream:omp");
+  });
+});
+
+test("a newly reviewed host uses its own versioned compatibility reference", async () => {
+  await withMaintenanceRoot(provenance => {
+    const review = provenance.upstreams.find(upstream => upstream.id === "omp")!.compatibility_review!;
+    review.latest_tag = "v18.21.0";
+    review.evidence = "docs/reference/maintenance.md#omp-18210-compatibility-review";
+  }, async root => {
+    await updateJson<{ omp: { compatibility: { tested: string[] } } }>(resolve(root, "package.json"), manifest => {
+      manifest.omp.compatibility.tested = ["18.21.0"];
+    });
+    await updateJson<{ artifacts: Array<Record<string, unknown>> }>(resolve(root, "provenance/release-artifacts.json"), manifest => {
+      Object.assign(manifest.artifacts[0]!, {
+        id: "omp-linux-x64-18.21.0", release_tag: "v18.21.0",
+        url: "https://github.com/can1357/oh-my-pi/releases/download/v18.21.0/omp-linux-x64",
+        checksums_url: "https://github.com/can1357/oh-my-pi/releases/download/v18.21.0/SHA256SUMS.txt",
+      });
+    });
+    await writeFile(resolve(root, "docs/reference/maintenance.md"), "# Repository maintenance\n\n## OMP 18.21.0 compatibility review\n");
+    const result = await collectFindings(root, latestCollectors("v18.21.0"));
     expect(result.collectionErrors).toEqual([]);
     expect(result.findings.map(item => item.findingId)).not.toContain("upstream:omp");
   });
@@ -240,13 +275,13 @@ test("invalid reviewed matrix, artifact, digest, URL, or decision cannot suppres
 
 test("one upstream failure keeps documentation and independent issue observations available", async () => {
   let docsChecked = false;
-  const result = await collectFindings(resolve(import.meta.dir, ".."), {
+  const result = await withMaintenanceRoot(() => {}, root => collectFindings(root, {
     async releaseTag(repository) {
       if (repository === "cheaper-inference/OmniRoute") throw new Error("private response body");
       return "v18.20.2";
     },
     async checkGeneratedDocs() { docsChecked = true; throw new Error("private diagnostics"); },
-  });
+  }));
   const server = fixture();
   await reconcileCollectedFindings(server.api, result);
 

@@ -44,6 +44,18 @@ observed JSON media; the source constructor alone does not establish effective
 response headers. A successful response with a different media type is rejected.
 These isolated observations do not establish production deployment behavior.
 
+The `GET /api/auth/sso/config` candidate is public and sends no API key or
+session cookie. A cold settings read may initialize the database and persist
+onboarding state, so it requires confirmation, never retries, and leaves
+settlement unknown. When enabled, the bounded view includes authority, tenant,
+client, audience, issuer and scope; malformed or unsafe metadata is rejected,
+not reported as disabled. The server can accept configuration that the client
+refuses. Public identifiers may still contain sensitive operator-provided text:
+format validation cannot detect an arbitrary secret disguised as an identifier.
+Graph secrets and group mappings are excluded. Eligibility still requires fresh,
+matching source, HTTP and native lifecycle evidence; the candidate alone does
+not make the operation available.
+
 The qualified deprecated-provider inventory read requires confirmation: its first
 read may encrypt legacy provider metadata, start a backup, and invalidate caches.
 A successful HTTP 200 can hide a caught migration failure, so the effect remains

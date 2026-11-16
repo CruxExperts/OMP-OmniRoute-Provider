@@ -1183,6 +1183,25 @@ function projectJsonResponse(descriptor: OperationDescriptor, response: unknown,
   }
   assertJsonValue(response, "response");
   if (Buffer.byteLength(JSON.stringify(response), "utf8") > 8 * 1024 * 1024) throw new RegistryError("invalid-inventory", "response size limit exceeded", descriptor.operationId);
+  if (descriptor.operationId === "GET /api/auth/sso/config") {
+    if (!isRecord(response) || typeof response.enabled !== "boolean") throw new RegistryError("invalid-input", "invalid SSO configuration response", descriptor.operationId);
+    if (response.enabled) {
+      const { authorityHost, tenantId, clientId, audience, issuer, scope } = response;
+      if (typeof authorityHost !== "string" || typeof tenantId !== "string" || !tenantId || typeof clientId !== "string" || typeof audience !== "string" || !audience || typeof scope !== "string" || issuer !== `${authorityHost}/${tenantId}/v2.0` || scope !== `${audience}/.default`) throw new RegistryError("invalid-input", "invalid SSO configuration response", descriptor.operationId);
+      try {
+        const url = new URL(authorityHost);
+        const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+        if (url.origin !== authorityHost || url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))) throw new Error();
+        for (const value of [audience, scope]) {
+          if (value.includes("%")) throw new Error();
+          if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
+            const parsed = new URL(value);
+            if (parsed.username || parsed.password || parsed.search || parsed.hash || (value.includes("://") && !parsed.hostname)) throw new Error();
+          }
+        }
+      } catch { throw new RegistryError("invalid-input", "invalid SSO configuration response", descriptor.operationId); }
+    } else if (Object.keys(response).some(key => key !== "enabled")) throw new RegistryError("invalid-input", "invalid SSO configuration response", descriptor.operationId);
+  }
   return projectNode(response, descriptor.response.schema, descriptor, undefined, 0, privateTarget, []);
 }
 
