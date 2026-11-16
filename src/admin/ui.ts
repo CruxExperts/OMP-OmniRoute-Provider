@@ -203,6 +203,9 @@ async function applyPlan(options: AdminUiOptions, context: AdminContext, planId:
     else if (result.status === "operator-required") notify(context, `administration requires a separate operator action; no applied result was recorded (${planId})`, "warning");
     else if (result.status === "unknown") notify(context, `administration outcome is unknown; reconcile before retrying (${planId})`, "warning");
     else notify(context, `administration plan was not applied (${planId})`, "warning");
+    if ((result.status === "applied" || result.status === "unknown") && result.output !== undefined) {
+      notify(context, `Projected administration response:\n${safeDisplay(result.output)}`, "info");
+    }
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : "request_failed";
     notify(context, `administration apply failed (${code}); no retry was attempted`, "warning");

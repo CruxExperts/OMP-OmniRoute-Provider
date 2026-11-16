@@ -13,8 +13,9 @@ const sweep = phase === 'sweep-success' || phase === 'sweep-failure';
 const auth = phase === 'auth-cold' || phase === 'auth-warm';
 const mfa = phase === 'mfa-cold' || phase === 'mfa-warm';
 const sso = phase === 'sso-cold' || phase === 'sso-warm';
-const expectedDataDir = sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const login = phase === 'login-cold' || phase === 'login-warm';
+const expectedDataDir = login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -147,6 +148,35 @@ if (mfa) {
   } finally { await closeDbInstance(); }
   process.exit(0);
 }
+if (login) {
+  const cold = phase === 'login-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('login database phase mismatch');
+  let onboardingBefore = 'absent';
+  if (!cold) {
+    const existing = new DatabaseSync(SQLITE_FILE, { readOnly: true });
+    try {
+      const rows = existing.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('requireLogin', 'setupComplete') ORDER BY key").all();
+      if (JSON.stringify(rows) !== JSON.stringify([{ key: 'requireLogin', value: 'true' }, { key: 'setupComplete', value: 'true' }])) throw new Error('login onboarding before mismatch');
+      onboardingBefore = 'persisted';
+    } finally { existing.close(); }
+  }
+  const { GET } = await import('/work/app/src/app/api/settings/require-login/pinnedLifecycleRoute.ts');
+  globalThis.__pinnedAuthCookie = undefined;
+  const response = await GET();
+  const body = await response.json();
+  try {
+    const db = getDbInstance();
+    const rows = db.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('requireLogin', 'setupComplete') ORDER BY key").all();
+    const onboardingPersisted = JSON.stringify(rows) === JSON.stringify([{ key: 'requireLogin', value: 'true' }, { key: 'setupComplete', value: 'true' }]);
+    const expected = { authenticated: false, requireLogin: true, hasPassword: true, setupComplete: true, oidcEnabled: false, oidcDisablePasswordLogin: false, nodeVersion: 'v24.17.0', nodeCompatible: true };
+    if (db.driver !== 'node:sqlite' || response.status !== 200 || JSON.stringify(body) !== JSON.stringify(expected) || !onboardingPersisted) throw new Error('login lifecycle response mismatch');
+    const after = await files();
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), onboardingBefore, onboardingPersisted, status: response.status, body }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+
 if (sso) {
   const cold = phase === 'sso-cold';
   const existed = (await files()).some(x => x.name === 'storage.sqlite');

@@ -391,6 +391,7 @@ ROUTES += ('src/app/.well-known/agent-card.json/route.ts', 'src/app/.well-known/
 ROUTES += ('src/app/api/auth/status/route.ts',)
 ROUTES += ('src/app/api/auth/mfa/status/route.ts', 'src/server/auth/dashboardMfa.ts', 'src/lib/db/dashboardMfa.ts', 'src/server/auth/mfaRouteSupport.ts')
 ROUTES += ('src/app/api/auth/sso/config/route.ts', 'src/server/authz/entra/config.ts')
+ROUTES += ('src/app/api/settings/require-login/route.ts', 'src/shared/utils/nodeRuntimeSupport.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
@@ -550,7 +551,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json')}
 
 
 def materialize(real_core=False):
@@ -692,6 +693,42 @@ MFA_STORAGE = 'src/lib/db/dashboardMfa.ts'
 MFA_SUPPORT = 'src/server/auth/mfaRouteSupport.ts'
 SSO_CONFIG = 'src/app/api/auth/sso/config/route.ts'
 SSO_ENTRA = 'src/server/authz/entra/config.ts'
+REQUIRE_LOGIN = 'src/app/api/settings/require-login/route.ts'
+LOGIN_PASSWORD = 'src/lib/auth/managementPassword.ts'
+LOGIN_RUNTIME = 'src/shared/utils/nodeRuntimeSupport.ts'
+LOGIN_FLAGS = 'src/shared/utils/featureFlags.ts'
+LOGIN_DEPENDENCIES = ('src/shared/constants/featureFlagDefinitions.ts', 'src/shared/utils/featureFlagResolverBridge.ts', 'src/shared/utils/processSingleton.ts', 'src/shared/utils/requireApiKeyValue.mjs', 'src/lib/db/featureFlags.ts', 'src/lib/db/encryption.ts', 'src/shared/constants/bodySize.ts', 'src/shared/constants/responsesPreviousResponseId.ts', 'src/shared/constants/proxyBulkImport.ts')
+
+def require_login_get(source):
+    """Retain the pinned GET and helpers; omit the unrelated security-writing POST."""
+    route = source[REQUIRE_LOGIN].decode('utf-8')
+    start, end = 'async function checkSessionAuthenticated()', '\ntype LoginSettingsWriter ='
+    require(route.count(start) == route.count(end) == 1, 'require-login GET boundary changed')
+    selected = route[route.index(start):route.index(end)]
+    return ('''import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
+import { getSettings } from "@/lib/db/settings";
+import { hasManagementPasswordConfigured } from "@/lib/auth/managementPassword";
+import { getDashboardJwtSecret, verifyDashboardSessionToken, DASHBOARD_SESSION_COOKIE } from "@/shared/utils/dashboardSessionToken";
+import { getNodeRuntimeSupport } from "@/shared/utils/nodeRuntimeSupport.ts";
+''' + selected).encode('utf-8')
+def require_login_closure(source, cache, flag_store):
+    """Execute source GET using a private SQLite settings and session cache boundary."""
+    auth = auth_status_closure(source, cache)
+    route = require_login_get(source).decode()
+    route = replace_once(route, '@/lib/db/settings', '@/lib/db/fixtureLoginSettings')
+    route = replace_once(route, '@/shared/utils/featureFlags', '@/shared/utils/fixtureLoginFlags')
+    route = replace_once(route, '@/shared/utils/dashboardSessionToken', '@/shared/utils/fixtureLoginSession')
+    session = replace_once(source[AUTH_SESSION].decode(), '@/lib/db/readCache', '@/lib/db/fixtureLoginCache')
+    private_cache = auth['src/lib/db/fixtureAuthStatusCache.ts'].decode().replace('fixtureAuthStatusSettings', 'fixtureLoginSettings')
+    settings = auth['src/lib/db/fixtureAuthStatusSettings.ts'].decode().replace('auth-status.sqlite', 'login-settings.sqlite').replace('auth-status-reads.jsonl', 'login-settings-reads.jsonl')
+    settings = replace_once(settings, 'function getDbInstance()', 'export function getDbInstance()')
+    flags = replace_once(source[LOGIN_FLAGS].decode(), '@/lib/db/featureFlags', '@/lib/db/fixtureLoginFlagStore')
+    flag_store = replace_once(flag_store.decode(), 'from "./core"', 'from "./fixtureLoginSettings"')
+    return {REQUIRE_LOGIN: route.encode(), 'src/shared/utils/fixtureLoginSession.ts': session.encode(), 'src/shared/utils/fixtureLoginFlags.ts': flags.encode(), 'src/lib/db/fixtureLoginFlagStore.ts': flag_store.encode(), 'src/lib/db/fixtureLoginCache.ts': private_cache.encode(), 'src/lib/db/fixtureLoginSettings.ts': settings.encode()}
+
+
 
 def sso_config_closure(source, cache):
     """Source route and Entra config with a route-private source settings/cache graph."""
@@ -929,7 +966,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | {DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -1052,6 +1089,14 @@ def provision(material):
             put(app, name, data)
     identities[SSO_CONFIG] = {'originalSha256': sha(sso_source[SSO_CONFIG]), 'executedSha256': sha(sso_graph[SSO_CONFIG])}
     sso_identity = {'sources': {name: sha(sso_source[name]) for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in sso_graph.items()}}
+    login_source = {**auth_source, **{name: (app / name).read_bytes() for name in LOGIN_DEPENDENCIES}, REQUIRE_LOGIN: (app / REQUIRE_LOGIN).read_bytes(), LOGIN_FLAGS: (app / LOGIN_FLAGS).read_bytes(), LOGIN_PASSWORD: (app / LOGIN_PASSWORD).read_bytes(), LOGIN_RUNTIME: (app / LOGIN_RUNTIME).read_bytes()}
+    login_graph = require_login_closure(login_source, closure['src/lib/db/readCache.ts'], closure['src/lib/db/featureFlags.ts'])
+    (app / REQUIRE_LOGIN).write_bytes(login_graph[REQUIRE_LOGIN])
+    for name, data in login_graph.items():
+        if name != REQUIRE_LOGIN:
+            put(app, name, data)
+    identities[REQUIRE_LOGIN] = {'originalSha256': sha(login_source[REQUIRE_LOGIN]), 'executedSha256': sha(login_graph[REQUIRE_LOGIN])}
+    login_identity = {'sources': {name: material['configSupportSha256'][name] for name in (REQUIRE_LOGIN, LOGIN_FLAGS, LOGIN_PASSWORD, LOGIN_RUNTIME, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, *LOGIN_DEPENDENCIES)}, 'executed': {name: sha(data) for name, data in login_graph.items()}}
     executed_overlays = apply_overlays(app, fixture, aliases)
     versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('next', 'react', 'react-dom')}
     require(versions == {'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime package mismatch')
@@ -1070,6 +1115,7 @@ def provision(material):
         'authStatusClosure': auth_identity,
         'mfaStatusClosure': mfa_identity,
         'ssoConfigClosure': sso_identity,
+        'requireLoginClosure': login_identity,
         'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
@@ -1291,6 +1337,9 @@ def core_lifecycle(material, deadline):
     route = (route_dir / 'route.ts').read_text()
     (route_dir / 'pinnedLifecycleRoute.ts').write_text(replace_once(route, 'from "next/headers"', 'from "./pinnedLifecycleCookies"'))
     (route_dir / 'pinnedLifecycleCookies.ts').write_text('export async function cookies() { return { get(name: string) { return name === "auth_token" && globalThis.__pinnedAuthCookie ? { value: globalThis.__pinnedAuthCookie } : undefined; } }; }\n')
+    login_route = require_login_get({REQUIRE_LOGIN: (app / REQUIRE_LOGIN).read_bytes()}).decode('utf-8')
+    login_route = replace_once(login_route, 'from "next/headers"', 'from "../../auth/status/pinnedLifecycleCookies"')
+    put(app, 'src/app/api/settings/require-login/pinnedLifecycleRoute.ts', login_route.encode())
     shutil.copyfile(fixture, entry)
     mfa_source = {name: (app / name).read_bytes() for name in (MFA_STATUS, MFA_DASHBOARD, MFA_STORAGE, MFA_SUPPORT)}
     mfa_graph = mfa_status_closure(mfa_source)
@@ -1310,6 +1359,7 @@ def core_lifecycle(material, deadline):
     identity = {'sourceArchiveSha256': ARCHIVE_SHA, 'nodeSha256': NODE_SHA, 'sourceFilesSha256': source, 'migrationSqlSha256': migrations, 'workerSourceSha256': source[worker_source], 'productionRecipeSha256': source[recipe], 'workerBuildArguments': common, 'workerOutputSha256': file_sha(app / 'src/lib/db/healthCheckWorker.js'), 'runnerSourceSha256': file_sha(fixture), 'runnerArguments': runner_arguments}
     identity['mfaClosure'] = {'sources': {name: sha(data) for name, data in mfa_source.items()}, 'selectedSha256': sha(native_mfa.encode())}
     identity['ssoClosure'] = {name: source[name] for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED, 'src/lib/db/readCache.ts')}
+    identity['loginClosure'] = {'sources': {name: source[name] for name in (REQUIRE_LOGIN, LOGIN_PASSWORD, LOGIN_RUNTIME, LOGIN_FLAGS, AUTH_SETTINGS, AUTH_SHARED, AUTH_SESSION, 'src/lib/db/readCache.ts', *LOGIN_DEPENDENCIES)}, 'selectedSha256': sha(login_route.encode())}
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1351,6 +1401,13 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         log = Path('/work/' + phase + '.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(sso_dir), 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
         validate_lifecycle_log(log)
+    login_dir = Path('/work/login-data')
+    login_dir.mkdir(mode=0o700)
+    for phase in ('login-cold', 'login-warm'):
+        worker_stage('coldLifecycle' if phase == 'login-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(login_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
+        validate_lifecycle_log(log)
     for phase in ('sweep-success', 'sweep-failure'):
         worker_stage('coldLifecycle')
         data_dir = Path('/work') / (phase + '-data')
@@ -1373,6 +1430,12 @@ def export_core_lifecycle(output, hashes):
     mfa_warm = bounded_json(output / 'mfa-warm.json')
     sso_cold = bounded_json(output / 'sso-cold.json')
     sso_warm = bounded_json(output / 'sso-warm.json')
+    login_cold = bounded_json(output / 'login-cold.json')
+    login_warm = bounded_json(output / 'login-warm.json')
+    login_body = {'authenticated': False, 'requireLogin': True, 'hasPassword': True, 'setupComplete': True, 'oidcEnabled': False, 'oidcDisablePasswordLogin': False, 'nodeVersion': 'v24.17.0', 'nodeCompatible': True}
+    for phase, value in (('login-cold', login_cold), ('login-warm', login_warm)):
+        validate_lifecycle_log(output / (phase + '.private'))
+        require(value == {'databaseExistedBefore': phase == 'login-warm', 'databaseExistsAfter': True, 'onboardingBefore': 'persisted' if phase == 'login-warm' else 'absent', 'onboardingPersisted': True, 'status': 200, 'body': login_body}, 'login lifecycle mismatch')
     for phase in ('sso-cold', 'sso-warm'):
         validate_lifecycle_log(output / (phase + '.private'))
     sso_enabled = {'enabled': True, 'authorityHost': 'https://login.example.test', 'tenantId': 'tenant.example', 'clientId': 'fixture-client', 'audience': 'api://fixture-audience', 'issuer': 'https://login.example.test/tenant.example/v2.0', 'scope': 'api://fixture-audience/.default'}
@@ -1419,6 +1482,8 @@ def export_core_lifecycle(output, hashes):
     public_identity['mfaClosure'] = identity['mfaClosure']
     require(identity.get('ssoClosure') == {name: source[name] for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED, 'src/lib/db/readCache.ts')}, 'invalid native SSO closure identity')
     public_identity['ssoClosure'] = identity['ssoClosure']
+    require(isinstance(identity.get('loginClosure'), dict) and set(identity['loginClosure']) == {'sources', 'selectedSha256'} and identity['loginClosure']['sources'] == {name: source[name] for name in (REQUIRE_LOGIN, LOGIN_PASSWORD, LOGIN_RUNTIME, LOGIN_FLAGS, AUTH_SETTINGS, AUTH_SHARED, AUTH_SESSION, 'src/lib/db/readCache.ts', *LOGIN_DEPENDENCIES)} and re.fullmatch(r'[0-9a-f]{64}', identity['loginClosure']['selectedSha256']), 'invalid native login closure identity')
+    public_identity['loginClosure'] = identity['loginClosure']
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
@@ -1481,7 +1546,7 @@ def export_core_lifecycle(output, hashes):
     require(combo_warm == {'phase': 'warm', 'driver': 'node:sqlite', 'importedPersisted': True, 'deletedAbsent': True}, 'combo warm lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
-    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}, 'ssoConfig': {'cold': sso_cold, 'warm': sso_warm}})
+    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}, 'ssoConfig': {'cold': sso_cold, 'warm': sso_warm}, 'requireLogin': {'cold': login_cold, 'warm': login_warm}})
     save(export / 'provider-lifecycle.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Pinned handlers and source stores in the real cold core with authentication disabled; separate warm alias read. No ingress or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': provider['results'], 'warmAlias': warm_provider})
@@ -1720,6 +1785,9 @@ def export_observations(output, hashes):
     source_hashes[MFA_STATUS] = {'originalSha256': sha(source[MFA_STATUS]), 'executedSha256': sha(mfa_graph[MFA_STATUS])}
     sso_graph = sso_config_closure(source, closure['src/lib/db/readCache.ts'])
     source_hashes[SSO_CONFIG] = {'originalSha256': sha(source[SSO_CONFIG]), 'executedSha256': sha(sso_graph[SSO_CONFIG])}
+    login_graph = require_login_closure(source, closure['src/lib/db/readCache.ts'], closure['src/lib/db/featureFlags.ts'])
+    source_hashes[REQUIRE_LOGIN] = {'originalSha256': sha(source[REQUIRE_LOGIN]), 'executedSha256': sha(login_graph[REQUIRE_LOGIN])}
+    require(identity['requireLoginClosure'] == {'sources': {name: sha(source[name]) for name in (REQUIRE_LOGIN, LOGIN_FLAGS, LOGIN_PASSWORD, LOGIN_RUNTIME, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, *LOGIN_DEPENDENCIES)}, 'executed': {name: sha(data) for name, data in login_graph.items()}}, 'login closure mismatch')
     require(identity['ssoConfigClosure'] == {'sources': {name: sha(source[name]) for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in sso_graph.items()}}, 'SSO config closure mismatch')
     require(identity['mfaStatusClosure'] == {'sources': {name: sha(source[name]) for name in (MFA_STATUS, MFA_DASHBOARD, MFA_STORAGE, MFA_SUPPORT)}, 'executed': {name: sha(data) for name, data in mfa_graph.items()}}, 'MFA status closure mismatch')
     require(identity['authStatusClosure'] == {'sources': {name: sha(source[name]) for name in (AUTH_STATUS, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in auth_graph.items()}}, 'auth status closure mismatch')
@@ -1731,6 +1799,10 @@ def export_observations(output, hashes):
     sso_enabled = {'enabled': True, 'authorityHost': 'https://login.example.test', 'tenantId': 'tenant.example', 'clientId': 'fixture-client', 'audience': 'api://fixture-audience', 'issuer': 'https://login.example.test/tenant.example/v2.0', 'scope': 'api://fixture-audience/.default'}
     sso_expected = {name: {'status': 200, 'routeClass': 'PUBLIC', 'contentType': 'application/json', 'body': sso_enabled if name == 'enabled' else {'enabled': False}, 'privateMarkerPresent': False} for name in ('anonymous', 'invalid', 'cached', 'enabled', 'incomplete', 'failure')}
     require(sso_observation == {'cases': sso_expected}, 'SSO HTTP observation mismatch')
+    login_base = {'authenticated': False, 'requireLogin': True, 'hasPassword': True, 'setupComplete': True, 'oidcEnabled': False, 'oidcDisablePasswordLogin': False, 'nodeVersion': 'v24.17.0', 'nodeCompatible': True}
+    login_bodies = {'anonymous': login_base, 'invalid': login_base, 'valid': {**login_base, 'authenticated': True}, 'configured': {**login_base, 'oidcEnabled': True, 'oidcDisablePasswordLogin': True}, 'failure': login_base}
+    login_expected = {'cases': {name: {'status': 200, 'routeClass': 'PUBLIC', 'contentType': 'application/json', 'body': body, 'privateMarkerPresent': False} for name, body in login_bodies.items()}, 'onboardingBefore': [], 'onboardingAfter': [{'key': 'requireLogin', 'value': 'true'}, {'key': 'setupComplete', 'value': 'true'}]}
+    require(ingress['requireLoginHttp'] == login_expected, 'login HTTP outcome mismatch')
     mfa_status_observation = ingress['mfaStatusHttp']
     require(set(mfa_status_observation) == {'cases', 'enrolled', 'failure'} and set(mfa_status_observation['cases']) == {'anonymous', 'invalid', 'session', 'key-read', 'key-write', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'}, 'MFA status HTTP cases incomplete')
     mfa_statuses = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 403, 'oma-write': 403, 'oma-admin': 200}
@@ -1923,6 +1995,8 @@ def export_observations(output, hashes):
     artifact['mfaStatusClosure'] = identity['mfaStatusClosure']
     artifact['ssoConfigHttp'] = sso_observation
     artifact['ssoConfigClosure'] = identity['ssoConfigClosure']
+    artifact['requireLoginHttp'] = ingress['requireLoginHttp']
+    artifact['requireLoginClosure'] = identity['requireLoginClosure']
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]
     artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
     artifact['wellKnownHttp'] = public_cards

@@ -24,6 +24,8 @@ const mfaDb = new DatabaseSync(`${dir}/mfa-status.sqlite`);
 mfaDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const ssoDb = new DatabaseSync(`${dir}/sso-config.sqlite`);
 ssoDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
+const loginDb = new DatabaseSync(`${dir}/login-settings.sqlite`);
+loginDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
 const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].map(scope => [scope, `fixture_api_key_${scope}`]));
 const ownedProbe = '/work/fixture/acp-owned-probe';
@@ -32,6 +34,7 @@ await writeFile(`${dir}/state.json`, JSON.stringify(state), { mode: 0o600 });
 await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/auth-status-reads.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/sso-config-reads.jsonl`, '', { mode: 0o600 });
+await writeFile(`${dir}/login-settings-reads.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
@@ -144,6 +147,27 @@ try {
   await delay(5100);
   await ssoCall('failure');
   const ssoConfigHttp = { cases: ssoCases };
+  const loginCases = {};
+  const loginCall = async (name, headers = {}) => {
+    const response = await request('/api/settings/require-login', 'GET', headers);
+    assert(response.status === 200 && response.routeClass === 'PUBLIC' && response.contentType === 'application/json' && !response.text.includes('fixture-private'), `require-login:${name}`);
+    loginCases[name] = { status: response.status, routeClass: response.routeClass, contentType: response.contentType, body: response.body, privateMarkerPresent: response.text.includes('fixture-private') };
+  };
+  const loginRows = () => loginDb.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('setupComplete', 'requireLogin') ORDER BY key").all();
+  const loginBefore = loginRows();
+  await loginCall('anonymous');
+  const loginAfter = loginRows();
+  await loginCall('invalid', { authorization: 'Bearer [REDACTED:auth_header]', cookie: 'auth_token=fixture-private-invalid' });
+  await loginCall('valid', { cookie });
+  const loginSet = loginDb.prepare("INSERT OR REPLACE INTO key_value (namespace,key,value) VALUES ('settings',?,?)");
+  loginSet.run('oidcEnabled', 'true');
+  loginSet.run('oidcClientSecret', JSON.stringify('fixture-private-secret'));
+  loginDb.prepare("INSERT INTO key_value (namespace,key,value) VALUES ('feature_flags','OMNIROUTE_OIDC_DISABLE_PASSWORD_LOGIN','yes')").run();
+  await delay(1100);
+  await loginCall('configured');
+  loginDb.exec('DROP TABLE key_value');
+  await loginCall('failure');
+  const requireLoginHttp = { cases: loginCases, onboardingBefore: loginBefore, onboardingAfter: loginAfter };
   const mfaPath = '/api/auth/mfa/status';
   const mfaCases = {};
   const mfaCredentials = { anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, ...Object.fromEntries(Object.entries(managementKeys).map(([name, key]) => [`key-${name}`, { authorization: `Bearer ${key}` }])), ...Object.fromEntries(Object.entries(scopedTokens).map(([name, key]) => [`oma-${name}`, { authorization: `Bearer ${key}` }])) };
@@ -380,9 +404,10 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
+  loginDb.close();
   mfaDb.close();
   ssoDb.close();
   db.close();

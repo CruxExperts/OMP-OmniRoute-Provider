@@ -56,6 +56,16 @@ Graph secrets and group mappings are excluded. Availability requires matching
 source, HTTP and native lifecycle evidence. These isolated observations do not
 certify an identity-provider login, account action, or production deployment.
 
+The `GET /api/settings/require-login` candidate exposes only authentication,
+login and OIDC booleans and a bounded runtime version. Ordinary public dispatch
+sends neither a dashboard cookie nor an API key; a separately exercised source
+branch accepts an optional session cookie, but the candidate does not authorize
+forwarding one. The settings read may initialize storage or persist onboarding,
+so it requires confirmation, never retries, and leaves settlement unknown. An
+HTTP 200 with conservative defaults can mask a settings error and is not proof
+of healthy storage. Independent ingress and native lifecycle evidence and a
+matching qualification join remain necessary; this candidate is unavailable.
+
 The qualified deprecated-provider inventory read requires confirmation: its first
 read may encrypt legacy provider metadata, start a backup, and invalidate caches.
 A successful HTTP 200 can hide a caught migration failure, so the effect remains

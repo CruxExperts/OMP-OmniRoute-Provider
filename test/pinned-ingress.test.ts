@@ -805,6 +805,9 @@ with tempfile.TemporaryDirectory() as temp:
  sources[m.DEPRECATED_HELPER]=b'helper'; sources[m.DEPRECATED_REGISTRY]=b'registry'
  m.deprecated_ingress_source=lambda route,helper,registry:(route+b':executed',helper+b':executed',registry+b':executed')
  sources[m.AUTH_SESSION] = b'session'; sources[m.AUTH_SHARED] = b'shared'
+ sources[m.LOGIN_PASSWORD] = b'password'; sources[m.LOGIN_FLAGS] = b'flags'
+ m.require_login_closure = lambda source, cache, flags: {m.REQUIRE_LOGIN:b'login-route-executed','src/lib/db/fixtureLoginSettings.ts':b'login-settings-executed','src/shared/utils/fixtureLoginFlags.ts':b'login-flags-executed'}
+ for name in m.LOGIN_DEPENDENCIES: sources.setdefault(name, ('source:'+name).encode())
  m.auth_status_closure = lambda source, cache: {m.AUTH_STATUS:b'route-executed',m.AUTH_SESSION:b'session-executed','src/lib/db/fixtureAuthStatusCache.ts':b'cache-executed','src/lib/db/fixtureAuthStatusSettings.ts':b'settings-executed'}
  m.mfa_status_closure = lambda source: {m.MFA_STATUS:b'mfa-route-executed','src/server/auth/fixtureDashboardMfaStatus.ts':b'mfa-dashboard-executed','src/lib/db/fixtureDashboardMfaStatus.ts':b'mfa-storage-executed','src/server/auth/fixtureMfaRouteSupport.ts':b'mfa-support-executed','src/lib/db/fixtureMfaStatusCore.ts':b'mfa-core-executed'}
  m.sso_config_closure = lambda source, cache: {m.SSO_CONFIG:b'sso-route-executed','src/server/authz/entra/fixtureSsoConfig.ts':b'sso-config-executed','src/lib/db/fixtureSsoCache.ts':b'sso-cache-executed','src/lib/db/fixtureSsoSettings.ts':b'sso-settings-executed'}
@@ -861,6 +864,9 @@ with tempfile.TemporaryDirectory() as temp:
  sso_graph = m.sso_config_closure(sources,b'cache')
  identity['addedSourceSha256'][m.SSO_CONFIG] = {'originalSha256':m.sha(sources[m.SSO_CONFIG]),'executedSha256':m.sha(sso_graph[m.SSO_CONFIG])}
  identity['ssoConfigClosure'] = {'sources':{name:m.sha(sources[name]) for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED)},'executed':{name:m.sha(data) for name,data in sso_graph.items()}}
+ login_graph = m.require_login_closure(sources,b'cache',b'flags')
+ identity['addedSourceSha256'][m.REQUIRE_LOGIN] = {'originalSha256':m.sha(sources[m.REQUIRE_LOGIN]),'executedSha256':m.sha(login_graph[m.REQUIRE_LOGIN])}
+ identity['requireLoginClosure'] = {'sources':{name:m.sha(sources[name]) for name in (m.REQUIRE_LOGIN,m.LOGIN_FLAGS,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.AUTH_SESSION,m.AUTH_SETTINGS,m.AUTH_SHARED,*m.LOGIN_DEPENDENCIES)},'executed':{name:m.sha(data) for name,data in login_graph.items()}}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
@@ -928,6 +934,9 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['authStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'PUBLIC','authenticated':value} for name,value in status_expected.items()},'invalidSettingsReads':0,'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  ingress['ssoConfigHttp']={'cases':{name:{'status':200,'routeClass':'PUBLIC','contentType':'application/json','body':sso_enabled if name=='enabled' else {'enabled':False},'privateMarkerPresent':False} for name in ('anonymous','invalid','cached','enabled','incomplete','failure')}}
+ login_base={'authenticated':False,'requireLogin':True,'hasPassword':True,'setupComplete':True,'oidcEnabled':False,'oidcDisablePasswordLogin':False,'nodeVersion':'v24.17.0','nodeCompatible':True}
+ login_bodies={'anonymous':login_base,'invalid':login_base,'valid':{**login_base,'authenticated':True},'configured':{**login_base,'oidcEnabled':True,'oidcDisablePasswordLogin':True},'failure':login_base}
+ ingress['requireLoginHttp']={'cases':{name:{'status':200,'routeClass':'PUBLIC','contentType':'application/json','body':body,'privateMarkerPresent':False} for name,body in login_bodies.items()},'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -971,6 +980,8 @@ with tempfile.TemporaryDirectory() as temp:
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ original=ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']; ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=original
+ original=identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]; identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]=original
  original = ingress['ssoConfigHttp']['cases']['enabled']['body']; ingress['ssoConfigHttp']['cases']['enabled']['body']={'enabled':False}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['ssoConfigHttp']['cases']['enabled']['body']=original
  original = identity['ssoConfigClosure']['executed'][m.SSO_CONFIG]; identity['ssoConfigClosure']['executed'][m.SSO_CONFIG]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['ssoConfigClosure']['executed'][m.SSO_CONFIG]=original
  original = ingress['mfaStatusHttp']['enrolled']['rowUnchanged']; ingress['mfaStatusHttp']['enrolled']['rowUnchanged'] = False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['mfaStatusHttp']['enrolled']['rowUnchanged'] = original
@@ -1107,22 +1118,26 @@ with tempfile.TemporaryDirectory() as d:
  source.update({'src/lib/db/healthCheckWorker.ts':h,'scripts/build/colocate-standalone.mjs':h,'src/lib/db/core.ts':h})
  source.update({name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)})
  source.update({name:h for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED,'src/lib/db/readCache.ts')})
+ source.update({name:h for name in (m.REQUIRE_LOGIN,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.LOGIN_FLAGS,m.AUTH_SESSION,*m.LOGIN_DEPENDENCIES)})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
  identity['mfaClosure']={'sources':{name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)},'selectedSha256':h}
  identity['ssoClosure']={name:source[name] for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED,'src/lib/db/readCache.ts')}
+ identity['loginClosure']={'sources':{name:source[name] for name in (m.REQUIRE_LOGIN,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.LOGIN_FLAGS,m.AUTH_SETTINGS,m.AUTH_SHARED,m.AUTH_SESSION,'src/lib/db/readCache.ts',*m.LOGIN_DEPENDENCIES)},'selectedSha256':h}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
  authcold={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':False,'onboardingBefore':'absent','onboardingAfter':'persisted','invalidNoDatabase':True}
  authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
- for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm'): (p/(phase+'.private')).write_text('normal output\n')
+ for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  put('sso-cold.json',{'databaseExistedBefore':False,'databaseExistsAfter':True,'onboardingBefore':'absent','onboardingPersisted':True,'first':{'status':200,'body':{'enabled':False}},'cached':None,'refreshed':None})
  put('sso-warm.json',{'databaseExistedBefore':True,'databaseExistsAfter':True,'onboardingBefore':'persisted','onboardingPersisted':True,'first':{'status':200,'body':sso_enabled},'cached':True,'refreshed':False})
+ login_body={'authenticated':False,'requireLogin':True,'hasPassword':True,'setupComplete':True,'oidcEnabled':False,'oidcDisablePasswordLogin':False,'nodeVersion':'v24.17.0','nodeCompatible':True}
+ for phase in ('cold','warm'): put('login-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'onboardingBefore':'persisted' if phase=='warm' else 'absent','onboardingPersisted':True,'status':200,'body':login_body})
  mfa_base={'databaseExistsAfter':True,'beforeFileCount':0,'afterFileCount':1,'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False,'mfaRows':0}
  mfacold={**mfa_base,'databaseExistedBefore':False,'corruptEnabled':None,'corruptCount':None,'rowUnchanged':None}
  mfawarm={**mfa_base,'databaseExistedBefore':True,'corruptEnabled':True,'corruptCount':1,'rowUnchanged':True}
@@ -1136,6 +1151,8 @@ with tempfile.TemporaryDirectory() as d:
  (p/'cold-lifecycle.private').write_text('normal output\n')
  put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity)
  sso_warm=json.loads((p/'sso-warm.json').read_text()); sso_warm['cached']=False; put('sso-warm.json',sso_warm); reject(); sso_warm['cached']=True; put('sso-warm.json',sso_warm)
+ login_cold=json.loads((p/'login-cold.json').read_text()); login_cold['onboardingPersisted']=False; put('login-cold.json',login_cold); reject(); login_cold['onboardingPersisted']=True; put('login-cold.json',login_cold)
+ original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
  original=identity['ssoClosure'][m.SSO_CONFIG]; identity['ssoClosure'][m.SSO_CONFIG]='b'*64; put('core-identity.json',identity); reject(); identity['ssoClosure'][m.SSO_CONFIG]=original; put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()
  warm['migrations']=cold['migrations']; warm['healthWorker']=False; put('warm-lifecycle.json',warm); reject()

@@ -10,7 +10,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { sourceNormalizationBinding, sourceStateViewBinding, sourceRelationViewMatches, sourcePreflightViewMatches, sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { requiredOmaScope } from "../src/admin/authorization-policy.ts";
 import { sourceRequestValidatorBinding } from "../src/admin/source-validation.ts";
-import { isSecretOutputField } from "../src/admin/registry.ts";
+import { isSecretOutputField, type SourceOutputIdentity } from "../src/admin/registry.ts";
 import { FAMILY_INGRESS_OPERATIONS, operationRequiresIngressEvidence } from "../src/admin/eligibility.ts";
 import { GITHUB_REPOSITORY } from "../src/identity.ts";
 
@@ -254,7 +254,7 @@ export function testOutcomeHash(
   const stateSecretPaths = outputSecretFields.filter(field => field.includes("."));
   assertNoSecretFields(before, `${operationId}.observation.before`, [], stateSecretPaths);
   assertNoSecretFields(after, `${operationId}.observation.after`, [], stateSecretPaths);
-  assertNoSecretFields(body, `${operationId}.observation.result.body`, [], outputSecretFields);
+  assertNoSecretFields(body, `${operationId}.observation.result.body`, [], outputSecretFields, { operationId, sha256: binding.handlerSha256, gitBlobSha: binding.handlerGitBlobSha });
   if (binding.sideEffect !== "read" && binding.sideEffect !== "unknown" && (before === null || after === null)) {
     throw new Error(`side-effect evidence requires observed before and after state: ${operationId}`);
   }
@@ -268,6 +268,18 @@ export function testOutcomeHash(
     const expectedState = { rows: 7, unchanged: true };
     const expectedBody = { enabled: true, authorityHost: "https://login.example.test", tenantId: "tenant.example", clientId: "fixture-client", audience: "api://fixture-audience", issuer: "https://login.example.test/tenant.example/v2.0", scope: "api://fixture-audience/.default" };
     if (canonicalJson(before) !== canonicalJson(expectedState) || canonicalJson(after) !== canonicalJson(expectedState) || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("SSO config observed outcome mismatch");
+  }
+  if (operationId === "GET /api/settings/require-login") {
+    const bodyRecord = requireRecord(body, "require-login outcome body");
+    const expectedBefore: Json = [];
+    const expectedAfter: Json = [{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }];
+    const fields = ["authenticated", "requireLogin", "hasPassword", "setupComplete", "oidcEnabled", "oidcDisablePasswordLogin", "nodeVersion", "nodeCompatible"];
+    if (canonicalJson(before) !== canonicalJson(expectedBefore) || canonicalJson(after) !== canonicalJson(expectedAfter) || result.status !== 200
+      || canonicalJson(Object.keys(bodyRecord).sort()) !== canonicalJson(fields.sort()) || bodyRecord.authenticated !== false || bodyRecord.requireLogin !== true || bodyRecord.hasPassword !== true
+      || bodyRecord.setupComplete !== true || bodyRecord.oidcEnabled !== false || bodyRecord.oidcDisablePasswordLogin !== false
+      || typeof bodyRecord.nodeCompatible !== "boolean" || typeof bodyRecord.nodeVersion !== "string"
+      || !/^(?:v[0-9]+\.[0-9]+\.[0-9]+|bun-[0-9]+\.[0-9]+\.[0-9]+ \(Node\.js API [0-9]+\.[0-9]+\.[0-9]+\))$/.test(bodyRecord.nodeVersion)
+      || bodyRecord.nodeVersion.length > 100) throw new Error("require-login observed outcome mismatch");
   }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
@@ -343,7 +355,9 @@ mfa_graph = m.mfa_status_closure(source)
 identities[m.MFA_STATUS] = {'originalSha256': m.sha(source[m.MFA_STATUS]), 'executedSha256': m.sha(mfa_graph[m.MFA_STATUS])}
 sso_graph = m.sso_config_closure(source, closures['src/lib/db/readCache.ts'])
 identities[m.SSO_CONFIG] = {'originalSha256': m.sha(source[m.SSO_CONFIG]), 'executedSha256': m.sha(sso_graph[m.SSO_CONFIG])}
-print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'ssoConfigClosure': {'sources': {name: m.sha(source[name]) for name in (m.SSO_CONFIG, m.SSO_ENTRA, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in sso_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
+login_graph = m.require_login_closure(source, closures['src/lib/db/readCache.ts'], closures['src/lib/db/featureFlags.ts'])
+identities[m.REQUIRE_LOGIN] = {'originalSha256': m.sha(source[m.REQUIRE_LOGIN]), 'executedSha256': m.sha(login_graph[m.REQUIRE_LOGIN])}
+print(json.dumps({'addedSourceSha256': identities, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'ssoConfigClosure': {'sources': {name: m.sha(source[name]) for name in (m.SSO_CONFIG, m.SSO_ENTRA, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in sso_graph.items()}}, 'requireLoginClosure': {'sources': {name: m.sha(source[name]) for name in (m.REQUIRE_LOGIN, m.LOGIN_FLAGS, m.LOGIN_PASSWORD, m.LOGIN_RUNTIME, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED, *m.LOGIN_DEPENDENCIES)}, 'executed': {name: m.sha(data) for name, data in login_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
   // This generator requires python3 and the prepared pinned archive; fail closed if
@@ -415,8 +429,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (mfaSource !== undefined && (mfaSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "722f9a027e69d1b0179130ea59787a58d468cf649d2e9383cac4b8f3498d5509" || binding.handlerGitBlobSha !== "e6aa48caa7c3c499f9a1d08853b2b50f3b603cd3")) throw new Error(`${label} MFA status source mismatch`);
   const ssoSource = operationId === "GET /api/auth/sso/config" ? requireRecord(added["src/app/api/auth/sso/config/route.ts"], `${label}.SSO config source`) : undefined;
   if (ssoSource !== undefined && (ssoSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "16971949ae2e1b8f2de41c4d0c301ee531ff328683ad1f78f67c313306e503bd" || binding.handlerGitBlobSha !== "f31fd0f17a8a8cb89ee70e47689e5b71ff5e5f87")) throw new Error(`${label} SSO source mismatch`);
+  const loginSource = operationId === "GET /api/settings/require-login" ? requireRecord(added["src/app/api/settings/require-login/route.ts"], `${label}.login source`) : undefined;
+  if (loginSource !== undefined && (loginSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31" || binding.handlerGitBlobSha !== "336aebcdafb778fe56e880c9d72a6ffe90e7dba4")) throw new Error(`${label} login source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -577,6 +593,14 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const cases = Object.fromEntries(["anonymous", "invalid", "cached", "enabled", "incomplete", "failure"].map(name => [name, { status: 200, routeClass: "PUBLIC", contentType: "application/json", body: name === "enabled" ? enabled : { enabled: false }, privateMarkerPresent: false }]));
     if (canonicalJson(toJson(artifact.ssoConfigHttp, label)) !== canonicalJson(toJson({ cases }, label))) throw new Error(`${label} SSO HTTP mismatch`);
   }
+  if (operationId === "GET /api/settings/require-login") {
+    if (canonicalJson(toJson(artifact.requireLoginClosure, label)) !== canonicalJson(toJson(expectedIdentities.requireLoginClosure, label))) throw new Error(`${label} login closure mismatch`);
+    const base = { authenticated: false, requireLogin: true, hasPassword: true, setupComplete: true, oidcEnabled: false, oidcDisablePasswordLogin: false, nodeVersion: "v24.17.0", nodeCompatible: true };
+    const bodies = { anonymous: base, invalid: base, valid: { ...base, authenticated: true }, configured: { ...base, oidcEnabled: true, oidcDisablePasswordLogin: true }, failure: base };
+    const cases = Object.fromEntries(Object.entries(bodies).map(([name, body]) => [name, { status: 200, routeClass: "PUBLIC", contentType: "application/json", body, privateMarkerPresent: false }]));
+    const expected = { cases, onboardingBefore: [], onboardingAfter: [{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }] };
+    if (canonicalJson(toJson(artifact.requireLoginHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} login HTTP mismatch`);
+  }
   if (operationId === "GET /api/auth/mfa/status") {
     if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
     const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
@@ -619,6 +643,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
     for (const name of ["src/app/api/auth/sso/config/route.ts", "src/server/authz/entra/config.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
   }
+  if (operationId !== "GET /api/settings/require-login") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/settings/require-login/route.ts", "src/shared/utils/nodeRuntimeSupport.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+  }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
     if (canonicalJson(toJson(source[key] ?? null, label)) !== canonicalJson(toJson(expectedIdentities[key] ?? null, label))) throw new Error(`${label} effective source identity mismatch: ${key}`);
@@ -638,7 +666,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
 const coreLifecycleIdentityCache = new Map<string, unknown>();
 
 /** Join a research-only cold/warm observation to independently rerun producer identities. */
-export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false): void {
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false, requireLogin = false): void {
   const label = "core lifecycle evidence";
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -694,6 +722,14 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     const wanted = { cold: { databaseExistedBefore: false, databaseExistsAfter: true, onboardingBefore: "absent", onboardingPersisted: true, first: { status: 200, body: { enabled: false } }, cached: null, refreshed: null }, warm: { databaseExistedBefore: true, databaseExistsAfter: true, onboardingBefore: "persisted", onboardingPersisted: true, first: { status: 200, body: enabled }, cached: true, refreshed: false } };
     if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(wanted, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(reference, label))) throw new Error(`${label} SSO lifecycle mismatch`);
   }
+  if (requireLogin) {
+    const independent = requireRecord(expected, `${label}.independent`);
+    const actual = requireRecord(artifact.requireLogin, `${label}.requireLogin`);
+    const reference = requireRecord(independent.requireLogin, `${label}.independent.requireLogin`);
+    const body = { authenticated: false, requireLogin: true, hasPassword: true, setupComplete: true, oidcEnabled: false, oidcDisablePasswordLogin: false, nodeVersion: "v24.17.0", nodeCompatible: true };
+    const wanted = Object.fromEntries(["cold", "warm"].map(phase => [phase, { databaseExistedBefore: phase === "warm", databaseExistsAfter: true, onboardingBefore: phase === "warm" ? "persisted" : "absent", onboardingPersisted: true, status: 200, body }]));
+    if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(wanted, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(reference, label))) throw new Error(`${label} login lifecycle mismatch`);
+  }
   if (effectValue !== undefined) {
     const effect = requireRecord(effectValue, "deprecated provider effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
@@ -739,7 +775,7 @@ export function validateDeprecatedProviderSweepObservation(value: unknown, indep
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
   const label = "core lifecycle evidence";
   const artifact = requireRecord(value, label);
-  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"])]);
+  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"]), ...(artifact.requireLogin === undefined ? [] : ["requireLogin"])]);
   if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
   const identity = requireRecord(artifact.identity, `${label}.identity`);
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
@@ -779,15 +815,15 @@ export function validateCoreLifecycleObservation(value: unknown, binding: Pick<O
     || phases[0]!.tableCount !== phases[1]!.tableCount || phases[0]!.migrationCount !== phases[1]!.migrationCount) throw new Error(`${label} cold/warm state mismatch`);
 }
 
-function assertNoSecretFields(value: Json, label: string, parentPath: readonly string[] = [], explicitSecretPaths: readonly string[] = []): void {
+function assertNoSecretFields(value: Json, label: string, parentPath: readonly string[] = [], explicitSecretPaths: readonly string[] = [], identity?: SourceOutputIdentity): void {
   if (Array.isArray(value)) {
-    value.forEach((child, index) => assertNoSecretFields(child, `${label}[${index}]`, parentPath, explicitSecretPaths));
+    value.forEach((child, index) => assertNoSecretFields(child, `${label}[${index}]`, parentPath, explicitSecretPaths, identity));
   } else if (value !== null && typeof value === "object") {
     for (const [key, child] of Object.entries(value)) {
-      if (isSecretOutputField(key, child, parentPath, explicitSecretPaths)) {
+      if (isSecretOutputField(key, child, parentPath, explicitSecretPaths, identity)) {
         throw new Error(`${label} contains a secret-bearing field name`);
       }
-      assertNoSecretFields(child, `${label}.${key}`, [...parentPath, key], explicitSecretPaths);
+      assertNoSecretFields(child, `${label}.${key}`, [...parentPath, key], explicitSecretPaths, identity);
     }
   }
 }
@@ -1666,7 +1702,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
     ...effectiveSourceBinding(manifest),
-    ...(operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
+    ...(operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || operation.operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
@@ -1813,6 +1849,18 @@ export function validateSsoConfigContract(value: unknown): void {
   if (contract.sideEffect !== "lifecycle" || auth.domain !== "public" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] }) || requireRecord(contract.confirmation, "SSO confirmation").required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || requireRecord(safety.preflight, "SSO preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("SSO config contract does not match source-bound lifecycle behavior");
 }
 
+export function validateRequireLoginContract(value: unknown): void {
+  const contract = requireRecord(value, "require-login contract");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "require-login contract")) === canonicalJson(toJson(b, "require-login contract"));
+  const auth = requireRecord(contract.auth, "require-login auth"), request = requireRecord(contract.request, "require-login request"), response = requireRecord(contract.response, "require-login response"), safety = requireRecord(contract.mutationSafety, "require-login safety");
+  const empty = { type: "object", properties: {}, additionalProperties: false };
+  const boolean = { type: "boolean" };
+  const view = { type: "object", properties: { authenticated: boolean, requireLogin: boolean, hasPassword: boolean, setupComplete: boolean, oidcEnabled: boolean, oidcDisablePasswordLogin: boolean, nodeVersion: { type: "string", maxLength: 100, pattern: "^(?:v[0-9]+\\.[0-9]+\\.[0-9]+|bun-[0-9]+\\.[0-9]+\\.[0-9]+ \\(Node\\.js API [0-9]+\\.[0-9]+\\.[0-9]+\\))$" }, nodeCompatible: boolean }, required: ["authenticated", "requireLogin", "hasPassword", "setupComplete", "oidcEnabled", "oidcDisablePasswordLogin", "nodeVersion", "nodeCompatible"], additionalProperties: false };
+  const success = requireArray(response.variants, "require-login response variants").filter(item => isRecord(item) && item.statusCode === "200");
+  if (!same(request.pathSchema, empty) || !same(request.querySchema, empty) || !same(request.pathParameters, []) || !same(request.parameters, []) || request.body !== null || !same(contract.secrets, { inputFields: [], outputFields: ["password", "oidcClientSecret"] }) || !same(contract.pagination, { mode: "none", parameters: [] }) || !same(contract.streaming, { mode: "json", framing: "application/json" }) || success.length !== 1 || !same(requireRecord(success[0], "require-login success").content, [{ mediaType: "application/json", schema: view, sourceFile: "src/app/api/settings/require-login/route.ts" }])) throw new Error("require-login request or response projection mismatch");
+  if (contract.sideEffect !== "lifecycle" || auth.domain !== "public" || !same(auth.sourcePolicy, { status: "qualified", source: "omniroute-v3.8.53", routeClass: "public", alternatives: [{ kind: "anonymous" }] }) || requireRecord(contract.confirmation, "require-login confirmation").required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || requireRecord(safety.preflight, "require-login preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("require-login contract does not match source-bound lifecycle behavior");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -1820,6 +1868,10 @@ function validateEligibility(
   binding: EvidenceBinding,
 ): boolean {
   if (!record) return false;
+  if (operationId === "GET /api/settings/require-login") {
+    validateRequireLoginContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/settings/require-login/route.ts" || route.sha256 !== "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31" || route.gitBlobSha !== "336aebcdafb778fe56e880c9d72a6ffe90e7dba4") throw new Error("require-login requires exact lifecycle source");
+  }
   if (operationId === "GET /api/acp/agents") { validateAcpContract(record.contract); validateAcpNativeEvidence(record.nativeEvidence, binding); }
   else if (record.nativeEvidence !== undefined) throw new Error(`native evidence is unsupported for ${operationId}`);
   if (operationId === "GET /api/auth/status") {
@@ -1885,7 +1937,7 @@ function validateEligibility(
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config");
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -2606,7 +2658,7 @@ function makeOperation(
     operationId,
     method,
     pathTemplate: path,
-    ...(operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
+    ...(operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
     request,
     response,
     mediaType: { request: requestMediaType, response: responseMediaType },

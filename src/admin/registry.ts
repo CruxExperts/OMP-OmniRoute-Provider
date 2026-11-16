@@ -966,11 +966,21 @@ function buildQuery(query: JsonObject, parameters: readonly OperationParameterDe
   return serialized;
 }
 
+/** Only the pinned login discovery response names these boolean fields as public. */
+export interface SourceOutputIdentity { readonly operationId: string; readonly sha256: string; readonly gitBlobSha: string }
+function isLoginDiscoveryBooleanField(identity: SourceOutputIdentity | undefined, key: string, parentPath: readonly string[]): boolean {
+  return identity?.operationId === "GET /api/settings/require-login"
+    && identity.sha256 === "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31"
+    && identity.gitBlobSha === "336aebcdafb778fe56e880c9d72a6ffe90e7dba4"
+    && parentPath.length === 0 && (key === "hasPassword" || key === "oidcDisablePasswordLogin");
+}
+
 export function isSecretOutputField(
   key: string,
   value: unknown,
   parentPath: readonly string[] = [],
   explicitSecretPaths: readonly string[] = [],
+  identity?: SourceOutputIdentity,
 ): boolean {
   const fieldPath = [...parentPath, key].join(".").toLowerCase();
   const lowerKey = key.toLowerCase();
@@ -978,6 +988,7 @@ export function isSecretOutputField(
     const normalized = field.toLowerCase();
     return normalized.includes(".") ? normalized === fieldPath : normalized === lowerKey;
   })) return true;
+  if (typeof value === "boolean" && isLoginDiscoveryBooleanField(identity, key, parentPath)) return false;
 
   const benignValue = Object.hasOwn(BENIGN_TOKEN_METADATA, lowerKey) ? BENIGN_TOKEN_METADATA[lowerKey] : undefined;
   if (benignValue?.(value)) return false;
@@ -985,7 +996,7 @@ export function isSecretOutputField(
 }
 
 /** Redact projected source output for display while retaining the source field path. */
-export function redactSourceOutput(value: unknown, explicitSecretPaths: readonly string[] = []): unknown {
+export function redactSourceOutput(value: unknown, explicitSecretPaths: readonly string[] = [], identity?: SourceOutputIdentity): unknown {
   type PathCandidates = readonly (readonly string[])[];
   const extend = (paths: PathCandidates, ...segments: string[]): string[][] => paths.map(path => [...path, ...segments]);
   const combine = (...sets: PathCandidates[]): string[][] => {
@@ -994,7 +1005,7 @@ export function redactSourceOutput(value: unknown, explicitSecretPaths: readonly
     return [...unique.values()];
   };
   const isSecret = (key: string, child: unknown, parentPaths: PathCandidates): boolean =>
-    parentPaths.some(parentPath => isSecretOutputField(key, child, parentPath, explicitSecretPaths));
+    parentPaths.some(parentPath => isSecretOutputField(key, child, parentPath, explicitSecretPaths, Array.isArray(value) ? undefined : identity));
   const put = (output: Record<string, unknown>, key: string, child: unknown): void => {
     if (key === "__proto__") Object.defineProperty(output, key, { value: child, enumerable: true, configurable: true, writable: true });
     else output[key] = child;
@@ -1129,7 +1140,9 @@ function projectNode(
   });
   const numericMetric = key !== undefined && schema.type === "number" && typeof value === "number" && Number.isFinite(value)
     && ["totalInputTokens", "totalCachedTokens", "totalCacheCreationTokens", "tokensSaved", "inputTokens", "cachedTokens", "cacheCreationTokens"].includes(key);
-  if (!privateTarget && key && (explicitlySecret || (!numericMetric && isSecretOutputField(key, value, parentPath)))) return undefined;
+  const identity = { operationId: descriptor.operationId, sha256: descriptor.source.sha256, gitBlobSha: descriptor.source.gitBlobSha };
+  if (!privateTarget && key && !explicitlySecret && isLoginDiscoveryBooleanField(identity, key, parentPath) && typeof value !== "boolean") throw new RegistryError("invalid-input", "invalid login discovery response", descriptor.operationId);
+  if (!privateTarget && key && (explicitlySecret || (!numericMetric && isSecretOutputField(key, value, parentPath, [], identity)))) return undefined;
   const currentPath = key === undefined ? parentPath : [...parentPath, key];
   schema = projectionShape(schema, value, descriptor, depth);
   if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {

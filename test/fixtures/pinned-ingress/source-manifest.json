@@ -2045,6 +2045,8 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/settings/require-login/route.ts": { "sha256": "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31", "gitBlob": "336aebcdafb778fe56e880c9d72a6ffe90e7dba4" },
+    "src/shared/utils/nodeRuntimeSupport.ts": { "sha256": "575b634803f1a97e0b9c620f1bdad5ad7ff58eee4994eb664e6180fb4f938810", "gitBlob": "c6d44af478a600c93c388ebea530125654e42cf1" },
     "src/app/api/acp/agents/route.ts": { "sha256": "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3", "gitBlob": "1aa6c1a3305aab27f6e011defda696cab62a945e" },
     "src/lib/acp/registry.ts": { "sha256": "323b34d33ff2dad09a6cc1b37afad1a37b817f6f9312bb9771f0bb247255bdb8", "gitBlob": "62525e85cd8a0d78e881a7d560a9b74d7cde6b04" },
     "config/cli-tools-manifest.json": { "sha256": "e181ca128364cfad090f8c38744709629c87aec2f14b8c802a637f2ec690f5f0", "gitBlob": "b356ff31168462c768d9529053711c2f973ca7f4" },

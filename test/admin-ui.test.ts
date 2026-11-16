@@ -2,10 +2,11 @@ import { unlink } from "node:fs/promises";
 import { expect, test } from "bun:test";
 import { ADMIN_ADAPTER_LIMITS, adapterFor, invokeHeadAdapter, invokeJsonAdapter, invokeMultipartAdapter, invokeTextAdapter, invokeWebSocketAdapter, isLoopbackHostname, validateAdminEndpoint, writeProtectedFile } from "../src/admin/adapters.ts";
 import { createAdminExecutor } from "../src/admin/executor.ts";
-import { getOperation, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
+import { getOperation, OperationRegistry, projectResponse, type OperationDescriptor } from "../src/admin/registry.ts";
 import { createAdminCommandHandler } from "../src/admin/ui.ts";
 import type { AdminPlanHandle } from "../src/admin/types.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
+import { REQUIRE_LOGIN_ID, requireLoginDescriptor } from "./fixtures/require-login.fixture.ts";
 
 const jsonDescriptor = {
   operationId: "GET /api/models",
@@ -310,6 +311,34 @@ test("apply confirmation renders the observed target and visibility limits with 
   expect(display).not.toContain("fixture-private-diagnostic");
   expect(display).toContain("fixture-public-diagnostic");
   expect(applyCalls).toBe(1);
+});
+
+test("confirmed lifecycle result displays only projected login booleans and retains unknown warning", async () => {
+  const descriptor = requireLoginDescriptor();
+  const base = fixtureRegistry([descriptor]);
+  const registry = new class extends OperationRegistry {
+    constructor() { super([]); }
+    override require(id: string) { return { ...base.require(id), eligibility: { operationId: id, status: "verified" as const, reason: "Synthetic UI fixture only." } }; }
+  }();
+  let calls = 0;
+  const executor = createAdminExecutor({ registry, dispatch: async () => {
+    calls++;
+    return { kind: "response", status: 200, body: { authenticated: false, requireLogin: true, hasPassword: true, setupComplete: true, oidcEnabled: true, oidcDisablePasswordLogin: true, nodeVersion: "v24.17.0", nodeCompatible: true, password: "fixture-private-password", extra: "fixture-private-extra" } };
+  } });
+  const endpoint = "http://127.0.0.1:20128";
+  executor.setAdminBinding({ profileId: "omniroute", endpoint });
+  const plan = await executor.plan(REQUIRE_LOGIN_ID, {});
+  const messages: string[] = [];
+  const handler = createAdminCommandHandler({ executor, registry, endpoint });
+  const context = { hasUI: true, ui: { custom: async () => "APPLY", confirm: async () => true, notify: (message: string) => { messages.push(message); } } };
+  await handler(`apply ${plan.planId}`, context as never);
+  const display = messages.join("\n");
+  expect(display).toContain("administration outcome is unknown; reconcile before retrying");
+  expect(display).toContain('"hasPassword": true');
+  expect(display).toContain('"oidcDisablePasswordLogin": true');
+  expect(display).not.toContain("fixture-private");
+  expect(calls).toBe(1);
+  await expect(executor.apply(plan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
 });
 
 test("browse executes only ordinary reads and displays the executor-projected response", async () => {

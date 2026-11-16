@@ -8,6 +8,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   smoke and add its exact release asset to the compatibility matrix. Keep the
   18.12.5 source and SDK pins; final-archive release qualification remains required.
 
+- Add a source-bound login-settings discovery candidate with bounded output and
+  anonymous dispatch. Initialization and onboarding effects remain uncertain;
+  independent ingress and native lifecycle evidence are required for availability.
+
 - Qualify the bounded public SSO discovery view with fail-closed metadata
   projection, anonymous dispatch, and independently joined current-source HTTP
   and cold/warm lifecycle evidence. Possible initialization effects retain
