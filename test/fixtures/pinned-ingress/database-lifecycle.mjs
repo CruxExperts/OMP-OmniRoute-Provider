@@ -14,8 +14,9 @@ const auth = phase === 'auth-cold' || phase === 'auth-warm';
 const mfa = phase === 'mfa-cold' || phase === 'mfa-warm';
 const sso = phase === 'sso-cold' || phase === 'sso-warm';
 const login = phase === 'login-cold' || phase === 'login-warm';
-const expectedDataDir = login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const a2a = phase === 'a2a-cold' || phase === 'a2a-warm';
+const expectedDataDir = a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -146,6 +147,48 @@ if (mfa) {
     const observation = { databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), beforeFileCount: before.length, afterFileCount: after.length, enabled: status.enabled, backupCodesRemaining: status.backupCodesRemaining, recoverySwitchSet: status.recoverySwitchSet, mfaRows: row.count, corruptEnabled, corruptCount, rowUnchanged };
     await writeFile(`/work/${phase}.json`, JSON.stringify(observation) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+if (a2a) {
+  const cold = phase === 'a2a-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (!cold) { const previous = new DatabaseSync(SQLITE_FILE); try { previous.prepare("DELETE FROM key_value WHERE namespace = 'settings' AND key = 'a2aEnabled'").run(); } finally { previous.close(); } }
+  if (existed === cold) throw new Error('A2A database phase mismatch');
+  const timers = [];
+  const originalInterval = globalThis.setInterval;
+  globalThis.setInterval = (callback, milliseconds, ...args) => {
+    const handle = originalInterval(callback, milliseconds, ...args);
+    if (milliseconds === 60_000 && String(callback).includes('cleanupExpired')) timers.push({ callback, args, handle });
+    return handle;
+  };
+  try {
+    const { GET } = await import('/work/app/src/app/api/a2a/status/route.ts');
+    const first = await GET();
+    const disabled = await first.json();
+    if (first.status !== 200 || disabled.enabled !== false || disabled.tasks.total !== 0 || timers.length !== 1) throw new Error('A2A initial status mismatch');
+    const manager = globalThis._a2aTaskManager;
+    if (!manager) throw new Error('A2A singleton missing');
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('A2A native database missing');
+    const task = manager.createTask({ skill: 'fixture', messages: [{ role: 'user', content: 'fixture' }] });
+    manager.updateTask(task.id, 'working');
+    manager.beginStream();
+    const active = await (await GET()).json();
+    if (active.tasks.total !== 1 || active.tasks.counts.working !== 1 || active.tasks.activeStreams !== 1) throw new Error('A2A live stats mismatch');
+    const old = manager.createTask({ skill: 'fixture-old', messages: [{ role: 'user', content: 'fixture' }] });
+    db.prepare("UPDATE a2a_tasks SET created_at = '2000-01-01 00:00:00' WHERE id = ?").run(old.id);
+    task.expiresAt = '2000-01-01T00:00:00.000Z';
+    timers[0].callback(...timers[0].args);
+    const failed = await (await GET()).json();
+    const stored = db.prepare('SELECT state FROM a2a_tasks WHERE id = ?').get(task.id);
+    const oldHistory = db.prepare('SELECT id FROM a2a_tasks WHERE id = ?').get(old.id);
+    if (failed.tasks.counts.failed !== 1 || stored?.state !== 'failed' || oldHistory) throw new Error('A2A timer cleanup or purge mismatch');
+    await updateSettings({ a2aEnabled: true });
+    const enabled = await (await GET()).json();
+    if (!enabled.enabled || enabled.agent?.name !== 'OmniRoute AI Gateway' || enabled.capabilities?.streaming !== true) throw new Error('A2A enabled card mismatch');
+    manager.destroy();
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), disabled: true, enabled: true, managerTimerCount: timers.length, activeTaskObserved: true, expiredTaskPersistedFailed: true, timerPurgedOldHistory: true }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { globalThis.setInterval = originalInterval; await closeDbInstance(); }
   process.exit(0);
 }
 if (login) {

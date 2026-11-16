@@ -21,9 +21,10 @@ export function fixtureRegistry(input: readonly OperationDescriptor[]): Operatio
     const lifecycle = descriptor.databaseInitializationRequired ? { lifecycleSha256: "0".repeat(64) } : {};
     const effect = descriptor.operationId === "GET /api/providers/deprecated" ? { effectSha256: "0".repeat(64) } : {};
     const native = descriptor.operationId === "GET /api/acp/agents" ? { nativeEvidenceSha256: "0".repeat(64) } : {};
+    const a2a = descriptor.operationId === "GET /api/a2a/status" ? { a2aEvidenceSha256: "0".repeat(64) } : {};
     records.push({ operationId: descriptor.operationId, status: "verified", reason: "Synthetic fixture authority; not release qualification.",
-      source: descriptor.source, binding, test, ...ingress, ...lifecycle, ...effect, ...native, evidence: [{ kind: "synthetic-fixture", detail: "Unit-dispatch authority only; no pinned-source qualification is claimed." }] });
-    return { ...descriptor, qualification: { releaseCommit: release.release.commit, binding, test, ...ingress, ...lifecycle, ...effect, ...native } };
+      source: descriptor.source, binding, test, ...ingress, ...lifecycle, ...effect, ...native, ...a2a, evidence: [{ kind: "synthetic-fixture", detail: "Unit-dispatch authority only; no pinned-source qualification is claimed." }] });
+    return { ...descriptor, qualification: { releaseCommit: release.release.commit, binding, test, ...ingress, ...lifecycle, ...effect, ...native, ...a2a } };
   });
   return new OperationRegistry(descriptors, { records });
 }

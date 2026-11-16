@@ -12,6 +12,7 @@ import { assertSafetyReadRequest, assertSafetyReadResponse } from "../src/admin/
 import { buildModelComboMappingFixtureRegistry } from "./fixtures/model-combo-mappings.fixture.ts";
 import { sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { degradationDescriptor } from "./fixtures/pinned-degradation.fixture.ts";
+import { A2A_STATUS_ID, a2aStatusDescriptor } from "./fixtures/a2a-status.fixture.ts";
 
 const EMPTY: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
 function fixtureOperation(body: JsonSchema | null = null): OperationDescriptor {
@@ -454,6 +455,59 @@ test("database lifecycle requirement cannot be removed or mismatched at runtime"
         expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: withoutLifecycle, binding: derivedReceipt.binding })).toBe(false);
         const { databaseInitializationRequired: _required, ...withoutRequirement } = derivedReceipt.binding;
         expect(reader.isVerifiedEligibility(parsed, { source: qualified.source, qualification: derivedReceipt, binding: withoutRequirement })).toBe(false);
+      }
+    }
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+});
+
+test("A2A eligibility joins only exact lifecycle evidence and rejects foreign evidence", async () => {
+  const authority = fixtureRegistry([a2aStatusDescriptor()]);
+  const operation = authority.getOperation(A2A_STATUS_ID)!;
+  const receipt = operation.qualification!;
+  const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = receipt.binding;
+  const { ingressSha256, lifecycleSha256, a2aEvidenceSha256, ...proof } = authority.getEligibility(A2A_STATUS_ID);
+  const digest = "0".repeat(64);
+  const ingress = { artifact: `provenance/qualification/ingress-${digest}.json`, sha256: digest };
+  const lifecycle = { artifact: `provenance/qualification/core-lifecycle-${digest}.json`, sha256: digest };
+  const a2a = { artifact: `provenance/qualification/a2a-lifecycle-${digest}.json`, sha256: digest };
+  const entry = { ...proof, binding, contract: operationSourceContract(operation), ingressEvidence: ingress, lifecycleEvidence: lifecycle, a2aEvidence: a2a,
+    test: { ...receipt.test, observedOutcome: `provenance/qualification/${digest}.json` } };
+  const derivation = binding.sourceDerivation!;
+  const temporary = await mkdtemp(join(tmpdir(), "cruxomni-a2a-reader-"));
+  try {
+    for (const [name, candidate, expected] of [
+      ["matching", entry, "verified"],
+      ["missing", { ...entry, a2aEvidence: undefined }, "unavailable"],
+      ["wrong-path", { ...entry, a2aEvidence: { ...a2a, artifact: `provenance/qualification/a2a-lifecycle-${"1".repeat(64)}.json` } }, "unavailable"],
+      ["wrong-hash", { ...entry, a2aEvidence: { ...a2a, sha256: "invalid" } }, "unavailable"],
+      ["extra-field", { ...entry, a2aEvidence: { ...a2a, extra: true } }, "unavailable"],
+      ["missing-lifecycle", { ...entry, lifecycleEvidence: undefined }, "unavailable"],
+      ["missing-ingress", { ...entry, ingressEvidence: undefined }, "unavailable"],
+      ["missing-requirement", { ...entry, binding: { ...binding, databaseInitializationRequired: undefined } }, "unavailable"],
+      ["foreign-operation", { ...entry, operationId: "GET /api/health" }, "unavailable"],
+    ] as const) {
+      const root = join(temporary, name);
+      await mkdir(join(root, "src/admin"), { recursive: true });
+      await mkdir(join(root, "contracts"));
+      await mkdir(join(root, "provenance"));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute", qualification_source: { kind: "signed-derivation", ...derivation } }] }));
+      const readerPath = join(root, "src/admin/eligibility.ts");
+      await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
+      await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({ schemaVersion: 3, recordKind: "omniroute-release-eligibility", release: { commit: receipt.releaseCommit }, default: { status: "unavailable", reason: "Synthetic unit document." }, sourceDerivation: derivation, effectiveTreeSha256: binding.effectiveTreeSha256, operations: [candidate] }));
+      const reader = await import(pathToFileURL(readerPath).href) as typeof EligibilityReader;
+      const parsed = reader.eligibilityFor(candidate.operationId, reader.createEligibilityIndex());
+      expect(parsed.status).toBe(expected);
+      if (name === "matching") {
+        const expectedJoin = { source: operation.source, qualification: receipt, binding: receipt.binding };
+        expect(reader.isVerifiedEligibility(parsed, expectedJoin)).toBe(true);
+        const { a2aEvidenceSha256: _itemDigest, ...withoutItemDigest } = parsed;
+        const { a2aEvidenceSha256: _receiptDigest, ...withoutReceiptDigest } = receipt;
+        expect(reader.isVerifiedEligibility(withoutItemDigest, expectedJoin)).toBe(false);
+        expect(reader.isVerifiedEligibility({ ...parsed, a2aEvidenceSha256: "1".repeat(64) }, expectedJoin)).toBe(false);
+        expect(reader.isVerifiedEligibility(parsed, { ...expectedJoin, qualification: withoutReceiptDigest })).toBe(false);
+        expect(reader.isVerifiedEligibility(parsed, { ...expectedJoin, qualification: { ...receipt, a2aEvidenceSha256: "1".repeat(64) } })).toBe(false);
+        expect(reader.isVerifiedEligibility({ ...parsed, operationId: "GET /api/health" }, expectedJoin)).toBe(false);
+        expect(reader.isVerifiedEligibility(parsed, { ...expectedJoin, source: { ...operation.source, sha256: "1".repeat(64) } })).toBe(false);
       }
     }
   } finally { await rm(temporary, { recursive: true, force: true }); }

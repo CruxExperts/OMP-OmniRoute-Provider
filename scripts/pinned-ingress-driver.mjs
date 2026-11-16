@@ -26,6 +26,8 @@ const ssoDb = new DatabaseSync(`${dir}/sso-config.sqlite`);
 ssoDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const loginDb = new DatabaseSync(`${dir}/login-settings.sqlite`);
 loginDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
+const a2aDb = new DatabaseSync(`${dir}/a2a-status.sqlite`);
+a2aDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
 const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].map(scope => [scope, `fixture_api_key_${scope}`]));
 const ownedProbe = '/work/fixture/acp-owned-probe';
@@ -35,6 +37,7 @@ await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/auth-status-reads.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/sso-config-reads.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/login-settings-reads.jsonl`, '', { mode: 0o600 });
+await writeFile(`${dir}/a2a-status-reads.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
@@ -214,6 +217,28 @@ try {
     assert(Boolean(response.body?.[v1 ? 'supportedInterfaces' : 'authentication']) && !response.body?.[v1 ? 'authentication' : 'supportedInterfaces'], `well-known-envelope:${path}`);
     wellKnown.push({ path, matcherMatched, response });
   }
+  const a2aMatcherMatched = matchers.some(entry => new RegExp(entry.regexp).test('/api/a2a/status'));
+  assert(a2aMatcherMatched, 'a2a-proxy-matcher');
+  const a2aCases = {};
+  const a2aCredentials = { anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, ...Object.fromEntries(Object.entries(managementKeys).map(([name, key]) => [`key-${name}`, { authorization: `Bearer ${key}` }])), ...Object.fromEntries(Object.entries(scopedTokens).map(([name, key]) => [`oma-${name}`, { authorization: `Bearer ${key}` }])) };
+  for (const [name, headers] of Object.entries(a2aCredentials)) {
+    const response = await request('/api/a2a/status', 'GET', headers);
+    const allowed = ['session', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'].includes(name);
+    assert(response.routeClass === 'MANAGEMENT' && response.status === (allowed ? 200 : name === 'anonymous' ? 401 : 403), `a2a-auth:${name}`);
+    if (allowed) assert(response.body?.enabled === false && response.body?.status === 'disabled' && response.body?.tasks?.total === 0, `a2a-disabled:${name}`);
+    a2aCases[name] = { status: response.status, routeClass: response.routeClass, disabled: allowed ? response.body.enabled === false : null };
+  }
+  const a2aHttp = { matcherMatched: a2aMatcherMatched, cases: a2aCases };
+  a2aDb.prepare("INSERT INTO key_value (namespace,key,value) VALUES ('settings','a2aEnabled','true')").run();
+  await delay(5100);
+  const a2aEnabled = await request('/api/a2a/status', 'GET', { cookie });
+  assert(a2aEnabled.status === 200 && a2aEnabled.routeClass === 'MANAGEMENT' && a2aEnabled.body?.enabled === true && a2aEnabled.body?.agent?.name === 'OmniRoute AI Gateway' && a2aEnabled.body?.capabilities?.streaming === true && a2aEnabled.body?.skills?.length === 6, 'a2a-enabled');
+  a2aDb.exec('DROP TABLE key_value');
+  await delay(5100);
+  const a2aFailure = await request('/api/a2a/status', 'GET', { cookie });
+  assert(a2aFailure.status === 500 && a2aFailure.routeClass === 'MANAGEMENT' && typeof a2aFailure.body?.error === 'string', 'a2a-failure');
+  a2aHttp.enabled = { status: a2aEnabled.status, routeClass: a2aEnabled.routeClass, enabled: true, agentName: a2aEnabled.body.agent.name, streaming: true, skillCount: a2aEnabled.body.skills.length };
+  a2aHttp.failure = { status: a2aFailure.status, routeClass: a2aFailure.routeClass, rawErrorPresent: true };
   const liveInvalid = ['oma', 'live', 'unknownfixture'].join('_');
   const liveness = {};
   for (const [name, headers] of [['anonymous', {}], ['invalidCredential', { authorization: `Bearer ${liveInvalid}` }], ['session', { cookie }]]) {
@@ -404,9 +429,10 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
+  a2aDb.close();
   loginDb.close();
   mfaDb.close();
   ssoDb.close();

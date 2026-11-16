@@ -97,6 +97,13 @@
         "sha256": { "$ref": "#/$defs/sha256" }
       }
     },
+    "a2aEvidence": {
+      "type": "object", "additionalProperties": false, "required": ["artifact", "sha256"],
+      "properties": {
+        "artifact": { "type": "string", "pattern": "^provenance/qualification/a2a-lifecycle-[a-f0-9]{64}\\.json$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "sourceDerivation": {
       "type": "object", "additionalProperties": false, "required": ["record", "sha256"],
       "properties": {
@@ -222,7 +229,7 @@
       ],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}", "GET /api/providers/deprecated", "GET /api/acp/agents"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}", "GET /api/providers/deprecated", "GET /api/acp/agents", "GET /api/a2a/status"] } }, "required": ["operationId"] },
           "then": { "required": ["ingressEvidence"] },
           "else": { "not": { "required": ["ingressEvidence"] } }
         },
@@ -240,6 +247,11 @@
           "if": { "properties": { "operationId": { "const": "GET /api/acp/agents" } }, "required": ["operationId"] },
           "then": { "required": ["nativeEvidence", "lifecycleEvidence"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } },
           "else": { "not": { "required": ["nativeEvidence"] } }
+        },
+        {
+          "if": { "properties": { "operationId": { "const": "GET /api/a2a/status" } }, "required": ["operationId"] },
+          "then": { "required": ["a2aEvidence", "lifecycleEvidence", "ingressEvidence"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } },
+          "else": { "not": { "required": ["a2aEvidence"] } }
         }
       ],
       "properties": {
@@ -339,6 +351,7 @@
         "lifecycleEvidence": { "$ref": "#/$defs/lifecycleEvidence" },
         "effectEvidence": { "$ref": "#/$defs/effectEvidence" },
         "nativeEvidence": { "$ref": "#/$defs/nativeEvidence" },
+        "a2aEvidence": { "$ref": "#/$defs/a2aEvidence" },
         "ingressEvidence": {
           "type": "object",
           "additionalProperties": false,
@@ -584,6 +597,7 @@
         "lifecycleEvidence": { "$ref": "#/$defs/lifecycleEvidence" },
         "effectEvidence": { "$ref": "#/$defs/effectEvidence" },
         "nativeEvidence": { "$ref": "#/$defs/nativeEvidence" },
+        "a2aEvidence": { "$ref": "#/$defs/a2aEvidence" },
         "ingressEvidence": {
           "type": "object",
           "additionalProperties": false,

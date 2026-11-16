@@ -1061,7 +1061,7 @@
       "required": ["operationId", "method", "pathTemplate", "request", "response", "mediaType", "auth", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "source", "specification", "reconciliation", "mutationSafety", "coverage"],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/providers/deprecated", "GET /api/acp/agents"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/providers/deprecated", "GET /api/acp/agents", "GET /api/a2a/status"] } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["ingressSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["ingressSha256"] } } } }
         },
@@ -1079,6 +1079,11 @@
           "if": { "properties": { "operationId": { "const": "GET /api/acp/agents" } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["nativeEvidenceSha256", "lifecycleSha256"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } } } },
           "else": { "properties": { "qualification": { "not": { "required": ["nativeEvidenceSha256"] } } } }
+        },
+        {
+          "if": { "properties": { "operationId": { "const": "GET /api/a2a/status" } }, "required": ["operationId"] },
+          "then": { "properties": { "qualification": { "required": ["a2aEvidenceSha256", "lifecycleSha256", "ingressSha256"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } } } },
+          "else": { "properties": { "qualification": { "not": { "required": ["a2aEvidenceSha256"] } } } }
         }
       ],
       "properties": {
@@ -1151,7 +1156,8 @@
             "ingressSha256": {"$ref": "#/$defs/sha256"},
             "lifecycleSha256": {"$ref": "#/$defs/sha256"},
             "effectSha256": {"$ref": "#/$defs/sha256"},
-            "nativeEvidenceSha256": {"$ref": "#/$defs/sha256"}
+            "nativeEvidenceSha256": {"$ref": "#/$defs/sha256"},
+            "a2aEvidenceSha256": {"$ref": "#/$defs/sha256"}
           }
         }
       }

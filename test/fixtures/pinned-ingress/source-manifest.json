@@ -2045,6 +2045,10 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/a2a/status/route.ts": { "sha256": "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2", "gitBlob": "4072255a115bd068918763682203c8f909d986df" },
+    "src/lib/a2a/taskManager.ts": { "sha256": "b4fc6379c9cf4b1f3b40e2e9dfae86df77c631014121ed1fa8f87637cb606e4a", "gitBlob": "0c9f2801763e66e2e79d55df47dd33674f0429d6" },
+    "src/lib/db/a2aTasks.ts": { "sha256": "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838", "gitBlob": "247aaae020f95766f81bd9298a79058364bde89c" },
+    "src/lib/events/eventBus.ts": { "sha256": "656394a4d6295b45c3b0c604d9e37432be7a7ab39eccaf36f688748a51281f9b", "gitBlob": "8682f14781122f441a376a40b8bcd4a863bc5a42" },
     "src/app/api/settings/require-login/route.ts": { "sha256": "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31", "gitBlob": "336aebcdafb778fe56e880c9d72a6ffe90e7dba4" },
     "src/shared/utils/nodeRuntimeSupport.ts": { "sha256": "575b634803f1a97e0b9c620f1bdad5ad7ff58eee4994eb664e6180fb4f938810", "gitBlob": "c6d44af478a600c93c388ebea530125654e42cf1" },
     "src/app/api/acp/agents/route.ts": { "sha256": "34c9166ef6ce7a90f89f2a0a26301476ac2ee7425b5af50c0de54e656dd911c3", "gitBlob": "1aa6c1a3305aab27f6e011defda696cab62a945e" },

@@ -42,6 +42,7 @@ export interface OperationQualificationReceipt {
   readonly lifecycleSha256?: string;
   readonly effectSha256?: string;
   readonly nativeEvidenceSha256?: string;
+  readonly a2aEvidenceSha256?: string;
 }
 export type OperationSourceContract = Pick<OperationDescriptor,
   "request" | "auth" | "response" | "secrets" | "sideEffect" | "pagination" | "streaming" | "confirmation" | "retry" | "reconciliation"> &
@@ -60,6 +61,7 @@ export interface OperationEligibilityRecord {
   readonly lifecycleSha256?: string;
   readonly effectSha256?: string;
   readonly nativeEvidenceSha256?: string;
+  readonly a2aEvidenceSha256?: string;
 }
 interface EligibilityDocument {
   readonly releaseCommit?: string;
@@ -98,7 +100,7 @@ export function operationRequiresIngressEvidence(operationId: string): boolean {
   return FAMILY_INGRESS_SET.has(operationId) || operationId === "GET /livez" || operationId === "HEAD /livez"
     || operationId === "GET /api/health" || operationId === "GET /api/health/degradation"
     || operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics"
-    || operationId === "GET /api/acp/agents" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/mfa/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login"
+    || operationId === "GET /api/acp/agents" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/mfa/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || operationId === "GET /api/a2a/status"
     || operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json"
     || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId)
     || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId);
@@ -153,6 +155,11 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     if (!databaseRequired || !record(native) || Object.keys(native).sort().join(",") !== "artifact,sha256" || !sha(native.sha256, 64)
       || native.artifact !== `provenance/qualification/native-acp-${native.sha256}.json`) return undefined;
   } else if (native !== undefined) return undefined;
+  const a2a = value.a2aEvidence;
+  if (value.operationId === "GET /api/a2a/status") {
+    if (!databaseRequired || !record(a2a) || Object.keys(a2a).sort().join(",") !== "artifact,sha256" || !sha(a2a.sha256, 64)
+      || a2a.artifact !== `provenance/qualification/a2a-lifecycle-${a2a.sha256}.json`) return undefined;
+  } else if (a2a !== undefined) return undefined;
   if (!Array.isArray(evidence) || evidence.length === 0 || evidence.some(item => !record(item) || typeof item.kind !== "string" || !item.kind || typeof item.detail !== "string" || !item.detail)) return undefined;
   return freeze({ operationId: value.operationId, status: "verified", reason: value.reason,
     source: { file: source.file, sha256: source.sha256, gitBlobSha: source.gitBlobSha },
@@ -164,6 +171,7 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     ...(record(lifecycle) ? { lifecycleSha256: lifecycle.sha256 as string } : {}),
     ...(record(effect) ? { effectSha256: effect.sha256 as string } : {}),
     ...(record(native) ? { nativeEvidenceSha256: native.sha256 as string } : {}),
+    ...(record(a2a) ? { a2aEvidenceSha256: a2a.sha256 as string } : {}),
     evidence: evidence.map(item => ({ kind: String(item.kind), detail: String(item.detail) })) });
 }
 function loadDocument(): EligibilityDocument {
@@ -225,6 +233,9 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
   if (item.operationId === "GET /api/acp/agents") {
     if (!binding.databaseInitializationRequired || !sha(item.nativeEvidenceSha256, 64) || item.nativeEvidenceSha256 !== qualification.nativeEvidenceSha256) return false;
   } else if (item.nativeEvidenceSha256 !== undefined || qualification.nativeEvidenceSha256 !== undefined) return false;
+  if (item.operationId === "GET /api/a2a/status") {
+    if (!binding.databaseInitializationRequired || !sha(item.a2aEvidenceSha256, 64) || item.a2aEvidenceSha256 !== qualification.a2aEvidenceSha256) return false;
+  } else if (item.a2aEvidenceSha256 !== undefined || qualification.a2aEvidenceSha256 !== undefined) return false;
   if (binding.sideEffect === "unknown" || item.binding.sideEffect !== binding.sideEffect) return false;
   for (const key of HASH_FIELDS) if (!sha(binding[key], 64) || item.binding[key] !== binding[key] || qualification.binding[key] !== binding[key]) return false;
   for (const candidate of [item.binding, qualification.binding]) {

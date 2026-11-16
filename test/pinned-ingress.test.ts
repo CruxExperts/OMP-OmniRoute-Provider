@@ -4,10 +4,17 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expectedHealthIngressIdentities, validateDeprecatedProviderSweepObservation, validateHealthIngressEvidence } from "../scripts/generate-contracts.ts";
+import { expectedHealthIngressIdentities, validateA2aLifecycleObservation, validateDeprecatedProviderSweepObservation, validateHealthIngressEvidence } from "../scripts/generate-contracts.ts";
 import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
+test("A2A lifecycle observations require independent matching timer and source evidence", () => {
+  const phase = (warm: boolean) => ({ databaseExistedBefore: warm, databaseExistsAfter: true, disabled: true, enabled: true, managerTimerCount: 1, activeTaskObserved: true, expiredTaskPersistedFailed: true, timerPurgedOldHistory: true });
+  const independent = { status: "research-observed", qualification: false, inputSha256: {}, identity: { a2aClosure: { "src/app/api/a2a/status/route.ts": "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2", "src/lib/a2a/taskManager.ts": "b4fc6379c9cf4b1f3b40e2e9dfae86df77c631014121ed1fa8f87637cb606e4a", "src/lib/db/a2aTasks.ts": "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838" } }, cold: phase(false), warm: phase(true) };
+  expect(() => validateA2aLifecycleObservation(structuredClone(independent), independent)).not.toThrow();
+  expect(() => validateA2aLifecycleObservation({ ...independent, cold: { ...independent.cold, timerPurgedOldHistory: false } }, independent)).toThrow();
+  expect(() => validateA2aLifecycleObservation({ ...independent, identity: {} }, independent)).toThrow();
+});
 test("MFA source response is closed before projection", async () => {
   // Load the exact JavaScript module copied into the isolated Node ingress worker.
   const path = resolve(import.meta.dir, "fixtures/pinned-ingress/mfa-response.mjs");
@@ -109,6 +116,17 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
       const validate = () => validateHealthIngressEvidence({ artifact: path, sha256: digest }, binding, operation);
       if (error) expect(validate).toThrow(error); else expect(validate).not.toThrow();
     } finally { rmSync(absolute); }
+  }
+  const a2aStatuses: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-admin": 200, "key-manage": 200, "oma-read": 200, "oma-write": 200, "oma-admin": 200 };
+  const a2aStatusHttp = { matcherMatched: true, cases: Object.fromEntries(Object.entries(a2aStatuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", disabled: status === 200 ? true : null }])), enabled: { status: 200, routeClass: "MANAGEMENT", enabled: true, agentName: "OmniRoute AI Gateway", streaming: true, skillCount: 6 }, failure: { status: 500, routeClass: "MANAGEMENT", rawErrorPresent: true } };
+  const a2aBinding = { handlerSha256: "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2", handlerGitBlobSha: "4072255a115bd068918763682203c8f909d986df", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  const closure = identities.a2aStatusClosure as { sources: Record<string, string>; executed: Record<string, string> };
+  const a2aArtifact = { ...artifact, a2aStatusHttp, a2aStatusClosure: closure };
+  check(a2aArtifact, a2aBinding, "GET /api/a2a/status");
+  for (const file of ["src/lib/db/fixtureA2aCache.ts", "src/lib/db/fixtureA2aSettings.ts"]) {
+    const missing = { ...closure.executed }; delete missing[file];
+    check({ ...a2aArtifact, a2aStatusClosure: { ...closure, executed: missing } }, a2aBinding, "GET /api/a2a/status", /A2A closure mismatch/);
+    check({ ...a2aArtifact, a2aStatusClosure: { ...closure, executed: { ...closure.executed, [file]: "0".repeat(64) } } }, a2aBinding, "GET /api/a2a/status", /A2A closure mismatch/);
   }
   for (const [index, [operation, route]] of cases.entries()) {
     const routeIdentity = (identities.addedSourceSha256 as Record<string, unknown>)[route];
@@ -811,6 +829,7 @@ with tempfile.TemporaryDirectory() as temp:
  m.auth_status_closure = lambda source, cache: {m.AUTH_STATUS:b'route-executed',m.AUTH_SESSION:b'session-executed','src/lib/db/fixtureAuthStatusCache.ts':b'cache-executed','src/lib/db/fixtureAuthStatusSettings.ts':b'settings-executed'}
  m.mfa_status_closure = lambda source: {m.MFA_STATUS:b'mfa-route-executed','src/server/auth/fixtureDashboardMfaStatus.ts':b'mfa-dashboard-executed','src/lib/db/fixtureDashboardMfaStatus.ts':b'mfa-storage-executed','src/server/auth/fixtureMfaRouteSupport.ts':b'mfa-support-executed','src/lib/db/fixtureMfaStatusCore.ts':b'mfa-core-executed'}
  m.sso_config_closure = lambda source, cache: {m.SSO_CONFIG:b'sso-route-executed','src/server/authz/entra/fixtureSsoConfig.ts':b'sso-config-executed','src/lib/db/fixtureSsoCache.ts':b'sso-cache-executed','src/lib/db/fixtureSsoSettings.ts':b'sso-settings-executed'}
+ m.a2a_status_closure = lambda source, cache: {'src/app/api/a2a/status/route.ts':b'a2a-route-executed','src/lib/db/fixtureA2aCache.ts':b'a2a-cache-executed','src/lib/db/fixtureA2aSettings.ts':b'a2a-settings-executed'}
  sources[m.ACP_REGISTRY] = b'import { execFileSync } from "child_process";\n'
  m.READ_CLOSURES = {name:m.sha(sources[name]) for name in m.READ_CLOSURES}
  m.read_closures = lambda app, manifest: {name:(app/name).read_bytes()+b':executed' for name in m.READ_CLOSURES}
@@ -867,6 +886,9 @@ with tempfile.TemporaryDirectory() as temp:
  login_graph = m.require_login_closure(sources,b'cache',b'flags')
  identity['addedSourceSha256'][m.REQUIRE_LOGIN] = {'originalSha256':m.sha(sources[m.REQUIRE_LOGIN]),'executedSha256':m.sha(login_graph[m.REQUIRE_LOGIN])}
  identity['requireLoginClosure'] = {'sources':{name:m.sha(sources[name]) for name in (m.REQUIRE_LOGIN,m.LOGIN_FLAGS,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.AUTH_SESSION,m.AUTH_SETTINGS,m.AUTH_SHARED,*m.LOGIN_DEPENDENCIES)},'executed':{name:m.sha(data) for name,data in login_graph.items()}}
+ a2a_name = 'src/app/api/a2a/status/route.ts'; a2a_graph = m.a2a_status_closure(sources,b'cache')
+ identity['addedSourceSha256'][a2a_name] = {'originalSha256':m.sha(sources[a2a_name]),'executedSha256':m.sha(a2a_graph[a2a_name])}
+ identity['a2aStatusClosure'] = {'sources':{name:m.sha(sources[name]) for name in (a2a_name,m.AUTH_SETTINGS,m.AUTH_SHARED)},'executed':{name:m.sha(data) for name,data in a2a_graph.items()}}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
@@ -924,6 +946,8 @@ with tempfile.TemporaryDirectory() as temp:
    rows.append({'case':method+' '+path,'denied':observed(401),'invalid':observed(401),'allowed':observed(200),'readScope':observed(403 if mutation else 200),'writeScope':observed(403 if admin else 200),'adminScope':observed(200)})
  live = {'status':200,'body':'ok\n','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None}
  ingress = {'identity':identity,'results':rows,'events':[{'event':'sqlite:read','extra':'private-canary'},{'event':'degradation:populate'},{'event':'degradation:recover'}], 'livenessMatcherMatched':False, 'liveness':{name:dict(live) for name in ('anonymous','invalidCredential','session')}, 'livenessHead':{name:{**live,'body':''} for name in ('anonymous','invalidCredential','session')}}
+ a2a_statuses = {'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':200,'oma-write':200,'oma-admin':200}
+ ingress['a2aHttp'] = {'matcherMatched':True,'cases':{name:{'status':status,'routeClass':'MANAGEMENT','disabled':True if status == 200 else None} for name,status in a2a_statuses.items()},'enabled':{'status':200,'routeClass':'MANAGEMENT','enabled':True,'agentName':'OmniRoute AI Gateway','streaming':True,'skillCount':6},'failure':{'status':500,'routeClass':'MANAGEMENT','rawErrorPresent':True}}
  ingress['wellKnown'] = [{'path':'/.well-known/'+name,'matcherMatched':False,'response':{'status':200,'routeClass':None,'requestId':None,'contentType':'application/json','cacheControl':'public, max-age=3600','body':{'name':'OmniRoute AI Gateway','version':'3.8.53','url':'http://localhost:43179/a2a','skills':[{}]*6, **({'supportedInterfaces':[{}]} if name == 'agent-card.json' else {'authentication':{'schemes':['api-key']}})}}} for name in ('agent-card.json','agent.json')]
  ingress['reasoningHttp'] = {'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'failure':{'status':503,'routeClass':None,'contentType':'text/plain','bodyCategory':'text','privateMarkerPresent':False},'allowed':response({'rules':[]}),'cached':response({'rules':[]})}
  ingress['deprecatedHttp']={'denied':{'status':401,'routeClass':'MANAGEMENT'},'invalid':{'status':401,'routeClass':'MANAGEMENT'},'failure':{'status':500,'routeClass':'MANAGEMENT','privateMarkerPresent':False},'allowed':{'status':200,'routeClass':'MANAGEMENT','body':{'leftovers':[{'provider':'gemini-cli','migrateTo':'gemini','reason':'fixture','connectionIds':[f'fixture-{i}' for i in range(105)],'names':[f'name-{i}' for i in range(105)]}]}}}
@@ -980,6 +1004,9 @@ with tempfile.TemporaryDirectory() as temp:
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ ingress['a2aHttp']['cases']['key-read']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHttp']['cases']['key-read']['status']=403
+ ingress['a2aHttp']['enabled']['enabled']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHttp']['enabled']['enabled']=True
+ identity['a2aStatusClosure']['executed'][a2a_name]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['a2aStatusClosure']['executed'][a2a_name]=m.sha(a2a_graph[a2a_name])
  original=ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']; ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=original
  original=identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]; identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]=original
  original = ingress['ssoConfigHttp']['cases']['enabled']['body']; ingress['ssoConfigHttp']['cases']['enabled']['body']={'enabled':False}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['ssoConfigHttp']['cases']['enabled']['body']=original
@@ -1119,12 +1146,15 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)})
  source.update({name:h for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED,'src/lib/db/readCache.ts')})
  source.update({name:h for name in (m.REQUIRE_LOGIN,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.LOGIN_FLAGS,m.AUTH_SESSION,*m.LOGIN_DEPENDENCIES)})
+ a2a_sources=('src/app/api/a2a/status/route.ts','src/lib/a2a/taskManager.ts','src/lib/db/a2aTasks.ts','src/lib/events/eventBus.ts','src/lib/db/readCache.ts',m.AUTH_SETTINGS,m.AUTH_SHARED,'src/app/.well-known/agent.json/route.ts','src/lib/a2a/agentCardMetadata.ts','src/lib/conductor/fleetSkills.ts','src/lib/wellKnown.ts','src/shared/constants/appConfig.ts')
+ source.update({name:h for name in a2a_sources})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
  identity['mfaClosure']={'sources':{name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)},'selectedSha256':h}
  identity['ssoClosure']={name:source[name] for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED,'src/lib/db/readCache.ts')}
  identity['loginClosure']={'sources':{name:source[name] for name in (m.REQUIRE_LOGIN,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.LOGIN_FLAGS,m.AUTH_SETTINGS,m.AUTH_SHARED,m.AUTH_SESSION,'src/lib/db/readCache.ts',*m.LOGIN_DEPENDENCIES)},'selectedSha256':h}
+ identity['a2aClosure']={name:source[name] for name in a2a_sources}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
@@ -1132,6 +1162,9 @@ with tempfile.TemporaryDirectory() as d:
  authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
  for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
+ for phase in ('cold','warm'):
+  (p/('a2a-'+phase+'.private')).write_text('normal output\n')
+  put('a2a-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'disabled':True,'enabled':True,'managerTimerCount':1,'activeTaskObserved':True,'expiredTaskPersistedFailed':True,'timerPurgedOldHistory':True})
  put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  put('sso-cold.json',{'databaseExistedBefore':False,'databaseExistsAfter':True,'onboardingBefore':'absent','onboardingPersisted':True,'first':{'status':200,'body':{'enabled':False}},'cached':None,'refreshed':None})
@@ -1150,6 +1183,8 @@ with tempfile.TemporaryDirectory() as d:
  put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity); reject()
  (p/'cold-lifecycle.private').write_text('normal output\n')
  put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity)
+ a2a_cold=json.loads((p/'a2a-cold.json').read_text()); a2a_cold['timerPurgedOldHistory']=False; put('a2a-cold.json',a2a_cold); reject(); a2a_cold['timerPurgedOldHistory']=True; put('a2a-cold.json',a2a_cold)
+ original=identity['a2aClosure']['src/lib/a2a/taskManager.ts']; identity['a2aClosure']['src/lib/a2a/taskManager.ts']='b'*64; put('core-identity.json',identity); reject(); identity['a2aClosure']['src/lib/a2a/taskManager.ts']=original; put('core-identity.json',identity)
  sso_warm=json.loads((p/'sso-warm.json').read_text()); sso_warm['cached']=False; put('sso-warm.json',sso_warm); reject(); sso_warm['cached']=True; put('sso-warm.json',sso_warm)
  login_cold=json.loads((p/'login-cold.json').read_text()); login_cold['onboardingPersisted']=False; put('login-cold.json',login_cold); reject(); login_cold['onboardingPersisted']=True; put('login-cold.json',login_cold)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
