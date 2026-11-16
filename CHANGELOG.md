@@ -15,6 +15,12 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   persistence and scheduled history cleanup retain confirmation, uncertain
   settlement and no replay; private task and gateway fields remain withheld.
 
+- Characterize the A2A history candidate with its pinned handler, authorization
+  and actual history SQL over a disposable migrated database. The route remains
+  unavailable pending independently bound evidence. Combined status and history
+  source requires fresh ingress and native lifecycle observations bound to its
+  final input bytes; earlier separate observations cannot qualify that candidate.
+
 - Qualify the bounded public login-settings discovery view through exact source,
   independent HTTP and persisted cold/warm lifecycle observations. Dispatch stays
   anonymous; initialization and onboarding effects remain uncertain without replay.

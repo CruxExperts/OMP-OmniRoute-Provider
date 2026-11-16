@@ -489,6 +489,26 @@ test("health ingress evidence separately rejects missing, stale and contradictor
     expect(() => validateHealthIngressEvidence({ artifact: path, sha256: "0".repeat(64) }, binding)).toThrow();
     const valid = await save(artifact);
     expect(() => validateHealthIngressEvidence(valid, binding)).not.toThrow();
+    const statusCodes: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-admin": 200, "key-manage": 200, "oma-read": 200, "oma-write": 200, "oma-admin": 200 };
+    const statusHttp = { matcherMatched: true, cases: Object.fromEntries(Object.entries(statusCodes).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", disabled: status === 200 ? true : null }])), enabled: { status: 200, routeClass: "MANAGEMENT", enabled: true, agentName: "OmniRoute AI Gateway", streaming: true, skillCount: 6 }, failure: { status: 500, routeClass: "MANAGEMENT", rawErrorPresent: true } };
+    const allIds = ["five", "four", "three", "two", "one"];
+    const historyAuth = { anonymous: [401, null], invalid: [403, null], inference: [403, null], session: [200, allIds], oma: [200, allIds], manage: [200, ["five", "four", "two", "one"]], admin: [200, ["five", "three", "one"]] } as const;
+    const historyPages = [[["five", "four"], 5, 2, 0], [["three", "two"], 5, 2, 2], [["one"], 5, 2, 4], [[], 5, 2, 8], [allIds, 5, 500, 0], [["four"], 1, 100, 0]] as const;
+    const historyHttp = { auth: Object.fromEntries(Object.entries(historyAuth).map(([name, [status, ids]]) => [name, { status, routeClass: "MANAGEMENT", ids }])), pages: historyPages.map(([ids, total, limit, offset]) => ({ status: 200, ids, total, limit, offset })), invalid: [400, 400, 400, 400, 400], failure: { status: 500, routeClass: "MANAGEMENT", hasTasks: false } };
+    const a2aArtifact = { ...artifact, a2aStatusHttp: statusHttp, a2aStatusClosure: identities.a2aStatusClosure, a2aHistoryHttp: historyHttp };
+    for (const [operation, handlerSha256, handlerGitBlobSha] of [
+      ["GET /api/a2a/status", "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2", "4072255a115bd068918763682203c8f909d986df"],
+      ["GET /api/a2a/tasks/history", "0c35eb4cffe05b36d66d725049e354fd70bab29e2fade1346760bf80c5e85d01", "1b93277bd5560075f14b6453458445ea3ade6daa"],
+    ] as const) {
+      const a2aBinding = { ...binding, handlerSha256, handlerGitBlobSha };
+      const complete = await save(a2aArtifact);
+      expect(() => validateHealthIngressEvidence(complete, a2aBinding, operation)).not.toThrow();
+      const missingAdded = { ...added };
+      delete missingAdded["src/lib/db/a2aTasks.ts"];
+      const missing = await save({ ...a2aArtifact, source: { ...artifact.source, addedSourceSha256: missingAdded } });
+      expect(() => validateHealthIngressEvidence(missing, a2aBinding, operation)).toThrow(/source mismatch|source identity mismatch/);
+    }
+    await save(artifact);
     const degradationBinding = operationEvidenceBinding("GET /api/health/degradation", degradationContract());
     const staleIngressSha256 = "a890aefa50060b86b08ebf10af8ab685140c7dcd6737925c99a4a265d9040109";
     expect(() => validateHealthIngressEvidence({ artifact: `provenance/qualification/ingress-${staleIngressSha256}.json`, sha256: staleIngressSha256 }, degradationBinding, "GET /api/health/degradation")).toThrow(/input drift|source identity mismatch|declared inputs mismatch/);

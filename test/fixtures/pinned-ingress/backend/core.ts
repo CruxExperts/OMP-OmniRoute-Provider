@@ -30,11 +30,17 @@ export function rowToCamel(): never { return unsupported("rowToCamel"); }
 export function cleanNulls(): never { return unsupported("cleanNulls"); }
 export function applyDatabaseOptimizationSettings(): never { return unsupported("applyDatabaseOptimizationSettings"); }
 let reasoningDb: DatabaseSync | undefined;
+let historyDb: DatabaseSync | undefined;
 const db = {
     prepare(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       return {
         get(...args: unknown[]) {
+          if (/^SELECT COUNT\(\*\) AS count FROM a2a_tasks(?: WHERE .*)?$/.test(normalized)) {
+            event("history:count");
+            historyDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            return historyDb.prepare(sql).get(...args as []);
+          }
           if (normalized === "SELECT * FROM cli_access_tokens WHERE token_hash = ?") {
             event("access-token:lookup");
             if (state.failTokenRead) throw new Error("INGRESS_TOKEN_BACKEND_ERROR");
@@ -83,6 +89,11 @@ const db = {
           return unsupported(`run:${createHash("sha256").update(normalized).digest("hex")}`);
         },
         all(...args: unknown[]) {
+          if (/^SELECT id, state, skill_id, input_json, output_json, api_key_id, created_at, updated_at, completed_at FROM a2a_tasks(?: WHERE .*)? ORDER BY created_at DESC LIMIT @limit OFFSET @offset$/.test(normalized)) {
+            event("history:read");
+            historyDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            return historyDb.prepare(sql).all(...args as []);
+          }
           if (normalized === "SELECT * FROM reasoning_routing_rules ORDER BY priority DESC, created_at ASC, id ASC") {
             event("reasoning:read");
             reasoningDb ??= new DatabaseSync("/work/data/metrics.sqlite");

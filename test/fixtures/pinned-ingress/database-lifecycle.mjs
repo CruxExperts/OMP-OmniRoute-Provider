@@ -15,8 +15,9 @@ const mfa = phase === 'mfa-cold' || phase === 'mfa-warm';
 const sso = phase === 'sso-cold' || phase === 'sso-warm';
 const login = phase === 'login-cold' || phase === 'login-warm';
 const a2a = phase === 'a2a-cold' || phase === 'a2a-warm';
-const expectedDataDir = a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const history = phase === 'history-cold' || phase === 'history-warm';
+const expectedDataDir = history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -189,6 +190,25 @@ if (a2a) {
     manager.destroy();
     await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), disabled: true, enabled: true, managerTimerCount: timers.length, activeTaskObserved: true, expiredTaskPersistedFailed: true, timerPurgedOldHistory: true }) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { globalThis.setInterval = originalInterval; await closeDbInstance(); }
+  process.exit(0);
+}
+if (history) {
+  const cold = phase === 'history-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('history database phase mismatch');
+  const { GET } = await import('/work/app/src/app/api/a2a/tasks/history/route.ts');
+  const now = Math.floor(Date.now() / 1000);
+  const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now).setExpirationTime(now + 3600).setJti('fixture-history-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const response = await GET(new Request('http://localhost/api/a2a/tasks/history', { headers: { cookie: `auth_token=${token}` } }));
+  const body = await response.json();
+  try {
+    const db = getDbInstance();
+    const count = db.prepare('SELECT count(*) AS count FROM a2a_tasks').get().count;
+    const onboarding = db.prepare("SELECT value FROM key_value WHERE namespace = 'settings' AND key = 'setupComplete'").get();
+    const after = await files();
+    if (db.driver !== 'node:sqlite' || response.status !== 200 || JSON.stringify(body) !== JSON.stringify({ tasks: [], total: 0, limit: 100, offset: 0 }) || count !== 0 || onboarding?.value !== 'true') throw new Error('history lifecycle mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), status: response.status, body, rows: count, onboardingPersisted: onboarding?.value === 'true' }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
   process.exit(0);
 }
 if (login) {

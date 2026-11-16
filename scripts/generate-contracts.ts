@@ -289,6 +289,11 @@ export function testOutcomeHash(
     const resultBody = requireRecord(body, "A2A outcome body"), agent = requireRecord(resultBody.agent, "A2A outcome agent");
     if (canonicalJson(before) !== canonicalJson(expectedBefore) || canonicalJson(after) !== canonicalJson(expectedAfter) || result.status !== 200 || resultBody.status !== "ok" || resultBody.online !== true || resultBody.enabled !== true || canonicalJson(toJson(resultBody.tasks, "A2A outcome tasks")) !== canonicalJson(tasks) || agent.name !== "OmniRoute AI Gateway" || typeof agent.version !== "string" || agent.version.length > 128 || canonicalJson(toJson(Object.keys(agent).sort(), "A2A agent fields")) !== canonicalJson(["name", "version"]) || canonicalJson(toJson(resultBody.capabilities, "A2A outcome capabilities")) !== canonicalJson({ streaming: true, pushNotifications: false }) || canonicalJson(toJson(Object.keys(resultBody).sort(), "A2A outcome fields")) !== canonicalJson(["agent", "capabilities", "enabled", "online", "status", "tasks"])) throw new Error("A2A status observed outcome mismatch");
   }
+  if (operationId === "GET /api/a2a/tasks/history") {
+    const item = (id: string, state: string, skill: string | null, date: string, completedAt: string | null) => ({ id, state, skill, createdAt: date, updatedAt: date, completedAt });
+    const expectedBody = { tasks: [item("five", "cancelled", null, "2026-01-05T00:00:00.000Z", null), item("four", "completed", "alpha", "2026-01-04T00:00:00.000Z", "2026-01-04T00:00:00.000Z")], total: 5, limit: 2, offset: 0 };
+    if (canonicalJson(before) !== canonicalJson({ rows: 5 }) || canonicalJson(after) !== canonicalJson({ rows: 5 }) || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("A2A history observed outcome mismatch");
+  }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -440,8 +445,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (ssoSource !== undefined && (ssoSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "16971949ae2e1b8f2de41c4d0c301ee531ff328683ad1f78f67c313306e503bd" || binding.handlerGitBlobSha !== "f31fd0f17a8a8cb89ee70e47689e5b71ff5e5f87")) throw new Error(`${label} SSO source mismatch`);
   const loginSource = operationId === "GET /api/settings/require-login" ? requireRecord(added["src/app/api/settings/require-login/route.ts"], `${label}.login source`) : undefined;
   if (loginSource !== undefined && (loginSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31" || binding.handlerGitBlobSha !== "336aebcdafb778fe56e880c9d72a6ffe90e7dba4")) throw new Error(`${label} login source mismatch`);
+  const historySource = operationId === "GET /api/a2a/tasks/history" ? added["src/app/api/a2a/tasks/history/route.ts"] : undefined;
+  if (operationId === "GET /api/a2a/tasks/history" && (historySource !== "0c35eb4cffe05b36d66d725049e354fd70bab29e2fade1346760bf80c5e85d01" || binding.handlerSha256 !== historySource || binding.handlerGitBlobSha !== "1b93277bd5560075f14b6453458445ea3ade6daa" || added["src/app/api/a2a/_auth.ts"] !== "d0f8d6b85f05818f89095e4568ec6a68a1128799c702b0b71fcfa636f1049276" || added["src/lib/db/a2aTasks.ts"] !== "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838" || added["src/lib/a2a/authenticate.ts"] !== "2e9ce08e52918179a9e3f66d4e08a66b1cfcecb9ce78a9c66b8ebf9ad593e31e")) throw new Error(`${label} history source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -619,6 +626,12 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expected = { cases, onboardingBefore: [], onboardingAfter: [{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }] };
     if (canonicalJson(toJson(artifact.requireLoginHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} login HTTP mismatch`);
   }
+  if (operationId === "GET /api/a2a/tasks/history") {
+    const auth = { anonymous: [401, null], invalid: [403, null], inference: [403, null], session: [200, ["five", "four", "three", "two", "one"]], oma: [200, ["five", "four", "three", "two", "one"]], manage: [200, ["five", "four", "two", "one"]], admin: [200, ["five", "three", "one"]] } as const;
+    const pages = [[ ["five", "four"], 5, 2, 0 ], [ ["three", "two"], 5, 2, 2 ], [ ["one"], 5, 2, 4 ], [ [], 5, 2, 8 ], [ ["five", "four", "three", "two", "one"], 5, 500, 0 ], [ ["four"], 1, 100, 0 ]] as const;
+    const expected = { auth: Object.fromEntries(Object.entries(auth).map(([name, [status, ids]]) => [name, { status, routeClass: "MANAGEMENT", ids }])), pages: pages.map(([ids, total, limit, offset]) => ({ status: 200, ids, total, limit, offset })), invalid: [400, 400, 400, 400, 400], failure: { status: 500, routeClass: "MANAGEMENT", hasTasks: false } };
+    if (canonicalJson(toJson(artifact.a2aHistoryHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} history HTTP mismatch`);
+  }
   if (operationId === "GET /api/auth/mfa/status") {
     if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
     const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
@@ -667,7 +680,14 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   }
   if (operationId !== "GET /api/a2a/status") {
     const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
-    for (const name of ["src/app/api/a2a/status/route.ts", "src/lib/a2a/taskManager.ts", "src/lib/db/a2aTasks.ts", "src/lib/events/eventBus.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+    for (const name of ["src/app/api/a2a/status/route.ts", "src/lib/a2a/taskManager.ts", "src/lib/events/eventBus.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+  }
+  if (operationId !== "GET /api/a2a/tasks/history") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/a2a/tasks/history/route.ts", "src/app/api/a2a/_auth.ts", "src/lib/a2a/authenticate.ts", "src/lib/db/migrations/002_mcp_a2a_tables.sql"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+  }
+  if (operationId !== "GET /api/a2a/status" && operationId !== "GET /api/a2a/tasks/history" && !Object.hasOwn(added, "src/lib/db/a2aTasks.ts")) {
+    delete requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`)["src/lib/db/a2aTasks.ts"];
   }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
@@ -688,7 +708,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
 const coreLifecycleIdentityCache = new Map<string, unknown>();
 
 /** Join a research-only cold/warm observation to independently rerun producer identities. */
-export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false, requireLogin = false, a2aValue?: unknown): void {
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false, requireLogin = false, a2aValue?: unknown, requireHistory = false): void {
   const label = "core lifecycle evidence";
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -763,6 +783,12 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     if (createHash("sha256").update(bytes).digest("hex") !== digest) throw new Error("A2A lifecycle digest mismatch");
     validateA2aLifecycleObservation(JSON.parse(bytes.toString("utf8")) as unknown, requireRecord(expected, label).a2aLifecycle);
   }
+  if (requireHistory) {
+    const independent = requireRecord(expected, `${label}.independent`);
+    const actual = requireRecord(artifact.a2aHistory, `${label}.a2aHistory`);
+    const expectedHistory = Object.fromEntries(["cold", "warm"].map(phase => [phase, { databaseExistedBefore: phase === "warm", databaseExistsAfter: true, status: 200, body: { tasks: [], total: 0, limit: 100, offset: 0 }, rows: 0, onboardingPersisted: true }]));
+    if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(expectedHistory, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(independent.a2aHistory, label))) throw new Error(`${label} history lifecycle mismatch`);
+  }
   if (effectValue !== undefined) {
     const effect = requireRecord(effectValue, "deprecated provider effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
@@ -823,7 +849,7 @@ export function validateDeprecatedProviderSweepObservation(value: unknown, indep
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
   const label = "core lifecycle evidence";
   const artifact = requireRecord(value, label);
-  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"]), ...(artifact.requireLogin === undefined ? [] : ["requireLogin"])]);
+  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"]), ...(artifact.requireLogin === undefined ? [] : ["requireLogin"]), ...(artifact.a2aHistory === undefined ? [] : ["a2aHistory"])]);
   if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
   const identity = requireRecord(artifact.identity, `${label}.identity`);
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
@@ -1750,7 +1776,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
     ...effectiveSourceBinding(manifest),
-    ...(operation.operationId === "GET /api/a2a/status" || operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || operation.operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
+    ...(operation.operationId === "GET /api/a2a/status" || operation.operationId === "GET /api/a2a/tasks/history" || operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || operation.operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
@@ -1927,6 +1953,21 @@ export function validateA2aStatusContract(value: unknown): void {
   if (contract.sideEffect !== "lifecycle" || auth.domain !== "management" || !same(auth.sourcePolicy, policy) || requireRecord(contract.confirmation, "A2A confirmation").required !== true || !same(contract.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || contract.reconciliation !== null || requireRecord(safety.preflight, "A2A preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("A2A contract does not match source-bound lifecycle behavior");
 }
 
+export function validateA2aHistoryContract(value: unknown): void {
+  const c = requireRecord(value, "history contract"), request = requireRecord(c.request, "history request"), response = requireRecord(c.response, "history response"), auth = requireRecord(c.auth, "history auth"), safety = requireRecord(c.mutationSafety, "history safety");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "history contract")) === canonicalJson(toJson(b, "history contract"));
+  const datetime = { type: "string", format: "date-time", pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$" };
+  const properties = { from: datetime, to: datetime, skill: { type: "string", minLength: 1 }, state: { type: "string", enum: ["submitted", "working", "completed", "failed", "cancelled"] }, limit: { type: "integer", minimum: 1 }, offset: { type: "integer", minimum: 0 } };
+  const params = Object.entries(properties).map(([name, schema]) => ({ name, in: "query", required: false, style: "form", explode: true, allowReserved: false, schema, inputAllowed: true, sourceFile: "src/app/api/a2a/tasks/history/route.ts" }));
+  const item = { type: "object", properties: { id: { type: "string" }, state: { type: "string" }, skill: { type: ["string", "null"] }, createdAt: { type: "string" }, updatedAt: { type: "string" }, completedAt: { type: ["string", "null"] } }, required: ["id", "state", "skill", "createdAt", "updatedAt", "completedAt"], additionalProperties: false };
+  const view = { type: "object", properties: { tasks: { type: "array", items: item }, total: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 500 }, offset: { type: "integer", minimum: 0 } }, required: ["tasks", "total", "limit", "offset"], additionalProperties: false };
+  const success = requireArray(response.variants, "history variants").filter(v => isRecord(v) && v.statusCode === "200");
+  if (!same(request.pathSchema, { type: "object", properties: {}, additionalProperties: false }) || !same(request.pathParameters, []) || !same(request.querySchema, { type: "object", properties, additionalProperties: false }) || !same(request.parameters, params) || request.body !== null || response.mediaType !== "application/json" || !same(response.schema, view) || success.length !== 1 || !same(requireRecord(success[0], "history success").content, [{ mediaType: "application/json", schema: view, sourceFile: "src/app/api/a2a/tasks/history/route.ts" }])) throw new Error("history request or projection mismatch");
+  if (auth.domain !== "management" || requireRecord(auth.sourcePolicy, "history auth policy").handlerGuard !== "requireManagementAuth" || c.sideEffect !== "lifecycle" || !same(c.pagination, { mode: "offset", parameters: ["limit", "offset"] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.secrets, { inputFields: [], outputFields: ["input_json", "output_json", "api_key_id", "message"] }) || requireRecord(c.confirmation, "history confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "history preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("history security or lifecycle mismatch");
+  const expectedPolicy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "oma-access-token", minimumScope: "read" }, { kind: "trusted-local", loopbackOnly: true }] };
+  if (!same(auth.sourcePolicy, expectedPolicy)) throw new Error("history authorization policy mismatch");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -1939,6 +1980,10 @@ function validateEligibility(
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/a2a/status/route.ts" || route.sha256 !== "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2" || route.gitBlobSha !== "4072255a115bd068918763682203c8f909d986df" || record.a2aEvidence === undefined) throw new Error("A2A status requires exact source and independent lifecycle evidence");
   }
   else if (record.a2aEvidence !== undefined) throw new Error(`A2A evidence is unsupported for ${operationId}`);
+  if (operationId === "GET /api/a2a/tasks/history") {
+    validateA2aHistoryContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/a2a/tasks/history/route.ts" || route.sha256 !== "0c35eb4cffe05b36d66d725049e354fd70bab29e2fade1346760bf80c5e85d01" || route.gitBlobSha !== "1b93277bd5560075f14b6453458445ea3ade6daa") throw new Error("history requires exact lifecycle source");
+  }
   if (operationId === "GET /api/settings/require-login") {
     validateRequireLoginContract(record.contract);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/settings/require-login/route.ts" || route.sha256 !== "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31" || route.gitBlobSha !== "336aebcdafb778fe56e880c9d72a6ffe90e7dba4") throw new Error("require-login requires exact lifecycle source");
@@ -2008,7 +2053,7 @@ function validateEligibility(
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined);
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
@@ -2729,7 +2774,7 @@ function makeOperation(
     operationId,
     method,
     pathTemplate: path,
-    ...(operationId === "GET /api/a2a/status" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
+    ...(operationId === "GET /api/a2a/status" || operationId === "GET /api/a2a/tasks/history" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
     request,
     response,
     mediaType: { request: requestMediaType, response: responseMediaType },

@@ -106,7 +106,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     ["GET /api/settings/reasoning-routing-rules", "src/app/api/settings/reasoning-routing-rules/route.ts"],
     ["GET /api/providers/deprecated", "src/app/api/providers/deprecated/route.ts"],
   ] as const;
-  function check(value: unknown, binding: OperationEvidenceBinding, operation: string, error?: RegExp) {
+  function check(value: unknown, binding: OperationEvidenceBinding, operation: string, error?: RegExp | true) {
     const bytes = Buffer.from(JSON.stringify(value));
     const digest = createHash("sha256").update(bytes).digest("hex");
     const path = `provenance/qualification/ingress-${digest}.json`;
@@ -114,7 +114,7 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     writeFileSync(absolute, bytes, { flag: "wx" });
     try {
       const validate = () => validateHealthIngressEvidence({ artifact: path, sha256: digest }, binding, operation);
-      if (error) expect(validate).toThrow(error); else expect(validate).not.toThrow();
+      if (error === true) expect(validate).toThrow(); else if (error) expect(validate).toThrow(error); else expect(validate).not.toThrow();
     } finally { rmSync(absolute); }
   }
   const a2aStatuses: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-admin": 200, "key-manage": 200, "oma-read": 200, "oma-write": 200, "oma-admin": 200 };
@@ -152,6 +152,10 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   const deprecatedBinding = { handlerSha256: ((identities.addedSourceSha256 as Record<string, { originalSha256: string }>)["src/app/api/providers/deprecated/route.ts"]!).originalSha256, handlerGitBlobSha: "0".repeat(40), sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
   check({ ...artifact, deprecatedProviderHttp: undefined }, deprecatedBinding, "GET /api/providers/deprecated", /deprecated HTTP observation/);
   check({ ...artifact, deprecatedProviderHttp: { ...deprecatedProviderHttp, allowed: { ...deprecatedProviderHttp.allowed, body: { leftovers: [] } } } }, deprecatedBinding, "GET /api/providers/deprecated", /deprecated HTTP/);
+  const historyBinding = { handlerSha256: "0c35eb4cffe05b36d66d725049e354fd70bab29e2fade1346760bf80c5e85d01", handlerGitBlobSha: "1b93277bd5560075f14b6453458445ea3ade6daa", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  check(artifact, historyBinding, "GET /api/a2a/tasks/history", true);
+  check({ ...artifact, a2aHistoryHttp: { auth: {}, pages: [], invalid: [], failure: { status: 200, hasTasks: true } } }, historyBinding, "GET /api/a2a/tasks/history", true);
+  check(artifact, { ...historyBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/a2a/tasks/history", true);
   for (const [index, name] of ["agent-card.json", "agent.json"].entries()) {
     const operation = `GET /.well-known/${name}`;
     const route = `src/app/.well-known/${name}/route.ts`;
@@ -961,6 +965,9 @@ with tempfile.TemporaryDirectory() as temp:
  login_base={'authenticated':False,'requireLogin':True,'hasPassword':True,'setupComplete':True,'oidcEnabled':False,'oidcDisablePasswordLogin':False,'nodeVersion':'v24.17.0','nodeCompatible':True}
  login_bodies={'anonymous':login_base,'invalid':login_base,'valid':{**login_base,'authenticated':True},'configured':{**login_base,'oidcEnabled':True,'oidcDisablePasswordLogin':True},'failure':login_base}
  ingress['requireLoginHttp']={'cases':{name:{'status':200,'routeClass':'PUBLIC','contentType':'application/json','body':body,'privateMarkerPresent':False} for name,body in login_bodies.items()},'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
+ history_auth={'anonymous':(401,None),'invalid':(403,None),'inference':(403,None),'session':(200,['five','four','three','two','one']),'oma':(200,['five','four','three','two','one']),'manage':(200,['five','four','two','one']),'admin':(200,['five','three','one'])}
+ history_pages=[(['five','four'],5,2,0),(['three','two'],5,2,2),(['one'],5,2,4),([],5,2,8),(['five','four','three','two','one'],5,500,0),(['four'],1,100,0)]
+ ingress['a2aHistoryHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','ids':ids} for name,(status,ids) in history_auth.items()},'pages':[{'status':200,'ids':ids,'total':total,'limit':limit,'offset':offset} for ids,total,limit,offset in history_pages],'invalid':[400]*5,'failure':{'status':500,'routeClass':'MANAGEMENT','hasTasks':False}}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -1007,6 +1014,9 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['a2aHttp']['cases']['key-read']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHttp']['cases']['key-read']['status']=403
  ingress['a2aHttp']['enabled']['enabled']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHttp']['enabled']['enabled']=True
  identity['a2aStatusClosure']['executed'][a2a_name]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['a2aStatusClosure']['executed'][a2a_name]=m.sha(a2a_graph[a2a_name])
+ original=ingress.pop('a2aHistoryHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHistoryHttp']=original
+ original=ingress['a2aHistoryHttp']['pages'][0]['total']; ingress['a2aHistoryHttp']['pages'][0]['total']=0; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHistoryHttp']['pages'][0]['total']=original
+ original=ingress['a2aHistoryHttp']['auth']['inference']['status']; ingress['a2aHistoryHttp']['auth']['inference']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHistoryHttp']['auth']['inference']['status']=original
  original=ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']; ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=original
  original=identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]; identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]=original
  original = ingress['ssoConfigHttp']['cases']['enabled']['body']; ingress['ssoConfigHttp']['cases']['enabled']['body']={'enabled':False}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['ssoConfigHttp']['cases']['enabled']['body']=original
@@ -1160,7 +1170,7 @@ with tempfile.TemporaryDirectory() as d:
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
  authcold={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':False,'onboardingBefore':'absent','onboardingAfter':'persisted','invalidNoDatabase':True}
  authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
- for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm'): (p/(phase+'.private')).write_text('normal output\n')
+ for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  for phase in ('cold','warm'):
   (p/('a2a-'+phase+'.private')).write_text('normal output\n')
@@ -1171,6 +1181,7 @@ with tempfile.TemporaryDirectory() as d:
  put('sso-warm.json',{'databaseExistedBefore':True,'databaseExistsAfter':True,'onboardingBefore':'persisted','onboardingPersisted':True,'first':{'status':200,'body':sso_enabled},'cached':True,'refreshed':False})
  login_body={'authenticated':False,'requireLogin':True,'hasPassword':True,'setupComplete':True,'oidcEnabled':False,'oidcDisablePasswordLogin':False,'nodeVersion':'v24.17.0','nodeCompatible':True}
  for phase in ('cold','warm'): put('login-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'onboardingBefore':'persisted' if phase=='warm' else 'absent','onboardingPersisted':True,'status':200,'body':login_body})
+ for phase in ('cold','warm'): put('history-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'status':200,'body':{'tasks':[],'total':0,'limit':100,'offset':0},'rows':0,'onboardingPersisted':True})
  mfa_base={'databaseExistsAfter':True,'beforeFileCount':0,'afterFileCount':1,'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False,'mfaRows':0}
  mfacold={**mfa_base,'databaseExistedBefore':False,'corruptEnabled':None,'corruptCount':None,'rowUnchanged':None}
  mfawarm={**mfa_base,'databaseExistedBefore':True,'corruptEnabled':True,'corruptCount':1,'rowUnchanged':True}
@@ -1187,6 +1198,7 @@ with tempfile.TemporaryDirectory() as d:
  original=identity['a2aClosure']['src/lib/a2a/taskManager.ts']; identity['a2aClosure']['src/lib/a2a/taskManager.ts']='b'*64; put('core-identity.json',identity); reject(); identity['a2aClosure']['src/lib/a2a/taskManager.ts']=original; put('core-identity.json',identity)
  sso_warm=json.loads((p/'sso-warm.json').read_text()); sso_warm['cached']=False; put('sso-warm.json',sso_warm); reject(); sso_warm['cached']=True; put('sso-warm.json',sso_warm)
  login_cold=json.loads((p/'login-cold.json').read_text()); login_cold['onboardingPersisted']=False; put('login-cold.json',login_cold); reject(); login_cold['onboardingPersisted']=True; put('login-cold.json',login_cold)
+ history_cold=json.loads((p/'history-cold.json').read_text()); history_cold['onboardingPersisted']=False; put('history-cold.json',history_cold); reject(); history_cold['onboardingPersisted']=True; put('history-cold.json',history_cold)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
  original=identity['ssoClosure'][m.SSO_CONFIG]; identity['ssoClosure'][m.SSO_CONFIG]='b'*64; put('core-identity.json',identity); reject(); identity['ssoClosure'][m.SSO_CONFIG]=original; put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()

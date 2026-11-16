@@ -46,7 +46,7 @@ export interface PinnedManagementAuthorizationBackends {
 }
 
 export interface PinnedManagementAuthorization {
-  requireManagementAuth(request: Request): Promise<Response | null>;
+  requireManagementAuth(request: Request, options?: { readonly alwaysRequireAuth?: boolean; readonly invalidApiKeyStatus?: 401 | 403; readonly acceptMcpConnectScope?: boolean }): Promise<Response | null>;
   dispatch<T extends Response>(
     request: Request,
     options: { readonly centralAuthRequired: boolean; readonly handlerAuthRequired: boolean },
@@ -403,8 +403,8 @@ export function createPinnedManagementAuthorization(
   }
 
   return {
-    async requireManagementAuth(request) {
-      const result = (requireManagementAuth.requireManagementAuth as (request: Request) => Promise<Response | null>)(request);
+    async requireManagementAuth(request, options) {
+      const result = (requireManagementAuth.requireManagementAuth as (request: Request, options?: { readonly alwaysRequireAuth?: boolean; readonly invalidApiKeyStatus?: 401 | 403; readonly acceptMcpConnectScope?: boolean }) => Promise<Response | null>)(request, options);
       return await result;
     },
     async dispatch(request, options, handler) {

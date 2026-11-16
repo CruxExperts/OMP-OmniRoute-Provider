@@ -18,6 +18,17 @@ const cookie = `auth_token=${payload}.${createHmac('sha256', secret).update(payl
 const db = new DatabaseSync(`${dir}/metrics.sqlite`);
 db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_input INTEGER, tokens_cache_read INTEGER, tokens_cache_creation INTEGER);
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
+db.exec(await readFile('/work/app/src/lib/db/migrations/002_mcp_a2a_tables.sql', 'utf8'));
+const ownerHash = key => createHash('sha256').update(key).digest('hex').slice(0, 32);
+const historyRows = [
+  ['one', 'completed', 'alpha', null, '2026-01-01T00:00:00.000Z'],
+  ['two', 'working', 'alpha', ownerHash('fixture_api_key_manage'), '2026-01-02T00:00:00.000Z'],
+  ['three', 'failed', 'beta', ownerHash('fixture_api_key_admin'), '2026-01-03T00:00:00.000Z'],
+  ['four', 'completed', 'alpha', ownerHash('fixture_api_key_manage'), '2026-01-04T00:00:00.000Z'],
+  ['five', 'cancelled', null, null, '2026-01-05T00:00:00.000Z'],
+];
+const historyInsert = db.prepare('INSERT INTO a2a_tasks (id,state,skill_id,api_key_id,created_at,updated_at,completed_at,input_json,output_json) VALUES (?,?,?,?,?,?,?,?,?)');
+for (const [id, state, skill, owner, date] of historyRows) historyInsert.run(id, state, skill, owner, date, date, state === 'completed' ? date : null, 'fixture-private-input', 'fixture-private-output');
 const statusDb = new DatabaseSync(`${dir}/auth-status.sqlite`);
 statusDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const mfaDb = new DatabaseSync(`${dir}/mfa-status.sqlite`);
@@ -43,6 +54,9 @@ const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs
 });
 const acpChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/fixture/acp-server.mjs'], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret }, stdio: ['ignore', 'inherit', 'inherit'],
+});
+const historyChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', '43181'], {
+  cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password', REQUIRE_API_KEY: 'true' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
 function assert(condition, name) { if (!condition) throw new Error(`INGRESS_ASSERTION:${name}`); }
 async function ready(target = child, targetPort = port) {
@@ -94,6 +108,29 @@ try {
   await ready();
   await ready(acpChild, 43180);
   const statusPath = '/api/auth/status';
+  await ready(historyChild, 43181);
+  const historyPath = '/api/a2a/tasks/history';
+  const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
+  const historyAuth = {};
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, inference: { authorization: `Bearer ${managementKeys.read}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.read}` } })) {
+    const r = await historyCall('', headers);
+    historyAuth[name] = { status: r.status, routeClass: r.routeClass, ids: r.status === 200 ? r.body.tasks.map(task => task.id) : null };
+  }
+  const historyPages = [];
+  for (const query of ['?limit=2&offset=0', '?limit=2&offset=2', '?limit=2&offset=4', '?limit=2&offset=8', '?limit=501', '?from=2026-01-02T00%3A00%3A00.000Z&to=2026-01-04T00%3A00%3A00.000Z&skill=alpha&state=completed']) {
+    const r = await historyCall(query, { cookie });
+    assert(r.status === 200 && !r.text.includes('fixture-private'), 'history-page');
+    historyPages.push({ status: r.status, ids: r.body.tasks.map(task => task.id), total: r.body.total, limit: r.body.limit, offset: r.body.offset });
+  }
+  const invalidHistory = [];
+  for (const query of ['?from=invalid', '?state=unknown', '?skill=', '?limit=0', '?offset=-1']) {
+    const r = await historyCall(query, { cookie });
+    invalidHistory.push(r.status);
+  }
+  db.exec('DROP TABLE a2a_tasks');
+  const historyFailure = await historyCall('', { cookie });
+  const a2aHistoryHttp = { auth: historyAuth, pages: historyPages, invalid: invalidHistory, failure: { status: historyFailure.status, routeClass: historyFailure.routeClass, hasTasks: Array.isArray(historyFailure.body?.tasks) } };
+  assert(historyFailure.status === 500 && !a2aHistoryHttp.failure.hasTasks, 'history-storage-failure');
   const statusRows = () => statusDb.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('setupComplete', 'requireLogin') ORDER BY key").all();
   const statusBefore = statusRows();
   const statusCases = {};
@@ -429,7 +466,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
   a2aDb.close();
@@ -437,6 +474,7 @@ try {
   mfaDb.close();
   ssoDb.close();
   db.close();
+  await stop(historyChild);
   await stop(acpChild);
   await stop();
 }
