@@ -10,10 +10,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Keep the marketplace's tested-host metadata aligned with the package's OMP
   compatibility matrix; mismatched manifests remain a failing release check.
 
-- Characterize the A2A status read as a bounded management candidate. Cold
-  settings initialization and the process-local task manager's scheduled cleanup
-  require confirmation and uncertain settlement; independent Next ingress and
-  native lifecycle evidence remain necessary before qualification.
+- Qualify the bounded management A2A status view through independent HTTP and
+  native cold/warm task-manager observations. Settings initialization, task expiry
+  persistence and scheduled history cleanup retain confirmation, uncertain
+  settlement and no replay; private task and gateway fields remain withheld.
 
 - Qualify the bounded public login-settings discovery view through exact source,
   independent HTTP and persisted cold/warm lifecycle observations. Dispatch stays

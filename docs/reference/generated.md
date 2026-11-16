@@ -34,7 +34,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | .well-known/agent.json | 1 | 0 | 0 |
 | a2a | 0 | 2 | 0 |
 | api/{omnirouteApiCatchAll} | 0 | 0 | 7 |
-| api/a2a | 0 | 6 | 0 |
+| api/a2a | 1 | 5 | 0 |
 | api/acp | 1 | 2 | 0 |
 | api/admin | 0 | 3 | 0 |
 | api/agent-skills | 3 | 2 | 0 |
