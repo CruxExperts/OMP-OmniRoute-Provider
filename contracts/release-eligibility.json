@@ -17570,6 +17570,10 @@
       "ingressEvidence": {
         "artifact": "provenance/qualification/ingress-e9db3fffd3d4aecf960a98aaa1e328e87a4386c58bbc44b42f72c590a5bc9f20.json",
         "sha256": "e9db3fffd3d4aecf960a98aaa1e328e87a4386c58bbc44b42f72c590a5bc9f20"
+      },
+      "effectEvidence": {
+        "artifact": "provenance/qualification/combo-lifecycle-0467864f213353733149c18e5c85551a14c1bbec9985c774fada6788717c8bb9.json",
+        "sha256": "0467864f213353733149c18e5c85551a14c1bbec9985c774fada6788717c8bb9"
       }
     },
     {
@@ -18040,6 +18044,10 @@
       "ingressEvidence": {
         "artifact": "provenance/qualification/ingress-e9db3fffd3d4aecf960a98aaa1e328e87a4386c58bbc44b42f72c590a5bc9f20.json",
         "sha256": "e9db3fffd3d4aecf960a98aaa1e328e87a4386c58bbc44b42f72c590a5bc9f20"
+      },
+      "effectEvidence": {
+        "artifact": "provenance/qualification/combo-lifecycle-0467864f213353733149c18e5c85551a14c1bbec9985c774fada6788717c8bb9.json",
+        "sha256": "0467864f213353733149c18e5c85551a14c1bbec9985c774fada6788717c8bb9"
       }
     },
     {
