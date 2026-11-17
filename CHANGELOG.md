@@ -7,21 +7,20 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 - Recognize explicitly synthetic cookie pairs in package secret scanning while
   continuing to reject real or mixed cookie values, including escaped literals,
   and other credentials.
-- Characterize proxy-pool visibility with the pinned management route, disposable
-  registry and process-memory owners. Expiry cleanup and cold initialization
-  require confirmation and retain unknown settlement without replay. The candidate
-  is not qualified until independently bound ingress and runtime evidence exists.
+- Qualify bounded proxy-pool visibility with independent management HTTP and
+  native process-memory/database observations. Expiry cleanup and cold
+  initialization require confirmation, unknown settlement and no replay;
+  credentials, private endpoints and refusal details remain withheld.
 
 - Verify OMP 18.21.0 on Linux x64 with the disposable packed-package lifecycle
   smoke and add its exact release asset to the compatibility matrix. Keep the
   18.12.5 source and SDK pins; final-archive release qualification remains required.
 - Keep the marketplace's tested-host metadata aligned with the package's OMP
   compatibility matrix; mismatched manifests remain a failing release check.
-- Characterize auto-routing analytics against its pinned management guard and
-  actual aggregate SQL on disposable SQLite. A caught aggregation failure returns
-  the same zero-shaped HTTP 200 as empty data; it does not establish health.
-  Cold initialization may write, so confirmation and unknown settlement remain
-  without replay. Independent ingress and lifecycle evidence is still required.
+- Qualify auto-routing analytics through exact SQL, management HTTP and native
+  cold/warm lifecycle observations. Caught aggregation failure returns the same
+  zero-shaped HTTP 200 as empty data and does not establish health. Possible
+  initialization effects retain confirmation, unknown settlement and no replay.
 
 - Qualify the bounded management A2A status view through independent HTTP and
   native cold/warm task-manager observations. Settings initialization, task expiry
