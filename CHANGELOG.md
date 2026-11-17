@@ -20,6 +20,8 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   remain separate controller decisions.
 - Keep combo-metrics and cache-metrics HTTP witnesses separate; reject a
   cross-family or malformed witness before exporting qualification evidence.
+- Keep policy-only ingress fixtures from certifying metrics handlers; require
+  their exact source binding and specialized HTTP witness.
 
 - Construct synthetic private-path sanitizer test data at runtime so release
   exports retain the regression without embedding private-looking paths.

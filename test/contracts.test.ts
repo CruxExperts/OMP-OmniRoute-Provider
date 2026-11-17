@@ -658,13 +658,35 @@ test("health ingress evidence separately rejects missing, stale and contradictor
       const duplicateEvidence = await save(duplicated);
       expect(() => validateHealthIngressEvidence(duplicateEvidence, mappingBinding, operationId)).toThrow(/mapping policy observation mismatch/);
     }
+    // The complete metrics HTTP witness is exercised in pinned-ingress.test.ts.
+    // These rejections occur before, or at, that specialized observation boundary.
+    const metricsBinding = { ...binding, handlerSha256: "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416", handlerGitBlobSha: "9266bfc7ba5444f3b8685775d10ad72210050634" };
+    for (const method of ["GET", "DELETE"] as const) {
+      const operationId = `${method} /api/combos/metrics`;
+      const policy = { method, path: "/api/combos/metrics", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: method === "GET" ? 200 : 403, writeScopeStatus: 200, adminScopeStatus: 200 };
+      const metricsArtifact = { ...artifact, familyPolicy: [policy] };
+      const evidence = await save(metricsArtifact);
+      expect(() => validateHealthIngressEvidence(evidence, { ...metricsBinding, handlerSha256: "0".repeat(64) }, operationId)).toThrow(/combo metrics source mismatch/);
+      expect(() => validateHealthIngressEvidence(evidence, { ...metricsBinding, handlerGitBlobSha: "0".repeat(40) }, operationId)).toThrow(/combo metrics source mismatch/);
+      expect(() => validateHealthIngressEvidence(evidence, metricsBinding, operationId)).toThrow();
+      const wrongHttp = await save({ ...metricsArtifact, comboMetricsHttp: {} });
+      expect(() => validateHealthIngressEvidence(wrongHttp, metricsBinding, operationId)).toThrow(/combo metrics HTTP mismatch/);
+      for (const [key, value] of [["anonymousStatus", 200], ["invalidCredentialStatus", 200], ["authorizedStatus", 403], ["readScopeStatus", 401], ["writeScopeStatus", 401], ["adminScopeStatus", 403], ["routeClass", "PUBLIC"], ["path", "/api/wrong"], ["method", "OPTIONS"]] as const) {
+        const changed = await save({ ...metricsArtifact, familyPolicy: [{ ...policy, [key]: value }] });
+        expect(() => validateHealthIngressEvidence(changed, metricsBinding, operationId)).toThrow(/family policy observation mismatch/);
+      }
+      for (const familyPolicy of [[], [policy, policy]]) {
+        const changed = await save({ ...metricsArtifact, familyPolicy });
+        expect(() => validateHealthIngressEvidence(changed, metricsBinding, operationId)).toThrow(/family policy observation mismatch/);
+      }
+    }
+    // Combo metrics uses the source-bound HTTP witness in pinned-ingress.test.ts,
+    // not this generic family-policy-only fixture.
     const familyRoutes = [
       ["GET /api/combos", "src/app/api/combos/route.ts"],
       ["GET /api/combos/{id}", "src/app/api/combos/[id]/route.ts"],
       ["GET /api/combos/auto", "src/app/api/combos/auto/route.ts"],
       ["GET /api/combos/builder/options", "src/app/api/combos/builder/options/route.ts"],
-      ["GET /api/combos/metrics", "src/app/api/combos/metrics/route.ts"],
-      ["DELETE /api/combos/metrics", "src/app/api/combos/metrics/route.ts"],
       ["POST /api/combos/import", "src/app/api/combos/import/route.ts"],
       ["GET /api/combos/export", "src/app/api/combos/export/route.ts"],
       ["GET /api/providers", "src/app/api/providers/route.ts"],
