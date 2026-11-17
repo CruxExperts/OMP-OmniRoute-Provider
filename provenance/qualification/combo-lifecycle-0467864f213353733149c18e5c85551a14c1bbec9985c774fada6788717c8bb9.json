@@ -1,0 +1,381 @@
+{
+  "status": "research-observed",
+  "qualification": false,
+  "boundary": "Pinned combo handlers and stores in the real cold core with a separate warm process. Durable combo rows and process-local metrics are distinct observations; hidden-only counters and prototype keys cannot be excluded by GET alone. No ingress, atomic lock or executor qualification.",
+  "inputSha256": {
+    "test/pinned-ingress.test.ts": "d1ba9315830222d5959aa5ca9ebfd866d3e241464c2ada0d1f85434ed3cd7b5b",
+    "test/pinned-ingress.test.ts.inputs.json": "b5c7d29aca9198461632a3a2ed7bab87fdaa9c9b1dd9d1e08ccb6c7b0e81cd28",
+    ".github/workflows/qualification.yml": "a65efa79ed05b1d719e30a8a20bcb97beb00d08737608bc681f3bc026b88bc07",
+    ".github/crux-experts-release-signing-key.asc": "7cb100f640dfa00deb6c12b7dbc5ed974319d3275e92d203743b7c5b37b97523",
+    "provenance/upstreams.json": "4e456ad621d316a45e9f84a2225f1db9b2f94afd44586604b0c194cce959e34c",
+    "provenance/route-sources.json": "f9fa23418eb42eaf1c200448ea655644dc05cd3aec289d1a5ec5fc1de5e2d9cd",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json.asc": "8e1a50fd30bb3cb81ae68c0bf0dfd48c01a6c1e5fad4c3db62a954c67dd57a8c",
+    "provenance/derivations/omniroute-3.8.53-startup/files/src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd",
+    "provenance/derivations/omniroute-3.8.53-startup/files/tests/unit/db-async-fresh-startup.test.ts": "9e9811c881d6919970aa8cba69babd2c989590a994a3a80f39a2993b155673fa",
+    "provenance/derivations/omniroute-3.8.53-startup/files/changelog.d/fixes/async-fresh-database-startup.md": "2b254dccffe5de0de1f1622031403e0e191a319943fe8221f92e24e494f4d905",
+    "scripts/prepare-upstream.py": "d98729340651ced0320a7a7728d384cb81e884731bd12f485a868a7240929368",
+    "scripts/pinned-ingress.py": "0e8fdc2ffff3aaad781a207fa4ee4d29615363e9284ec07ecf40e4c96c34aec7",
+    "scripts/pinned-ingress-driver.mjs": "3ab0831ad61117022ac342c7cc01d9e38bea8cd9f4d8844dc168a7854628636e",
+    "test/fixtures/pinned-ingress/alias-map.json": "254a22db9501c4c15e06b9532b07dd9249c249d34ca42cb561f30de8d80922db",
+    "test/fixtures/pinned-ingress/acp-server.mjs": "649e561476e92c2edc021eb5c98486e47ae035ca5ae78aefd3fe2e1d8caadbed",
+    "test/fixtures/pinned-ingress/backend/core.ts": "6d609588fc2ce9374d8b121e5f67bac0ff463c8970cc6945aa684c79068c66fe",
+    "test/fixtures/pinned-ingress/backend/settings.ts": "0f50d7add65bb63371059a1501e04b8cd7c9dd4012389ac65f3f1d8a43d70bfb",
+    "test/fixtures/pinned-ingress/combo-lifecycle.mjs": "cf5bd1059c165f105676ffc5e44d30245213d056d986c738050d113aefb22bf3",
+    "test/fixtures/pinned-ingress/database-lifecycle.mjs": "e66d5dea58cbf2da60c351c640ac636044309614f4be1322ff049d3988277f9b",
+    "test/fixtures/pinned-ingress/dependencies.json": "968f2e5c56999ff6ae714413a8686636e0d536d93b6b8ad24057a84b4df58dfd",
+    "test/fixtures/pinned-ingress/driver.mjs": "81f63b70fbb9231c574c623a8eb595df48a22ff2f0e180a1b3417041dada887b",
+    "test/fixtures/pinned-ingress/extracted/auth.ts": "7b0d42ab6aeae64260a89afd5bcd0b06c6d8da4c445cbaa6d71c32115850f9c7",
+    "test/fixtures/pinned-ingress/extracted/degradation-control.ts": "8a1568d22b55491fa476fbcd1a7e4bc4ed42d4c425c0fda52a70685c37bf781b",
+    "test/fixtures/pinned-ingress/extracted/feature-flag-cache.ts": "dd1e50f30a3523cfb78ffbff3d71e526f26874b9fa93e78860fcd43078da14e7",
+    "test/fixtures/pinned-ingress/extracted/runtime-settings.ts": "e07414a99f9c97ddd402cabfa3f25382ff8e8a33593be2971fa0fd3864af1d3a",
+    "test/fixtures/pinned-ingress/extracted/shutdown.ts": "f6191212cb27a5e6119959bebbd25bc451fc16cd71eb50543d9f89bceb7b3753",
+    "test/fixtures/pinned-ingress/extracted/sync.ts": "114aa1fae5a4b335f6cb32819ecf52a3bee97b179a5655ca08cfb9100167e508",
+    "test/fixtures/pinned-ingress/initialize.mjs": "c12112dd6f50cb21b05d26cf9b7207407c334e055fa1af742355323e03cc7283",
+    "test/fixtures/pinned-ingress/mfa-response.mjs": "988612c8eb59dc59b1b0a3ac838b1dc45d8cf9b9664518e288500fc63cb2129f",
+    "test/fixtures/pinned-ingress/next.config.mjs": "e83738e7a4c573be4cc27da9ae58c0a9f925e531edd7e0850f544fa3afaabd96",
+    "test/fixtures/pinned-ingress/routes/management.ts": "2340a917c3e400686c5f5b89ec1adc5ed5d397b0761a2e8adda3b9980cced3d5",
+    "test/fixtures/pinned-ingress/runtime.json": "9360df4ecbefd7a12b62f1dcd8999057cdadbaf43f0208c501413f5dd1ea4f53",
+    "test/fixtures/pinned-ingress/source-manifest.json": "b2d666b01a201503ad630852506d2723ec00a41203d0e7ddc9c67401cf534e63"
+  },
+  "identity": {
+    "sourceArchiveSha256": "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
+    "nodeSha256": "62d66443847de1f527f74afe715900b12884ace52136dc9cd8e91e61acc2f527",
+    "workerSourceSha256": "184dfa905c1cfbec32e7fc9864076541cb5482f8757e9c0c15a03f978422cda7",
+    "productionRecipeSha256": "7316ffc401bf4ab79908b7cb324de41aae617eeb06bb673cb2bd802a0920acbb",
+    "workerBuildArguments": [
+      "--bundle",
+      "--platform=node",
+      "--packages=external",
+      "--format=esm"
+    ],
+    "workerOutputSha256": "866a8efd23bda1fc249c55d6dd97ba2aaa27c64bac6df929c85a589bdc4b09b5",
+    "runnerSourceSha256": "e66d5dea58cbf2da60c351c640ac636044309614f4be1322ff049d3988277f9b",
+    "runnerArguments": [
+      "/runtime/node",
+      "--import",
+      "tsx/esm",
+      "/work/app/src/lib/db/pinnedLifecycleFixture.mjs"
+    ],
+    "mfaClosure": {
+      "sources": {
+        "src/app/api/auth/mfa/status/route.ts": "722f9a027e69d1b0179130ea59787a58d468cf649d2e9383cac4b8f3498d5509",
+        "src/server/auth/dashboardMfa.ts": "07a2a3a03a36204ebb6ed8480a3ccddb3a5b1e24d7c08edbac4b9bd3518e9aae",
+        "src/lib/db/dashboardMfa.ts": "5efc37788ac695cfee5c904c17f935b618a304368cec5b91d894063007a23e8c",
+        "src/server/auth/mfaRouteSupport.ts": "06de65d79ffedd0604100fa7fcc986c07fad19f5c0db85cd58e76788329f385b"
+      },
+      "selectedSha256": "dddfa01a2ad61c969a3687fb0d68de319d90513fcad585a559bd1acf9107568d"
+    },
+    "ssoClosure": {
+      "src/app/api/auth/sso/config/route.ts": "16971949ae2e1b8f2de41c4d0c301ee531ff328683ad1f78f67c313306e503bd",
+      "src/server/authz/entra/config.ts": "13bc0710ffa31cfa790be623113040b325cff8a9a432f805e0a5c163b885e6ed",
+      "src/lib/db/settings.ts": "ac74c9b6cd397f7b3b569a039cc9b4166eb0215c602542a118d4bb0fe8ebd77b",
+      "src/lib/db/settings/shared.ts": "16e6b8a166461dab8e8b409b8929fcac923d42358cd04e6c913151da5faffb20",
+      "src/lib/db/readCache.ts": "97cb59fb5767005900c575e8f6db450c3b94abaa7a7058671dda1717da223448"
+    },
+    "loginClosure": {
+      "sources": {
+        "src/app/api/settings/require-login/route.ts": "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31",
+        "src/lib/auth/managementPassword.ts": "183b41d295aa08063191e0fee1407d4563e46cd538ad70b3dca7f7fa39dc29de",
+        "src/shared/utils/nodeRuntimeSupport.ts": "575b634803f1a97e0b9c620f1bdad5ad7ff58eee4994eb664e6180fb4f938810",
+        "src/shared/utils/featureFlags.ts": "8d9a6c261f3f3323abb45a0f77d8e163fcf4dc8182ce6d101b25c6bbdc684ad6",
+        "src/lib/db/settings.ts": "ac74c9b6cd397f7b3b569a039cc9b4166eb0215c602542a118d4bb0fe8ebd77b",
+        "src/lib/db/settings/shared.ts": "16e6b8a166461dab8e8b409b8929fcac923d42358cd04e6c913151da5faffb20",
+        "src/shared/utils/dashboardSessionToken.ts": "fdad00ce4812a75e8c8093fcc61578a27d7045c279d8c1dadb8d6e53b3d86771",
+        "src/lib/db/readCache.ts": "97cb59fb5767005900c575e8f6db450c3b94abaa7a7058671dda1717da223448",
+        "src/shared/constants/featureFlagDefinitions.ts": "a322252db978e5f1ede44f15fa3650080434f132db04dc06cedb1fd57a8e10f0",
+        "src/shared/utils/featureFlagResolverBridge.ts": "4ee45b687229a7426a5fa20924f68afb58d745830edeee9c9f92913fb532609c",
+        "src/shared/utils/processSingleton.ts": "7b346ba2efc4158adfba3c10afe214862781fc614833c822658ad489ba198217",
+        "src/shared/utils/requireApiKeyValue.mjs": "5a63177e3dfac05e50d9db0a1c7fb23f523928d10f7c36209769e771bb69940a",
+        "src/lib/db/featureFlags.ts": "62adb42a37ad5e437e36e4e0df4bb702739932aa1b63e46fc1d00da7cc273bc1",
+        "src/lib/db/encryption.ts": "630c8e0e3061bc634fcbeb1b1eb6e1443a52b76c7404af5964c1de9c411aa2ed",
+        "src/shared/constants/bodySize.ts": "84a6bd662eefe2fe8dfe1be0ca3d30876b58a2391eee189811d7d3a9df410b33",
+        "src/shared/constants/responsesPreviousResponseId.ts": "296280b06f6d44c78c370e7ba0c55ccf630c39f95c6503a3af7514697fecf30f",
+        "src/shared/constants/proxyBulkImport.ts": "5e4d66ef3608ea7ec83829fbba9d55c432aff3dd9b034d0ddfa6da179cc20768"
+      },
+      "selectedSha256": "31560d91bd3b84e01653aa7377abf4651a43ca4d8581a6c153783611d34e6e94"
+    },
+    "visibilityClosure": {
+      "src/app/api/admin/proxy-pool-visibility/route.ts": "58b6fb4ce329b58d35ff87af440857cf8ec70824b3d62f8c79ebf11ca797f8b8",
+      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29",
+      "src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd",
+      "src/lib/db/proxies.ts": "90020a7a3c8099e9ddd17574fd90f61586ab02ba5d2ef1b86b50509e06ea7916",
+      "src/lib/db/proxies/mappers.ts": "cc2e81fd92696c4f2b32a9087e72ba6356b25df18a11bea68292d4378142072e",
+      "src/lib/db/proxies/rotation.ts": "4780f1a28eb0c0cadba2fbec0c3c80f87144ae9519f251f29ec1fe10c099fdef",
+      "src/lib/db/featureFlags.ts": "62adb42a37ad5e437e36e4e0df4bb702739932aa1b63e46fc1d00da7cc273bc1",
+      "src/shared/utils/featureFlags.ts": "8d9a6c261f3f3323abb45a0f77d8e163fcf4dc8182ce6d101b25c6bbdc684ad6",
+      "src/lib/proxyHealth.ts": "3e769b3ef29c29bcaa9033a9730c655d38707df978204c97715a7cdf50a2fb3f",
+      "open-sse/utils/proxyRefusalMemory.ts": "a3e8e9802054430b6f7c4b0772f85b02cc84daa832bb4e3fc1a219371076405a",
+      "open-sse/utils/proxyTransitionListeners.ts": "904183f8e7bc52a3889e7a70b4286bad2671e7f16dde0d0ab38777937a907478",
+      "open-sse/services/opencodeFreeTierSkip.ts": "4507e15c3e0d7a998d0fc650ab24fb28c72ec42efaf5cb6c156928907da3546a"
+    },
+    "analyticsClosure": {
+      "src/app/api/analytics/auto-routing/route.ts": "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1",
+      "src/lib/db/usageLogs.ts": "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0",
+      "src/lib/db/logicalCallSql.ts": "5f59112ddcce301c4095635b7ec56456412c75465586371e256235707cf2b617",
+      "src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd",
+      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29"
+    },
+    "compressionClosure": {
+      "src/app/api/analytics/compression/route.ts": "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5",
+      "src/lib/db/compressionAnalytics.ts": "2989f4d16a331bd20624748a8624dba0065e0e70dee96e6cf3227449e9b28f66",
+      "src/lib/db/migrations/038_compression_analytics.sql": "71b7d06e954d2c3733919a395a662adcd1b8bb605a9adb35025c44dc6d71ac2e",
+      "src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd",
+      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29"
+    },
+    "diversityClosure": {
+      "src/app/api/analytics/diversity/route.ts": "5309a9f0b87006e3c613aa494c0364cf93f9c81d5c14bdde23865a858d1ba934",
+      "open-sse/services/autoCombo/providerDiversity.ts": "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b",
+      "open-sse/services/comboMetrics.ts": "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41",
+      "src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd",
+      "src/lib/db/settings.ts": "ac74c9b6cd397f7b3b569a039cc9b4166eb0215c602542a118d4bb0fe8ebd77b",
+      "src/lib/db/settings/shared.ts": "16e6b8a166461dab8e8b409b8929fcac923d42358cd04e6c913151da5faffb20"
+    },
+    "csrfClosure": {
+      "src/app/api/auth/csrf/route.ts": "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5",
+      "src/server/authz/csrf.ts": "40db3c3e0696c4e1c4cd0a32a388cd9c6a9e845c5186863cfe090243debbec78",
+      "src/shared/constants/dashboardCsrf.ts": "15abffd3529ec0b63a42360ae44c3afc745038410becea9a2f5b59dd3f02618b",
+      "src/lib/api/requireManagementAuth.ts": "c34dd2bd6ce9a556c043912f817d52966050118272ee742c83247b7031f28a29",
+      "src/shared/utils/apiAuth.ts": "d68f808ab700d89d07ce3661299f5ef00d2840fa6fcd4fc620a1d7d884432512",
+      "src/shared/utils/dashboardSessionToken.ts": "fdad00ce4812a75e8c8093fcc61578a27d7045c279d8c1dadb8d6e53b3d86771",
+      "src/lib/db/readCache.ts": "97cb59fb5767005900c575e8f6db450c3b94abaa7a7058671dda1717da223448",
+      "src/lib/db/settings.ts": "ac74c9b6cd397f7b3b569a039cc9b4166eb0215c602542a118d4bb0fe8ebd77b",
+      "src/lib/db/settings/shared.ts": "16e6b8a166461dab8e8b409b8929fcac923d42358cd04e6c913151da5faffb20",
+      "src/lib/db/core.ts": "89a342b8f7cf52ee643516c1620b4c04f89ff8de05d40a4cf4d53c53b68b55bd"
+    },
+    "comboMetricsClosure": {
+      "src/app/api/combos/metrics/route.ts": "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416",
+      "open-sse/services/comboMetrics.ts": "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41",
+      "open-sse/services/autoCombo/providerDiversity.ts": "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b"
+    },
+    "sourceDerivation": {
+      "record": "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+      "sha256": "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d"
+    },
+    "effectiveTreeSha256": "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851",
+    "sourceFilesManifestSha256": "eaf96c4b0635c19214a9d0d38ac34a6e50e3081218311058cb0ba7a0355c8e3d",
+    "migrationSqlManifestSha256": "4e0756de624795b1d620a14e09192d5737bd5c6183a381a470bdb295c955add9",
+    "sourceFileCount": 6757,
+    "migrationSqlCount": 222
+  },
+  "cold": {
+    "phase": "cold",
+    "driver": "node:sqlite",
+    "observations": [
+      {
+        "operation": "GET /api/keys",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/keys/{id}",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/settings/proxies/assignments",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/v1/management/proxies/assignments",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/v1/management/proxies/assignments",
+        "status": 400,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/models",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/models",
+        "status": 400,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos",
+        "status": 201,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/settings/proxies/assignments",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/v1/management/proxies/assignments",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos",
+        "status": 201,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "PATCH /api/combos/{id}",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "PUT /api/combos/{id}",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/{id}",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/reorder",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/export",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/import",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/import",
+        "status": 400,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "DELETE /api/combos/{id}",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/settings/proxies/assignments",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/keys/{id}",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/import",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/auto",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/builder/options",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/duplicate",
+        "status": 201,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "DELETE /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "DELETE /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "GET /api/combos/metrics",
+        "status": 200,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/duplicate",
+        "status": 422,
+        "mediaType": "application/json"
+      },
+      {
+        "operation": "POST /api/combos/test",
+        "status": 404,
+        "mediaType": "application/json"
+      }
+    ],
+    "grantAfterDelete": [
+      "combo/*"
+    ],
+    "deletedAbsent": true,
+    "importedPersisted": true,
+    "exportSecretAbsent": true,
+    "metricsLifecycle": {
+      "hiddenOnlyGetNull": true,
+      "hiddenOnlyOwnerCount": 1,
+      "selectedProduction": 1,
+      "selectedShadow": 1,
+      "selectedHidden": 1,
+      "allNames": 2,
+      "selectedResetAbsent": true,
+      "unrelatedProduction": 1,
+      "unrelatedShadow": 1,
+      "unrelatedHidden": 1,
+      "globalResetAbsent": true,
+      "restartSeedProduction": 1,
+      "restartSeedShadow": 1,
+      "restartSeedHidden": 1,
+      "cleanupTimerObservable": false
+    }
+  },
+  "warm": {
+    "phase": "warm",
+    "driver": "node:sqlite",
+    "importedPersisted": true,
+    "deletedAbsent": true,
+    "metricsLifecycle": {
+      "freshProcessProductionAndShadowAbsent": true,
+      "freshProcessHiddenCount": 0,
+      "cleanupTimerObservable": false
+    }
+  }
+}
