@@ -102,7 +102,7 @@ export function operationRequiresIngressEvidence(operationId: string): boolean {
     || operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics"
     || operationId === "GET /api/a2a/tasks/history" || operationId === "GET /api/admin/proxy-pool-visibility"
     || operationId === "GET /api/analytics/auto-routing" || operationId === "GET /api/analytics/compression" || operationId === "GET /api/analytics/diversity"
-    || operationId === "GET /api/acp/agents" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/mfa/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || operationId === "GET /api/a2a/status"
+    || operationId === "GET /api/acp/agents" || operationId === "GET /api/auth/csrf" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/mfa/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || operationId === "GET /api/a2a/status"
     || operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json"
     || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId)
     || /^(GET|POST|PUT|DELETE) \/api\/model-combo-mappings(?:\/\{id\})?$/.test(operationId);
@@ -148,9 +148,10 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
       || lifecycle.artifact !== `provenance/qualification/core-lifecycle-${lifecycle.sha256}.json`) return undefined;
   } else if (lifecycle !== undefined) return undefined;
   const effect = value.effectEvidence;
-  if (value.operationId === "GET /api/providers/deprecated") {
+  if (value.operationId === "GET /api/providers/deprecated" || value.operationId === "GET /api/auth/csrf") {
+    const prefix = value.operationId === "GET /api/auth/csrf" ? "csrf-lifecycle" : "deprecated-provider-sweep";
     if (!databaseRequired || !record(effect) || Object.keys(effect).sort().join(",") !== "artifact,sha256" || !sha(effect.sha256, 64)
-      || effect.artifact !== `provenance/qualification/deprecated-provider-sweep-${effect.sha256}.json`) return undefined;
+      || effect.artifact !== `provenance/qualification/${prefix}-${effect.sha256}.json`) return undefined;
   } else if (effect !== undefined) return undefined;
   const native = value.nativeEvidence;
   if (value.operationId === "GET /api/acp/agents") {
@@ -229,7 +230,7 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
       || !binding.sourceDerivation || !sha(item.lifecycleSha256, 64) || item.lifecycleSha256 !== qualification.lifecycleSha256) return false;
   } else if (binding.databaseInitializationRequired !== undefined || item.binding.databaseInitializationRequired !== undefined
     || qualification.binding.databaseInitializationRequired !== undefined || item.lifecycleSha256 !== undefined || qualification.lifecycleSha256 !== undefined) return false;
-  if (item.operationId === "GET /api/providers/deprecated") {
+  if (item.operationId === "GET /api/providers/deprecated" || item.operationId === "GET /api/auth/csrf") {
     if (!sha(item.effectSha256, 64) || item.effectSha256 !== qualification.effectSha256) return false;
   } else if (item.effectSha256 !== undefined || qualification.effectSha256 !== undefined) return false;
   if (item.operationId === "GET /api/acp/agents") {

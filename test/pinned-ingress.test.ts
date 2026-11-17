@@ -4,10 +4,38 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { expectedHealthIngressIdentities, validateA2aLifecycleObservation, validateDeprecatedProviderSweepObservation, validateHealthIngressEvidence } from "../scripts/generate-contracts.ts";
+import { expectedHealthIngressIdentities, validateA2aLifecycleObservation, validateAuthCsrfLifecycleObservation, validateDeprecatedProviderSweepObservation, validateHealthIngressEvidence, validateOidcLifecycleObservation, validateOidcResearchObservation } from "../scripts/generate-contracts.ts";
 import type { OperationEvidenceBinding } from "../src/admin/eligibility.ts";
 
+test("CSRF lifecycle requires exact source and independent matching cold and warm outcomes", () => {
+  const result = { status: 200, issued: true, noStore: true, cookieMutation: false };
+  const phase = (warm: boolean) => ({ databaseExistedBefore: warm, databaseAfterFirst: true, first: result, second: result, firstSettingsUnchanged: warm ? true : null, settingsUnchanged: true });
+  const evidence = { status: "research-observed", qualification: false, boundary: "Pinned handler and native core in independent cold and warm processes; not central HTTP authorization or operation qualification.", inputSha256: {}, identity: { csrfClosure: { "src/app/api/auth/csrf/route.ts": "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5", "src/server/authz/csrf.ts": "40db3c3e0696c4e1c4cd0a32a388cd9c6a9e845c5186863cfe090243debbec78", "src/shared/constants/dashboardCsrf.ts": "15abffd3529ec0b63a42360ae44c3afc745038410becea9a2f5b59dd3f02618b" } }, cold: phase(false), warm: phase(true) };
+  expect(() => validateAuthCsrfLifecycleObservation(structuredClone(evidence), evidence)).not.toThrow();
+  expect(() => validateAuthCsrfLifecycleObservation({ ...evidence, cold: { ...evidence.cold, settingsUnchanged: false } }, evidence)).toThrow();
+  expect(() => validateAuthCsrfLifecycleObservation({ ...evidence, identity: {} }, evidence)).toThrow();
+  expect(() => validateAuthCsrfLifecycleObservation({ ...evidence, privateField: "private" }, evidence)).toThrow();
+  expect(() => validateAuthCsrfLifecycleObservation({ ...evidence, identity: { csrfClosure: { ...evidence.identity.csrfClosure, "src/server/authz/csrf.ts": "a".repeat(64) } } }, evidence)).toThrow();
+});
 const runner = resolve(import.meta.dir, "../scripts/pinned-ingress.py");
+test("OIDC research evidence rejects missing and private fields", () => {
+  const errors: Record<string, string> = { nonce: "id_token_invalid", "missing-nonce": "id_token_invalid", "token-missing-nonce": "id_token_invalid", signature: "id_token_invalid", issuer: "id_token_invalid", audience: "id_token_invalid", expired: "id_token_invalid", future: "id_token_invalid", subject: "subject_not_allowed", role: "role_not_allowed", "malformed-role": "role_not_allowed", exchange: "token_exchange", "exchange-network": "token_exchange", "bad-json": "token_response", "no-token": "no_id_token", "missing-code": "missing_code", "missing-state": "missing_code", "wrong-state": "invalid_state", rotation: "id_token_invalid", "rotation-recovery": "dashboard", "no-verifier": "dashboard", "discovery-fallback": "dashboard", success: "dashboard", secure: "dashboard", "missing-secret": "server_misconfigured" };
+  const cases = Object.fromEntries(Object.entries(errors).map(([name, result]) => {
+    const success = ["success", "secure", "rotation-recovery", "no-verifier", "discovery-fallback"].includes(name), early = ["missing-code", "missing-state", "wrong-state"].includes(name);
+    return [name, { loginStatus: 307, loginPublic: true, loginCookiesValid: true, stateMatches: true, nonceMatches: true, challengeMatches: true, callbackStatus: 307, callbackPublic: true, result, stateCleared: !early, clearCookiesValid: success, sessionIssued: success, sessionValid: success, sessionAttributesValid: true, setupComplete: success || name === "missing-secret", exchangeCount: early ? 0 : 1, jwksRequests: ["nonce", "rotation-recovery"].includes(name) ? 1 : 0 }];
+  }));
+  const config = { loginStatus: 400, loginPublic: true, fixedError: true, noLoginCookies: true, callbackStatus: 307, callbackResult: "not_configured", callbackPublic: true };
+  const configCases = { disabled: config, incomplete: config };
+  expect(() => validateOidcResearchObservation({ cases, configCases })).not.toThrow();
+  expect(() => validateOidcResearchObservation({ cases: { ...cases, success: { ...cases.success, private: "secret" } }, configCases })).toThrow();
+  expect(() => validateOidcResearchObservation({ cases: { ...cases, rotation: { ...cases.rotation, result: "dashboard" } }, configCases })).toThrow();
+});
+test("OIDC settings lifecycle requires independently matching source-bound outcomes", () => {
+  const phase = (warm: boolean) => ({ databaseExistedBefore: warm, databaseExistsAfter: true, setupBefore: warm, setupPersisted: true, settingsPersisted: true, callbackStatus: 307, callbackResult: warm ? "dashboard" : "server_misconfigured", sessionIssued: warm });
+  const observation = { status: "research-observed", qualification: false, boundary: "local", inputSha256: {}, identity: { oidcCallbackSelectedSha256: "a".repeat(64), oidcClosure: { "src/app/api/auth/oidc/login/route.ts": "560cef9fab79b924c12f7adfffedac346431aaebe16a954f811f71da4c5d1ba6", "src/app/api/auth/oidc/callback/route.ts": "5f7b2a82d550b7190b5853f5b2485e8d7ebb32ff5194ff11f036d5fea7874a52" } }, cold: phase(false), warm: phase(true) };
+  expect(() => validateOidcLifecycleObservation(structuredClone(observation), observation)).not.toThrow();
+  expect(() => validateOidcLifecycleObservation({ ...observation, cold: { ...observation.cold, setupPersisted: false } }, observation)).toThrow();
+});
 test("A2A lifecycle observations require independent matching timer and source evidence", () => {
   const phase = (warm: boolean) => ({ databaseExistedBefore: warm, databaseExistsAfter: true, disabled: true, enabled: true, managerTimerCount: 1, activeTaskObserved: true, expiredTaskPersistedFailed: true, timerPurgedOldHistory: true });
   const independent = { status: "research-observed", qualification: false, inputSha256: {}, identity: { a2aClosure: { "src/app/api/a2a/status/route.ts": "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2", "src/lib/a2a/taskManager.ts": "b4fc6379c9cf4b1f3b40e2e9dfae86df77c631014121ed1fa8f87637cb606e4a", "src/lib/db/a2aTasks.ts": "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838" } }, cold: phase(false), warm: phase(true) };
@@ -651,7 +679,7 @@ encryption = '''import { createCipheriv, marker_crypto };
 /** Connection object with potentially encrypted credential fields.
 import fs from "fs";
 import { mapProviderSpecificDataSecrets
-function ensureSecretLoaded() { marker_secret(); }
+function ensureSecretLoaded() { marker_secret(); if (fs.existsSync(envPath)) fs.readFileSync(envPath, "utf8"); }
 /**
  * Loud production warning
 export function looksEncrypted( marker_encrypt();
@@ -851,6 +879,8 @@ with tempfile.TemporaryDirectory() as temp:
  sources[m.LOGIN_PASSWORD] = b'password'; sources[m.LOGIN_FLAGS] = b'flags'
  m.require_login_closure = lambda source, cache, flags: {m.REQUIRE_LOGIN:b'login-route-executed','src/lib/db/fixtureLoginSettings.ts':b'login-settings-executed','src/shared/utils/fixtureLoginFlags.ts':b'login-flags-executed'}
  for name in m.LOGIN_DEPENDENCIES: sources.setdefault(name, ('source:'+name).encode())
+ for name in m.OIDC_CLOSURE: sources.setdefault(name, ('source:'+name).encode())
+ m.oidc_closure = lambda source, cache: {m.OIDC_LOGIN:b'oidc-login-executed',m.OIDC_CALLBACK:b'oidc-callback-executed','src/lib/db/fixtureOidcSettings.ts':b'oidc-settings-executed'}
  m.auth_status_closure = lambda source, cache: {m.AUTH_STATUS:b'route-executed',m.AUTH_SESSION:b'session-executed','src/lib/db/fixtureAuthStatusCache.ts':b'cache-executed','src/lib/db/fixtureAuthStatusSettings.ts':b'settings-executed'}
  m.mfa_status_closure = lambda source: {m.MFA_STATUS:b'mfa-route-executed','src/server/auth/fixtureDashboardMfaStatus.ts':b'mfa-dashboard-executed','src/lib/db/fixtureDashboardMfaStatus.ts':b'mfa-storage-executed','src/server/auth/fixtureMfaRouteSupport.ts':b'mfa-support-executed','src/lib/db/fixtureMfaStatusCore.ts':b'mfa-core-executed'}
  m.sso_config_closure = lambda source, cache: {m.SSO_CONFIG:b'sso-route-executed','src/server/authz/entra/fixtureSsoConfig.ts':b'sso-config-executed','src/lib/db/fixtureSsoCache.ts':b'sso-cache-executed','src/lib/db/fixtureSsoSettings.ts':b'sso-settings-executed'}
@@ -914,6 +944,9 @@ with tempfile.TemporaryDirectory() as temp:
  a2a_name = 'src/app/api/a2a/status/route.ts'; a2a_graph = m.a2a_status_closure(sources,b'cache')
  identity['addedSourceSha256'][a2a_name] = {'originalSha256':m.sha(sources[a2a_name]),'executedSha256':m.sha(a2a_graph[a2a_name])}
  identity['a2aStatusClosure'] = {'sources':{name:m.sha(sources[name]) for name in (a2a_name,m.AUTH_SETTINGS,m.AUTH_SHARED)},'executed':{name:m.sha(data) for name,data in a2a_graph.items()}}
+ oidc_graph = m.oidc_closure(sources,b'cache')
+ for name in (m.OIDC_LOGIN,m.OIDC_CALLBACK): identity['addedSourceSha256'][name] = {'originalSha256':m.sha(sources[name]),'executedSha256':m.sha(oidc_graph[name])}
+ identity['oidcClosure'] = {'sources':{name:m.sha(sources[name]) for name in m.OIDC_CLOSURE},'executed':{name:m.sha(data) for name,data in oidc_graph.items()}}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
@@ -981,6 +1014,8 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['acpHttp'] = {'cases':acp_cases,'unstampedSessionStatus':403,'probeCount':3,'processPlatform':'linux'}
  status_expected = {'anonymous':False,'invalid':False,'expired':False,'tampered':False,'valid':True,'cachedRevocation':True,'revoked':False,'passwordChanged':False,'settingsFailure':False}
  ingress['authStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'PUBLIC','authenticated':value} for name,value in status_expected.items()},'invalidSettingsReads':0,'onboardingBefore':[],'onboardingAfter':[{'key':'requireLogin','value':'true'},{'key':'setupComplete','value':'true'}]}
+ csrf_statuses={'anonymous':401,'invalid':403,'inference':403,'session':200,'session2':200,'manage':200,'admin':200,'oma':200,'omaRead':403,'omaWrite':403,'disabled':200,'missingSecret':200,'backendFailure':503}
+ ingress['csrfHttp']={'cases':{name:{'status':status,'routeClass':'MANAGEMENT','issued':(name in ('session','session2')) if status==200 else None,'hmacBound':True if name in ('session','session2') else None,'expiryValid':True if name in ('session','session2') else None,'shapeValid':True if status==200 else None,'sessionDistinct':True if name=='session2' else None,'noStore':status==200,'json':True,'cookieMutation':False} for name,status in csrf_statuses.items()}}
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  ingress['ssoConfigHttp']={'cases':{name:{'status':200,'routeClass':'PUBLIC','contentType':'application/json','body':sso_enabled if name=='enabled' else {'enabled':False},'privateMarkerPresent':False} for name in ('anonymous','invalid','cached','enabled','incomplete','failure')}}
  login_base={'authenticated':False,'requireLogin':True,'hasPassword':True,'setupComplete':True,'oidcEnabled':False,'oidcDisablePasswordLogin':False,'nodeVersion':'v24.17.0','nodeCompatible':True}
@@ -998,6 +1033,12 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['compressionHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT'} for name,status in analytics_status.items()},'beforeColumns':10,'deniedColumns':10,'afterColumns':28,'periods':[{'status':200,'routeClass':'MANAGEMENT','totalRequests':count,'totalTokensSaved':saved,'chartLength':24,'chartCount':1} for count,saved in ((1,30),(1,30),(1,30),(2,50),(3,60),(4,65))],'failure':{'status':500,'routeClass':'MANAGEMENT','body':{'error':'Internal server error'}}}
  diversity_body={'score':1,'totalRequests':0,'providers':{},'windowSize':200,'ttlMs':3600000}
  ingress['diversityHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','body':diversity_body if status==200 else None} for name,status in analytics_status.items()}}
+ oidc_errors={'nonce':'id_token_invalid','missing-nonce':'id_token_invalid','token-missing-nonce':'id_token_invalid','signature':'id_token_invalid','issuer':'id_token_invalid','audience':'id_token_invalid','expired':'id_token_invalid','future':'id_token_invalid','subject':'subject_not_allowed','role':'role_not_allowed','malformed-role':'role_not_allowed','exchange':'token_exchange','exchange-network':'token_exchange','bad-json':'token_response','no-token':'no_id_token','missing-code':'missing_code','missing-state':'missing_code','wrong-state':'invalid_state','rotation':'id_token_invalid','rotation-recovery':'dashboard','no-verifier':'dashboard','discovery-fallback':'dashboard','success':'dashboard','secure':'dashboard','missing-secret':'server_misconfigured'}
+ config_case={'loginStatus':400,'loginPublic':True,'fixedError':True,'noLoginCookies':True,'callbackStatus':307,'callbackResult':'not_configured','callbackPublic':True}
+ ingress['oidcHttp']={'cases':{},'configCases':{'disabled':config_case,'incomplete':config_case}}
+ for name,result in oidc_errors.items():
+  success=name in ('success','secure','rotation-recovery','no-verifier','discovery-fallback'); early=name in ('missing-code','missing-state','wrong-state')
+  ingress['oidcHttp']['cases'][name]={'loginStatus':307,'loginPublic':True,'loginCookiesValid':True,'stateMatches':True,'nonceMatches':True,'challengeMatches':True,'callbackStatus':307,'callbackPublic':True,'result':result,'stateCleared':not early,'clearCookiesValid':success,'sessionIssued':success,'sessionValid':success,'sessionAttributesValid':True,'setupComplete':success or name=='missing-secret','exchangeCount':0 if early else 1,'jwksRequests':1 if name in ('nonce','rotation-recovery') else 0}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -1034,13 +1075,16 @@ with tempfile.TemporaryDirectory() as temp:
  assert exported['source']['addedSourceSha256'][m.REASONING_STORE] == m.sha(sources[m.REASONING_STORE])
  assert exported['source']['addedSourceSha256'][m.REASONING_ROUTE] == identity['addedSourceSha256'][m.REASONING_ROUTE]
  assert exported['reasoningHttp']['failure'] == ingress['reasoningHttp']['failure']
+ csrf_exported=json.loads((p/'export/csrf-observed-outcomes.json').read_text()); assert csrf_exported['csrfHttp']==ingress['csrfHttp']; assert csrf_exported['supportedJsonHttp']==[{'operationId':'GET /api/auth/csrf','method':'GET','path':'/api/auth/csrf','status':200,'contentType':'application/json'}]
  assert exported['authStatusHttp'] == ingress['authStatusHttp']
  assert exported['acpAgentsHttp'] == ingress['acpHttp']
- (p/'export/observed-outcomes.json').unlink(); (p/'export').rmdir()
+ (p/'export/csrf-observed-outcomes.json').unlink(); (p/'export/observed-outcomes.json').unlink(); (p/'export').rmdir()
  def rejected():
   try: m.export_observations(p, hashes)
   except (RuntimeError, KeyError, ValueError, TypeError): return
   raise AssertionError('invalid evidence accepted')
+ ingress['oidcHttp']['cases']['success']['sessionValid']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['oidcHttp']['cases']['success']['sessionValid']=True
+ ingress['oidcHttp']['cases']['success']['privateCanary']='fixture-private'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['oidcHttp']['cases']['success']['privateCanary']
  ingress['a2aHttp']['cases']['key-read']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHttp']['cases']['key-read']['status']=403
  ingress['a2aHttp']['enabled']['enabled']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHttp']['enabled']['enabled']=True
  identity['a2aStatusClosure']['executed'][a2a_name]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['a2aStatusClosure']['executed'][a2a_name]=m.sha(a2a_graph[a2a_name])
@@ -1054,6 +1098,16 @@ with tempfile.TemporaryDirectory() as temp:
  original=ingress['analyticsHttp']['failure']['status']; ingress['analyticsHttp']['failure']['status']=500; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['analyticsHttp']['failure']['status']=original
  original=ingress.pop('diversityHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['diversityHttp']=original
  original=ingress['diversityHttp']['auth']['session']['status']; ingress['diversityHttp']['auth']['session']['status']=401; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['diversityHttp']['auth']['session']['status']=original
+ original=ingress.pop('csrfHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']=original
+ for field in ('hmacBound','expiryValid','shapeValid','noStore'):
+  original=ingress['csrfHttp']['cases']['session'][field]; ingress['csrfHttp']['cases']['session'][field]=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']['cases']['session'][field]=original
+ ingress['csrfHttp']['cases']['session']['cookieMutation']=True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']['cases']['session']['cookieMutation']=False
+ ingress['csrfHttp']['cases']['session']['privateCanary']='private'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['csrfHttp']['cases']['session']['privateCanary']
+ original=ingress['csrfHttp']['cases']['session2']['sessionDistinct']; ingress['csrfHttp']['cases']['session2']['sessionDistinct']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']['cases']['session2']['sessionDistinct']=original
+ original=ingress['csrfHttp']['cases']['backendFailure']['status']; ingress['csrfHttp']['cases']['backendFailure']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']['cases']['backendFailure']['status']=original
+ for name in ('omaRead','omaWrite'):
+  ingress['csrfHttp']['cases'][name]['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']['cases'][name]['status']=403
+ original=identity['addedSourceSha256']['src/app/api/auth/csrf/route.ts']; identity['addedSourceSha256']['src/app/api/auth/csrf/route.ts']='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256']['src/app/api/auth/csrf/route.ts']=original
  original=ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']; ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=original
  original=identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]; identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]=original
  original = ingress['ssoConfigHttp']['cases']['enabled']['body']; ingress['ssoConfigHttp']['cases']['enabled']['body']={'enabled':False}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['ssoConfigHttp']['cases']['enabled']['body']=original
@@ -1203,6 +1257,8 @@ with tempfile.TemporaryDirectory() as d:
  compression_sources=(*m.COMPRESSION_SOURCES,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts')
  source.update({name:h for name in compression_sources if name not in source})
  source.update({name:h for name in m.DIVERSITY_CLOSURE if name not in source})
+ source.update({name:h for name in m.CSRF_CLOSURE if name not in source})
+ source.update({name:h for name in m.OIDC_CLOSURE if name not in source})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1212,8 +1268,12 @@ with tempfile.TemporaryDirectory() as d:
  identity['a2aClosure']={name:source[name] for name in a2a_sources}
  identity['visibilityClosure']={name:source[name] for name in m.VISIBILITY_CLOSURE}
  identity['analyticsClosure']={name:source[name] for name in analytics_sources}
+ m.approved_source=lambda: {m.OIDC_CALLBACK:b'import { cookies } from "next/headers";'}
+ identity['oidcCallbackSelectedSha256']=m.sha(b'import { cookies } from "./pinnedLifecycleCookies";')
  identity['compressionClosure']={name:source[name] for name in compression_sources}
  identity['diversityClosure']={name:source[name] for name in m.DIVERSITY_CLOSURE}
+ identity['csrfClosure']={name:source[name] for name in m.CSRF_CLOSURE}
+ identity['oidcClosure']={name:source[name] for name in m.OIDC_CLOSURE}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
@@ -1222,12 +1282,17 @@ with tempfile.TemporaryDirectory() as d:
  for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm','analytics-cold','analytics-warm','diversity-cold','diversity-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  for phase in ('cold','warm'):
+  (p/('oidc-'+phase+'.private')).write_text('normal output\n')
+  put('oidc-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'setupBefore':phase=='warm','setupPersisted':True,'settingsPersisted':True,'callbackStatus':307,'callbackResult':'dashboard' if phase=='warm' else 'server_misconfigured','sessionIssued':phase=='warm'})
   (p/('a2a-'+phase+'.private')).write_text('normal output\n')
   put('a2a-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'disabled':True,'enabled':True,'managerTimerCount':1,'activeTaskObserved':True,'expiredTaskPersistedFailed':True,'timerPurgedOldHistory':True})
   (p/('visibility-'+phase+'.private')).write_text('normal output\n')
   put('visibility-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'initialTotal':2 if phase=='warm' else 0,'ranked':True,'flagDisabled':True,'expiredBefore':1,'expiredAfter':0,'activePauseCount':1})
   (p/('compression-'+phase+'.private')).write_text('normal output\n')
   put('compression-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'beforeColumns':28 if phase=='warm' else 10,'afterColumns':28,'finalColumns':28,'first':{'status':200,'totalRequests':1 if phase=='warm' else 0,'chartLength':24},'populated':{'status':200,'totalRequests':1,'chartLength':24},'rows':1})
+  (p/('csrf-'+phase+'.private')).write_text('normal output\n')
+  csrf_result={'status':200,'issued':True,'noStore':True,'cookieMutation':False}
+  put('csrf-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseAfterFirst':True,'first':csrf_result,'second':csrf_result,'firstSettingsUnchanged':True if phase=='warm' else None,'settingsUnchanged':True})
  put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  put('sso-cold.json',{'databaseExistedBefore':False,'databaseExistsAfter':True,'onboardingBefore':'absent','onboardingPersisted':True,'first':{'status':200,'body':{'enabled':False}},'cached':None,'refreshed':None})
@@ -1250,6 +1315,8 @@ with tempfile.TemporaryDirectory() as d:
  put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity); reject()
  (p/'cold-lifecycle.private').write_text('normal output\n')
  put('cold-lifecycle.json',cold); put('warm-lifecycle.json',warm); put('core-identity.json',identity)
+ oidc_cold=json.loads((p/'oidc-cold.json').read_text()); oidc_cold['setupPersisted']=False; put('oidc-cold.json',oidc_cold); reject(); oidc_cold['setupPersisted']=True; put('oidc-cold.json',oidc_cold)
+ original=identity['oidcClosure'][m.OIDC_CALLBACK]; identity['oidcClosure'][m.OIDC_CALLBACK]='b'*64; put('core-identity.json',identity); reject(); identity['oidcClosure'][m.OIDC_CALLBACK]=original; put('core-identity.json',identity)
  a2a_cold=json.loads((p/'a2a-cold.json').read_text()); a2a_cold['timerPurgedOldHistory']=False; put('a2a-cold.json',a2a_cold); reject(); a2a_cold['timerPurgedOldHistory']=True; put('a2a-cold.json',a2a_cold)
  original=identity['a2aClosure']['src/lib/a2a/taskManager.ts']; identity['a2aClosure']['src/lib/a2a/taskManager.ts']='b'*64; put('core-identity.json',identity); reject(); identity['a2aClosure']['src/lib/a2a/taskManager.ts']=original; put('core-identity.json',identity)
  sso_warm=json.loads((p/'sso-warm.json').read_text()); sso_warm['cached']=False; put('sso-warm.json',sso_warm); reject(); sso_warm['cached']=True; put('sso-warm.json',sso_warm)
@@ -1260,6 +1327,7 @@ with tempfile.TemporaryDirectory() as d:
  analytics_cold=json.loads((p/'analytics-cold.json').read_text()); analytics_cold['failure']['status']=500; put('analytics-cold.json',analytics_cold); reject(); analytics_cold['failure']['status']=200; put('analytics-cold.json',analytics_cold)
  compression_cold=json.loads((p/'compression-cold.json').read_text()); compression_cold['afterColumns']=10; put('compression-cold.json',compression_cold); reject(); compression_cold['afterColumns']=28; put('compression-cold.json',compression_cold)
  diversity_cold=json.loads((p/'diversity-cold.json').read_text()); diversity_cold['unchanged']=False; put('diversity-cold.json',diversity_cold); reject(); diversity_cold['unchanged']=True; put('diversity-cold.json',diversity_cold)
+ csrf_cold=json.loads((p/'csrf-cold.json').read_text()); csrf_cold['settingsUnchanged']=False; put('csrf-cold.json',csrf_cold); reject(); csrf_cold['settingsUnchanged']=True; put('csrf-cold.json',csrf_cold)
  diversity_cold['databaseAfterRoute']=True; put('diversity-cold.json',diversity_cold); reject(); diversity_cold['databaseAfterRoute']=False; put('diversity-cold.json',diversity_cold)
  original=identity['diversityClosure']['open-sse/services/comboMetrics.ts']; identity['diversityClosure']['open-sse/services/comboMetrics.ts']='b'*64; put('core-identity.json',identity); reject(); identity['diversityClosure']['open-sse/services/comboMetrics.ts']=original; put('core-identity.json',identity)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
@@ -1324,7 +1392,7 @@ with tempfile.TemporaryDirectory() as d:
  assert result['cold']['hotReloadFailure'] is False and result['warm']['hotReloadFailure'] is False
  assert result['cold']['tableSha256']==result['warm']['tableSha256'] and result['cold']['migrationSha256']==result['warm']['migrationSha256']
  assert result['isolation']=={'network':'private-loopback-only','capabilities':'dropped','source':'read-only','processes':'separate-cold-warm','startupRegressions':'passed'}
- for name in ('provider-lifecycle.json','provider-collection-lifecycle.json','provider-node-create.json','combo-lifecycle.json','deprecated-provider-sweep.json'):
+ for name in ('provider-lifecycle.json','provider-collection-lifecycle.json','provider-node-create.json','combo-lifecycle.json','deprecated-provider-sweep.json','csrf-lifecycle.json'):
   artifact=json.loads((p/'export'/name).read_text())
   assert artifact['qualification'] is False and 'private-canary' not in json.dumps(artifact)
 `;

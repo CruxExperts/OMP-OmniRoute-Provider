@@ -1206,6 +1206,14 @@ function projectJsonResponse(descriptor: OperationDescriptor, response: unknown,
   }
   assertJsonValue(response, "response");
   if (Buffer.byteLength(JSON.stringify(response), "utf8") > 8 * 1024 * 1024) throw new RegistryError("invalid-inventory", "response size limit exceeded", descriptor.operationId);
+  if (descriptor.operationId === "GET /api/auth/csrf") {
+    if (descriptor.source.sha256 !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || descriptor.source.gitBlobSha !== "a18026b4474ea4b7259d6ae0accfbc32429fef61" || !isRecord(response) || Object.keys(response).sort().join(",") !== "expiresAt,token") throw new RegistryError("invalid-input", "invalid CSRF response", descriptor.operationId);
+    const parts = typeof response.token === "string" ? /^v1\.([0-9]{1,12})\.[A-Za-z0-9_-]{43}$/.exec(response.token) : null;
+    const expiry = parts ? Number(parts[1]) : NaN;
+    const issued = Number.isSafeInteger(expiry) && expiry <= 8_640_000_000_000 && typeof response.expiresAt === "string" && new Date(expiry * 1000).toISOString() === response.expiresAt;
+    if (!issued && !(response.token === null && response.expiresAt === null)) throw new RegistryError("invalid-input", "invalid CSRF response", descriptor.operationId);
+    return projectNode({ issued }, descriptor.response.schema, descriptor, undefined, 0, privateTarget, []);
+  }
   if (descriptor.operationId === "GET /api/auth/sso/config") {
     if (!isRecord(response) || typeof response.enabled !== "boolean") throw new RegistryError("invalid-input", "invalid SSO configuration response", descriptor.operationId);
     if (response.enabled) {

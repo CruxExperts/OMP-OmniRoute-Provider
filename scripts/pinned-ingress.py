@@ -389,6 +389,7 @@ def disk_usage(root):
 ROUTES = ('src/app/api/health/ping/route.ts', 'src/app/api/settings/cache-metrics/route.ts', 'src/lib/db/settings/cacheMetrics.ts', 'src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts', 'src/app/api/agent-skills/route.ts', 'src/app/api/agent-skills/[id]/route.ts', 'src/app/api/agent-skills/coverage/route.ts', 'src/lib/agentSkills/catalog.ts', 'src/lib/agentSkills/schemas.ts', 'src/lib/agentSkills/types.ts', 'src/shared/constants/agentSkills.ts')
 ROUTES += ('src/app/.well-known/agent-card.json/route.ts', 'src/app/.well-known/agent.json/route.ts', 'src/lib/a2a/agentCardMetadata.ts', 'src/lib/conductor/fleetSkills.ts', 'src/lib/wellKnown.ts', 'src/shared/constants/appConfig.ts')
 ROUTES += ('src/app/api/auth/status/route.ts',)
+ROUTES += ('src/app/api/auth/csrf/route.ts', 'src/server/authz/csrf.ts', 'src/shared/constants/dashboardCsrf.ts')
 ROUTES += ('src/app/api/auth/mfa/status/route.ts', 'src/server/auth/dashboardMfa.ts', 'src/lib/db/dashboardMfa.ts', 'src/server/auth/mfaRouteSupport.ts')
 ROUTES += ('src/app/api/auth/sso/config/route.ts', 'src/server/authz/entra/config.ts')
 ROUTES += ('src/app/api/settings/require-login/route.ts', 'src/shared/utils/nodeRuntimeSupport.ts')
@@ -401,6 +402,11 @@ COMPRESSION_SOURCES = ('src/app/api/analytics/compression/route.ts', 'src/lib/db
 ROUTES += COMPRESSION_SOURCES
 ROUTES += ('src/app/api/analytics/diversity/route.ts',)
 DIVERSITY_CLOSURE = ('src/app/api/analytics/diversity/route.ts', 'open-sse/services/autoCombo/providerDiversity.ts', 'open-sse/services/comboMetrics.ts', 'src/lib/db/core.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts')
+CSRF_CLOSURE = ('src/app/api/auth/csrf/route.ts', 'src/server/authz/csrf.ts', 'src/shared/constants/dashboardCsrf.ts', 'src/lib/api/requireManagementAuth.ts', 'src/shared/utils/apiAuth.ts', 'src/shared/utils/dashboardSessionToken.ts', 'src/lib/db/readCache.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts', 'src/lib/db/core.ts')
+OIDC_LOGIN = 'src/app/api/auth/oidc/login/route.ts'
+OIDC_CALLBACK = 'src/app/api/auth/oidc/callback/route.ts'
+OIDC_CLOSURE = (OIDC_LOGIN, OIDC_CALLBACK, 'src/lib/oauth/utils/pkce.ts', 'src/shared/utils/oidcAdmissionClaim.ts', 'src/shared/utils/timingSafeCompare.ts', 'src/shared/utils/dashboardSessionToken.ts', 'src/lib/db/readCache.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts', 'src/lib/db/encryption.ts')
+ROUTES += (OIDC_LOGIN, OIDC_CALLBACK, 'src/lib/oauth/utils/pkce.ts', 'src/shared/utils/oidcAdmissionClaim.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
@@ -560,7 +566,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json')}
 
 
 def materialize(real_core=False):
@@ -607,6 +613,7 @@ def materialize(real_core=False):
             support[name] = digest(effective_data)
             put(app, 'next.config.upstream.mjs' if name == 'next.config.mjs' else name, effective_data)
     require(set(selected) <= seen and set(additional) <= seen and wanted <= seen and set(POLICY_SOURCES) <= seen, 'missing source closure')
+    require(set(OIDC_CLOSURE) <= seen, 'missing OIDC source closure')
     if real_core:
         regression = 'tests/unit/db-async-fresh-startup.test.ts'
         require(regression in changed, 'signed startup regression missing')
@@ -647,6 +654,7 @@ def materialize(real_core=False):
                 put(package_root, rel, data, bool(member.mode & 0o111))
         package = json.loads((package_root / 'package.json').read_text())
         require(package.get('name') == name and package.get('version') == item['version'], 'package manifest mismatch: ' + name)
+    require(json.loads((app / 'node_modules/jose/package.json').read_text()).get('version') == '6.2.10' and any(item['location'] == 'node_modules/jose' and item['name'] == 'jose' and item['version'] == '6.2.10' and item['sha256'] == '6a081a81561122e7184ed7ec956d02441c0a568e2fb33209247c070dad12a136' for item in dependencies['packages']), 'OIDC JOSE dependency version mismatch')
     if real_core:
         versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('tsx', 'sql.js', 'esbuild', '@esbuild/linux-x64', 'jose')}
         require(versions == {'tsx': '4.23.13', 'sql.js': '1.14.2', 'esbuild': '0.28.2', '@esbuild/linux-x64': '0.28.2', 'jose': '6.2.10'}, 'startup dependency version mismatch')
@@ -801,6 +809,60 @@ function getDbInstance() { return db; }
         + replace_once(span('export async function getSettings()', '/**\n * The `maxBodySizeMb`'), 'export async function getSettings() {', 'export async function getSettings() {\n  appendFileSync("/work/data/auth-status-reads.jsonl", "read\\n");')).encode()
     return {AUTH_STATUS: route, AUTH_SESSION: session, 'src/lib/db/fixtureAuthStatusCache.ts': private_cache, 'src/lib/db/fixtureAuthStatusSettings.ts': private_settings}
 
+def oidc_closure(source, cache):
+    """Use source routes and source settings declarations with a private SQLite edge."""
+    graph = {}
+    for name in (OIDC_LOGIN, OIDC_CALLBACK):
+        text = replace_once(source[name].decode(), '@/lib/db/readCache', '@/lib/db/fixtureOidcCache')
+        if name == OIDC_CALLBACK:
+            text = replace_once(text, '@/lib/db/settings', '@/lib/db/fixtureOidcSettings')
+            text = replace_once(text, '@/shared/utils/dashboardSessionToken', '@/shared/utils/fixtureOidcSession')
+        graph[name] = text.encode()
+    session = replace_once(source[AUTH_SESSION].decode(), '@/lib/db/readCache', '@/lib/db/fixtureOidcCache')
+    graph['src/shared/utils/fixtureOidcSession.ts'] = session.encode()
+    require(cache.decode().count('@/lib/db/settings') == 2, 'OIDC cache import boundary changed')
+    graph['src/lib/db/fixtureOidcCache.ts'] = cache.decode().replace('@/lib/db/settings', '@/lib/db/fixtureOidcSettings').encode()
+    original = source[AUTH_SETTINGS].decode()
+    def span(start, end):
+        require(original.count(start) == original.count(end) == 1, 'OIDC settings boundary changed')
+        return original[original.index(start):original.index(end)]
+    prefix = '''import { DatabaseSync } from "node:sqlite";
+import { rmSync } from "node:fs";
+import { toRecord } from "./settings/shared";
+import { encrypt, decrypt } from "./encryption";
+import { requestBodyLimitMbFromEnv } from "@/shared/constants/bodySize";
+import { DEFAULT_RESPONSES_PREVIOUS_RESPONSE_ID_MODE } from "@/shared/constants/responsesPreviousResponseId";
+import { PROXY_BULK_IMPORT_LIMIT_DEFAULT } from "@/shared/constants/proxyBulkImport";
+import { invalidateDbCache } from "./fixtureOidcCache";
+const database = new DatabaseSync("/work/data/oidc-settings.sqlite");
+function getDbInstance() {
+  return { prepare: database.prepare.bind(database), transaction: (fn: () => void) => () => {
+    database.exec("BEGIN IMMEDIATE");
+    try { fn(); database.exec("COMMIT"); } catch (error) { database.exec("ROLLBACK"); throw error; }
+  } };
+}
+function backupDbFile(_reason: string) { const backup = `/work/data/oidc-settings-backup-${process.pid}.sqlite`; rmSync(backup, { force: true }); database.exec(`VACUUM INTO '${backup}'`); }
+let proxyConfigGeneration = 0;
+const proxyResolutionCache = new Map<string, unknown>();
+function bumpProxyConfigGeneration() { proxyConfigGeneration++; proxyResolutionCache.clear(); }
+'''
+    update = span('export async function updateSettings(', 'export async function isCloudEnabled()')
+    # Catalog revalidation belongs to a different service and storage graph.
+    # Record the attempted scheduling boundary rather than launching it inside
+    # this disposable settings observation; no catalog effect is claimed.
+    update = replace_once(update, '@/shared/services/codexCatalogRevalidation', '@/shared/services/fixtureOidcCatalogBoundary')
+    graph['src/shared/services/fixtureOidcCatalogBoundary.ts'] = b'''import { appendFileSync } from "node:fs";
+export function scheduleCodexCatalogRevalidationAfterInit() {
+  appendFileSync("/work/data/oidc-catalog-boundary.jsonl", "{\\"event\\":\\"schedule-not-executed\\"}\\n", { mode: 0o600 });
+}
+'''
+    graph['src/lib/db/fixtureOidcSettings.ts'] = (prefix + span('const ENCRYPTED_SETTING_KEYS:', 'type ProxyValue =')
+        + span('function isTruthyEnvFlag(', 'let proxyConfigGeneration =')
+        + span('export const SETTINGS_REVISION_KEY', 'export async function getSettingsRevision()')
+        + span('function applySessionAffinityLegacyFallback(', 'export async function getSettings()')
+        + span('export async function getSettings()', '/**\n * The `maxBodySizeMb`') + update).encode()
+    return graph
+
 def a2a_status_closure(source, cache):
     auth = auth_status_closure(source, cache)
     route = replace_once(source['src/app/api/a2a/status/route.ts'].decode(), '@/lib/db/settings', '@/lib/db/fixtureA2aCache').encode()
@@ -888,6 +950,11 @@ import type { AccessSchedule, RateLimitRule } from "./apiKeys/types";
         + span(encryption, 'import fs from "fs";', 'import { mapProviderSpecificDataSecrets')
         + span(encryption, 'function ensureSecretLoaded()', '/**\n * Loud production warning')
         + span(encryption, 'export function looksEncrypted(', '/**\n * #11500'))
+    # The worker confines these source-derived lookup paths to its private data,
+    # app and home mounts. Prevent the bundler from tracing the whole app for
+    # each runtime env-file lookup while retaining the actual lookup behavior.
+    encryption_text = replace_once(encryption_text, 'fs.existsSync(envPath)', 'fs.existsSync(/*turbopackIgnore: true*/ envPath)')
+    encryption_text = replace_once(encryption_text, 'fs.readFileSync(envPath, "utf8")', 'fs.readFileSync(/*turbopackIgnore: true*/ envPath, "utf8")')
     compliance_text = ('import { getDbInstance } from "../db/core";\n'
         + 'import type { SqliteAdapter } from "@/lib/db/adapters/types";\n'
         + 'import { isNoLog } from "./noLog";\n'
@@ -982,7 +1049,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(OIDC_CLOSURE) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -1122,6 +1189,16 @@ def provision(material):
             put(app, name, data)
     identities[a2a_name] = {'originalSha256': sha(a2a_source[a2a_name]), 'executedSha256': sha(a2a_graph[a2a_name])}
     a2a_identity = {'sources': {name: sha(a2a_source[name]) for name in (a2a_name, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in a2a_graph.items()}}
+    oidc_source = {name: (Path('/work/effective-source') / name).read_bytes() for name in OIDC_CLOSURE}
+    oidc_graph = oidc_closure(oidc_source, closure['src/lib/db/readCache.ts'])
+    for name, data in oidc_graph.items():
+        if name in (OIDC_LOGIN, OIDC_CALLBACK):
+            require(sha((app / name).read_bytes()) == sha(oidc_source[name]), 'OIDC route original changed')
+            (app / name).write_bytes(data)
+            identities[name] = {'originalSha256': sha(oidc_source[name]), 'executedSha256': sha(data)}
+        else:
+            put(app, name, data)
+    oidc_identity = {'sources': {name: sha(data) for name, data in oidc_source.items()}, 'executed': {name: sha(data) for name, data in oidc_graph.items()}}
     executed_overlays = apply_overlays(app, fixture, aliases)
     versions = {name: json.loads((app / 'node_modules' / name / 'package.json').read_text())['version'] for name in ('next', 'react', 'react-dom')}
     require(versions == {'next': '16.4.2', 'react': '19.2.8', 'react-dom': '19.2.8'}, 'runtime package mismatch')
@@ -1142,6 +1219,7 @@ def provision(material):
         'ssoConfigClosure': sso_identity,
         'requireLoginClosure': login_identity,
         'a2aStatusClosure': a2a_identity,
+        'oidcClosure': oidc_identity,
         'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
@@ -1366,6 +1444,10 @@ def core_lifecycle(material, deadline):
     login_route = require_login_get({REQUIRE_LOGIN: (app / REQUIRE_LOGIN).read_bytes()}).decode('utf-8')
     login_route = replace_once(login_route, 'from "next/headers"', 'from "../../auth/status/pinnedLifecycleCookies"')
     put(app, 'src/app/api/settings/require-login/pinnedLifecycleRoute.ts', login_route.encode())
+    callback_dir = app / 'src/app/api/auth/oidc/callback'
+    callback_source = (callback_dir / 'route.ts').read_text()
+    put(app, 'src/app/api/auth/oidc/callback/pinnedLifecycleRoute.ts', replace_once(callback_source, 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode())
+    put(app, 'src/app/api/auth/oidc/callback/pinnedLifecycleCookies.ts', b'export async function cookies() { return globalThis.__pinnedOidcCookies; }\n')
     shutil.copyfile(fixture, entry)
     mfa_source = {name: (app / name).read_bytes() for name in (MFA_STATUS, MFA_DASHBOARD, MFA_STORAGE, MFA_SUPPORT)}
     mfa_graph = mfa_status_closure(mfa_source)
@@ -1391,6 +1473,9 @@ def core_lifecycle(material, deadline):
     identity['analyticsClosure'] = {name: source[name] for name in ('src/app/api/analytics/auto-routing/route.ts', 'src/lib/db/usageLogs.ts', 'src/lib/db/logicalCallSql.ts', 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}
     identity['compressionClosure'] = {name: source[name] for name in (*COMPRESSION_SOURCES, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}
     identity['diversityClosure'] = {name: source[name] for name in DIVERSITY_CLOSURE}
+    identity['csrfClosure'] = {name: source[name] for name in CSRF_CLOSURE}
+    identity['oidcClosure'] = {name: source[name] for name in OIDC_CLOSURE}
+    identity['oidcCallbackSelectedSha256'] = sha(replace_once(callback_source, 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode())
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1480,6 +1565,20 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         log = Path('/work/' + phase + '.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(diversity_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
         validate_lifecycle_log(log)
+    csrf_dir = Path('/work/csrf-data')
+    csrf_dir.mkdir(mode=0o700)
+    for phase in ('csrf-cold', 'csrf-warm'):
+        worker_stage('coldLifecycle' if phase == 'csrf-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(csrf_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
+        validate_lifecycle_log(log)
+    oidc_dir = Path('/work/oidc-data')
+    oidc_dir.mkdir(mode=0o700)
+    for phase in ('oidc-cold', 'oidc-warm'):
+        worker_stage('coldLifecycle' if phase == 'oidc-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(oidc_dir)})
+        validate_lifecycle_log(log)
     for phase in ('sweep-success', 'sweep-failure'):
         worker_stage('coldLifecycle')
         data_dir = Path('/work') / (phase + '-data')
@@ -1541,6 +1640,19 @@ def export_core_lifecycle(output, hashes):
         value = bounded_json(output / ('diversity-' + phase + '.json'))
         require(value == {'databaseExistedBefore': phase == 'warm', 'databaseAfterRoute': phase == 'warm', 'databaseAfterSettings': True, 'first': 0, 'populated': 1, 'unchanged': True}, 'diversity lifecycle mismatch')
         diversity_lifecycle[phase] = value
+    csrf_lifecycle = {}
+    for phase in ('cold', 'warm'):
+        validate_lifecycle_log(output / ('csrf-' + phase + '.private'))
+        value = bounded_json(output / ('csrf-' + phase + '.json'))
+        response = {'status': 200, 'issued': True, 'noStore': True, 'cookieMutation': False}
+        require(value == {'databaseExistedBefore': phase == 'warm', 'databaseAfterFirst': True, 'first': response, 'second': response, 'firstSettingsUnchanged': True if phase == 'warm' else None, 'settingsUnchanged': True}, 'CSRF lifecycle mismatch')
+        csrf_lifecycle[phase] = value
+    oidc_lifecycle = {}
+    for phase in ('cold', 'warm'):
+        validate_lifecycle_log(output / ('oidc-' + phase + '.private'))
+        value = bounded_json(output / ('oidc-' + phase + '.json'))
+        require(value == {'databaseExistedBefore': phase == 'warm', 'databaseExistsAfter': True, 'setupBefore': phase == 'warm', 'setupPersisted': True, 'settingsPersisted': True, 'callbackStatus': 307, 'callbackResult': 'dashboard' if phase == 'warm' else 'server_misconfigured', 'sessionIssued': phase == 'warm'}, 'OIDC lifecycle mismatch')
+        oidc_lifecycle[phase] = value
     login_body = {'authenticated': False, 'requireLogin': True, 'hasPassword': True, 'setupComplete': True, 'oidcEnabled': False, 'oidcDisablePasswordLogin': False, 'nodeVersion': 'v24.17.0', 'nodeCompatible': True}
     for phase, value in (('login-cold', login_cold), ('login-warm', login_warm)):
         validate_lifecycle_log(output / (phase + '.private'))
@@ -1604,6 +1716,12 @@ def export_core_lifecycle(output, hashes):
     public_identity['compressionClosure'] = identity['compressionClosure']
     require(identity.get('diversityClosure') == {name: source[name] for name in DIVERSITY_CLOSURE}, 'invalid native diversity source closure')
     public_identity['diversityClosure'] = identity['diversityClosure']
+    require(identity.get('csrfClosure') == {name: source[name] for name in CSRF_CLOSURE}, 'invalid native CSRF source closure')
+    public_identity['csrfClosure'] = identity['csrfClosure']
+    require(identity.get('oidcClosure') == {name: source[name] for name in OIDC_CLOSURE}, 'invalid native OIDC source closure')
+    approved = approved_source()
+    selected = replace_once(approved[OIDC_CALLBACK].decode(), 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode()
+    require(identity.get('oidcCallbackSelectedSha256') == sha(selected), 'native callback seam mismatch')
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
@@ -1668,6 +1786,8 @@ def export_core_lifecycle(output, hashes):
     export.mkdir(mode=0o700)
     save(export / 'a2a-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'inputSha256': hashes, 'identity': {**public_identity, 'a2aClosure': identity['a2aClosure']}, 'cold': a2a_cold, 'warm': a2a_warm})
     save(export / 'proxy-visibility-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned route and core in separate private cold and warm processes; not HTTP ingress or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': visibility_cold, 'warm': visibility_warm})
+    save(export / 'csrf-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Pinned handler and native core in independent cold and warm processes; not central HTTP authorization or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': csrf_lifecycle['cold'], 'warm': csrf_lifecycle['warm']})
+    save(export / 'oidc-settings-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Actual native callback, core and settings with explicit cookie seam and loopback issuer; no HTTP ingress or external provider.', 'inputSha256': hashes, 'identity': {**public_identity, 'oidcClosure': identity['oidcClosure'], 'oidcCallbackSelectedSha256': identity['oidcCallbackSelectedSha256']}, 'cold': oidc_lifecycle['cold'], 'warm': oidc_lifecycle['warm']})
     save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}, 'ssoConfig': {'cold': sso_cold, 'warm': sso_warm}, 'requireLogin': {'cold': login_cold, 'warm': login_warm}, 'a2aHistory': {'cold': history_cold, 'warm': history_warm}, 'proxyVisibility': {'cold': visibility_cold, 'warm': visibility_warm}, 'autoRoutingAnalytics': analytics, 'compressionAnalytics': compression, 'diversity': diversity_lifecycle})
     save(export / 'provider-lifecycle.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Pinned handlers and source stores in the real cold core with authentication disabled; separate warm alias read. No ingress or executor qualification.',
@@ -1862,6 +1982,19 @@ def validate_reasoning_http(row, events):
     return {'method': 'GET', 'path': '/api/settings/reasoning-routing-rules', **row, 'sqliteReadCount': 2, 'sqliteFaultCount': 1}
 
 
+def validate_oidc_http(value):
+    errors = {'nonce': 'id_token_invalid', 'missing-nonce': 'id_token_invalid', 'token-missing-nonce': 'id_token_invalid', 'signature': 'id_token_invalid', 'issuer': 'id_token_invalid', 'audience': 'id_token_invalid', 'expired': 'id_token_invalid', 'future': 'id_token_invalid', 'subject': 'subject_not_allowed', 'role': 'role_not_allowed', 'malformed-role': 'role_not_allowed', 'exchange': 'token_exchange', 'exchange-network': 'token_exchange', 'bad-json': 'token_response', 'no-token': 'no_id_token', 'missing-code': 'missing_code', 'missing-state': 'missing_code', 'wrong-state': 'invalid_state', 'rotation': 'id_token_invalid', 'rotation-recovery': 'dashboard', 'no-verifier': 'dashboard', 'discovery-fallback': 'dashboard', 'success': 'dashboard', 'secure': 'dashboard', 'missing-secret': 'server_misconfigured'}
+    require(isinstance(value, dict) and set(value) == {'cases', 'configCases'} and isinstance(value['cases'], dict) and set(value['cases']) == set(errors), 'OIDC cases mismatch')
+    expected_config = {'loginStatus': 400, 'loginPublic': True, 'fixedError': True, 'noLoginCookies': True, 'callbackStatus': 307, 'callbackResult': 'not_configured', 'callbackPublic': True}
+    require(value['configCases'] == {'disabled': expected_config, 'incomplete': expected_config}, 'OIDC configuration outcomes mismatch')
+    for name, result in errors.items():
+        row = value['cases'][name]
+        success = name in ('success', 'secure', 'rotation-recovery', 'no-verifier', 'discovery-fallback')
+        expected = {'loginStatus': 307, 'loginPublic': True, 'loginCookiesValid': True, 'stateMatches': True, 'nonceMatches': True, 'challengeMatches': True, 'callbackStatus': 307, 'callbackPublic': True, 'result': result, 'stateCleared': name not in ('missing-code', 'missing-state', 'wrong-state'), 'clearCookiesValid': success, 'sessionIssued': success, 'sessionValid': success, 'sessionAttributesValid': True, 'setupComplete': success or name == 'missing-secret', 'exchangeCount': 0 if name in ('missing-code', 'missing-state', 'wrong-state') else 1}
+        require(isinstance(row, dict) and set(row) == set(expected) | {'jwksRequests'} and all(row[key] == val and type(row[key]) is type(val) for key, val in expected.items()) and type(row['jwksRequests']) is int and 0 <= row['jwksRequests'] <= 1, 'OIDC HTTP outcome mismatch: ' + name)
+    require(value['cases']['nonce']['jwksRequests'] == 1 and value['cases']['rotation']['jwksRequests'] == 0 and value['cases']['success']['jwksRequests'] == 0 and value['cases']['rotation-recovery']['jwksRequests'] == 1, 'OIDC JWKS cache mismatch')
+    return value
+
 def export_observations(output, hashes):
     """Produce an allowlisted research artifact only after the complete isolated run."""
     result = bounded_json(output / 'result.json')
@@ -1912,6 +2045,10 @@ def export_observations(output, hashes):
     a2a_name = 'src/app/api/a2a/status/route.ts'
     a2a_graph = a2a_status_closure(source, closure['src/lib/db/readCache.ts'])
     source_hashes[a2a_name] = {'originalSha256': sha(source[a2a_name]), 'executedSha256': sha(a2a_graph[a2a_name])}
+    oidc_graph = oidc_closure(source, closure['src/lib/db/readCache.ts'])
+    for name in (OIDC_LOGIN, OIDC_CALLBACK):
+        source_hashes[name] = {'originalSha256': sha(source[name]), 'executedSha256': sha(oidc_graph[name])}
+    require(identity['oidcClosure'] == {'sources': {name: sha(source[name]) for name in OIDC_CLOSURE}, 'executed': {name: sha(data) for name, data in oidc_graph.items()}}, 'OIDC closure mismatch')
     require(identity['a2aStatusClosure'] == {'sources': {name: sha(source[name]) for name in (a2a_name, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in a2a_graph.items()}}, 'A2A closure mismatch')
     require(identity['requireLoginClosure'] == {'sources': {name: sha(source[name]) for name in (REQUIRE_LOGIN, LOGIN_FLAGS, LOGIN_PASSWORD, LOGIN_RUNTIME, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, *LOGIN_DEPENDENCIES)}, 'executed': {name: sha(data) for name, data in login_graph.items()}}, 'login closure mismatch')
     require(identity['ssoConfigClosure'] == {'sources': {name: sha(source[name]) for name in (SSO_CONFIG, SSO_ENTRA, AUTH_SETTINGS, AUTH_SHARED)}, 'executed': {name: sha(data) for name, data in sso_graph.items()}}, 'SSO config closure mismatch')
@@ -1921,6 +2058,16 @@ def export_observations(output, hashes):
     auth_status_observation = ingress['authStatusHttp']
     expected_status = {'anonymous': False, 'invalid': False, 'expired': False, 'tampered': False, 'valid': True, 'cachedRevocation': True, 'revoked': False, 'passwordChanged': False, 'settingsFailure': False}
     require(auth_status_observation == {'cases': {name: {'status': 200, 'routeClass': 'PUBLIC', 'authenticated': value} for name, value in expected_status.items()}, 'invalidSettingsReads': 0, 'onboardingBefore': [], 'onboardingAfter': [{'key': 'requireLogin', 'value': 'true'}, {'key': 'setupComplete', 'value': 'true'}]}, 'auth status HTTP outcome mismatch')
+    csrf_http = ingress['csrfHttp']
+    csrf_statuses = {'anonymous': 401, 'invalid': 403, 'inference': 403, 'session': 200, 'session2': 200, 'manage': 200, 'admin': 200, 'oma': 200, 'omaRead': 403, 'omaWrite': 403, 'disabled': 200, 'missingSecret': 200, 'backendFailure': 503}
+    require(isinstance(csrf_http, dict) and set(csrf_http) == {'cases'} and isinstance(csrf_http['cases'], dict) and set(csrf_http['cases']) == set(csrf_statuses), 'CSRF HTTP cases mismatch')
+    for name, status in csrf_statuses.items():
+        row = csrf_http['cases'][name]
+        require(isinstance(row, dict) and set(row) == {'status', 'routeClass', 'issued', 'hmacBound', 'expiryValid', 'shapeValid', 'sessionDistinct', 'noStore', 'json', 'cookieMutation'} and row['status'] == status and row['routeClass'] == 'MANAGEMENT' and row['sessionDistinct'] is (True if name == 'session2' else None) and all(type(row[k]) is bool for k in ('noStore', 'json', 'cookieMutation')) and row['cookieMutation'] is False, 'CSRF HTTP response mismatch')
+        if status == 200:
+            require(row['noStore'] is True and row['json'] is True and row['shapeValid'] is True and row['issued'] is (name in ('session', 'session2')) and row['hmacBound'] is (True if name in ('session', 'session2') else None) and row['expiryValid'] is (True if name in ('session', 'session2') else None), 'CSRF HTTP issuance mismatch')
+        else:
+            require(all(row[k] is None for k in ('issued', 'hmacBound', 'expiryValid', 'shapeValid')), 'CSRF denial response mismatch')
     sso_observation = ingress['ssoConfigHttp']
     sso_enabled = {'enabled': True, 'authorityHost': 'https://login.example.test', 'tenantId': 'tenant.example', 'clientId': 'fixture-client', 'audience': 'api://fixture-audience', 'issuer': 'https://login.example.test/tenant.example/v2.0', 'scope': 'api://fixture-audience/.default'}
     sso_expected = {name: {'status': 200, 'routeClass': 'PUBLIC', 'contentType': 'application/json', 'body': sso_enabled if name == 'enabled' else {'enabled': False}, 'privateMarkerPresent': False} for name in ('anonymous', 'invalid', 'cached', 'enabled', 'incomplete', 'failure')}
@@ -2150,6 +2297,7 @@ def export_observations(output, hashes):
     artifact['publicLivenessHttp'] = {'method': 'GET', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live) for name in ('anonymous', 'invalidCredential', 'session')}}
     artifact['publicLivenessHeadHttp'] = {'method': 'HEAD', 'path': '/livez', 'matcher': 'not-matched', 'proxyIdentity': {'originalSha256': proxy_sha, 'executedSha256': proxy_sha}, 'cases': {name: dict(expected_live_head) for name in ('anonymous', 'invalidCredential', 'session')}}
     artifact['authStatusHttp'] = auth_status_observation
+    artifact['csrfHttp'] = csrf_http
     artifact['authStatusClosure'] = identity['authStatusClosure']
     artifact['mfaStatusHttp'] = mfa_status_observation
     artifact['mfaStatusClosure'] = identity['mfaStatusClosure']
@@ -2157,6 +2305,10 @@ def export_observations(output, hashes):
     artifact['ssoConfigClosure'] = identity['ssoConfigClosure']
     artifact['requireLoginHttp'] = ingress['requireLoginHttp']
     artifact['requireLoginClosure'] = identity['requireLoginClosure']
+    artifact['oidcHttp'] = validate_oidc_http(ingress['oidcHttp'])
+    artifact['oidcClosure'] = identity['oidcClosure']
+    artifact['limitations'].append('OIDC uses a controlled private-loopback issuer, not external provider or account interoperability; redirect/session client transport is not established.')
+    artifact['limitations'].append('OIDC setup-completion catalog scheduling crosses a recorded fixture boundary; catalog revalidation is not executed or observed.')
     artifact['a2aStatusHttp'] = ingress['a2aHttp']
     artifact['a2aStatusClosure'] = identity['a2aStatusClosure']
     artifact['limitations'].append('A2A status HTTP uses private SQLite settings and source cache, not native core; raw error text is not exported.')
@@ -2196,6 +2348,9 @@ def export_observations(output, hashes):
     export = output / 'export'
     export.mkdir(mode=0o700)
     save(export / 'observed-outcomes.json', artifact)
+    csrf_artifact = dict(artifact)
+    csrf_artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/csrf', 'method': 'GET', 'path': '/api/auth/csrf', 'status': csrf_http['cases']['session']['status'], 'contentType': 'application/json'}]
+    save(export / 'csrf-observed-outcomes.json', csrf_artifact)
 
 
 def bridge(output, real_core=False):

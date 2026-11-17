@@ -2,6 +2,8 @@
 import { writeFileSync } from 'node:fs';
 import { readdir, stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
+import { createServer } from 'node:http';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { ensureDbInitialized, getDbInstance, pingDb, closeDbInstance, runManagedDbHealthCheck, DATA_DIR, SQLITE_FILE } from './core';
 import { getSettings, updateSettings } from './settings';
 import { resolveDbHealthWorker } from './healthCheckRunner';
@@ -20,8 +22,10 @@ const visibility = phase === 'visibility-cold' || phase === 'visibility-warm';
 const analytics = phase === 'analytics-cold' || phase === 'analytics-warm';
 const compression = phase === 'compression-cold' || phase === 'compression-warm';
 const diversity = phase === 'diversity-cold' || phase === 'diversity-warm';
-const expectedDataDir = diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const csrf = phase === 'csrf-cold' || phase === 'csrf-warm';
+const oidc = phase === 'oidc-cold' || phase === 'oidc-warm';
+const expectedDataDir = oidc ? '/work/oidc-data' : csrf ? '/work/csrf-data' : diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'csrf-cold', 'csrf-warm', 'oidc-cold', 'oidc-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -39,6 +43,39 @@ const files = async () => {
   await walk(DATA_DIR);
   return result.sort((a, b) => a.name.localeCompare(b.name));
 };
+if (csrf) {
+  const cold = phase === 'csrf-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('CSRF database phase mismatch');
+  let warmSettingsBefore = null;
+  if (existed) {
+    const existing = new DatabaseSync(SQLITE_FILE, { readOnly: true });
+    try { warmSettingsBefore = JSON.stringify(existing.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' ORDER BY key").all()); }
+    finally { existing.close(); }
+  }
+  const { GET } = await import('/work/app/src/app/api/auth/csrf/route.ts');
+  const now = Math.floor(Date.now() / 1000);
+  const session = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now).setExpirationTime(now + 3600).setJti('fixture-csrf-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const call = async () => {
+    const response = await GET(new Request('http://localhost/api/auth/csrf', { headers: { cookie: `auth_token=${session}` } }));
+    const body = await response.json();
+    return { status: response.status, issued: typeof body.token === 'string' && typeof body.expiresAt === 'string', noStore: response.headers.get('cache-control') === 'no-store', cookieMutation: response.headers.has('set-cookie') };
+  };
+  try {
+    const first = await call();
+    const databaseAfterFirst = (await files()).some(x => x.name === 'storage.sqlite');
+    if (!databaseAfterFirst) throw new Error('CSRF auth did not initialize native database');
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('CSRF native driver mismatch');
+    const rows = () => JSON.stringify(db.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' ORDER BY key").all());
+    const before = rows();
+    const firstSettingsUnchanged = existed ? warmSettingsBefore === before : null;
+    const second = await call();
+    const settingsUnchanged = before === rows();
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseAfterFirst, first, second, firstSettingsUnchanged, settingsUnchanged }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
 if (sweep) {
   if ((await files()).some(x => x.name === 'storage.sqlite')) throw new Error('sweep database already exists');
   await ensureDbInitialized();
@@ -340,6 +377,51 @@ if (history) {
   } finally { await closeDbInstance(); }
   process.exit(0);
 }
+if (oidc) {
+  const cold = phase === 'oidc-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('OIDC database phase mismatch');
+  await ensureDbInitialized();
+  const key = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const issuer = 'http://127.0.0.1:43186', client = 'native-client', nonce = 'native-nonce', state = 'native-state';
+  let exchanges = 0;
+  const server = createServer(async (req, res) => {
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/.well-known/openid-configuration') return res.end(JSON.stringify({ issuer, token_endpoint: `${issuer}/token`, jwks_uri: `${issuer}/jwks` }));
+    if (req.url === '/jwks') return res.end(JSON.stringify({ keys: [{ ...key.publicKey.export({ format: 'jwk' }), kid: 'native', alg: 'RS256', use: 'sig' }] }));
+    if (req.url !== '/token' || req.method !== 'POST') { res.statusCode = 404; return res.end('{}'); }
+    const chunks = []; for await (const part of req) chunks.push(part);
+    const form = new URLSearchParams(Buffer.concat(chunks).toString());
+    exchanges++;
+    if (form.get('code') !== 'native-once' || form.get('client_id') !== client || form.get('client_secret') !== 'native-secret') { res.statusCode = 400; return res.end('{}'); }
+    const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+    const now = Math.floor(Date.now() / 1000), input = `${encode({ alg: 'RS256', kid: 'native' })}.${encode({ iss: issuer, aud: client, sub: 'native-subject', nonce, iat: now, exp: now + 300 })}`;
+    res.end(JSON.stringify({ id_token: `${input}.${sign('RSA-SHA256', Buffer.from(input), key.privateKey).toString('base64url')}` }));
+  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(43186, '127.0.0.1', resolve); });
+  try {
+    const before = await getSettings();
+    const beforeComplete = before.setupComplete === true;
+    if (beforeComplete !== !cold) throw new Error('OIDC setup state mismatch');
+    const db = getDbInstance();
+    const insert = db.prepare("INSERT OR REPLACE INTO key_value (namespace,key,value) VALUES ('settings',?,?)");
+    for (const [name, value] of Object.entries({ setupComplete: false, oidcEnabled: true, oidcIssuer: issuer, oidcClientId: client, oidcClientSecret: 'native-secret', oidcAllowedSubjects: ['native-subject'] })) insert.run(name, JSON.stringify(value));
+    const { invalidateDbCache } = await import('./readCache'); invalidateDbCache('settings');
+    const store = new Map([['oidc_state', state], ['oidc_nonce', nonce]]), writes = new Map();
+    globalThis.__pinnedOidcCookies = { get(name) { return store.has(name) ? { value: store.get(name) } : undefined; }, set(name, value) { writes.set(name, value); } };
+    if (cold) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = 'research-only-jwt-secret-32-byte-minimum';
+    const { GET } = await import('/work/app/src/app/api/auth/oidc/callback/pinnedLifecycleRoute.ts');
+    const response = await GET(new Request(`http://127.0.0.1:43187/api/auth/oidc/callback?code=native-once&state=${state}`));
+    const destination = new URL(response.headers.get('location'));
+    const result = destination.pathname === '/dashboard' ? 'dashboard' : destination.searchParams.get('oidc_error');
+    const persistedDb = getDbInstance();
+    const persisted = persistedDb.prepare("SELECT value FROM key_value WHERE namespace='settings' AND key='setupComplete'").get()?.value === 'true';
+    if (!persisted || exchanges !== 1 || response.status !== 307 || result !== (cold ? 'server_misconfigured' : 'dashboard') || writes.has('auth_token') !== !cold) throw new Error('OIDC native callback persistence mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), setupBefore: beforeComplete, setupPersisted: persisted, settingsPersisted: true, callbackStatus: response.status, callbackResult: result, sessionIssued: writes.has('auth_token') }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { delete globalThis.__pinnedOidcCookies; await new Promise(resolve => server.close(resolve)); await closeDbInstance(); }
+  process.exit(0);
+}
+
 if (login) {
   const cold = phase === 'login-cold';
   const existed = (await files()).some(x => x.name === 'storage.sqlite');

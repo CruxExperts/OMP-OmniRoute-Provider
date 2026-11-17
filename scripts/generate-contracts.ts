@@ -313,6 +313,11 @@ export function testOutcomeHash(
     const projected = { score: expected.score, totalRequests: 3, windowSize: 200, ttlMs: 3_600_000 };
     if (canonicalJson(before) !== canonicalJson(expected) || canonicalJson(after) !== canonicalJson(expected) || result.status !== 200 || canonicalJson(body) !== canonicalJson(projected)) throw new Error("diversity observed outcome mismatch");
   }
+  if (operationId === "GET /api/auth/csrf") {
+    const start = requireRecord(before, "CSRF before"), end = requireRecord(after, "CSRF after");
+    assertKeys(start, "CSRF before", ["handlerCalls"]); assertKeys(end, "CSRF after", ["handlerCalls"]);
+    if (typeof start.handlerCalls !== "number" || !Number.isSafeInteger(start.handlerCalls) || start.handlerCalls < 0 || end.handlerCalls !== start.handlerCalls + 1 || result.status !== 200 || canonicalJson(body) !== canonicalJson({ issued: true })) throw new Error("CSRF source outcome mismatch");
+  }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -390,6 +395,8 @@ identities[m.SSO_CONFIG] = {'originalSha256': m.sha(source[m.SSO_CONFIG]), 'exec
 login_graph = m.require_login_closure(source, closures['src/lib/db/readCache.ts'], closures['src/lib/db/featureFlags.ts'])
 identities[m.REQUIRE_LOGIN] = {'originalSha256': m.sha(source[m.REQUIRE_LOGIN]), 'executedSha256': m.sha(login_graph[m.REQUIRE_LOGIN])}
 a2a = source['src/app/api/a2a/status/route.ts']; a2a_graph = m.a2a_status_closure(source, closures['src/lib/db/readCache.ts']); identities['src/app/api/a2a/status/route.ts'] = {'originalSha256': m.sha(a2a), 'executedSha256': m.sha(a2a_graph['src/app/api/a2a/status/route.ts'])}
+oidc_graph = m.oidc_closure(source, closures['src/lib/db/readCache.ts'])
+for name in (m.OIDC_LOGIN, m.OIDC_CALLBACK): identities[name] = {'originalSha256': m.sha(source[name]), 'executedSha256': m.sha(oidc_graph[name])}
 print(json.dumps({'addedSourceSha256': identities, 'a2aStatusClosure': {'sources': {name: m.sha(source[name]) for name in ('src/app/api/a2a/status/route.ts', m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in a2a_graph.items()}}, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'ssoConfigClosure': {'sources': {name: m.sha(source[name]) for name in (m.SSO_CONFIG, m.SSO_ENTRA, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in sso_graph.items()}}, 'requireLoginClosure': {'sources': {name: m.sha(source[name]) for name in (m.REQUIRE_LOGIN, m.LOGIN_FLAGS, m.LOGIN_PASSWORD, m.LOGIN_RUNTIME, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED, *m.LOGIN_DEPENDENCIES)}, 'executed': {name: m.sha(data) for name, data in login_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
@@ -445,6 +452,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     }
   }
   if (artifact.schemaVersion !== 1 || artifact.classification !== "research-only-not-qualification") throw new Error(`${label} classification mismatch`);
+  if (artifact.oidcHttp !== undefined) validateOidcResearchObservation(artifact.oidcHttp);
   const source = requireRecord(artifact.source, `${label}.source`);
   const manifest = requireRecord(JSON.parse(readFileSync(resolve(packageRoot, "test/fixtures/pinned-ingress/source-manifest.json"), "utf8")) as unknown, `${label}.manifest`);
   const release = requireRecord(requireRecord(readRouteSources(manifestPath), "route source manifest").release, "manifest.release");
@@ -467,6 +475,9 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const historySource = operationId === "GET /api/a2a/tasks/history" ? added["src/app/api/a2a/tasks/history/route.ts"] : undefined;
   if (operationId === "GET /api/a2a/tasks/history" && (historySource !== "0c35eb4cffe05b36d66d725049e354fd70bab29e2fade1346760bf80c5e85d01" || binding.handlerSha256 !== historySource || binding.handlerGitBlobSha !== "1b93277bd5560075f14b6453458445ea3ade6daa" || added["src/app/api/a2a/_auth.ts"] !== "d0f8d6b85f05818f89095e4568ec6a68a1128799c702b0b71fcfa636f1049276" || added["src/lib/db/a2aTasks.ts"] !== "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838" || added["src/lib/a2a/authenticate.ts"] !== "2e9ce08e52918179a9e3f66d4e08a66b1cfcecb9ce78a9c66b8ebf9ad593e31e")) throw new Error(`${label} history source mismatch`);
   const visibilitySource = operationId === "GET /api/admin/proxy-pool-visibility" ? added["src/app/api/admin/proxy-pool-visibility/route.ts"] : undefined;
+  const csrfSource = operationId === "GET /api/auth/csrf" ? added["src/app/api/auth/csrf/route.ts"] : undefined;
+  if (operationId === "GET /api/auth/csrf" && (csrfSource !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || binding.handlerSha256 !== csrfSource || binding.handlerGitBlobSha !== "a18026b4474ea4b7259d6ae0accfbc32429fef61")) throw new Error(`${label} CSRF source mismatch`);
+  if (operationId === "GET /api/auth/csrf" && (added["src/server/authz/csrf.ts"] !== "40db3c3e0696c4e1c4cd0a32a388cd9c6a9e845c5186863cfe090243debbec78" || added["src/shared/constants/dashboardCsrf.ts"] !== "15abffd3529ec0b63a42360ae44c3afc745038410becea9a2f5b59dd3f02618b")) throw new Error(`${label} CSRF issuer source mismatch`);
   if (operationId === "GET /api/admin/proxy-pool-visibility" && (visibilitySource !== "58b6fb4ce329b58d35ff87af440857cf8ec70824b3d62f8c79ebf11ca797f8b8" || binding.handlerSha256 !== visibilitySource || binding.handlerGitBlobSha !== "dcec8ab22c00d6ecc622313339742117f3bafac4")) throw new Error(`${label} visibility source mismatch`);
   const analyticsSource = operationId === "GET /api/analytics/auto-routing" ? added["src/app/api/analytics/auto-routing/route.ts"] : undefined;
   if (operationId === "GET /api/analytics/auto-routing" && (analyticsSource !== "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1" || binding.handlerSha256 !== analyticsSource || binding.handlerGitBlobSha !== "27fd7e8350f76a3e1a1429b69344c21ce350d9b5" || added["src/lib/db/usageLogs.ts"] !== "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0" || added["src/lib/db/logicalCallSql.ts"] !== "5f59112ddcce301c4095635b7ec56456412c75465586371e256235707cf2b617")) throw new Error(`${label} analytics source mismatch`);
@@ -475,7 +486,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   const compressionSource = operationId === "GET /api/analytics/compression" ? added["src/app/api/analytics/compression/route.ts"] : undefined;
   if (operationId === "GET /api/analytics/compression" && (compressionSource !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || binding.handlerSha256 !== compressionSource || binding.handlerGitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f" || added["src/lib/db/compressionAnalytics.ts"] !== "2989f4d16a331bd20624748a8624dba0065e0e70dee96e6cf3227449e9b28f66" || added["src/lib/db/migrations/038_compression_analytics.sql"] !== "71b7d06e954d2c3733919a395a662adcd1b8bb605a9adb35025c44dc6d71ac2e")) throw new Error(`${label} compression source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = csrfSource !== undefined ? csrfSource : diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -685,6 +696,18 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expected = { auth: Object.fromEntries(Object.entries(statuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", body: status === 200 ? body : null }])) };
     if (canonicalJson(toJson(artifact.diversityHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} diversity HTTP mismatch`);
   }
+  if (operationId === "GET /api/auth/csrf") {
+    const http = requireRecord(artifact.csrfHttp, `${label}.CSRF HTTP`); assertKeys(http, label, ["cases"]);
+    const cases = requireRecord(http.cases, `${label}.CSRF cases`);
+    const statuses: Record<string, number> = { anonymous: 401, invalid: 403, inference: 403, session: 200, session2: 200, manage: 200, admin: 200, oma: 200, omaRead: 403, omaWrite: 403, disabled: 200, missingSecret: 200, backendFailure: 503 };
+    assertKeys(cases, label, Object.keys(statuses));
+    for (const [name, status] of Object.entries(statuses)) {
+      const row = requireRecord(cases[name], `${label}.CSRF ${name}`);
+      assertKeys(row, label, ["status", "routeClass", "issued", "hmacBound", "expiryValid", "shapeValid", "sessionDistinct", "noStore", "json", "cookieMutation"]);
+      const session = name === "session" || name === "session2";
+      if (row.status !== status || row.routeClass !== "MANAGEMENT" || row.cookieMutation !== false || row.sessionDistinct !== (name === "session2" ? true : null) || typeof row.noStore !== "boolean" || typeof row.json !== "boolean" || (status === 200 ? row.noStore !== true || row.json !== true || row.shapeValid !== true || row.issued !== session || row.hmacBound !== (session ? true : null) || row.expiryValid !== (session ? true : null) : [row.issued, row.hmacBound, row.expiryValid, row.shapeValid].some(value => value !== null))) throw new Error(`${label} CSRF HTTP mismatch`);
+    }
+  }
   if (operationId === "GET /api/auth/mfa/status") {
     if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
     const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
@@ -752,6 +775,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     for (const name of ["src/app/api/analytics/compression/route.ts", "src/lib/db/compressionAnalytics.ts", "src/lib/db/migrations/038_compression_analytics.sql"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
   }
   if (operationId !== "GET /api/analytics/diversity" && !Object.hasOwn(added, "src/app/api/analytics/diversity/route.ts")) delete requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`)["src/app/api/analytics/diversity/route.ts"];
+  if (operationId !== "GET /api/auth/csrf") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/auth/csrf/route.ts", "src/server/authz/csrf.ts", "src/shared/constants/dashboardCsrf.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+  }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
     if (canonicalJson(toJson(source[key] ?? null, label)) !== canonicalJson(toJson(expectedIdentities[key] ?? null, label))) throw new Error(`${label} effective source identity mismatch: ${key}`);
@@ -882,21 +909,57 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(wanted, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(independent.diversity, label))) throw new Error(`${label} diversity lifecycle mismatch`);
   }
   if (effectValue !== undefined) {
-    const effect = requireRecord(effectValue, "deprecated provider effect evidence");
+    const csrf = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "csrf";
+    const effect = requireRecord(csrf && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
     const digest = requireString(effect.sha256, "deprecated provider effect digest");
     const path = requireString(effect.artifact, "deprecated provider effect artifact");
-    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/deprecated-provider-sweep-${digest}.json`) throw new Error("deprecated provider effect path mismatch");
+    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${csrf ? "csrf-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
     const file = resolve(packageRoot, path);
     const info = lstatSync(file);
     if (!info.isFile() || info.nlink !== 1 || realpathSync(file) !== file || info.size > 2 * 1024 * 1024) throw new Error("deprecated provider effect artifact invalid");
     const bytes = readFileSync(file);
     if (createHash("sha256").update(bytes).digest("hex") !== digest) throw new Error("deprecated provider effect digest mismatch");
     const observed = JSON.parse(bytes.toString("utf8")) as unknown;
-    const independent = requireRecord(expected, label).deprecatedSweep;
-    validateDeprecatedProviderSweepObservation(observed, independent);
+    if (csrf) validateAuthCsrfLifecycleObservation(observed, requireRecord(expected, label).csrfLifecycle);
+    else validateDeprecatedProviderSweepObservation(observed, requireRecord(expected, label).deprecatedSweep);
   }
 }
+/** Validate only the bounded local issuer observation, not endpoint qualification. */
+export function validateOidcResearchObservation(value: unknown): void {
+  const label = "OIDC local ingress observation";
+  const observation = requireRecord(value, label);
+  assertKeys(observation, label, ["cases", "configCases"]);
+  const config = { loginStatus: 400, loginPublic: true, fixedError: true, noLoginCookies: true, callbackStatus: 307, callbackResult: "not_configured", callbackPublic: true };
+  if (canonicalJson(toJson(observation.configCases, label)) !== canonicalJson(toJson({ disabled: config, incomplete: config }, label))) throw new Error(`${label} configuration mismatch`);
+  const cases = requireRecord(observation.cases, `${label}.cases`);
+  const errors: Record<string, string> = { nonce: "id_token_invalid", "missing-nonce": "id_token_invalid", "token-missing-nonce": "id_token_invalid", signature: "id_token_invalid", issuer: "id_token_invalid", audience: "id_token_invalid", expired: "id_token_invalid", future: "id_token_invalid", subject: "subject_not_allowed", role: "role_not_allowed", "malformed-role": "role_not_allowed", exchange: "token_exchange", "exchange-network": "token_exchange", "bad-json": "token_response", "no-token": "no_id_token", "missing-code": "missing_code", "missing-state": "missing_code", "wrong-state": "invalid_state", rotation: "id_token_invalid", "rotation-recovery": "dashboard", "no-verifier": "dashboard", "discovery-fallback": "dashboard", success: "dashboard", secure: "dashboard", "missing-secret": "server_misconfigured" };
+  assertKeys(cases, label, Object.keys(errors));
+  for (const [name, result] of Object.entries(errors)) {
+    const row = requireRecord(cases[name], `${label}.${name}`);
+    assertKeys(row, label, ["loginStatus", "loginPublic", "loginCookiesValid", "stateMatches", "nonceMatches", "challengeMatches", "callbackStatus", "callbackPublic", "result", "stateCleared", "clearCookiesValid", "sessionIssued", "sessionValid", "sessionAttributesValid", "setupComplete", "exchangeCount", "jwksRequests"]);
+    const success = ["success", "secure", "rotation-recovery", "no-verifier", "discovery-fallback"].includes(name), early = ["missing-code", "missing-state", "wrong-state"].includes(name);
+    const wanted = { loginStatus: 307, loginPublic: true, loginCookiesValid: true, stateMatches: true, nonceMatches: true, challengeMatches: true, callbackStatus: 307, callbackPublic: true, result, stateCleared: !early, clearCookiesValid: success, sessionIssued: success, sessionValid: success, sessionAttributesValid: true, setupComplete: success || name === "missing-secret", exchangeCount: early ? 0 : 1 };
+    const { jwksRequests, ...rest } = row;
+    if (canonicalJson(toJson(rest, label)) !== canonicalJson(toJson(wanted, label)) || !Number.isInteger(jwksRequests) || Number(jwksRequests) < 0 || Number(jwksRequests) > 1 || (["nonce", "rotation-recovery"].includes(name) && jwksRequests !== 1) || (["rotation", "success"].includes(name) && jwksRequests !== 0)) throw new Error(`${label} ${name} mismatch`);
+  }
+}
+/** Compare native settings lifecycle with a separately executed current producer. */
+export function validateOidcLifecycleObservation(value: unknown, independentValue: unknown): void {
+  const label = "OIDC native settings observation";
+  const actual = requireRecord(value, label), independent = requireRecord(independentValue, `${label}.independent`);
+  assertKeys(actual, label, ["status", "qualification", "boundary", "inputSha256", "identity", "cold", "warm"]);
+  if (actual.status !== "research-observed" || actual.qualification !== false || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(independent, label))) throw new Error(`${label} producer mismatch`);
+  const identity = requireRecord(actual.identity, `${label}.identity`), closure = requireRecord(identity.oidcClosure, `${label}.closure`);
+  if (closure["src/app/api/auth/oidc/login/route.ts"] !== "560cef9fab79b924c12f7adfffedac346431aaebe16a954f811f71da4c5d1ba6" || closure["src/app/api/auth/oidc/callback/route.ts"] !== "5f7b2a82d550b7190b5853f5b2485e8d7ebb32ff5194ff11f036d5fea7874a52") throw new Error(`${label} source mismatch`);
+  if (typeof identity.oidcCallbackSelectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(identity.oidcCallbackSelectedSha256)) throw new Error(`${label} selected source mismatch`);
+  for (const phase of ["cold", "warm"] as const) {
+    const warm = phase === "warm", expected = { databaseExistedBefore: warm, databaseExistsAfter: true, setupBefore: warm, setupPersisted: true, settingsPersisted: true, callbackStatus: 307, callbackResult: warm ? "dashboard" : "server_misconfigured", sessionIssued: warm };
+    if (canonicalJson(toJson(actual[phase], label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} ${phase} mismatch`);
+  }
+}
+
+
 /** Validate a native A2A outcome only against a separately executed producer. */
 export function validateA2aLifecycleObservation(value: unknown, independentValue: unknown): void {
   const label = "A2A lifecycle evidence";
@@ -910,6 +973,22 @@ export function validateA2aLifecycleObservation(value: unknown, independentValue
   const identity = requireRecord(actual.identity, `${label}.identity`);
   const closure = requireRecord(identity.a2aClosure, `${label}.closure`);
   if (closure["src/app/api/a2a/status/route.ts"] !== "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2" || closure["src/lib/a2a/taskManager.ts"] !== "b4fc6379c9cf4b1f3b40e2e9dfae86df77c631014121ed1fa8f87637cb606e4a" || closure["src/lib/db/a2aTasks.ts"] !== "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838") throw new Error(`${label} source closure mismatch`);
+}
+
+/** Compare a CSRF native observation with a separately executed producer. */
+export function validateAuthCsrfLifecycleObservation(value: unknown, independentValue: unknown): void {
+  const label = "CSRF lifecycle evidence";
+  const artifact = requireRecord(value, label), independent = requireRecord(independentValue, `${label}.independent`);
+  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "cold", "warm"]);
+  if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Pinned handler and native core in independent cold and warm processes; not central HTTP authorization or operation qualification.") throw new Error(`${label} classification mismatch`);
+  const identity = requireRecord(artifact.identity, `${label}.identity`), closure = requireRecord(identity.csrfClosure, `${label}.source closure`);
+  if (closure["src/app/api/auth/csrf/route.ts"] !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || closure["src/server/authz/csrf.ts"] !== "40db3c3e0696c4e1c4cd0a32a388cd9c6a9e845c5186863cfe090243debbec78" || closure["src/shared/constants/dashboardCsrf.ts"] !== "15abffd3529ec0b63a42360ae44c3afc745038410becea9a2f5b59dd3f02618b") throw new Error(`${label} source mismatch`);
+  for (const phase of ["cold", "warm"] as const) {
+    const result = { status: 200, issued: true, noStore: true, cookieMutation: false };
+    const expected = { databaseExistedBefore: phase === "warm", databaseAfterFirst: true, first: result, second: result, firstSettingsUnchanged: phase === "warm" ? true : null, settingsUnchanged: true };
+    if (canonicalJson(toJson(artifact[phase], label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} ${phase} mismatch`);
+  }
+  if (canonicalJson(toJson(artifact, label)) !== canonicalJson(toJson(independent, label))) throw new Error(`${label} independent observation mismatch`);
 }
 
 /** Compare bounded outcomes against a separately executed native producer. */
@@ -2116,6 +2195,17 @@ export function validateDiversityAnalyticsContract(value: unknown): void {
   if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.secrets, { inputFields: [], outputFields: ["providers", "error", "model", "connection", "request"] }) || requireRecord(c.confirmation, "diversity confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "diversity preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("diversity authorization or lifecycle mismatch");
 }
 
+export function validateAuthCsrfContract(value: unknown): void {
+  const c = requireRecord(value, "CSRF contract"), request = requireRecord(c.request, "CSRF request"), response = requireRecord(c.response, "CSRF response"), auth = requireRecord(c.auth, "CSRF auth"), safety = requireRecord(c.mutationSafety, "CSRF safety");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "CSRF contract")) === canonicalJson(toJson(b, "CSRF contract"));
+  const empty = { type: "object", properties: {}, additionalProperties: false };
+  const view = { type: "object", properties: { issued: { type: "boolean" } }, required: ["issued"], additionalProperties: false };
+  const policy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "oma-access-token", minimumScope: "admin" }, { kind: "trusted-local", loopbackOnly: true }] };
+  const success = requireArray(response.variants, "CSRF variants").filter(v => isRecord(v) && v.statusCode === "200");
+  if (!same(request.pathSchema, empty) || !same(request.querySchema, empty) || !same(request.pathParameters, []) || !same(request.parameters, []) || request.body !== null || response.mediaType !== "application/json" || !same(response.schema, view) || success.length !== 1 || !same(requireRecord(success[0], "CSRF success").content, [{ mediaType: "application/json", schema: view, sourceFile: "src/app/api/auth/csrf/route.ts" }])) throw new Error("CSRF request or projection mismatch");
+  if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.secrets, { inputFields: [], outputFields: ["token", "expiresAt"] }) || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || requireRecord(c.confirmation, "CSRF confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "CSRF preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("CSRF safety mismatch");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -2127,6 +2217,11 @@ function validateEligibility(
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/analytics/compression/route.ts" || route.sha256 !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || route.gitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f") throw new Error("compression requires exact lifecycle source");
   }
   if (!record) return false;
+  if (operationId === "GET /api/auth/csrf") {
+    validateAuthCsrfContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/csrf/route.ts" || route.sha256 !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || route.gitBlobSha !== "a18026b4474ea4b7259d6ae0accfbc32429fef61") throw new Error("CSRF requires exact lifecycle source");
+  }
+  if (operationId === "GET /api/auth/oidc/login" || operationId === "GET /api/auth/oidc/callback") throw new Error("OIDC redirect/session transport is not qualified");
   if (operationId === "GET /api/admin/proxy-pool-visibility") {
     validateProxyPoolVisibilityContract(record.contract);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/admin/proxy-pool-visibility/route.ts" || route.sha256 !== "58b6fb4ce329b58d35ff87af440857cf8ec70824b3d62f8c79ebf11ca797f8b8" || route.gitBlobSha !== "dcec8ab22c00d6ecc622313339742117f3bafac4") throw new Error("visibility requires exact lifecycle source");
@@ -2216,10 +2311,14 @@ function validateEligibility(
     validateHealthIngressEvidence(ingress, expectedBinding, operationId, specializedStatuses);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
-  if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
+  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf") {
+    if (!binding.databaseInitializationRequired || record.effectEvidence === undefined) throw new Error(`independent effect evidence required: ${operationId}`);
+    const effect = requireRecord(record.effectEvidence, `${operationId}.effectEvidence`);
+    const prefix = operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
+    if (typeof effect.artifact !== "string" || !effect.artifact.startsWith(prefix)) throw new Error(`effect evidence domain mismatch: ${operationId}`);
+  } else if (record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
-  if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
   return true;
@@ -3017,7 +3116,7 @@ function makeOperation(
       },
       ...(operationRequiresIngressEvidence(operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
       ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
-      ...(operationId === "GET /api/providers/deprecated" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
+      ...(operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/acp/agents" ? { nativeEvidenceSha256: requireRecord(eligibilityRecord.nativeEvidence, `${operationId}.nativeEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/a2a/status" ? { a2aEvidenceSha256: requireRecord(eligibilityRecord.a2aEvidence, `${operationId}.a2aEvidence`).sha256 } : {}),
     };

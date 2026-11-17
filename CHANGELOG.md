@@ -4,8 +4,23 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Characterize the pinned dashboard CSRF issuer and management authorization with
+  token-free bounded observations. HTTP and native lifecycle evidence remain
+  research-only until independently produced and admitted; tokens and session
+  credentials are not exposed through the candidate administration projection.
+
 - Construct synthetic private-path sanitizer test data at runtime so release
   exports retain the regression without embedding private-looking paths.
+- Add a research-only candidate for local OIDC login and callback observations
+  against a controlled loopback issuer and disposable settings. This candidate
+  requires focused validation before it establishes any observed result.
+  Redirect/session client transport, external identity-provider interoperability,
+  and release qualification remain separate requirements; no authorization URL,
+  cookie, token, issuer URL, or secret is projected.
+  The candidate drives same-process JWKS rotation after the dependency's normal
+  cooldown using fresh flows rather than replaying an uncertain callback.
+  Setup-completion catalog scheduling is recorded at a disposable boundary;
+  catalog revalidation itself is not executed by this observation.
 
 - Qualify bounded compression analytics through exact SQL, management HTTP and
   independently replayed native lifecycle evidence, including lazy compatibility

@@ -1,10 +1,12 @@
 // Executed only inside the reviewed private, loopback-only ingress sandbox.
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, sign } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { connect } from 'node:net';
+import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
+import { jwtVerify } from 'jose';
 import { projectMfaStatus } from '/work/fixture/mfa-response.mjs';
 
 if (process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1') throw new Error('INGRESS_SANDBOX_REQUIRED');
@@ -15,6 +17,8 @@ const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url')
 const now = Math.floor(Date.now() / 1000);
 const payload = `${encode({ alg: 'HS256' })}.${encode({ authenticated: true, iat: now, exp: now + 3600, jti: 'fixture-session' })}`;
 const cookie = `auth_token=${payload}.${createHmac('sha256', secret).update(payload).digest('base64url')}`;
+const secondPayload = `${encode({ alg: 'HS256' })}.${encode({ authenticated: true, iat: now, exp: now + 3600, jti: 'fixture-session-second' })}`;
+const secondCookie = `auth_token=${secondPayload}.${createHmac('sha256', secret).update(secondPayload).digest('base64url')}`;
 const db = new DatabaseSync(`${dir}/metrics.sqlite`);
 db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_input INTEGER, tokens_cache_read INTEGER, tokens_cache_creation INTEGER);
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
@@ -40,6 +44,35 @@ mfaDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, 
 const ssoDb = new DatabaseSync(`${dir}/sso-config.sqlite`);
 ssoDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const loginDb = new DatabaseSync(`${dir}/login-settings.sqlite`);
+const oidcDb = new DatabaseSync(`${dir}/oidc-settings.sqlite`);
+oidcDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
+const oidcSettings = { oidcEnabled: true, oidcIssuer: 'http://127.0.0.1:43182', oidcClientId: 'local-client', oidcClientSecret: 'local-secret', oidcAllowedSubjects: ['local-subject'], oidcAdmissionClaim: { path: 'roles', values: ['admin'] }, setupComplete: false };
+const oidcInsert = oidcDb.prepare("INSERT OR REPLACE INTO key_value (namespace,key,value) VALUES ('settings',?,?)");
+for (const [key, value] of Object.entries(oidcSettings)) oidcInsert.run(key, JSON.stringify(value));
+const keyA = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const keyB = generateKeyPairSync('rsa', { modulusLength: 2048 });
+let issuerMode = 'success', flowNonce = '', expectedVerifier = '', expectedChallenge = '', expectedCode = '', exchanges = 0, jwksRequests = 0;
+const issuer = createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://127.0.0.1:43182');
+  res.setHeader('content-type', 'application/json');
+  if (url.pathname === '/.well-known/openid-configuration') { if (issuerMode === 'discovery-fallback') { res.statusCode = 503; return res.end('{}'); } return res.end(JSON.stringify({ issuer: oidcSettings.oidcIssuer, authorization_endpoint: `${oidcSettings.oidcIssuer}/authorize`, token_endpoint: `${oidcSettings.oidcIssuer}/token`, jwks_uri: `${oidcSettings.oidcIssuer}/jwks` })); }
+  if (url.pathname === '/jwks') { jwksRequests++; const rotated = issuerMode === 'rotation' || issuerMode === 'rotation-recovery'; return res.end(JSON.stringify({ keys: [{ ...(rotated ? keyB : keyA).publicKey.export({ format: 'jwk' }), kid: rotated ? 'rotated-key' : 'local-key', alg: 'RS256', use: 'sig' }] })); }
+  if (url.pathname !== '/token' || req.method !== 'POST') { res.statusCode = 404; return res.end('{}'); }
+  const chunks = []; for await (const chunk of req) chunks.push(chunk);
+  const form = new URLSearchParams(Buffer.concat(chunks).toString()); exchanges++;
+  if (!expectedCode || form.get('client_id') !== 'local-client' || form.get('client_secret') !== 'local-secret' || form.get('code') !== expectedCode || form.get('redirect_uri') !== `${issuerMode === 'secure' ? 'https' : 'http'}://127.0.0.1:${issuerMode === 'missing-secret' ? 43184 : 43183}/api/auth/oidc/callback` || (issuerMode === 'no-verifier' ? form.has('code_verifier') : form.get('code_verifier') !== expectedVerifier || createHash('sha256').update(expectedVerifier).digest('base64url') !== expectedChallenge) || form.get('grant_type') !== 'authorization_code') { res.statusCode = 400; return res.end('{}'); }
+  expectedCode = '';
+  if (issuerMode === 'exchange-network') { req.socket.destroy(); return; }
+  if (issuerMode === 'exchange') { res.statusCode = 500; return res.end('{}'); }
+  if (issuerMode === 'bad-json') return res.end('{');
+  if (issuerMode === 'no-token') return res.end('{}');
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { iss: issuerMode === 'issuer' ? 'https://invalid.example' : oidcSettings.oidcIssuer, aud: issuerMode === 'audience' ? 'wrong' : 'local-client', sub: issuerMode === 'subject' ? 'wrong' : 'local-subject', roles: issuerMode === 'role' ? ['reader'] : issuerMode === 'malformed-role' ? ['admin', 1] : ['admin'], ...(issuerMode === 'token-missing-nonce' ? {} : { nonce: issuerMode === 'nonce' ? 'wrong' : flowNonce }), iat: now, exp: issuerMode === 'expired' ? now - 60 : now + 300, nbf: issuerMode === 'future' ? now + 300 : now - 1 };
+  const input = `${encode({ alg: 'RS256', kid: issuerMode.startsWith('rotation') ? 'rotated-key' : 'local-key' })}.${encode(payload)}`;
+  const signature = sign('RSA-SHA256', Buffer.from(input), ['signature', 'rotation', 'rotation-recovery'].includes(issuerMode) ? keyB.privateKey : keyA.privateKey).toString('base64url');
+  res.end(JSON.stringify({ id_token: `${input}.${signature}` }));
+});
+await new Promise((resolve, reject) => { issuer.once('error', reject); issuer.listen(43182, '127.0.0.1', resolve); });
 loginDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const a2aDb = new DatabaseSync(`${dir}/a2a-status.sqlite`);
 a2aDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
@@ -55,6 +88,10 @@ const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].m
 const ownedProbe = '/work/fixture/acp-owned-probe';
 const state = { bypass: 'disabled', settings: { requireLogin: true, password: 'fixture-configured', setupComplete: true, customAgents: [{ id: 'owned', name: 'owned', binary: ownedProbe, versionCommand: `${ownedProbe} --version`, providerAlias: 'owned', spawnArgs: [], protocol: 'stdio' }] }, tokens: Object.entries(scopedTokens).map(([scope, token]) => ({ id: `fixture-${scope}`, token_hash: createHash('sha256').update(token).digest('hex'), token_prefix: 'oma_live_fixtu', name: `fixture-${scope}`, scope, created_at: '2025-01-01T00:00:00.000Z', last_used_at: null, expires_at: null, revoked_at: null })), apiKeys: Object.entries(managementKeys).map(([scope, key]) => ({ id: `key-${scope}`, key_hash: createHash('sha256').update(key).digest('hex'), is_active: 1, is_banned: 0, scopes: JSON.stringify([scope]) })) };
 await writeFile(`${dir}/state.json`, JSON.stringify(state), { mode: 0o600 });
+await writeFile(`${dir}/csrf-disabled-state.json`, JSON.stringify({ ...state, settings: { ...state.settings, requireLogin: false } }), { mode: 0o600 });
+await writeFile(`${dir}/csrf-disabled-events.jsonl`, '', { mode: 0o600 });
+await writeFile(`${dir}/csrf-failure-state.json`, JSON.stringify({ ...state, failTokenRead: true }), { mode: 0o600 });
+await writeFile(`${dir}/csrf-failure-events.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/events.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/auth-status-reads.jsonl`, '', { mode: 0o600 });
 await writeFile(`${dir}/sso-config-reads.jsonl`, '', { mode: 0o600 });
@@ -63,11 +100,23 @@ await writeFile(`${dir}/a2a-status-reads.jsonl`, '', { mode: 0o600 });
 const child = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', String(port)], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
+const oidcChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', '43183'], {
+  cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret }, stdio: ['ignore', 'inherit', 'inherit'],
+});
+const oidcNoSecretChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', '43184'], {
+  cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl` }, stdio: ['ignore', 'inherit', 'inherit'],
+});
 const acpChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/fixture/acp-server.mjs'], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret }, stdio: ['ignore', 'inherit', 'inherit'],
 });
 const historyChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', '43181'], {
   cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/state.json`, INGRESS_EVENT_FILE: `${dir}/events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password', REQUIRE_API_KEY: 'true' }, stdio: ['ignore', 'inherit', 'inherit'],
+});
+const csrfDisabledChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', '43185'], {
+  cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/csrf-disabled-state.json`, INGRESS_EVENT_FILE: `${dir}/csrf-disabled-events.jsonl` }, stdio: ['ignore', 'inherit', 'inherit'],
+});
+const csrfFailureChild = spawn(process.execPath, ['--import', '/work/fixture/initialize.mjs', '/work/app/node_modules/next/dist/bin/next', 'start', '-H', '127.0.0.1', '-p', '43186'], {
+  cwd: '/work/app', env: { PATH: '/runtime', HOME: '/work/home', TMPDIR: '/work/tmp', NODE_ENV: 'production', DATA_DIR: dir, INGRESS_STATE_FILE: `${dir}/csrf-failure-state.json`, INGRESS_EVENT_FILE: `${dir}/csrf-failure-events.jsonl`, JWT_SECRET: secret, INITIAL_PASSWORD: 'fixture-only-initial-password' }, stdio: ['ignore', 'inherit', 'inherit'],
 });
 function assert(condition, name) { if (!condition) throw new Error(`INGRESS_ASSERTION:${name}`); }
 async function ready(target = child, targetPort = port) {
@@ -94,7 +143,7 @@ async function request(path, method = 'GET', headers = {}, targetPort = port) {
   const text = Buffer.concat(chunks).toString('utf8');
   let body;
   try { body = JSON.parse(text); } catch { body = null; }
-  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), requestId: response.headers.get('x-request-id'), cacheControl: response.headers.get('cache-control'), contentType: response.headers.get('content-type'), contentLength: response.headers.get('content-length'), text, body };
+  return { status: response.status, routeClass: response.headers.get('x-omniroute-route-class'), requestId: response.headers.get('x-request-id'), cacheControl: response.headers.get('cache-control'), contentType: response.headers.get('content-type'), contentLength: response.headers.get('content-length'), ...(path === '/api/auth/csrf' ? { setCookie: response.headers.has('set-cookie') } : {}), text, body };
 }
 async function transition(path, status) {
   const deadline = Date.now() + 10000;
@@ -117,8 +166,93 @@ async function stop(target = child) {
 const results = [];
 try {
   await ready();
+  await ready(oidcChild, 43183);
+  await ready(oidcNoSecretChild, 43184);
+  const configCases = {};
+  for (const [name, key, value] of [['disabled', 'oidcEnabled', false], ['incomplete', 'oidcClientSecret', '']]) {
+    oidcInsert.run(key, JSON.stringify(value));
+    await delay(5100);
+    const login = await fetch('http://127.0.0.1:43183/api/auth/oidc/login', { redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    const callback = await fetch('http://127.0.0.1:43183/api/auth/oidc/callback?code=single&state=config-state', { headers: { cookie: 'oidc_state=config-state' }, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    const body = await login.json();
+    configCases[name] = { loginStatus: login.status, loginPublic: login.headers.get('x-omniroute-route-class') === 'PUBLIC', fixedError: body.error === 'OIDC is not configured. Use password login or configure OIDC in settings.', noLoginCookies: login.headers.getSetCookie().length === 0, callbackStatus: callback.status, callbackResult: new URL(callback.headers.get('location')).searchParams.get('oidc_error'), callbackPublic: callback.headers.get('x-omniroute-route-class') === 'PUBLIC' };
+    oidcInsert.run(key, JSON.stringify(oidcSettings[key]));
+    await delay(5100);
+  }
+  const oidcCases = {};
+  for (const mode of ['nonce', 'missing-nonce', 'token-missing-nonce', 'signature', 'issuer', 'audience', 'expired', 'future', 'subject', 'role', 'malformed-role', 'exchange', 'exchange-network', 'bad-json', 'no-token', 'missing-code', 'missing-state', 'wrong-state', 'missing-secret', 'no-verifier', 'discovery-fallback', 'success', 'secure', 'rotation', 'rotation-recovery']) {
+    if (mode === 'rotation-recovery') await delay(31000);
+    issuerMode = mode;
+    expectedCode = `single-use-${mode}`;
+    if (['success', 'secure', 'no-verifier', 'discovery-fallback', 'rotation', 'rotation-recovery'].includes(mode)) { oidcInsert.run('setupComplete', 'false'); if (oidcDb.prepare("SELECT value FROM key_value WHERE namespace='settings' AND key='setupComplete'").get()?.value !== 'false') throw new Error('OIDC_SETUP_RESET_FAILED'); }
+    const oidcPort = mode === 'missing-secret' ? 43184 : 43183;
+    const login = await fetch(`http://127.0.0.1:${oidcPort}/api/auth/oidc/login`, { headers: mode === 'secure' ? { 'x-forwarded-proto': 'https' } : {}, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    const location = new URL(login.headers.get('location'));
+    if (mode === 'discovery-fallback' && (location.origin !== oidcSettings.oidcIssuer || location.pathname !== '/authorize')) throw new Error('OIDC_DISCOVERY_FALLBACK_MISMATCH');
+    const flowCookies = login.headers.getSetCookie();
+    const values = Object.fromEntries(flowCookies.map(value => { const pair = value.split(';', 1)[0]; const at = pair.indexOf('='); return [pair.slice(0, at), pair.slice(at + 1)]; }));
+    flowNonce = location.searchParams.get('nonce'); expectedVerifier = values.oidc_pkce_verifier; expectedChallenge = location.searchParams.get('code_challenge');
+    const before = exchanges, beforeJwks = jwksRequests;
+    const query = mode === 'missing-code' ? `state=${encodeURIComponent(values.oidc_state)}` : mode === 'missing-state' ? `code=${encodeURIComponent(expectedCode)}` : `code=${encodeURIComponent(expectedCode)}&state=${encodeURIComponent(mode === 'wrong-state' ? 'foreign-state' : values.oidc_state)}`;
+    const response = await fetch(`http://127.0.0.1:${oidcPort}/api/auth/oidc/callback?${query}`, { headers: { ...(mode === 'secure' ? { 'x-forwarded-proto': 'https' } : {}), cookie: Object.entries(values).filter(([key]) => (mode !== 'missing-nonce' || key !== 'oidc_nonce') && (mode !== 'no-verifier' || key !== 'oidc_pkce_verifier')).map(([key, value]) => `${key}=${value}`).join('; ') }, redirect: 'manual', signal: AbortSignal.timeout(10000) });
+    const destination = new URL(response.headers.get('location'));
+    const returnedCookies = response.headers.getSetCookie();
+    const session = returnedCookies.find(value => value.startsWith('auth_token='));
+    const clearCookiesValid = ['oidc_pkce_verifier', 'oidc_nonce'].every(name => returnedCookies.some(value => value.startsWith(`${name}=`) && /max-age=0/i.test(value) && /httponly/i.test(value) && /samesite=lax/i.test(value)));
+    let sessionValid = false;
+    if (session) { try { const token = session.split(';', 1)[0].slice('auth_token='.length); const verified = await jwtVerify(token, new TextEncoder().encode(secret)); sessionValid = verified.payload.authenticated === true; } catch {} }
+    const setup = oidcDb.prepare("SELECT value FROM key_value WHERE namespace='settings' AND key='setupComplete'").get();
+    oidcCases[mode] = { loginStatus: login.status, loginPublic: login.headers.get('x-omniroute-route-class') === 'PUBLIC', loginCookiesValid: ['oidc_state', 'oidc_pkce_verifier', 'oidc_nonce'].every(name => flowCookies.some(value => value.startsWith(`${name}=`) && /httponly/i.test(value) && /samesite=lax/i.test(value) && /max-age=600/i.test(value) && /path=\//i.test(value) && (/; secure/i.test(value) === (mode === 'secure')))), stateMatches: location.searchParams.get('state') === values.oidc_state, nonceMatches: flowNonce === values.oidc_nonce, challengeMatches: createHash('sha256').update(expectedVerifier).digest('base64url') === expectedChallenge && location.searchParams.get('code_challenge_method') === 'S256', callbackStatus: response.status, callbackPublic: response.headers.get('x-omniroute-route-class') === 'PUBLIC', result: destination.pathname === '/dashboard' ? 'dashboard' : destination.searchParams.get('oidc_error'), stateCleared: returnedCookies.some(value => value.startsWith('oidc_state=') && /max-age=0/i.test(value)), clearCookiesValid, sessionIssued: Boolean(session), sessionValid, sessionAttributesValid: !session || (/httponly/i.test(session) && /samesite=lax/i.test(session) && /max-age=2592000/i.test(session) && /path=\//i.test(session) && (/; secure/i.test(session) === (mode === 'secure'))), setupComplete: setup?.value === 'true', exchangeCount: exchanges - before, jwksRequests: jwksRequests - beforeJwks };
+  }
+  // The isolated boundary records calls but never runs catalog revalidation.
+  const catalogBoundary = `${dir}/oidc-catalog-boundary.jsonl`;
+  const boundaryDeadline = Date.now() + 10000;
+  let boundaryEvents = [];
+  while (Date.now() < boundaryDeadline) {
+    try { boundaryEvents = (await readFile(catalogBoundary, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (boundaryEvents.length >= 6) break;
+    await delay(50);
+  }
+  assert(boundaryEvents.length === 6 && boundaryEvents.every(event => JSON.stringify(event) === '{"event":"schedule-not-executed"}'), 'oidc-catalog-boundary');
+  const oidcHttp = { cases: oidcCases, configCases };
   await ready(acpChild, 43180);
   const statusPath = '/api/auth/status';
+  const csrfCases = {};
+  let firstCsrfToken;
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer invalid' }, session: { cookie }, session2: { cookie: secondCookie }, inference: { authorization: `Bearer ${managementKeys.read}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.admin}` }, omaRead: { authorization: `Bearer ${scopedTokens.read}` }, omaWrite: { authorization: `Bearer ${scopedTokens.write}` } })) {
+    const before = Math.floor(Date.now() / 1000);
+    const response = await request('/api/auth/csrf', 'GET', headers);
+    const after = Math.floor(Date.now() / 1000);
+    let issued = null, hmacBound = null, expiryValid = null, shapeValid = null;
+    if (response.status === 200) {
+      const body = response.body;
+      shapeValid = body !== null && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).sort().join(',') === 'expiresAt,token';
+      issued = typeof body?.token === 'string';
+      if (issued) {
+        const parts = body.token.split('.');
+        const expiry = Number(parts[1]);
+        const session = headers.cookie?.slice('auth_token='.length) ?? '';
+        const hash = createHash('sha256').update(session).digest('base64url');
+        const mac = createHmac('sha256', secret).update(`omniroute-dashboard-csrf-v1\n${expiry}\n${hash}`).digest('base64url');
+        hmacBound = parts.length === 3 && parts[0] === 'v1' && parts[2] === mac;
+        expiryValid = Number.isSafeInteger(expiry) && expiry >= before + 600 && expiry <= after + 600 && expiry <= 8_640_000_000_000 && body.expiresAt === new Date(expiry * 1000).toISOString();
+        if (name === 'session') firstCsrfToken = body.token;
+      } else {
+        shapeValid &&= body?.token === null && body?.expiresAt === null;
+      }
+    }
+    csrfCases[name] = { status: response.status, routeClass: response.routeClass, issued, hmacBound, expiryValid, shapeValid, sessionDistinct: name === 'session2' ? issued && typeof firstCsrfToken === 'string' && response.body.token !== firstCsrfToken : null, noStore: response.cacheControl === 'no-store', json: response.contentType === 'application/json', cookieMutation: response.setCookie };
+  }
+  await ready(csrfDisabledChild, 43185);
+  for (const [name, headers] of Object.entries({ disabled: {}, missingSecret: { cookie: 'auth_token=fixture-session' } })) {
+    const r = await request('/api/auth/csrf', 'GET', headers, 43185);
+    csrfCases[name] = { status: r.status, routeClass: r.routeClass, issued: r.status === 200 ? r.body?.token !== null : null, hmacBound: null, expiryValid: null, shapeValid: r.status === 200 ? JSON.stringify(r.body) === JSON.stringify({ token: null, expiresAt: null }) : null, sessionDistinct: null, noStore: r.cacheControl === 'no-store', json: r.contentType === 'application/json', cookieMutation: r.setCookie };
+  }
+  await ready(csrfFailureChild, 43186);
+  const failed = await request('/api/auth/csrf', 'GET', { authorization: `Bearer ${scopedTokens.read}` }, 43186);
+  csrfCases.backendFailure = { status: failed.status, routeClass: failed.routeClass, issued: null, hmacBound: null, expiryValid: null, shapeValid: null, sessionDistinct: null, noStore: failed.cacheControl === 'no-store', json: failed.contentType === 'application/json', cookieMutation: failed.setCookie };
+  const csrfHttp = { cases: csrfCases };
   const analyticsPath = '/api/analytics/auto-routing';
   const analyticsAuth = {};
   for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, inference: { authorization: `Bearer ${managementKeys.read}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.read}` } })) {
@@ -535,15 +669,21 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, oidcHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
+  oidcDb.close();
+  await new Promise(resolve => issuer.close(resolve));
   statusDb.close();
   visibilityDb.close();
   a2aDb.close();
   loginDb.close();
   mfaDb.close();
   ssoDb.close();
+  await stop(oidcChild);
+  await stop(oidcNoSecretChild);
   db.close();
+  await stop(csrfDisabledChild);
+  await stop(csrfFailureChild);
   await stop(historyChild);
   await stop(acpChild);
   await stop();

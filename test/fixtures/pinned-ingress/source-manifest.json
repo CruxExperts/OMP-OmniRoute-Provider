@@ -2045,6 +2045,10 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/auth/csrf/route.ts": { "sha256": "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5", "gitBlob": "a18026b4474ea4b7259d6ae0accfbc32429fef61" },
+    "src/app/api/auth/oidc/login/route.ts": { "sha256": "560cef9fab79b924c12f7adfffedac346431aaebe16a954f811f71da4c5d1ba6", "gitBlob": "cac5a19000de65f08b8084c1b58de11f2a011c5b" },
+    "src/app/api/auth/oidc/callback/route.ts": { "sha256": "5f7b2a82d550b7190b5853f5b2485e8d7ebb32ff5194ff11f036d5fea7874a52", "gitBlob": "f10477cd3613fc58c6984e4c8749b09ae0973a71" },
+    "src/lib/oauth/utils/pkce.ts": { "sha256": "e87bb400684d0576db4790f61cb4769821f508bace66f46be52c04e339859885", "gitBlob": "a93ac043182ecb889e92e672bb46aa98165a22f5" },
     "src/app/api/analytics/diversity/route.ts": { "sha256": "5309a9f0b87006e3c613aa494c0364cf93f9c81d5c14bdde23865a858d1ba934", "gitBlob": "15005c7d702621c7eacd93b4b079099a4e1dca65" },
     "src/app/api/analytics/auto-routing/route.ts": { "sha256": "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1", "gitBlob": "27fd7e8350f76a3e1a1429b69344c21ce350d9b5" },
     "src/lib/db/usageLogs.ts": { "sha256": "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0", "gitBlob": "20d423a5cfeb372c876196060b412f37cb54c801" },
