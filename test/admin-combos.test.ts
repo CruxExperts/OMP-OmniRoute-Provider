@@ -1,8 +1,10 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash, validateComboMetricsContract, validateComboMetricsLifecycleObservation } from "../scripts/generate-contracts.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 import { invokeJsonAdapter } from "../src/admin/adapters.ts";
@@ -252,21 +254,43 @@ test("effect schemas isolate lifecycle domains and forbid unrelated effects", ()
 });
 
 test("metrics outcome hashes reject nonsemantic and drifted receipts", async () => {
-  const counts = { production: 1, shadow: 1, hidden: 1 };
-  for (const operationId of ["GET /api/combos/metrics", "DELETE /api/combos/metrics"] as const) {
-    const contract = COMBO_SOURCE_CONTRACTS[operationId], binding = operationEvidenceBinding(operationId, contract), caseSha256 = testCaseSourceHash(TEST_ID);
-    const read = operationId.startsWith("GET ");
-    const observation = read ? { before: counts, after: counts, result: { status: 200, body: counts } } : { before: { selected: counts, other: counts }, after: { selected: null, other: counts }, result: { status: 200, body: { success: true, message: "Metrics reset for Probe" } } };
-    for (const [valid, candidate] of [[true, observation], [false, { ...observation, after: null }], [false, { ...observation, result: { status: 200, body: {} } }]] as const) {
-      const artifact = { operationId, testId: TEST_ID, caseSha256, binding, observation: candidate };
-      const bytes = canonicalizeJson(artifact), digest = createHash("sha256").update(bytes).digest("hex");
-      const path = `provenance/qualification/${digest}.json`, file = resolve(process.cwd(), path);
-      await writeFile(file, bytes, { flag: "wx", mode: 0o600 });
-      try {
-        const validate = () => testOutcomeHash(operationId, TEST_ID, caseSha256, binding, contract, path);
-        if (valid) expect(validate).not.toThrow(); else expect(validate).toThrow();
-      } finally { await unlink(file); }
+  const packageRoot = resolve(import.meta.dir, "..");
+  const fixtureRoot = await mkdtemp(join(tmpdir(), "combo-metrics-outcomes-"));
+  try {
+    await mkdir(join(fixtureRoot, "scripts"));
+    await mkdir(join(fixtureRoot, "provenance", "qualification"), { recursive: true });
+    for (const name of ["generate-contracts.ts", "openapi-annotations.ts", "route-source-store.ts"]) {
+      await copyFile(join(packageRoot, "scripts", name), join(fixtureRoot, "scripts", name));
     }
+    await symlink(join(packageRoot, "src"), join(fixtureRoot, "src"), "junction");
+    await symlink(join(packageRoot, "node_modules"), join(fixtureRoot, "node_modules"), "junction");
+    // A subprocess loads the copied module with the fixture as its package root.
+    const program = `
+      import { pathToFileURL } from "node:url";
+      import { resolve } from "node:path";
+      const { testOutcomeHash } = await import(pathToFileURL(resolve("scripts/generate-contracts.ts")).href);
+      const args = JSON.parse(await Bun.stdin.text());
+      try { console.log(JSON.stringify({ hash: testOutcomeHash(...args) })); }
+      catch (error) { console.log(JSON.stringify({ error: String(error) })); }
+    `;
+    const counts = { production: 1, shadow: 1, hidden: 1 };
+    for (const operationId of ["GET /api/combos/metrics", "DELETE /api/combos/metrics"] as const) {
+      const contract = COMBO_SOURCE_CONTRACTS[operationId], binding = operationEvidenceBinding(operationId, contract), caseSha256 = testCaseSourceHash(TEST_ID);
+      const read = operationId.startsWith("GET ");
+      const observation = read ? { before: counts, after: counts, result: { status: 200, body: counts } } : { before: { selected: counts, other: counts }, after: { selected: null, other: counts }, result: { status: 200, body: { success: true, message: "Metrics reset for Probe" } } };
+      for (const [expectedError, candidate] of [[null, observation], [read ? /combo metrics observed outcome mismatch/ : /side-effect evidence requires observed before and after state/, { ...observation, after: null }], [/combo metrics observed outcome mismatch/, { ...observation, result: { status: 200, body: {} } }]] as const) {
+        const artifact = { operationId, testId: TEST_ID, caseSha256, binding, observation: candidate };
+        const bytes = canonicalizeJson(artifact), digest = createHash("sha256").update(bytes).digest("hex");
+        const path = `provenance/qualification/${digest}.json`;
+        await writeFile(join(fixtureRoot, path), bytes, { flag: "wx", mode: 0o600 });
+        const result = JSON.parse(execFileSync(process.execPath, ["-e", program], {
+          cwd: fixtureRoot, input: JSON.stringify([operationId, TEST_ID, caseSha256, binding, contract, path]), encoding: "utf8", timeout: 120_000,
+        })) as { hash?: string; error?: string };
+        if (expectedError) expect(result.error).toMatch(expectedError); else expect(result.hash).toMatch(/^[a-f0-9]{64}$/);
+      }
+    }
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
   }
 });
 
