@@ -4,10 +4,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
-- Characterize the pinned dashboard CSRF issuer and management authorization with
-  token-free bounded observations. HTTP and native lifecycle evidence remain
-  research-only until independently produced and admitted; tokens and session
-  credentials are not exposed through the candidate administration projection.
+- Qualify the bounded dashboard CSRF issuance view through exact management
+  HTTP and independent native cold/warm observations. Tokens, expiry and session
+  credentials remain withheld, including private target views. Authentication
+  initialization requires confirmation, unknown settlement and no replay.
 
 - Construct synthetic private-path sanitizer test data at runtime so release
   exports retain the regression without embedding private-looking paths.
