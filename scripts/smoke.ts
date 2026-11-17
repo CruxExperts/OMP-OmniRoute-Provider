@@ -6,6 +6,9 @@ import { lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, s
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, parse, relative, resolve, sep, win32 } from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { setTimeout as delay } from "node:timers/promises";
+import ts from "typescript";
 import { isDeepStrictEqual, stripVTControlCharacters } from "node:util";
 import { DISPLAY_NAME, PROVIDER_LIST_NAME } from "../src/identity.ts";
 import { verifyPackage, type PackageVerificationResult } from "./verify-package.ts";
@@ -2020,9 +2023,124 @@ async function checkPluginState(
   if ((expected === "present" && !present) || (expected === "absent" && present)) throw new Error(`plugin list state mismatch for ${expectedName}: expected ${expected}`);
   return parsed;
 }
+type ConcurrencyCounts = { rateLimits: number; comboQueues: number; semaphores: number };
+
+export async function portableConcurrencyObservation(): Promise<JsonObject> {
+  const source = stringValue(process.env.OMP_QUALIFICATION_EFFECTIVE_SOURCE_ROOT, "qualification source root");
+  const bottleneckRoot = stringValue(process.env.OMP_QUALIFICATION_BOTTLENECK_ROOT, "qualification Bottleneck root");
+  const receipt = objectValue(JSON.parse(await readFile(`${source}.receipt.json`, "utf8")), "qualification source receipt");
+  if (!Array.isArray(receipt.files)) throw new Error("qualification source receipt has no inventory");
+  const hashes = new Map<string, string>();
+  for (const value of receipt.files) {
+    const row = objectValue(value, "source file receipt");
+    const path = stringValue(row.path, "source file path");
+    const hash = stringValue(row.sha256, "source file digest");
+    if (hashes.has(path) || !/^[a-f0-9]{64}$/.test(hash)) throw new Error("invalid source receipt entry");
+    hashes.set(path, hash);
+  }
+  const requirePackage = createRequire(join(bottleneckRoot, "package.json"));
+  const bottleneck = requirePackage(bottleneckRoot) as unknown;
+  const observed = new Map<string, string>();
+  const denied = (specifier: string): never => { throw new Error(`unapproved concurrency dependency: ${specifier}`); };
+  const load = async (path: string, dependencies: Record<string, unknown> = {}): Promise<JsonObject> => {
+    const bytes = await readFile(join(source, path));
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    if (hashes.get(path) !== hash) throw new Error(`concurrency source receipt mismatch: ${path}`);
+    observed.set(path, hash);
+    const compiled = ts.transpileModule(bytes.toString("utf8"), { fileName: path, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+    const module: { exports: JsonObject } = { exports: {} };
+    const restrictedRequire = (name: string): unknown => Object.hasOwn(dependencies, name) ? dependencies[name] : denied(name);
+    const fixtureConsole = { ...console, log: (...args: unknown[]) => console.error(...args) };
+    new Function("require", "module", "exports", "console", compiled)(restrictedRequire, module, module.exports, fixtureConsole);
+    return module.exports;
+  };
+  const bottleneckModule = { default: bottleneck, __esModule: true };
+  const combo = await load("open-sse/services/rateLimitSemaphore.ts");
+  const account = await load("open-sse/services/accountSemaphore.ts");
+  const bounded = await load("src/lib/quota/boundedMap.ts", { "@/shared/utils/logger": { createLogger: () => denied("logger") } });
+  const watchdog = await load("open-sse/services/rateLimitManager/wedgeWatchdog.ts", { bottleneck: bottleneckModule });
+  const patch = await load("open-sse/services/bottleneckPatch.ts", { bottleneck: bottleneckModule });
+  const headers = await load("open-sse/services/rateLimitManager/headers.ts");
+  const rateLog = await load("open-sse/services/rateLimitManager/log.ts");
+  const unavailable = new Proxy({}, { get: (_target, name) => denied(String(name)) });
+  const pause = await load("open-sse/services/rateLimitManager/bodyRetryPause.ts", {
+    "../accountFallback.ts": unavailable, "../antigravityQuotaFamily.ts": unavailable,
+    "../retryAfterJson.ts": unavailable, "./errors": unavailable, "./log": rateLog,
+  });
+  const managerPath = "open-sse/services/rateLimitManager.ts";
+  const managerBytes = await readFile(join(source, managerPath));
+  const managerHash = createHash("sha256").update(managerBytes).digest("hex");
+  if (hashes.get(managerPath) !== managerHash) throw new Error("concurrency manager source receipt mismatch");
+  observed.set(managerPath, managerHash);
+  const managerCompiled = ts.transpileModule(managerBytes.toString("utf8"), { fileName: managerPath, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText;
+  const managerModule: { exports: JsonObject } = { exports: {} };
+  const managerDependencies: Record<string, unknown> = {
+    bottleneck: bottleneckModule, "./bottleneckPatch.ts": patch,
+    "../../src/lib/quota/boundedMap.ts": bounded, "./rateLimitManager/wedgeWatchdog": watchdog,
+    "./rateLimitManager/headers": headers,
+    "./rateLimitManager/bodyRetryPause": pause,
+    "./rateLimitManager/log": rateLog,
+    "../../src/lib/resilience/settings": { DEFAULT_RESILIENCE_SETTINGS: { requestQueue: {} } },
+  };
+  const nodeRequire = createRequire(import.meta.url);
+  new Function("require", "module", "exports", "console", managerCompiled)(
+    (name: string) => name === "node:async_hooks" ? nodeRequire(name) : managerDependencies[name] ?? unavailable,
+    managerModule, managerModule.exports, { ...console, log: (...args: unknown[]) => console.error(...args) },
+  );
+  const manager = managerModule.exports;
+  const counts = (): ConcurrencyCounts => ({
+    rateLimits: Object.keys((manager.getAllRateLimitStatus as () => JsonObject)()).length,
+    comboQueues: Object.keys((combo.getStats as (prefix: string) => JsonObject)("combo:")).length,
+    semaphores: Object.keys((account.getStats as () => JsonObject)()).length,
+  });
+  const requireCounts = (value: ConcurrencyCounts, count: number): void => {
+    if (Object.values(value).some(item => item !== count)) throw new Error("portable concurrency count mismatch");
+  };
+  let releaseCombo: (() => void) | undefined;
+  let releaseAccount: (() => void) | undefined;
+  try {
+    const empty = counts();
+    requireCounts(empty, 0);
+    (manager.enableRateLimitProtection as (key: string) => void)("fixture-connection");
+    (manager.updateFromHeaders as (provider: string, connection: string, headers: JsonObject, status: number) => void)("fixture-provider", "fixture-connection", {}, 200);
+    releaseCombo = await (combo.acquire as (key: string, options: JsonObject) => Promise<() => void>)("combo:fixture", { maxConcurrency: 2, timeoutMs: 2_000 });
+    releaseAccount = await (account.acquire as (key: string, options: JsonObject) => Promise<() => void>)("fixture-provider:account", { maxConcurrency: 2, timeoutMs: 2_000 });
+    const first = { rateLimits: (manager.getAllRateLimitStatus as () => JsonObject)(), comboQueues: (combo.getStats as (prefix: string) => JsonObject)("combo:"), semaphores: (account.getStats as () => JsonObject)() };
+    const populated = counts();
+    requireCounts(populated, 1);
+    const second = { rateLimits: (manager.getAllRateLimitStatus as () => JsonObject)(), comboQueues: (combo.getStats as (prefix: string) => JsonObject)("combo:"), semaphores: (account.getStats as () => JsonObject)() };
+    if (!isDeepStrictEqual(first, second)) throw new Error("concurrency snapshot changed state");
+    (account.markBlocked as (key: string, duration: number) => void)("fixture-provider:account", 50);
+    const blocked = (account.getStats as () => Record<string, { blockedUntil: string | null }>)()["fixture-provider:account"]?.blockedUntil;
+    if (!blocked) throw new Error("account block was not observed");
+    const deadline = Date.parse(blocked);
+    if (!Number.isFinite(deadline) || deadline > Date.now() + 1000) throw new Error("invalid account block expiry");
+    await delay(Math.max(0, deadline - Date.now()) + 10);
+    if ((account.getStats as () => Record<string, { blockedUntil: string | null }>)()["fixture-provider:account"]?.blockedUntil !== blocked) throw new Error("snapshot consumed expired account block");
+    releaseCombo(); releaseCombo = undefined;
+    releaseAccount(); releaseAccount = undefined;
+    const admitted = await (account.acquire as (key: string, options: JsonObject) => Promise<() => void>)("fixture-provider:account", { maxConcurrency: 1, timeoutMs: 2_000 });
+    admitted();
+    const cleanupDeadline = Date.now() + 2_000;
+    while (Object.keys((account.getStats as () => JsonObject)()).length && Date.now() < cleanupDeadline) await delay(10);
+    if (Object.keys((account.getStats as () => JsonObject)()).length) throw new Error("expired account gate did not clean up after admission");
+    (combo.resetAll as () => void)();
+    (account.resetAll as () => void)();
+    await (manager.__resetRateLimitManagerForTests as () => Promise<void>)();
+    const cleaned = counts();
+    requireCounts(cleaned, 0);
+    const fixtureInputSha256 = createHash("sha256").update(JSON.stringify([...observed].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0))).digest("hex");
+    return { empty, populated, cleaned, readOnly: true, expiryObserved: true, cleanupObserved: true, networkDispatches: 0, auxiliarySha256: "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060", fixtureInputSha256 };
+  } finally {
+    releaseCombo?.(); releaseAccount?.();
+    (combo.resetAll as () => void)(); (account.resetAll as () => void)();
+    await (manager.__resetRateLimitManagerForTests as () => Promise<void>)();
+  }
+}
 
 export interface SmokeResult {
   status: "verified";
+  concurrency?: JsonObject;
   platform: NativePlatformEvidence;
   host: { mode: "release-asset" | "installed-cli"; version: string; digest: string; supportedRange: string };
   upstream: { version: string; commit: string; asset: string; digest: string };
@@ -2450,8 +2568,10 @@ export async function runSmoke(): Promise<SmokeResult> {
     const responsesPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/v1/responses").length;
     const chatCompletionsPosts = fixture.requests.filter(request => request.method === "POST" && request.path === "/v1/chat/completions").length;
     const metadataCatalogRequests = fixture.requests.filter(request => request.method === "GET" && request.path === "/api/models/catalog").length;
+    const concurrency = process.env.OMP_QUALIFICATION_TARGET_ID ? await portableConcurrencyObservation() : undefined;
     return {
       status: "verified",
+      ...(concurrency === undefined ? {} : { concurrency }),
       platform,
       host: { mode: host.mode, version: host.version, digest: host.digest, supportedRange: compatibility.range },
       upstream: { version: host.expected.version, commit: host.expected.commit, asset: host.expected.url, digest: host.expected.digest },

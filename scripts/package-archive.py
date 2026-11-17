@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+import io
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
+import stat
 import tarfile
 import unicodedata
 
@@ -39,6 +44,14 @@ ALLOWED_PREFIXES = (
     ".omp-plugin/",
 )
 WINDOWS_DEVICE_NAME = re.compile(r"(?i)^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\..*)?$")
+FIXTURE_NAME = "bottleneck"
+FIXTURE_VERSION = "2.19.5"
+FIXTURE_BYTES = 122422
+FIXTURE_SHA256 = "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060"
+FIXTURE_INTEGRITY = "sha512-VHiNCbI1lKdl44tGrhNfU3lup0Tj/ZBMJB5/2ZbNXRCPuRCO7ed2mgcK4r17y+KB2EfuYuRaVlwNbAeaWGSpbw=="
+FIXTURE_MANIFEST = Path(__file__).resolve().parent.parent / "test/fixtures/pinned-ingress/dependencies.json"
+FIXTURE_MAX_MEMBERS = 1000
+FIXTURE_MAX_EXPANDED_BYTES = 2 * 1024 * 1024
 
 
 def portable_component(component: str, raw_path: str) -> None:
@@ -96,22 +109,23 @@ def is_python_cache_path(relative_path: str) -> bool:
     )
 
 
-def preflight(archive: Path) -> tuple[list[tuple[tarfile.TarInfo, str, bool]], list[str]]:
-    if archive.is_symlink() or not archive.is_file():
-        raise ValueError("package archive must be a regular non-symlink file")
-    if archive.stat().st_size > MAX_ARCHIVE_BYTES:
-        raise ValueError(f"package archive exceeds {MAX_ARCHIVE_BYTES} bytes")
-    with tarfile.open(archive, mode="r:*") as source:
+def preflight(archive: Path | io.BytesIO, *, fixture: bool = False) -> tuple[list[tuple[tarfile.TarInfo, str, bool]], list[str]]:
+    if not fixture:
+        if archive.is_symlink() or not archive.is_file():
+            raise ValueError("package archive must be a regular non-symlink file")
+        if archive.stat().st_size > MAX_ARCHIVE_BYTES:
+            raise ValueError(f"package archive exceeds {MAX_ARCHIVE_BYTES} bytes")
+    with tarfile.open(fileobj=archive if fixture else None, name=None if fixture else str(archive), mode="r:*") as source:
         members: list[tarfile.TarInfo] = []
         for member in source:
             members.append(member)
-            if len(members) > MAX_MEMBER_COUNT:
+            if len(members) > (FIXTURE_MAX_MEMBERS if fixture else MAX_MEMBER_COUNT):
                 raise ValueError("package archive exceeds the member limit")
         if not members:
             raise ValueError("package archive has no members")
         total_size = sum(member.size for member in members if member.isfile())
-        if total_size > MAX_EXPANDED_BYTES:
-            raise ValueError(f"package archive expands beyond {MAX_EXPANDED_BYTES} bytes")
+        if total_size > (FIXTURE_MAX_EXPANDED_BYTES if fixture else MAX_EXPANDED_BYTES):
+            raise ValueError("package archive exceeds the expanded size limit" if fixture else f"package archive expands beyond {MAX_EXPANDED_BYTES} bytes")
 
         checked: list[tuple[tarfile.TarInfo, str, bool]] = []
         seen_paths: set[str] = set()
@@ -125,9 +139,9 @@ def preflight(archive: Path) -> tuple[list[tuple[tarfile.TarInfo, str, bool]], l
             if member.size < 0 or (member.isdir() and member.size != 0):
                 raise ValueError(f"archive member has invalid size metadata: {member.name}")
             path, is_directory = normalize_member(member)
-            if is_python_cache_path(path):
+            if not fixture and is_python_cache_path(path):
                 raise ValueError(f"Python bytecode/cache paths are not allowed in package archives: {path}")
-            if not allowed(path, is_directory):
+            if not fixture and not allowed(path, is_directory):
                 raise ValueError(f"package archive entry is not allowlisted: {path}")
             if path in seen_paths:
                 raise ValueError(f"package archive contains a duplicate entry: {member.name}")
@@ -169,8 +183,8 @@ def preflight(archive: Path) -> tuple[list[tuple[tarfile.TarInfo, str, bool]], l
         return checked, sorted(files)
 
 
-def extract(archive: Path, destination: Path) -> dict[str, object]:
-    checked, files = preflight(archive)
+def extract(archive: Path | io.BytesIO, destination: Path, *, fixture: bool = False) -> dict[str, object]:
+    checked, files = preflight(archive, fixture=fixture)
     if destination.is_symlink():
         raise ValueError("extraction destination must not be a symbolic link")
     destination.mkdir(parents=True, exist_ok=True)
@@ -180,7 +194,9 @@ def extract(archive: Path, destination: Path) -> dict[str, object]:
     package_root = root / "package"
     package_root.mkdir()
 
-    with tarfile.open(archive, mode="r:*") as source:
+    if fixture:
+        archive.seek(0)
+    with tarfile.open(fileobj=archive if fixture else None, name=None if fixture else str(archive), mode="r:*") as source:
         source_members = {member.name: member for member in source.getmembers()}
         for member, relative_path, is_directory in checked:
             if not relative_path:
@@ -211,16 +227,78 @@ def extract(archive: Path, destination: Path) -> dict[str, object]:
     return {"root": str(package_root), "entries": files}
 
 
+def extract_fixture(archive: Path, destination: Path) -> dict[str, object]:
+    manifest = json.loads(FIXTURE_MANIFEST.read_text(encoding="utf-8"))
+    entries = [entry for entry in manifest["packages"] if entry.get("location") == "node_modules/bottleneck"]
+    expected = {"name": FIXTURE_NAME, "version": FIXTURE_VERSION, "bytes": FIXTURE_BYTES,
+                "sha256": FIXTURE_SHA256, "integrity": FIXTURE_INTEGRITY}
+    if len(entries) != 1 or any(entries[0].get(key) != value for key, value in expected.items()):
+        raise ValueError("approved fixture manifest identity mismatch")
+    if archive.is_symlink():
+        raise ValueError("fixture archive must be a regular non-symlink file")
+    before = archive.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError("fixture archive must be a regular non-symlink file")
+    descriptor = os.open(archive, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0))
+    with os.fdopen(descriptor, "rb") as file:
+        opened = os.fstat(file.fileno())
+        if (not stat.S_ISREG(before.st_mode) or not stat.S_ISREG(opened.st_mode)
+                or (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)):
+            raise ValueError("fixture archive must be a regular non-symlink file")
+        if opened.st_size != FIXTURE_BYTES:
+            raise ValueError("fixture archive size mismatch")
+        data = file.read(FIXTURE_BYTES + 1)
+    if (len(data) != entries[0]["bytes"] or hashlib.sha256(data).hexdigest() != entries[0]["sha256"]
+            or "sha512-" + base64.b64encode(hashlib.sha512(data).digest()).decode("ascii") != entries[0]["integrity"]):
+        raise ValueError("fixture archive digest mismatch")
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("fixture destination must be a new directory")
+    destination.mkdir()
+    try:
+        source = io.BytesIO(data)
+        result = extract(source, destination, fixture=True)
+        root = Path(result["root"])
+        identity = json.loads((root / "package.json").read_text(encoding="utf-8"))
+        if (identity.get("name") != FIXTURE_NAME or identity.get("version") != FIXTURE_VERSION
+                or identity.get("license") != "MIT" or identity.get("dependencies", {}) != {}
+                or identity.get("optionalDependencies", {}) != {} or not (root / "LICENSE").is_file()):
+            raise ValueError("fixture package identity or license mismatch")
+        actual = sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
+        if actual != result["entries"]:
+            raise ValueError("fixture extraction inventory differs from files on disk")
+        source.seek(0)
+        inventory = []
+        with tarfile.open(fileobj=source, mode="r:*") as tar:
+            for path in actual:
+                member = tar.getmember("package/" + path)
+                expected_data = tar.extractfile(member).read()
+                actual_data = (root / path).read_bytes()
+                if actual_data != expected_data:
+                    raise ValueError(f"fixture extracted content mismatch: {path}")
+                inventory.append({"path": path, "bytes": len(actual_data), "sha256": hashlib.sha256(actual_data).hexdigest()})
+        result["inventory"] = inventory
+        result["archiveSha256"] = entries[0]["sha256"]
+        return result
+    except BaseException:
+        shutil.rmtree(destination)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
     extract_parser = subparsers.add_parser("extract")
     extract_parser.add_argument("archive", type=Path)
     extract_parser.add_argument("destination", type=Path)
+    fixture_parser = subparsers.add_parser("extract-approved-fixture")
+    fixture_parser.add_argument("archive", type=Path)
+    fixture_parser.add_argument("destination", type=Path)
     arguments = parser.parse_args()
     if arguments.command == "extract":
         result = extract(arguments.archive, arguments.destination)
         print(json.dumps(result, separators=(",", ":")))
+    elif arguments.command == "extract-approved-fixture":
+        print(json.dumps(extract_fixture(arguments.archive, arguments.destination), separators=(",", ":")))
 
 
 if __name__ == "__main__":

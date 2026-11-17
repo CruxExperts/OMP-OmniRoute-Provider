@@ -226,6 +226,14 @@ async function syntheticNativeSmoke(id: typeof qualificationTargetIds[number], a
     fixture: { baseUrl: "http://127.0.0.1:12345", requests: 21, failedDiscoveryGets: 1, responsesPosts: 2, chatCompletionsPosts: 2, loopbackOnly: true },
     installation: { method: "npm", version, archiveSha256, metadataGets: 1, tarballGets: 1, installedFiles: 5, ordinaryDirectory: true, fileDigestsMatched: true, noInstalledHostSdk: true, credentialFreeRegistry: true },
     pluginLifecycle: { installed: true, disabled: true, enabled: true, uninstalled: true },
+    concurrency: {
+      empty: { rateLimits: 0, comboQueues: 0, semaphores: 0 },
+      populated: { rateLimits: 1, comboQueues: 1, semaphores: 1 },
+      cleaned: { rateLimits: 0, comboQueues: 0, semaphores: 0 },
+      readOnly: true, expiryObserved: true, cleanupObserved: true, networkDispatches: 0,
+      auxiliarySha256: "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060",
+      fixtureInputSha256: "bd6145260bee3a5f064f4e8d76fada1629aef79b8ec1aae483128ad052e084a7",
+    },
     native: {
       prompt: true, cancellation: true, wizardRendered: true, wizardCancellation: true, maskedPrompt: true, persisted: true,
       inference: { startupResponses: inference, startupChatCompletions: inference, persistedChatCompletions: inference },
@@ -263,7 +271,8 @@ async function qualificationFor(output: string, root: string, skipGateHash = fal
     const installOutput = JSON.stringify(nativeSmoke.installation);
     const smokeCheckOutput = JSON.stringify({
       status: nativeSmoke.status, platform: nativeSmoke.platform, host: nativeSmoke.host,
-      upstream: nativeSmoke.upstream, fixture: nativeSmoke.fixture, native: nativeSmoke.native,
+      upstream: nativeSmoke.upstream, fixture: nativeSmoke.fixture,
+      concurrency: nativeSmoke.concurrency, native: nativeSmoke.native,
       pluginLifecycle: nativeSmoke.pluginLifecycle,
     });
     const checks = [
@@ -279,6 +288,10 @@ async function qualificationFor(output: string, root: string, skipGateHash = fal
       version: manifest.version,
       sourceRevision: manifest.sourceRevision,
       archiveSha256: packageArchiveSha256,
+      auxiliary: { archiveSha256: "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060", inventorySha256: hashA, fileCount: 1 },
+      sourceArchiveSha256: "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b",
+      sourceDerivationSha256: "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d",
+      sourceTreeSha256: "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851",
       producer: { ...producer, jobName: id },
       host: targetHosts[id],
       ...(id === "linux-x64-musl" || id === "linux-arm64-musl"
@@ -896,16 +909,62 @@ describe("release automation", () => {
     }));
     expect(failure.termination).toBe("timeout");
     expect(pids).toHaveLength(2);
-    if (process.platform === "win32") {
-      expect(failure.residualProcesses).toBe(true);
-      expect(failure.message).toContain("descendants may still be running");
+    if (failure.residualProcesses) {
       expect(failure.message).toContain("termination unconfirmed");
-      expect(() => process.kill(pids[0]!, 0)).toThrow();
+      // The fixture's self-expiring descendants may still hold this directory.
+      temporaryRoots.splice(temporaryRoots.indexOf(work), 1);
+      await expect(cleanupNativeQualification(work, join(work, "output"), false, failure)).rejects.toThrow("workspace retained");
+      expect((await lstat(work)).isDirectory()).toBe(true);
     } else {
-      expect(failure.residualProcesses).toBe(false);
-      expect(() => process.kill(pids[1]!, 0)).toThrow();
+      expect(process.platform).not.toBe("win32");
+      await expect(cleanupNativeQualification(work, join(work, "output"), false, failure)).rejects.toBe(failure);
+      await expect(lstat(work)).rejects.toThrow();
     }
-  });
+  }, 12_000);
+
+  it("confirms owned group disappearance or retains the workspace on uncertainty", async () => {
+    // Exercise the real child exit and bounded wall-clock probe together.
+    if (process.platform === "win32") return;
+    for (const outcome of ["delayed", "persistent", "permission", "unexpected"] as const) {
+      const controller = new AbortController();
+      const originalKill = process.kill.bind(process);
+      const calls: Array<{ pid: number; signal: string | number | undefined }> = [];
+      let probes = 0;
+      const kill = spyOn(process, "kill").mockImplementation((pid, signal) => {
+        calls.push({ pid, signal });
+        if (signal !== 0) return originalKill(pid, signal);
+        probes++;
+        if (outcome === "permission" || outcome === "unexpected") {
+          throw Object.assign(new Error("probe denied"), { code: outcome === "permission" ? "EPERM" : "EIO" });
+        }
+        if (outcome === "delayed" && probes >= 3) throw Object.assign(new Error("group absent"), { code: "ESRCH" });
+        return true;
+      });
+      try {
+        const failure = await commandFailure(runBoundedQualificationCommand(process.execPath, ["-e", "process.stdout.write('ready'); setInterval(() => {}, 1000)"], {
+          timeout: 10_000, ownedTree: true, signal: controller.signal, onOutput: () => controller.abort(),
+        }));
+        expect(failure.termination).toBe("interrupted");
+        expect(failure.residualProcesses).toBe(outcome !== "delayed");
+        const signals = calls.filter(call => call.signal === "SIGKILL");
+        expect(signals).toHaveLength(1);
+        expect(signals[0]!.pid).toBeLessThan(0);
+        expect(calls.filter(call => call.signal === 0).every(call => call.pid === signals[0]!.pid)).toBe(true);
+        if (outcome === "delayed") {
+          expect(probes).toBe(3);
+        } else {
+          expect(failure.message).toContain("termination unconfirmed");
+          expect(failure.message).toContain(outcome === "persistent" ? "after 2000ms" : "probe failed");
+          const paths: string[] = [];
+          const remove: typeof rm = async path => { paths.push(String(path)); };
+          await expect(cleanupNativeQualification("work", "output", false, failure, remove)).rejects.toThrow("workspace retained at work");
+          expect(paths).toEqual(["output"]);
+        }
+      } finally {
+        kill.mockRestore();
+      }
+    }
+  }, 15_000);
 
   it("does not target an exited wrapper when cancellation races its close event", async () => {
     // A real child emits exit before close. Abort immediately after the helper's
@@ -1190,6 +1249,14 @@ describe("release automation", () => {
       fixture: { baseUrl: "http://127.0.0.1:12345", requests: 12, failedDiscoveryGets: 1, responsesPosts: 2, chatCompletionsPosts: 2, loopbackOnly: true },
       installation: { method: "npm", version: "0.1.1", archiveSha256: hashA, metadataGets: 1, tarballGets: 1, installedFiles: 5, ordinaryDirectory: true, fileDigestsMatched: true, noInstalledHostSdk: true, credentialFreeRegistry: true },
       pluginLifecycle: { installed: true, disabled: true, enabled: true, uninstalled: true },
+      concurrency: {
+        empty: { rateLimits: 0, comboQueues: 0, semaphores: 0 },
+        populated: { rateLimits: 1, comboQueues: 1, semaphores: 1 },
+        cleaned: { rateLimits: 0, comboQueues: 0, semaphores: 0 },
+        readOnly: true, expiryObserved: true, cleanupObserved: true, networkDispatches: 0,
+        auxiliarySha256: "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060",
+        fixtureInputSha256: "bd6145260bee3a5f064f4e8d76fada1629aef79b8ec1aae483128ad052e084a7",
+      },
       native: {
         prompt: true,
         cancellation: true,
@@ -1213,6 +1280,10 @@ describe("release automation", () => {
       },
     };
     expect(validateNativeSmokeOutput(actualSmokeShape, "linux-x64-glibc", hashA).status).toBe("verified");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, concurrency: undefined }, "linux-x64-glibc", hashA)).toThrow("portable pinned concurrency evidence");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, concurrency: { ...actualSmokeShape.concurrency, fixtureInputSha256: hashB } }, "linux-x64-glibc", hashA)).toThrow("fixture input digest mismatch");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, concurrency: { ...actualSmokeShape.concurrency, expiryObserved: false } }, "linux-x64-glibc", hashA)).toThrow("portable concurrency omitted");
+    expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, concurrency: { ...actualSmokeShape.concurrency, populated: { rateLimits: 0, comboQueues: 1, semaphores: 1 } } }, "linux-x64-glibc", hashA)).toThrow("observations are incomplete");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, installation: { method: "npm", version: "0.1.1" } }, "linux-x64-glibc", hashA)).toThrow("exact release archive");
     expect(() => validateNativeSmokeOutput({ ...actualSmokeShape, native: { prompt: true } }, "linux-x64-glibc", hashA)).toThrow("required interactive checks");
     const native = actualSmokeShape.native;
@@ -1424,6 +1495,48 @@ describe("release automation", () => {
     await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow("evidence hash does not match its file");
   });
 
+  it("rejects portable input and observation tampering even when target evidence is rehashed", async () => {
+    const root = await fixtureRepo();
+    const output = join(await temporaryDirectory("cruxomni-portable-input-gate-"), "release");
+    await exportFixture(root, output);
+    const cases: Array<{ mutate: (evidence: Record<string, unknown>) => void; error: string }> = [
+      { mutate: evidence => { delete evidence.auxiliary; }, error: "auxiliary extraction must be an object" },
+      { mutate: evidence => { (evidence.auxiliary as Record<string, unknown>).archiveSha256 = hashB; }, error: "auxiliary extraction identity" },
+      { mutate: evidence => { (evidence.auxiliary as Record<string, unknown>).inventorySha256 = hashB; }, error: "different auxiliary inventory" },
+      { mutate: evidence => { evidence.sourceArchiveSha256 = hashB; }, error: "source identity mismatch" },
+      { mutate: evidence => { delete evidence.sourceDerivationSha256; }, error: "source identity mismatch" },
+      { mutate: evidence => { evidence.sourceTreeSha256 = hashB; }, error: "source identity mismatch" },
+      { mutate: evidence => { evidence.id = "windows-arm64"; }, error: "does not match target, source, status, and archive identity" },
+      { mutate: evidence => {
+        const smoke = evidence.smoke as Record<string, unknown>;
+        const output = JSON.parse(String(smoke.output)) as Record<string, unknown>;
+        delete output.concurrency;
+        smoke.output = JSON.stringify(output);
+        smoke.outputSha256 = createHash("sha256").update(String(smoke.output)).digest("hex");
+      }, error: "portable pinned concurrency evidence" },
+      { mutate: evidence => {
+        const smoke = evidence.smoke as Record<string, unknown>;
+        const output = JSON.parse(String(smoke.output)) as { concurrency: Record<string, unknown> };
+        output.concurrency.fixtureInputSha256 = hashB;
+        smoke.output = JSON.stringify(output);
+        smoke.outputSha256 = createHash("sha256").update(String(smoke.output)).digest("hex");
+      }, error: "fixture input digest mismatch" },
+    ];
+    for (const scenario of cases) {
+      const qualification = await qualificationFor(output, root, true);
+      const receipt = JSON.parse(await readFile(qualification.path, "utf8")) as { targets: Array<{ evidenceRef: string; evidenceSha256: string }> };
+      const target = receipt.targets[0]!;
+      const evidencePath = join(dirname(qualification.path), target.evidenceRef);
+      const evidence = JSON.parse(await readFile(evidencePath, "utf8")) as Record<string, unknown>;
+      scenario.mutate(evidence);
+      const bytes = Buffer.from(JSON.stringify(evidence));
+      await writeFile(evidencePath, bytes);
+      target.evidenceSha256 = createHash("sha256").update(bytes).digest("hex");
+      await writeFile(qualification.path, JSON.stringify(receipt));
+      await expect(createReleaseApprovalReceipt({ root, releaseDirectory: output, qualificationPath: qualification.path })).rejects.toThrow(scenario.error);
+    }
+  });
+
   it("requires musl runtime inventory evidence in the standalone release gate", async () => {
     const root = await fixtureRepo();
     const output = join(await temporaryDirectory("cruxomni-musl-runtime-gate-output-"), "release");
@@ -1494,7 +1607,7 @@ describe("release automation", () => {
       const check = evidence.smoke.checks.find(item => item.id === "package-smoke")!;
       check.output = JSON.stringify({
         status: smoke.status, platform: smoke.platform, host: smoke.host, upstream: smoke.upstream,
-        fixture: smoke.fixture, native: smoke.native, pluginLifecycle: smoke.pluginLifecycle,
+        fixture: smoke.fixture, concurrency: smoke.concurrency, native: smoke.native, pluginLifecycle: smoke.pluginLifecycle,
       });
       check.outputSha256 = createHash("sha256").update(check.output).digest("hex");
       const bytes = Buffer.from(JSON.stringify(evidence));

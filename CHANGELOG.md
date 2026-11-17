@@ -4,6 +4,16 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Retain the native qualification workspace unless a bounded process-group
+  probe confirms termination after the owned POSIX tree is signalled. A timeout
+  or uncertain probe does not establish that descendants have exited.
+- Require each native qualification target to observe the pinned concurrency
+  manager and semaphore lifecycle using the separately staged, verified
+  Bottleneck fixture. The package job verifies the signed source derivation;
+  targets independently verify the transported source tree and receipt.
+  The release gate independently requires those identities and matching fixture
+  inventories across all eight target evidence records.
+  Neither fixture artifact is part of the client package or release manifest.
 - Qualify bounded concurrency snapshots through pinned limiter and semaphore
   owners, independent management HTTP and native lifecycle observations.
   Private map identities remain withheld; initialization requires confirmation,

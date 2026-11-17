@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { isMuslTarget, validateMuslRuntimeEvidence } from "./musl-runtime.ts";
-import { validateNativeSmokeOutput } from "./qualify-release.ts";
+import { validateNativeSmokeOutput, validatePortableQualificationInputs } from "./qualify-release.ts";
 import { GITHUB_REPOSITORY, REPOSITORY_SLUG } from "../src/identity.ts";
 import { resolveQualificationSource } from "./route-source-store.ts";
 import { testCaseSourceHash } from "./generate-contracts.ts";
@@ -407,15 +407,23 @@ function validateSmokeEvidence(evidence: Record<string, unknown>, targetId: stri
   let nativeOutput: unknown;
   try { nativeOutput = JSON.parse(output) as unknown; }
   catch { throw new Error(`qualification evidence for ${targetId} has invalid native smoke JSON`); }
-  validateNativeSmokeOutput(nativeOutput, targetId as Parameters<typeof validateNativeSmokeOutput>[1], packageArtifact.sha256, String(evidence.version));
+  const validated = validateNativeSmokeOutput(nativeOutput, targetId as Parameters<typeof validateNativeSmokeOutput>[1], packageArtifact.sha256, String(evidence.version));
 
   const checks = recordArray(smoke.checks, `${targetId} smoke checks`);
   const expectedChecks = new Set(["install-package", "package-smoke"]);
+  const expectedOutput: Record<string, string> = {
+    "install-package": JSON.stringify(validated.installation),
+    "package-smoke": JSON.stringify({
+      status: validated.status, platform: validated.platform, host: validated.host,
+      upstream: validated.upstream, fixture: validated.fixture, concurrency: validated.concurrency,
+      native: validated.native, pluginLifecycle: validated.pluginLifecycle,
+    }),
+  };
   if (checks.length !== expectedChecks.size) throw new Error(`qualification evidence for ${targetId} must contain install-package and package-smoke checks`);
   for (const check of checks) {
     const id = stringValue(check.id, `${targetId} smoke check id`);
     const checkOutput = stringValue(check.output, `${targetId} ${id} output`);
-    if (!expectedChecks.delete(id) || check.status !== "passed" || Buffer.byteLength(checkOutput) > 64 * 1024
+    if (!expectedChecks.delete(id) || check.status !== "passed" || checkOutput !== expectedOutput[id] || Buffer.byteLength(checkOutput) > 64 * 1024
       || !sha256Pattern.test(String(check.outputSha256))
       || createHash("sha256").update(checkOutput, "utf8").digest("hex") !== check.outputSha256) {
       throw new Error(`qualification evidence for ${targetId} has an incomplete or invalid smoke check: ${id}`);
@@ -626,6 +634,7 @@ async function validateQualification(root: string, manifest: ReleaseManifest, pa
   const producer = await validateQualificationProducer(root, receipt.producer);
   if (!Array.isArray(receipt.targets) || receipt.targets.length !== qualificationTargetIds.length) throw new Error("qualification receipt must contain exactly the eight supported target results");
   const targetIds = new Set<string>();
+  let auxiliaryInventory: string | undefined;
   for (const [index, targetValue] of receipt.targets.entries()) {
     const target = objectValue(targetValue, `qualification target ${index}`) as unknown as TargetEvidence;
     if (typeof target.id !== "string" || !qualificationTargetIds.includes(target.id as typeof qualificationTargetIds[number]) || targetIds.has(target.id)) throw new Error(`qualification target ${index} must use one of the eight supported target IDs exactly once`);
@@ -654,8 +663,13 @@ async function validateQualification(root: string, manifest: ReleaseManifest, pa
       || evidenceProducer.workflowSha256 !== producer.workflowSha256 || evidenceProducer.jobName !== target.id) {
       throw new Error(`qualification evidence for ${target.id} does not match the named native target producer run`);
     }
+    const inventory = validatePortableQualificationInputs(evidence, target.id);
+    if (auxiliaryInventory !== undefined && inventory !== auxiliaryInventory) throw new Error(`qualification evidence for ${target.id} has a different auxiliary inventory`);
+    auxiliaryInventory = inventory;
     if (isMuslTarget(target.id)) {
       await validateMuslRuntimeEvidence(evidence.runtime, target.id, packageArtifact.sha256, manifest.sourceRevision);
+    } else if (evidence.runtime !== undefined) {
+      throw new Error(`qualification evidence for ${target.id} has unexpected musl runtime evidence`);
     }
     validateSmokeEvidence(evidence, target.id, packageArtifact);
   }

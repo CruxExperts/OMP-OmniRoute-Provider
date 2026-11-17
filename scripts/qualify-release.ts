@@ -26,6 +26,12 @@ const pinnedOmpTag = nonempty(ompRelease.tag, "OMP tag");
 if (!/^\d+\.\d+\.\d+$/.test(pinnedOmpVersion) || pinnedOmpTag !== `v${pinnedOmpVersion}`) throw new Error("Invalid pinned OMP release identity");
 const maxArchiveBytes = 512 * 1024 * 1024;
 const maxOmpBytes = 256 * 1024 * 1024;
+const approvedAuxiliarySha256 = "a62dcc8a1260148fde067d36acc601a20532a34626e3b862b5f9eea140d97060";
+const approvedAuxiliaryBytes = 122422;
+const approvedSourceSha256 = "2fcdb68b59e67abefa207841605b7fbd4569df596b9c900aeb93905ae325fc3b";
+const approvedSourceDerivationSha256 = "86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d";
+const approvedSourceTreeSha256 = "c0a2edc3c7dc81e4627645f72022e3df4f879f5054763534d1a84a478d0df851";
+const concurrencyFixtureInputSha256 = "bd6145260bee3a5f064f4e8d76fada1629aef79b8ec1aae483128ad052e084a7";
 const targets = {
   "linux-x64-glibc": { os: "linux", architecture: "x64", libc: "glibc", asset: "omp-linux-x64" },
   "linux-arm64-glibc": { os: "linux", architecture: "arm64", libc: "glibc", asset: "omp-linux-arm64" },
@@ -64,6 +70,47 @@ async function regularFile(path: string, maximumBytes: number, label: string): P
   const bytes = await readFile(path);
   if (bytes.byteLength > maximumBytes) throw new Error(`${label} exceeds its byte limit`);
   return bytes;
+}
+
+async function verifiedAuxiliaryArchive(path: string): Promise<string> {
+  const bytes = await regularFile(path, approvedAuxiliaryBytes, "approved auxiliary archive");
+  if (bytes.length !== approvedAuxiliaryBytes || await sha256(bytes) !== approvedAuxiliarySha256) {
+    throw new Error("approved auxiliary archive has the wrong size or digest");
+  }
+  return resolve(path);
+}
+
+async function verifiedSourceArchive(path: string): Promise<string> {
+  const bytes = await regularFile(path, maxArchiveBytes, "pinned upstream source archive");
+  if (await sha256(bytes) !== approvedSourceSha256) throw new Error("pinned upstream source archive digest mismatch");
+  return resolve(path);
+}
+
+async function verifyTransportedSource(directory: string, signal: AbortSignal): Promise<string> {
+  const tree = join(resolve(directory), `derived-${approvedSourceDerivationSha256}`);
+  const script = [
+    "import json, runpy, sys",
+    "owner = runpy.run_path(sys.argv[1])",
+    "derivation = owner['resolve_qualification_source']()",
+    "receipt = owner['verify_effective_tree'](sys.argv[2], sys.argv[3], derivation)",
+    "print(json.dumps({'treeSha256': receipt['treeSha256'], 'derivationSha256': derivation['sha256']}))",
+  ].join("\n");
+  const output = await runBoundedQualificationCommand(process.platform === "win32" ? "python" : "python3", ["-c", script, join(root, "scripts/prepare-upstream.py"), tree, approvedSourceSha256], { cwd: root, timeout: 180_000, maxBuffer: 1024 * 1024, signal, ownedTree: true });
+  const verified = object(JSON.parse(output) as unknown, "transported source verification");
+  if (verified.treeSha256 !== approvedSourceTreeSha256 || verified.derivationSha256 !== approvedSourceDerivationSha256) throw new Error("transported source tree does not match the qualified source");
+  return tree;
+}
+
+async function stageApprovedAuxiliary(path: string, work: string, signal: AbortSignal): Promise<JsonRecord> {
+  const archive = await verifiedAuxiliaryArchive(path);
+  const destination = join(work, "approved-auxiliary");
+  const python = process.platform === "win32" ? "python" : "python3";
+  const output = await runBoundedQualificationCommand(python, [join(root, "scripts/package-archive.py"), "extract-approved-fixture", archive, destination], { cwd: root, timeout: 60_000, maxBuffer: 2 * 1024 * 1024, signal, ownedTree: true });
+  const extracted = object(JSON.parse(output) as unknown, "approved auxiliary extraction");
+  if (extracted.archiveSha256 !== approvedAuxiliarySha256 || !Array.isArray(extracted.inventory) || extracted.inventory.length === 0) {
+    throw new Error("approved auxiliary extraction omitted verified inventory");
+  }
+  return { archiveSha256: approvedAuxiliarySha256, inventorySha256: await sha256(Buffer.from(JSON.stringify(extracted.inventory))), fileCount: extracted.inventory.length };
 }
 
 async function releaseArtifacts(directory: string): Promise<{ manifest: JsonRecord; archivePath: string; archiveName: string; archiveSha256: string }> {
@@ -210,6 +257,27 @@ export class DockerCommandError extends Error {
   }
 }
 
+const ownedGroupProbeTimeoutMs = 2_000;
+const ownedGroupProbeIntervalMs = 50;
+
+async function confirmOwnedGroupTermination(group: number): Promise<unknown | undefined> {
+  const deadline = performance.now() + ownedGroupProbeTimeoutMs;
+  while (true) {
+    if (performance.now() >= deadline) return new Error(`process group disappearance unconfirmed after ${ownedGroupProbeTimeoutMs}ms`);
+    try {
+      process.kill(-group, 0);
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH") return undefined;
+      return new Error(`process group probe failed: ${String(error)}`);
+    }
+    const remaining = deadline - performance.now();
+    if (remaining <= 0) return new Error(`process group disappearance unconfirmed after ${ownedGroupProbeTimeoutMs}ms`);
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, Math.min(ownedGroupProbeIntervalMs, remaining));
+    await promise;
+  }
+}
+
 export async function runBoundedQualificationCommand(executable: string, commandArgs: string[], options: DockerOptions = {}): Promise<string> {
   const maxBuffer = options.maxBuffer ?? 16 * 1024 * 1024;
   const timeoutMs = options.timeout ?? 20 * 60 * 1000;
@@ -234,9 +302,12 @@ export async function runBoundedQualificationCommand(executable: string, command
     let exited = false;
     let residualProcesses = false;
     let treeError: unknown;
+    let terminationRequested = false;
+    let groupConfirmation: Promise<unknown | undefined> | undefined;
     const terminate = (): void => {
       if (options.ownedTree) {
-        if (residualProcesses || treeError) return;
+        if (terminationRequested) return;
+        terminationRequested = true;
         // A PID alone cannot safely identify a Windows process tree: the wrapper
         // may exit and its PID be reused before taskkill opens it.
         if (process.platform === "win32" || exited || child.pid === undefined) {
@@ -245,12 +316,27 @@ export async function runBoundedQualificationCommand(executable: string, command
           child.stdout.destroy();
           child.stderr.destroy();
         } else {
-          try { process.kill(-child.pid, "SIGKILL"); } catch (error) {
+          const group = child.pid;
+          try {
+            process.kill(-group, "SIGKILL");
+            groupConfirmation = confirmOwnedGroupTermination(group);
+          } catch (error) {
             residualProcesses = true;
             treeError = error;
             child.stdout.destroy();
             child.stderr.destroy();
           }
+          }
+          if (groupConfirmation) {
+            escalation = setTimeout(() => {
+              if (settled) return;
+              child.unref();
+              child.stdout.destroy();
+              child.stderr.destroy();
+              const termination = timedOut ? "timeout" : interrupted ? "interrupted" : "output-limit";
+              const state = timedOut ? `timed out after ${timeoutMs}ms` : interrupted ? "was interrupted" : "exceeded its output limit";
+              fail(new DockerCommandError(`${executable} ${commandArgs[0] ?? "command"} ${state}; wrapper close unconfirmed ${ownedGroupProbeTimeoutMs}ms after termination request; owned process tree termination unconfirmed; descendants may still be running`, output(stdout), output(stderr), null, termination, true));
+            }, ownedGroupProbeTimeoutMs);
         }
         if (residualProcesses && !exited) {
           try {
@@ -322,6 +408,16 @@ export async function runBoundedQualificationCommand(executable: string, command
     });
     child.on("close", async (code, childSignal) => {
       if (settled) return;
+      clearTimeout(timer);
+      clearTimeout(escalation);
+      if (groupConfirmation) {
+        const confirmationError = await groupConfirmation;
+        if (settled) return;
+        if (confirmationError !== undefined) {
+          residualProcesses = true;
+          treeError = confirmationError;
+        }
+      }
       const stdoutText = output(stdout);
       const stderrText = output(stderr);
       if (timedOut || interrupted || outputLimited || code !== 0 || treeError) {
@@ -771,6 +867,9 @@ async function muslTargetQualification(targetValue: string, releaseDirectory: st
   const target = targetValue;
   const { manifest, archiveSha256 } = await releaseArtifacts(resolve(releaseDirectory));
   const sourceRevision = nonempty(manifest.sourceRevision, "release source revision");
+  const auxiliaryPath = await verifiedAuxiliaryArchive(nonempty(process.env.OMP_QUALIFICATION_AUXILIARY_ARCHIVE, "OMP_QUALIFICATION_AUXILIARY_ARCHIVE"));
+  const sourceArchivePath = await verifiedSourceArchive(nonempty(process.env.OMP_QUALIFICATION_SOURCE_ARCHIVE, "OMP_QUALIFICATION_SOURCE_ARCHIVE"));
+  const effectiveSourcePath = resolve(nonempty(process.env.OMP_QUALIFICATION_EFFECTIVE_SOURCE, "OMP_QUALIFICATION_EFFECTIVE_SOURCE"));
   if ((await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root })).stdout.trim() !== sourceRevision) throw new Error("musl qualification source HEAD does not match the prepared package");
   const stage = resolve(outputDirectory);
   const stageInfo = await lstat(stage).catch(() => undefined);
@@ -821,6 +920,9 @@ async function muslTargetQualification(targetValue: string, releaseDirectory: st
         "--mount", `type=bind,src=${sourceSnapshot},dst=/workspace,readonly`,
         "--mount", `type=bind,src=${resolve(releaseDirectory)},dst=/release,readonly`,
         "--mount", `type=bind,src=${stage},dst=/target-output`,
+        "--mount", `type=bind,src=${auxiliaryPath},dst=/approved-auxiliary.tgz,readonly`,
+        "--mount", `type=bind,src=${sourceArchivePath},dst=/qualification-source.tar.gz,readonly`,
+        "--mount", `type=bind,src=${effectiveSourcePath},dst=/qualification-effective,readonly`,
         "--mount", `type=bind,src=${runtimePath},dst=/musl-runtime.json,readonly`,
         "--tmpfs", "/workspace/node_modules:rw,nosuid,nodev,size=2g",
         "--tmpfs", "/tmp:rw,nosuid,nodev,exec,size=2g",
@@ -832,6 +934,9 @@ async function muslTargetQualification(targetValue: string, releaseDirectory: st
         "--env", "GIT_CONFIG_KEY_0=safe.directory",
         "--env", "GIT_CONFIG_VALUE_0=/workspace",
         "--env", "OMP_MUSL_RUNTIME_EVIDENCE_PATH=/musl-runtime.json",
+        "--env", "OMP_QUALIFICATION_AUXILIARY_ARCHIVE=/approved-auxiliary.tgz",
+        "--env", "OMP_QUALIFICATION_SOURCE_ARCHIVE=/qualification-source.tar.gz",
+        "--env", "OMP_QUALIFICATION_EFFECTIVE_SOURCE=/qualification-effective",
         ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
         resources.imageTag, "sh", "-ceu", shell,
       ];
@@ -933,9 +1038,34 @@ export function validateNativeSmokeOutput(value: unknown, target: TargetId, arch
     || administrationFields.some(field => !Object.hasOwn(administration, field))) {
     throw new Error("native smoke omitted exact unknown-outcome administration I/O and runtime cleanup evidence");
   }
+  const concurrency = object(smoke.concurrency, "portable pinned concurrency evidence");
+  const empty = object(concurrency.empty, "empty concurrency snapshot");
+  const populated = object(concurrency.populated, "populated concurrency snapshot");
+  const cleaned = object(concurrency.cleaned, "cleaned concurrency snapshot");
+  for (const key of ["rateLimits", "comboQueues", "semaphores"]) {
+    if (empty[key] !== 0 || populated[key] !== 1 || cleaned[key] !== 0) throw new Error(`portable concurrency observations are incomplete: ${key}`);
+  }
+  if (concurrency.readOnly !== true || concurrency.expiryObserved !== true || concurrency.cleanupObserved !== true
+    || concurrency.networkDispatches !== 0 || concurrency.auxiliarySha256 !== approvedAuxiliarySha256) {
+    throw new Error("portable concurrency omitted real expiry, read-only, cleanup, or auxiliary observations");
+  }
+  if (concurrency.fixtureInputSha256 !== concurrencyFixtureInputSha256) throw new Error("portable concurrency fixture input digest mismatch");
   const bytes = Buffer.from(JSON.stringify(smoke));
   if (bytes.byteLength > 128 * 1024) throw new Error("native smoke output is too large for qualification evidence");
   return smoke;
+}
+
+export function validatePortableQualificationInputs(value: unknown, target: string): string {
+  const evidence = object(value, `${target} evidence`);
+  const auxiliary = object(evidence.auxiliary, `${target} auxiliary extraction`);
+  if (evidence.sourceArchiveSha256 !== approvedSourceSha256 || evidence.sourceDerivationSha256 !== approvedSourceDerivationSha256 || evidence.sourceTreeSha256 !== approvedSourceTreeSha256) {
+    throw new Error(`${target} source identity mismatch`);
+  }
+  if (auxiliary.archiveSha256 !== approvedAuxiliarySha256 || !Number.isInteger(auxiliary.fileCount) || Number(auxiliary.fileCount) < 1
+    || Object.keys(auxiliary).length !== 3 || !("inventorySha256" in auxiliary)) {
+    throw new Error(`${target} auxiliary extraction identity is incomplete or inconsistent`);
+  }
+  return `${digest(auxiliary.inventorySha256, `${target} auxiliary inventory SHA-256`)}:${auxiliary.fileCount}`;
 }
 export const nativeSmokeTimeoutMs = (platform: NodeJS.Platform): number => (platform === "win32" ? 55 : 20) * 60 * 1000;
 
@@ -997,6 +1127,9 @@ async function targetQualification(targetValue: string, releaseDirectory: string
   const interrupt = createQualificationInterruptSignal();
   let operationError: unknown;
   try {
+    const auxiliary = await stageApprovedAuxiliary(nonempty(process.env.OMP_QUALIFICATION_AUXILIARY_ARCHIVE, "OMP_QUALIFICATION_AUXILIARY_ARCHIVE"), work, interrupt.signal);
+    await verifiedSourceArchive(nonempty(process.env.OMP_QUALIFICATION_SOURCE_ARCHIVE, "OMP_QUALIFICATION_SOURCE_ARCHIVE"));
+    const effectiveSource = await verifyTransportedSource(nonempty(process.env.OMP_QUALIFICATION_EFFECTIVE_SOURCE, "OMP_QUALIFICATION_EFFECTIVE_SOURCE"), interrupt.signal);
     const ompPath = await downloadOmp(target, work);
     const command = process.execPath;
     const args = ["run", "scripts/smoke.ts", "--", "--package", archiveName];
@@ -1006,6 +1139,8 @@ async function targetQualification(targetValue: string, releaseDirectory: string
       OMP_SMOKE_PACKAGE_ARCHIVE: archivePath,
       OMP_SMOKE_PACKAGE_SHA256: archiveSha256,
       OMP_QUALIFICATION_TARGET_ID: target,
+      OMP_QUALIFICATION_EFFECTIVE_SOURCE_ROOT: effectiveSource,
+      OMP_QUALIFICATION_BOTTLENECK_ROOT: join(work, "approved-auxiliary", "package"),
       npm_config_ignore_scripts: "true",
     };
     const smokeText = await runBoundedQualificationCommand(command, args, { cwd: root, env, timeout: nativeSmokeTimeoutMs(process.platform), maxBuffer: 2 * 1024 * 1024, signal: interrupt.signal, ownedTree: true });
@@ -1030,6 +1165,7 @@ async function targetQualification(targetValue: string, releaseDirectory: string
       host: smoke.host,
       upstream: smoke.upstream,
       fixture: smoke.fixture,
+      concurrency: smoke.concurrency,
       native: smoke.native,
       pluginLifecycle: smoke.pluginLifecycle,
     });
@@ -1042,6 +1178,10 @@ async function targetQualification(targetValue: string, releaseDirectory: string
       version,
       sourceRevision,
       archiveSha256,
+      auxiliary,
+      sourceArchiveSha256: approvedSourceSha256,
+      sourceDerivationSha256: approvedSourceDerivationSha256,
+      sourceTreeSha256: approvedSourceTreeSha256,
       producer,
       host: { os: smokePlatform.os, architecture: smokePlatform.architecture, libc: smokePlatform.libc },
       ...(runtimeEvidence === undefined ? {} : { runtime: runtimeEvidence }),
@@ -1062,6 +1202,7 @@ async function targetQualification(targetValue: string, releaseDirectory: string
       version,
       sourceRevision,
       archiveSha256,
+      auxiliarySha256: approvedAuxiliarySha256,
       evidenceSha256: await sha256(evidenceBytes),
     }, null, 2)}\n`;
     await writeNativeQualificationEvidence(stage, target, evidenceBytes, result, interrupt.signal);
@@ -1109,6 +1250,8 @@ async function verifyTargetArtifact(target: TargetId, directory: string, manifes
     || evidence.status !== "passed" || evidence.version !== version || evidence.sourceRevision !== sourceRevision || evidence.archiveSha256 !== archiveSha256) {
     throw new Error(`${target} evidence identity is incomplete or inconsistent`);
   }
+  validatePortableQualificationInputs(evidence, target);
+  if (result.auxiliarySha256 !== approvedAuxiliarySha256) throw new Error(`${target} result auxiliary digest mismatch`);
   const evidenceProducer = object(evidence.producer, `${target} producer`);
   for (const key of ["repository", "runId", "workflowPath", "workflowName", "workflowSha256", "jobName"]) {
     if (evidenceProducer[key] !== (key === "jobName" ? target : producer[key])) throw new Error(`${target} evidence has mismatched producer ${key}`);
@@ -1148,6 +1291,7 @@ async function verifyTargetArtifact(target: TargetId, directory: string, manifes
       host: validatedSmoke.host,
       upstream: validatedSmoke.upstream,
       fixture: validatedSmoke.fixture,
+      concurrency: validatedSmoke.concurrency,
       native: validatedSmoke.native,
       pluginLifecycle: validatedSmoke.pluginLifecycle,
     }),
@@ -1181,9 +1325,13 @@ async function aggregate(releaseDirectory: string, targetArtifactsDirectory: str
   let complete = false;
   try {
     const receiptTargets: JsonRecord[] = [];
+    let auxiliaryInventory: string | undefined;
     for (const id of Object.keys(targets) as TargetId[]) {
       const targetDir = join(targetRoot, id);
       const evidence = await verifyTargetArtifact(id, targetDir, manifest, archiveSha256, baseProducer);
+      const inventory = validatePortableQualificationInputs(evidence, id);
+      if (auxiliaryInventory !== undefined && inventory !== auxiliaryInventory) throw new Error(`${id} auxiliary inventory differs across targets`);
+      auxiliaryInventory = inventory;
       const evidenceBytes = await regularFile(join(targetDir, "evidence", `${id}.json`), 1024 * 1024, `${id} evidence`);
       const ref = `evidence/${id}.json`;
       await writeFile(join(stage, ref), evidenceBytes, { flag: "wx" });

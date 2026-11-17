@@ -38,6 +38,29 @@ function extract(path: string, destination: string): string {
   return execFileSync("python3", [helper, "extract", path, destination], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
+// Override the pin only inside this test subprocess so malformed archives reach
+// the same preflight and post-extraction checks as the approved archive.
+function extractTestFixture(path: string, destination: string): string {
+  const script = [
+    "import base64, hashlib, importlib.util, json, pathlib, sys, tempfile",
+    "spec = importlib.util.spec_from_file_location('archive_helper', sys.argv[1])",
+    "module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
+    "archive = pathlib.Path(sys.argv[2]); data = archive.read_bytes()",
+    "module.FIXTURE_BYTES = len(data); module.FIXTURE_SHA256 = hashlib.sha256(data).hexdigest()",
+    "module.FIXTURE_INTEGRITY = 'sha512-' + base64.b64encode(hashlib.sha512(data).digest()).decode()",
+    "entry = {'location': 'node_modules/bottleneck', 'name': module.FIXTURE_NAME, 'version': module.FIXTURE_VERSION, 'bytes': module.FIXTURE_BYTES, 'sha256': module.FIXTURE_SHA256, 'integrity': module.FIXTURE_INTEGRITY}",
+    "with tempfile.TemporaryDirectory() as tmp:",
+    "    module.FIXTURE_MANIFEST = pathlib.Path(tmp) / 'manifest.json'",
+    "    module.FIXTURE_MANIFEST.write_text(json.dumps({'packages': [entry]}))",
+    "    print(json.dumps(module.extract_fixture(archive, pathlib.Path(sys.argv[3]))))",
+  ].join("\n");
+  return execFileSync("python3", ["-c", script, helper, path, destination], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function extractApprovedFixture(path: string, destination: string): string {
+  return execFileSync("python3", [helper, "extract-approved-fixture", path, destination], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
 function archivePackageFiles(repository: string, destination: string): string {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^npm_config_/i.test(key) && key !== "NODE_OPTIONS"));
   const output = execFileSync("npm", ["pack", "--json", "--ignore-scripts", "--pack-destination", destination], {
@@ -144,6 +167,70 @@ describe("portable npm archive preflight", () => {
       } else {
         expect(() => extract(archive, destination)).toThrow();
       }
+      await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+});
+
+describe("approved isolated fixture archive", () => {
+  const identity = JSON.stringify({ name: "bottleneck", version: "2.19.5", license: "MIT", dependencies: {} });
+  it("reports independently checkable file digests and preserves the license", async () => {
+    const root = await temporary("fixture-archive-");
+    const archive = join(root, "fixture.tgz");
+    makeTar(archive, [
+      { name: "package/package.json", content: identity },
+      { name: "package/LICENSE", content: "MIT license" },
+      { name: "package/lib/index.js", content: "module.exports = 1;" },
+    ]);
+    const result = JSON.parse(extractTestFixture(archive, join(root, "extract"))) as {
+      root: string; entries: string[]; archiveSha256: string; inventory: Array<{ path: string; bytes: number; sha256: string }>;
+    };
+    expect(result.entries).toEqual(["LICENSE", "lib/index.js", "package.json"]);
+    expect(result.archiveSha256).toBe(createHash("sha256").update(await readFile(archive)).digest("hex"));
+    for (const item of result.inventory) {
+      const data = await readFile(join(result.root, item.path));
+      expect(item.bytes).toBe(data.length);
+      expect(item.sha256).toBe(createHash("sha256").update(data).digest("hex"));
+    }
+    expect(result.inventory.map(item => item.path)).toEqual(result.entries);
+    expect(await readFile(join(result.root, "LICENSE"), "utf8")).toBe("MIT license");
+  });
+
+  it("rejects unapproved bytes and existing destinations without modifying them", async () => {
+    const root = await temporary("fixture-unapproved-");
+    const archive = join(root, "fixture.tgz");
+    makeTar(archive, [{ name: "package/package.json", content: identity }, { name: "package/LICENSE", content: "MIT" }]);
+    expect(() => extractApprovedFixture(archive, join(root, "unapproved"))).toThrow();
+    await expect(lstat(join(root, "unapproved"))).rejects.toMatchObject({ code: "ENOENT" });
+    const destination = join(root, "existing");
+    await mkdir(destination);
+    await writeFile(join(destination, "keep"), "untouched");
+    expect(() => extractTestFixture(archive, destination)).toThrow();
+    expect(await readFile(join(destination, "keep"), "utf8")).toBe("untouched");
+    if (process.platform !== "win32") {
+      const alias = join(root, "archive-link.tgz");
+      await symlink(archive, alias);
+      expect(() => extractApprovedFixture(alias, join(root, "link-extract"))).toThrow();
+      await expect(lstat(join(root, "link-extract"))).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("rejects unsafe entries and identity changes and cleans its owned destination", async () => {
+    const root = await temporary("fixture-invalid-");
+    const base = [{ name: "package/package.json", content: identity }, { name: "package/LICENSE", content: "MIT" }];
+    const cases = [
+      [...base, { name: "package/../outside", content: "escape" }],
+      [...base, { name: "package/link", kind: "symlink" as const }],
+      [...base, { name: "package/lib/A", content: "a" }, { name: "package/lib/a", content: "b" }],
+      [{ name: "package/package.json", content: '{"name":"other","version":"2.19.5","license":"MIT"}' }, { name: "package/LICENSE", content: "MIT" }],
+      [{ name: "package/package.json", content: identity }],
+      [...base, ...Array.from({ length: 1000 }, (_, index) => ({ name: `package/files/${index}`, content: "x" }))],
+    ];
+    for (const [index, members] of cases.entries()) {
+      const archive = join(root, `${index}.tgz`);
+      const destination = join(root, `${index}-extract`);
+      makeTar(archive, members);
+      expect(() => extractTestFixture(archive, destination)).toThrow();
       await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
     }
   });

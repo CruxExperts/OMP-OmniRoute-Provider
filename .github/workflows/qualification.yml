@@ -167,6 +167,33 @@ jobs:
           path: release/
           if-no-files-found: error
           retention-days: 14
+      - name: Upload the approved test-only Bottleneck archive separately
+        if: ${{ inputs.mode == 'full' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cruxomni-qualification-bottleneck
+          path: ${{ runner.temp }}/pinned-ingress/dependencies/c9320b01c11db76ceaedddc10ba101c26ad825e6a36c7a3d0ba7c135a952d79e.tgz
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload the verified upstream source for target-only reconstruction
+        if: ${{ inputs.mode == 'full' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cruxomni-qualification-upstream-source
+          path: ${{ runner.temp }}/pinned-ingress/source.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload the signature-verified effective source and receipt
+        if: ${{ inputs.mode == 'full' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cruxomni-qualification-effective-source
+          path: |
+            .agents/state/omp-provider-release/upstream/derived-86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d/
+            .agents/state/omp-provider-release/upstream/derived-86871fcc5eaf071d04a5c30294a6a9514e750265bfb8f4299e42337f0e6f7a6d.receipt.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
       - name: Remove temporary hosted CI AppArmor profile
         if: ${{ always() && inputs.approve_ci_apparmor }}
         run: python3 scripts/pinned-ingress.py --ci-apparmor-cleanup --approve-ci-apparmor
@@ -213,10 +240,16 @@ jobs:
         run: |
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-bottleneck --dir "$RUNNER_TEMP/qualification-auxiliary"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-upstream-source --dir "$RUNNER_TEMP/qualification-source"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-effective-source --dir "$RUNNER_TEMP/qualification-effective"
       - name: Run native package and host lifecycle smoke
         env:
           GH_TOKEN: ${{ github.token }}
           QUALIFICATION_TARGET: ${{ matrix.id }}
+          OMP_QUALIFICATION_AUXILIARY_ARCHIVE: ${{ runner.temp }}/qualification-auxiliary/c9320b01c11db76ceaedddc10ba101c26ad825e6a36c7a3d0ba7c135a952d79e.tgz
+          OMP_QUALIFICATION_SOURCE_ARCHIVE: ${{ runner.temp }}/qualification-source/source.tar.gz
+          OMP_QUALIFICATION_EFFECTIVE_SOURCE: ${{ runner.temp }}/qualification-effective
         run: |
           set -euo pipefail
           bun run scripts/qualify-release.ts target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/target-output"
@@ -248,9 +281,15 @@ jobs:
         run: |
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-bottleneck --dir "$RUNNER_TEMP/qualification-auxiliary"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-upstream-source --dir "$RUNNER_TEMP/qualification-source"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-effective-source --dir "$RUNNER_TEMP/qualification-effective"
       - name: Rebuild the reviewed native x64 musl runtime and qualify the exact archive
         env:
           QUALIFICATION_TARGET: linux-x64-musl
+          OMP_QUALIFICATION_AUXILIARY_ARCHIVE: ${{ runner.temp }}/qualification-auxiliary/c9320b01c11db76ceaedddc10ba101c26ad825e6a36c7a3d0ba7c135a952d79e.tgz
+          OMP_QUALIFICATION_SOURCE_ARCHIVE: ${{ runner.temp }}/qualification-source/source.tar.gz
+          OMP_QUALIFICATION_EFFECTIVE_SOURCE: ${{ runner.temp }}/qualification-effective
         run: |
           set -euo pipefail
           bun run scripts/qualify-release.ts musl-target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/target-output"
@@ -282,9 +321,15 @@ jobs:
         run: |
           set -euo pipefail
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-release-input --dir "$RUNNER_TEMP/release"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-bottleneck --dir "$RUNNER_TEMP/qualification-auxiliary"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-upstream-source --dir "$RUNNER_TEMP/qualification-source"
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name cruxomni-qualification-effective-source --dir "$RUNNER_TEMP/qualification-effective"
       - name: Rebuild the reviewed native arm64 musl runtime and qualify the exact archive
         env:
           QUALIFICATION_TARGET: linux-arm64-musl
+          OMP_QUALIFICATION_AUXILIARY_ARCHIVE: ${{ runner.temp }}/qualification-auxiliary/c9320b01c11db76ceaedddc10ba101c26ad825e6a36c7a3d0ba7c135a952d79e.tgz
+          OMP_QUALIFICATION_SOURCE_ARCHIVE: ${{ runner.temp }}/qualification-source/source.tar.gz
+          OMP_QUALIFICATION_EFFECTIVE_SOURCE: ${{ runner.temp }}/qualification-effective
         run: |
           set -euo pipefail
           bun run scripts/qualify-release.ts musl-target --id "$QUALIFICATION_TARGET" --release-dir "$RUNNER_TEMP/release" --output-dir "$RUNNER_TEMP/target-output"
