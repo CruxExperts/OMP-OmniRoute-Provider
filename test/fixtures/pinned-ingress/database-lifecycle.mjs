@@ -24,8 +24,9 @@ const compression = phase === 'compression-cold' || phase === 'compression-warm'
 const diversity = phase === 'diversity-cold' || phase === 'diversity-warm';
 const csrf = phase === 'csrf-cold' || phase === 'csrf-warm';
 const oidc = phase === 'oidc-cold' || phase === 'oidc-warm';
-const expectedDataDir = oidc ? '/work/oidc-data' : csrf ? '/work/csrf-data' : diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'csrf-cold', 'csrf-warm', 'oidc-cold', 'oidc-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const concurrency = phase === 'concurrency-cold' || phase === 'concurrency-warm';
+const expectedDataDir = concurrency ? '/work/concurrency-data' : oidc ? '/work/oidc-data' : csrf ? '/work/csrf-data' : diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'csrf-cold', 'csrf-warm', 'oidc-cold', 'oidc-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'concurrency-cold', 'concurrency-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -43,6 +44,41 @@ const files = async () => {
   await walk(DATA_DIR);
   return result.sort((a, b) => a.name.localeCompare(b.name));
 };
+if (concurrency) {
+  const cold = phase === 'concurrency-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('concurrency database phase mismatch');
+  const route = await import('/work/app/src/app/api/admin/concurrency/route.ts');
+  const manager = await import('/work/app/open-sse/services/rateLimitManager.ts');
+  const combo = await import('/work/app/open-sse/services/rateLimitSemaphore.ts');
+  const account = await import('/work/app/open-sse/services/accountSemaphore.ts');
+  const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime('1h').setJti('fixture-concurrency-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const call = async () => {
+    const response = await route.GET(new Request('http://localhost/api/admin/concurrency', { headers: { cookie: `auth_token=${token}` } }));
+    const body = await response.json();
+    if (response.status !== 200 || response.headers.get('cache-control') !== 'private, no-store' || !response.headers.get('content-type')?.startsWith('application/json')) throw new Error('concurrency native response mismatch');
+    return body;
+  };
+  const counts = body => ({ rateLimits: Object.keys(body.rateLimits).length, comboQueues: Object.keys(body.comboQueues).length, semaphores: Object.keys(body.semaphores).length });
+  try {
+    const empty = counts(await call());
+    const databaseAfterAuth = (await files()).some(x => x.name === 'storage.sqlite');
+    const driver = getDbInstance().driver;
+    manager.enableRateLimitProtection('fixture-connection');
+    manager.updateFromHeaders('fixture-provider', 'fixture-connection', {}, 200);
+    const releaseCombo = await combo.acquire('combo:fixture-private', { maxConcurrency: 2 });
+    const releaseAccount = await account.acquire('fixture-provider:fixture-account', { maxConcurrency: 2 });
+    try {
+      const first = await call();
+      const second = await call();
+      const populated = counts(first);
+      const unchanged = JSON.stringify(first.rateLimits) === JSON.stringify(second.rateLimits) && JSON.stringify(first.comboQueues) === JSON.stringify(second.comboQueues) && JSON.stringify(first.semaphores) === JSON.stringify(second.semaphores);
+      if (JSON.stringify(empty) !== JSON.stringify({ rateLimits: 0, comboQueues: 0, semaphores: 0 }) || JSON.stringify(populated) !== JSON.stringify({ rateLimits: 1, comboQueues: 1, semaphores: 1 }) || !unchanged || !databaseAfterAuth || driver !== 'node:sqlite') throw new Error('concurrency native observation mismatch');
+      await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseAfterAuth, driver, empty, populated, unchanged }) + '\n', { flag: 'wx', mode: 0o600 });
+    } finally { releaseCombo(); releaseAccount(); }
+  } finally { combo.resetAll(); account.resetAll(); await manager.__resetRateLimitManagerForTests(); await closeDbInstance(); }
+  process.exit(0);
+}
 if (csrf) {
   const cold = phase === 'csrf-cold';
   const existed = (await files()).some(x => x.name === 'storage.sqlite');

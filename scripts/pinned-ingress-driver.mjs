@@ -341,6 +341,17 @@ try {
   const afterGlobal = await metricGet('');
   const globalStates = await fixtureMetrics('inspect');
   const metricsHttp = { auth: metricsAuth, hiddenOnlyGetNull, hiddenOnlyCount, selectedProduction: selected?.totalRequests, selectedShadow: selected?.shadow?.totalRequests, selectedHidden: selected?.persistedSkipBypassed, allNames: Object.keys(all).sort(), emptyNames: Object.keys(metricsEmpty).sort(), prototypeSelected: prototype?.totalRequests, prototypeInAll: Object.hasOwn(all, '__proto__'), seededStates, selectedAfterNull: selectedAfter === null, unrelatedProduction: otherAfter?.totalRequests, unrelatedShadow: otherAfter?.shadow?.totalRequests, unrelatedHidden: otherAfter?.persistedSkipBypassed, selectedStates, afterEmptyDeleteNames: Object.keys(afterEmptyDelete).sort(), emptyStates, afterGlobalNames: Object.keys(afterGlobal).sort(), globalStates };
+  const concurrencyPath = '/api/admin/concurrency';
+  const concurrencyProject = r => ({ status: r.status, routeClass: r.routeClass, cacheControl: r.cacheControl, contentType: r.contentType, counts: r.status === 200 && r.body ? Object.fromEntries(['rateLimits', 'comboQueues', 'semaphores'].map(key => [key, r.body[key] && typeof r.body[key] === 'object' && !Array.isArray(r.body[key]) ? Object.keys(r.body[key]).length : null])) : null, shape: r.status === 200 && r.body ? Object.keys(r.body).sort().join(',') === 'comboQueues,rateLimits,semaphores,timestamp' && typeof r.body.timestamp === 'string' && Number.isFinite(Date.parse(r.body.timestamp)) : null });
+  const concurrencyAuth = {};
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer invalid' }, inference: { authorization: `Bearer ${managementKeys.read}` }, writeKey: { authorization: `Bearer ${managementKeys.write}` }, session: { cookie }, oma: { authorization: `Bearer ${scopedTokens.read}` }, omaWrite: { authorization: `Bearer ${scopedTokens.write}` }, omaAdmin: { authorization: `Bearer ${scopedTokens.admin}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` } })) {
+    concurrencyAuth[name] = concurrencyProject(await request(concurrencyPath, 'GET', headers));
+  }
+  const concurrencyEmpty = concurrencyProject(await request(concurrencyPath, 'GET', { cookie }));
+  const firstConcurrency = await request(concurrencyPath, 'GET', { cookie, 'x-ingress-concurrency-control': 'seed' });
+  const secondConcurrency = await request(concurrencyPath, 'GET', { cookie });
+  const concurrencyFailure = await request(concurrencyPath, 'GET', { cookie, 'x-ingress-concurrency-control': 'failure' });
+  const concurrencyHttp = { auth: concurrencyAuth, empty: concurrencyEmpty, populated: concurrencyProject(firstConcurrency), unchanged: ['rateLimits', 'comboQueues', 'semaphores'].every(key => JSON.stringify(firstConcurrency.body?.[key]) === JSON.stringify(secondConcurrency.body?.[key])), failure: { status: concurrencyFailure.status, routeClass: concurrencyFailure.routeClass, cacheControl: concurrencyFailure.cacheControl, contentType: concurrencyFailure.contentType, json: concurrencyFailure.body !== null, privateMarkerPresent: concurrencyFailure.text.includes('fixture-private') } };
   await ready(historyChild, 43181);
   const historyPath = '/api/a2a/tasks/history';
   const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
@@ -715,7 +726,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, oidcHttp, metricsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, concurrencyHttp, oidcHttp, metricsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   oidcDb.close();
   await new Promise(resolve => issuer.close(resolve));

@@ -884,9 +884,15 @@ with tempfile.TemporaryDirectory() as temp:
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
  names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.COMBO_METRICS_CLOSURE) | set(m.READ_CLOSURES) | set(m.ACP_AUTH_SOURCES) | {m.ACP_ROUTE,m.ACP_REGISTRY,m.ACP_MANIFEST,m.ACP_PEER_STAMP,m.LIVE_ROUTE,m.REASONING_STORE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names |= set(m.CONCURRENCY_OWNERS) | {m.VISIBILITY_PROXIES,'open-sse/services/rateLimitManager/bodyRetryPause.ts'}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
  sources[m.DEPRECATED_HELPER]=b'helper'; sources[m.DEPRECATED_REGISTRY]=b'registry'
  m.deprecated_ingress_source=lambda route,helper,registry:(route+b':executed',helper+b':executed',registry+b':executed')
+ m.concurrency_route_bytes=lambda route: route+b':executed'
+ m.concurrency_manager_bytes=lambda data:data+b':executed'
+ m.concurrency_pause_bytes=lambda data:data+b':executed'
+ m.visibility_route_bytes=lambda data:data+b':executed'
+ m.visibility_proxies_bytes=lambda data:data+b':executed'
  sources[m.AUTH_SESSION] = b'session'; sources[m.AUTH_SHARED] = b'shared'
  sources[m.LOGIN_PASSWORD] = b'password'; sources[m.LOGIN_FLAGS] = b'flags'
  m.require_login_closure = lambda source, cache, flags: {m.REQUIRE_LOGIN:b'login-route-executed','src/lib/db/fixtureLoginSettings.ts':b'login-settings-executed','src/shared/utils/fixtureLoginFlags.ts':b'login-flags-executed'}
@@ -911,6 +917,7 @@ with tempfile.TemporaryDirectory() as temp:
  m.SOURCE = archive_path; m.ARCHIVE_SHA = m.sha(archive_path.read_bytes()); m.FIXTURE = fixture
  m.effective_source_identities = lambda archive: {'effectiveTreeSha256':'a'*64}
  m.approved_source = lambda: sources
+ (fixture/'dependencies.json').write_bytes((pathlib.Path(sys.argv[1]).parent.parent/'test/fixtures/pinned-ingress/dependencies.json').read_bytes())
  manifest = {'selectedFiles':{'src/proxy.ts':{'sha256':m.sha(sources['src/proxy.ts'])}},'additionalFiles':{m.LIVE_ROUTE:{'sha256':m.sha(sources[m.LIVE_ROUTE])}}}
  manifest_bytes = json.dumps(manifest).encode(); (fixture/'source-manifest.json').write_bytes(manifest_bytes)
  hashes['test/fixtures/pinned-ingress/source-manifest.json'] = m.sha(manifest_bytes)
@@ -961,6 +968,10 @@ with tempfile.TemporaryDirectory() as temp:
  oidc_graph = m.oidc_closure(sources,b'cache')
  for name in (m.OIDC_LOGIN,m.OIDC_CALLBACK): identity['addedSourceSha256'][name] = {'originalSha256':m.sha(sources[name]),'executedSha256':m.sha(oidc_graph[name])}
  identity['oidcClosure'] = {'sources':{name:m.sha(sources[name]) for name in m.OIDC_CLOSURE},'executed':{name:m.sha(data) for name,data in oidc_graph.items()}}
+ identity['addedSourceSha256'][m.CONCURRENCY_ROUTE]={'originalSha256':m.sha(sources[m.CONCURRENCY_ROUTE]),'executedSha256':m.sha(m.concurrency_route_bytes(sources[m.CONCURRENCY_ROUTE])),'wrapperSha256':m.sha(m.CONCURRENCY_WRAPPER),'managerBoundarySha256':m.sha(m.CONCURRENCY_MANAGER)}
+ identity['addedSourceSha256'][m.VISIBILITY_ROUTE]={'originalSha256':m.sha(sources[m.VISIBILITY_ROUTE]),'executedSha256':m.sha(m.visibility_route_bytes(sources[m.VISIBILITY_ROUTE])),'proxiesOriginalSha256':m.sha(sources[m.VISIBILITY_PROXIES]),'proxiesExecutedSha256':m.sha(m.visibility_proxies_bytes(sources[m.VISIBILITY_PROXIES]))}
+ package=next(item for item in json.loads((fixture/'dependencies.json').read_text())['packages'] if item['location']=='node_modules/bottleneck')
+ identity['concurrencyHttpClosure']={'sources':{name:m.sha(sources[name]) for name in m.CONCURRENCY_OWNERS},'managerExecutedSha256':m.sha(m.concurrency_manager_bytes(sources[m.CONCURRENCY_MANAGER_SOURCE])),'pauseOriginalSha256':m.sha(sources['open-sse/services/rateLimitManager/bodyRetryPause.ts']),'pauseExecutedSha256':m.sha(m.concurrency_pause_bytes(sources['open-sse/services/rateLimitManager/bodyRetryPause.ts'])),'package':package}
  identity['fixtureSha256'] = {k.removeprefix('test/fixtures/pinned-ingress/'):v for k,v in hashes.items() if k.startswith('test/fixtures/pinned-ingress/')}
  identity['fixtureSha256']['pinned-ingress-driver.mjs'] = hashes['scripts/pinned-ingress-driver.mjs']
  identity['fixtureSha256']['backend/core.ts'] = m.sha(expected_core)
@@ -1047,6 +1058,9 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['compressionHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT'} for name,status in analytics_status.items()},'beforeColumns':10,'deniedColumns':10,'afterColumns':28,'periods':[{'status':200,'routeClass':'MANAGEMENT','totalRequests':count,'totalTokensSaved':saved,'chartLength':24,'chartCount':1} for count,saved in ((1,30),(1,30),(1,30),(2,50),(3,60),(4,65))],'failure':{'status':500,'routeClass':'MANAGEMENT','body':{'error':'Internal server error'}}}
  diversity_body={'score':1,'totalRequests':0,'providers':{},'windowSize':200,'ttlMs':3600000}
  ingress['diversityHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','body':diversity_body if status==200 else None} for name,status in analytics_status.items()}}
+ def concurrency_row(status,count=0):
+  return {'status':status,'routeClass':'MANAGEMENT','cacheControl':'private, no-store' if status==200 else None,'contentType':'application/json' if status==200 else None,'counts':{'rateLimits':count,'comboQueues':count,'semaphores':count} if status==200 else None,'shape':True if status==200 else None}
+ ingress['concurrencyHttp']={'auth':{name:concurrency_row(status) for name,status in visibility_status.items()},'empty':concurrency_row(200),'populated':concurrency_row(200,1),'unchanged':True,'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':None,'contentType':None,'json':False,'privateMarkerPresent':False}}
  oidc_errors={'nonce':'id_token_invalid','missing-nonce':'id_token_invalid','token-missing-nonce':'id_token_invalid','signature':'id_token_invalid','issuer':'id_token_invalid','audience':'id_token_invalid','expired':'id_token_invalid','future':'id_token_invalid','subject':'subject_not_allowed','role':'role_not_allowed','malformed-role':'role_not_allowed','exchange':'token_exchange','exchange-network':'token_exchange','bad-json':'token_response','no-token':'no_id_token','missing-code':'missing_code','missing-state':'missing_code','wrong-state':'invalid_state','rotation':'id_token_invalid','rotation-recovery':'dashboard','no-verifier':'dashboard','discovery-fallback':'dashboard','success':'dashboard','secure':'dashboard','missing-secret':'server_misconfigured'}
  config_case={'loginStatus':400,'loginPublic':True,'fixedError':True,'noLoginCookies':True,'callbackStatus':307,'callbackResult':'not_configured','callbackPublic':True}
  ingress['oidcHttp']={'cases':{},'configCases':{'disabled':config_case,'incomplete':config_case}}
@@ -1117,6 +1131,12 @@ with tempfile.TemporaryDirectory() as temp:
  original=ingress['analyticsHttp']['failure']['status']; ingress['analyticsHttp']['failure']['status']=500; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['analyticsHttp']['failure']['status']=original
  original=ingress.pop('diversityHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['diversityHttp']=original
  original=ingress['diversityHttp']['auth']['session']['status']; ingress['diversityHttp']['auth']['session']['status']=401; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['diversityHttp']['auth']['session']['status']=original
+ original=ingress.pop('concurrencyHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['concurrencyHttp']=original
+ ingress['concurrencyHttp']['populated']['counts']['rateLimits']=True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['concurrencyHttp']['populated']['counts']['rateLimits']=1
+ ingress['concurrencyHttp']['populated']['counts']['wrongFamily']=1; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['concurrencyHttp']['populated']['counts']['wrongFamily']
+ ingress['concurrencyHttp']['private']='fixture-private'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['concurrencyHttp']['private']
+ ingress['concurrencyHttp']['failure']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['concurrencyHttp']['failure']['status']=500
+ original=identity['concurrencyHttpClosure']['sources'][m.CONCURRENCY_ROUTE]; identity['concurrencyHttpClosure']['sources'][m.CONCURRENCY_ROUTE]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['concurrencyHttpClosure']['sources'][m.CONCURRENCY_ROUTE]=original
  original=ingress.pop('csrfHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']=original
  for field in ('hmacBound','expiryValid','shapeValid','noStore'):
   original=ingress['csrfHttp']['cases']['session'][field]; ingress['csrfHttp']['cases']['session'][field]=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']['cases']['session'][field]=original
@@ -1288,6 +1308,7 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in m.CSRF_CLOSURE if name not in source})
  source.update({name:h for name in m.OIDC_CLOSURE if name not in source})
  source.update({name:h for name in m.COMBO_METRICS_CLOSURE if name not in source})
+ source.update({name:h for name in m.CONCURRENCY_OWNERS if name not in source})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1301,6 +1322,7 @@ with tempfile.TemporaryDirectory() as d:
  identity['oidcCallbackSelectedSha256']=m.sha(b'import { cookies } from "./pinnedLifecycleCookies";')
  identity['compressionClosure']={name:source[name] for name in compression_sources}
  identity['diversityClosure']={name:source[name] for name in m.DIVERSITY_CLOSURE}
+ identity['concurrencyClosure']={name:source[name] for name in m.CONCURRENCY_OWNERS}
  identity['csrfClosure']={name:source[name] for name in m.CSRF_CLOSURE}
  identity['oidcClosure']={name:source[name] for name in m.OIDC_CLOSURE}
  identity['comboMetricsClosure']={name:source[name] for name in m.COMBO_METRICS_CLOSURE}
@@ -1333,6 +1355,7 @@ with tempfile.TemporaryDirectory() as d:
  zero={'totalRequests':0,'variantBreakdown':{},'topProviders':[]}; populated={'totalRequests':1,'variantBreakdown':{'fast':1},'topProviders':[{'provider':'alpha','count':1}]}
  for phase in ('cold','warm'): put('analytics-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'first':{'status':200,'body':zero if phase=='cold' else populated},'populated':{'status':200,'body':populated},'failure':{'status':200,'body':zero},'rows':1})
  for phase in ('cold','warm'): put('diversity-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseAfterRoute':phase=='warm','databaseAfterSettings':True,'first':0,'populated':1,'unchanged':True})
+ for phase in ('cold','warm'): put('concurrency-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseAfterAuth':True,'driver':'node:sqlite','empty':{'rateLimits':0,'comboQueues':0,'semaphores':0},'populated':{'rateLimits':1,'comboQueues':1,'semaphores':1},'unchanged':True})
  mfa_base={'databaseExistsAfter':True,'beforeFileCount':0,'afterFileCount':1,'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False,'mfaRows':0}
  mfacold={**mfa_base,'databaseExistedBefore':False,'corruptEnabled':None,'corruptCount':None,'rowUnchanged':None}
  mfawarm={**mfa_base,'databaseExistedBefore':True,'corruptEnabled':True,'corruptCount':1,'rowUnchanged':True}
@@ -1360,6 +1383,8 @@ with tempfile.TemporaryDirectory() as d:
  csrf_cold=json.loads((p/'csrf-cold.json').read_text()); csrf_cold['settingsUnchanged']=False; put('csrf-cold.json',csrf_cold); reject(); csrf_cold['settingsUnchanged']=True; put('csrf-cold.json',csrf_cold)
  diversity_cold['databaseAfterRoute']=True; put('diversity-cold.json',diversity_cold); reject(); diversity_cold['databaseAfterRoute']=False; put('diversity-cold.json',diversity_cold)
  original=identity['diversityClosure']['open-sse/services/comboMetrics.ts']; identity['diversityClosure']['open-sse/services/comboMetrics.ts']='b'*64; put('core-identity.json',identity); reject(); identity['diversityClosure']['open-sse/services/comboMetrics.ts']=original; put('core-identity.json',identity)
+ original=identity.pop('concurrencyClosure'); put('core-identity.json',identity); reject(); identity['concurrencyClosure']=original; put('core-identity.json',identity)
+ original=identity['concurrencyClosure'][m.CONCURRENCY_ROUTE]; identity['concurrencyClosure'][m.CONCURRENCY_ROUTE]='b'*64; put('core-identity.json',identity); reject(); identity['concurrencyClosure'][m.CONCURRENCY_ROUTE]=original; put('core-identity.json',identity)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
  original=identity['ssoClosure'][m.SSO_CONFIG]; identity['ssoClosure'][m.SSO_CONFIG]='b'*64; put('core-identity.json',identity); reject(); identity['ssoClosure'][m.SSO_CONFIG]=original; put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()
@@ -1418,12 +1443,16 @@ with tempfile.TemporaryDirectory() as d:
  (p/'provider-node-create.json').unlink(); reject_without_export(); put('provider-node-create.json',node)
  sweeps[1]['encryptedAfterSecond']=True; put('sweep-failure.json',sweeps[1]); reject_without_export(); sweeps[1]['encryptedAfterSecond']=False; put('sweep-failure.json',sweeps[1])
  authwarm['databaseExistedBefore']=False; put('auth-warm.json',authwarm); reject_without_export(); authwarm['databaseExistedBefore']=True; put('auth-warm.json',authwarm)
+ concurrency_cold=json.loads((p/'concurrency-cold.json').read_text()); concurrency_cold['populated']['rateLimits']=0; put('concurrency-cold.json',concurrency_cold); reject_without_export(); concurrency_cold['populated']['rateLimits']=1; put('concurrency-cold.json',concurrency_cold)
  m.export_core_lifecycle(p,{})
  result=json.loads((p/'export/core-lifecycle.json').read_text())
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
  assert result['cold']['databaseExistedBefore'] is False and result['warm']['databaseExistedBefore'] is True
  assert result['authStatus']=={'cold':authcold,'warm':authwarm}
  assert result['diversity']=={phase:{'databaseExistedBefore':phase=='warm','databaseAfterRoute':phase=='warm','databaseAfterSettings':True,'first':0,'populated':1,'unchanged':True} for phase in ('cold','warm')}
+ concurrency=json.loads((p/'export/concurrency-lifecycle.json').read_text())
+ assert set(concurrency)=={'status','qualification','boundary','inputSha256','identity','cold','warm'} and concurrency['status']=='research-observed' and concurrency['qualification'] is False and 'private-canary' not in json.dumps(concurrency)
+ assert concurrency['identity']['concurrencyClosure']==identity['concurrencyClosure'] and all(concurrency[phase]==json.loads((p/('concurrency-'+phase+'.json')).read_text()) for phase in ('cold','warm'))
  assert result['ssoConfig']['cold']['onboardingBefore']=='absent' and result['ssoConfig']['warm']['onboardingBefore']=='persisted' and result['ssoConfig']['warm']['cached'] is True and result['ssoConfig']['warm']['refreshed'] is False
  assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
  assert result['identity']['runnerArguments']==identity['runnerArguments'] and 'runnerOutputSha256' not in result['identity']

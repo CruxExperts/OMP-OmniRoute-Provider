@@ -226,25 +226,25 @@ test("effect schemas isolate lifecycle domains and forbid unrelated effects", ()
   type Clause = { if: { properties: { operationId: { const?: string; enum?: string[] } } }; then: { required?: string[]; properties?: { effectEvidence?: { properties: { artifact: { pattern: string } } }; qualification?: { required: string[] } } }; else?: { not?: { required: string[] }; properties?: { qualification: { not: { required: string[] } } } } };
   const eligibility = JSON.parse(readFileSync(resolve(process.cwd(), "contracts/release-eligibility.schema.json"), "utf8")) as { $defs: { operation: { allOf: Clause[] } } };
   const operations = JSON.parse(readFileSync(resolve(process.cwd(), "contracts/operations.schema.json"), "utf8")) as { $defs: { operation: { allOf: Clause[] } } };
-  const choices = ["GET /api/providers/deprecated", "GET /api/auth/csrf", "GET /api/combos/metrics", "DELETE /api/combos/metrics"];
+  const choices = ["GET /api/providers/deprecated", "GET /api/auth/csrf", "GET /api/admin/concurrency", "GET /api/combos/metrics", "DELETE /api/combos/metrics"];
   const conditions = eligibility.$defs.operation.allOf;
   const main = conditions.find(row => row.if?.properties?.operationId?.enum?.includes("GET /api/combos/metrics") && row.then?.required?.includes("effectEvidence"));
   expect(main?.if.properties.operationId.enum).toEqual(choices);
   expect(main?.then.required).toContain("effectEvidence");
   expect(main?.else?.not?.required).toEqual(["effectEvidence"]);
-  const domains: Record<string, string> = { "GET /api/providers/deprecated": "deprecated-provider-sweep", "GET /api/auth/csrf": "csrf-lifecycle", "GET /api/combos/metrics": "combo-lifecycle", "DELETE /api/combos/metrics": "combo-lifecycle" };
+  const domains: Record<string, string> = { "GET /api/providers/deprecated": "deprecated-provider-sweep", "GET /api/auth/csrf": "csrf-lifecycle", "GET /api/admin/concurrency": "concurrency-lifecycle", "GET /api/combos/metrics": "combo-lifecycle", "DELETE /api/combos/metrics": "combo-lifecycle" };
   for (const [operationId, expected] of Object.entries(domains)) {
     const clause = conditions.find(row => (row.if?.properties?.operationId?.const === operationId || row.if?.properties?.operationId?.enum?.includes(operationId)) && row.then?.properties?.effectEvidence);
     const pattern = clause?.then.properties?.effectEvidence?.properties.artifact.pattern;
     if (!pattern) throw new Error(`Missing effect schema domain: ${operationId}`);
-    for (const domain of ["deprecated-provider-sweep", "csrf-lifecycle", "combo-lifecycle"]) expect(new RegExp(pattern).test(`provenance/qualification/${domain}-${"a".repeat(64)}.json`)).toBe(domain === expected);
+    for (const domain of ["deprecated-provider-sweep", "csrf-lifecycle", "concurrency-lifecycle", "combo-lifecycle"]) expect(new RegExp(pattern).test(`provenance/qualification/${domain}-${"a".repeat(64)}.json`)).toBe(domain === expected);
   }
   const receipt = operations.$defs.operation.allOf.find(row => row.if?.properties?.operationId?.enum?.includes("GET /api/combos/metrics") && row.then?.properties?.qualification?.required?.includes("effectSha256"));
   expect(receipt?.if.properties.operationId.enum).toEqual(choices);
   expect(receipt?.else?.properties?.qualification.not.required).toEqual(["effectSha256"]);
   const ingress = conditions.find(row => row.then?.required?.includes("ingressEvidence"));
   const ingressReceipt = operations.$defs.operation.allOf.find(row => row.then?.properties?.qualification?.required?.includes("ingressSha256"));
-  for (const operationId of ["GET /api/auth/csrf", "GET /api/combos/metrics", "DELETE /api/combos/metrics"]) {
+  for (const operationId of ["GET /api/auth/csrf", "GET /api/admin/concurrency", "GET /api/combos/metrics", "DELETE /api/combos/metrics"]) {
     expect(ingress?.if.properties.operationId.enum).toContain(operationId);
     expect(ingressReceipt?.if.properties.operationId.enum).toContain(operationId);
   }

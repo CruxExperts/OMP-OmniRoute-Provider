@@ -402,6 +402,93 @@ COMPRESSION_SOURCES = ('src/app/api/analytics/compression/route.ts', 'src/lib/db
 ROUTES += COMPRESSION_SOURCES
 ROUTES += ('src/app/api/analytics/diversity/route.ts',)
 DIVERSITY_CLOSURE = ('src/app/api/analytics/diversity/route.ts', 'open-sse/services/autoCombo/providerDiversity.ts', 'open-sse/services/comboMetrics.ts', 'src/lib/db/core.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts')
+CONCURRENCY_ROUTE = 'src/app/api/admin/concurrency/route.ts'
+CONCURRENCY_OWNERS = (CONCURRENCY_ROUTE, 'open-sse/services/rateLimitManager.ts', 'open-sse/services/rateLimitSemaphore.ts', 'open-sse/services/accountSemaphore.ts', 'src/lib/api/requireManagementAuth.ts', 'src/lib/db/core.ts', 'package.json', 'open-sse/package.json')
+ROUTES += (CONCURRENCY_ROUTE,)
+CONCURRENCY_WRAPPER = b'''import { GET as sourceGet } from "./fixture-source";
+import { enableRateLimitProtection, updateFromHeaders } from "@omniroute/open-sse/services/rateLimitManager.ts";
+import { acquire as acquireCombo } from "@omniroute/open-sse/services/rateLimitSemaphore.ts";
+import { acquire as acquireAccount } from "@omniroute/open-sse/services/accountSemaphore.ts";
+import { setFailure } from "./fixture-manager";
+export const dynamic = "force-dynamic";
+let seeded = false;
+export async function GET(request: Request) {
+  const control = request.headers.get("x-ingress-concurrency-control");
+  if (control === "seed") {
+    if (seeded) throw new Error("fixture seed already used");
+    seeded = true;
+    enableRateLimitProtection("fixture-private-connection");
+    updateFromHeaders("fixture-private-provider", "fixture-private-connection", {}, 200);
+    await acquireCombo("combo:fixture-private", { maxConcurrency: 2 });
+    await acquireAccount("fixture-private-provider:fixture-private-account", { maxConcurrency: 2 });
+  }
+  if (control === "failure") setFailure(true);
+  try { return await sourceGet(request); } finally { setFailure(false); }
+}
+'''
+CONCURRENCY_MANAGER = b'''import { getAllRateLimitStatus as sourceStatus } from "@omniroute/open-sse/services/rateLimitManager.ts";
+let failure = false;
+export function setFailure(value: boolean) { failure = value; }
+export function getAllRateLimitStatus() {
+  if (failure) throw new Error("fixture-private-concurrency-failure");
+  return sourceStatus();
+}
+'''
+def concurrency_route_bytes(source):
+    return replace_once(source.decode(), '"@omniroute/open-sse/services/rateLimitManager.ts"', '"./fixture-manager"').encode()
+
+CONCURRENCY_MANAGER_SOURCE = 'open-sse/services/rateLimitManager.ts'
+VISIBILITY_ROUTE = 'src/app/api/admin/proxy-pool-visibility/route.ts'
+VISIBILITY_PROXIES = 'src/lib/db/proxies.ts'
+def concurrency_manager_bytes(data):
+    source = data.decode()
+    def span(start, end):
+        require(source.count(start) == source.count(end) == 1 and source.index(start) < source.index(end), 'concurrency manager declaration boundary changed: ' + start)
+        return source[source.index(start):source.index(end)]
+    imports = '''import Bottleneck from "bottleneck";
+import { applyBottleneckDoExpirePatch, applyBottleneckHeartbeatPatch } from "./bottleneckPatch.ts";
+import { getCodexRateLimitKey } from "../config/codexQuotaScopes.ts";
+import { getAntigravityQuotaFamily } from "./antigravityQuotaFamily.ts";
+import { DEFAULT_RESILIENCE_SETTINGS, type RequestQueueSettings } from "../../src/lib/resilience/settings";
+import { STANDARD_HEADERS, ANTHROPIC_HEADERS, describeRetryAfter, parseResetTime, toPlainHeaders } from "./rateLimitManager/headers";
+import { buildOverrideUpdates } from "./rateLimitManager/overrideUpdates";
+import { requestCapSettings, type RequestCap, type RequestCapSettings } from "./rateLimitManager/requestCap.ts";
+import { LimiterWedgeWatchdog } from "./rateLimitManager/wedgeWatchdog";
+import * as bodyRetryPause from "./fixtureConcurrencyPause";
+import { errorRateLimit, logRateLimit, warnRateLimit } from "./rateLimitManager/log";
+import { boundedMap } from "../../src/lib/quota/boundedMap.ts";
+import type { ConnectionRateLimitOverrides } from "@/lib/db/providers/columns";
+'''
+    return (imports + span('interface LearnedLimitEntry {', 'type JsonRecord =')
+        + span('const limiters =', 'export function resolveExecutionMaxWaitMs(')
+        + span('function buildLimiterDefaults()', 'function updateAllLimiterSettings()')
+        + span('function clearPreservedReplacementSettings(', 'function reconcileEnabledConnections(')
+        + span('function trackAsyncOperation<T>', '/**\n * Initialize rate limit protection')
+        + span('export function enableRateLimitProtection(', '/**\n * Disable rate limit protection')
+        + span('function evictLimiter(', '/**\n * Acquire a rate limit slot')
+        + span('export function updateFromHeaders(', '/**\n * Get current rate limit status')
+        + span('export function getAllRateLimitStatus()', '/**\n * Get all learned limits')
+        + span('async function persistLearnedLimitsNow()', 'export async function __flushLearnedLimitsForTests()')).encode()
+
+def concurrency_pause_bytes(data):
+    source = data.decode()
+    declaration = 'const pausedUntil = new WeakMap<object, number>();'
+    start, end = 'export function noteLimiterUpdate(', '/**\n * Returns a typed `RATE_LIMIT_QUEUE_TIMEOUT`'
+    require(source.count(declaration) == source.count(start) == source.count(end) == 1 and source.index(start) < source.index(end), 'concurrency pause boundary changed')
+    return (declaration + '\n' + source[source.index(start):source.index(end)]).encode()
+
+def visibility_route_bytes(data):
+    return replace_once(data.decode(), 'from "@/lib/db/proxies"', 'from "@/lib/db/fixtureVisibilityProxies"').encode()
+
+def visibility_proxies_bytes(data):
+    source = data.decode()
+    start, end = 'export async function getProxyById(', '\nfunction getProxyRowByIdOrThrow('
+    require(source.count(start) == source.count(end) == 1 and source.index(start) < source.index(end), 'visibility proxy read boundary changed')
+    return ('''import { getDbInstance } from "./core";
+import { mapProxyRow, redactProxySecrets } from "./proxies/mappers";
+export { getScopePoolEgressRows, getScopeRotationStrategy } from "./proxies/rotation";
+''' + source[source.index(start):source.index(end)]).encode()
+
 CSRF_CLOSURE = ('src/app/api/auth/csrf/route.ts', 'src/server/authz/csrf.ts', 'src/shared/constants/dashboardCsrf.ts', 'src/lib/api/requireManagementAuth.ts', 'src/shared/utils/apiAuth.ts', 'src/shared/utils/dashboardSessionToken.ts', 'src/lib/db/readCache.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts', 'src/lib/db/core.ts')
 OIDC_LOGIN = 'src/app/api/auth/oidc/login/route.ts'
 OIDC_CALLBACK = 'src/app/api/auth/oidc/callback/route.ts'
@@ -599,7 +686,23 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json'), 'comboLifecycle': bounded_json(output / 'export/combo-lifecycle.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'concurrencyLifecycle': bounded_json(output / 'export/concurrency-lifecycle.json'), 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json'), 'comboLifecycle': bounded_json(output / 'export/combo-lifecycle.json')}
+
+
+def expected_concurrency_http(archive, node, dependency_dir, bwrap, root=ROOT):
+    """Re-execute isolated HTTP ingress and return only bound concurrency evidence."""
+    require(Path(root).resolve(strict=True) == ROOT, 'unexpected producer root')
+    with tempfile.TemporaryDirectory(prefix='pinned-concurrency-http-') as temporary:
+        command = ['/usr/bin/python3', str(root / 'scripts/pinned-ingress.py'),
+                   '--source-archive', str(Path(archive).resolve(strict=True)),
+                   '--node', str(Path(node).resolve(strict=True)),
+                   '--dependency-dir', str(Path(dependency_dir).resolve(strict=True)),
+                   '--bwrap', str(Path(bwrap).resolve(strict=True)), '--output-dir', temporary]
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=660, check=True)
+        output = Path(json.loads(result.stdout)['output'])
+        require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected HTTP identity output')
+        artifact = bounded_json(output / 'export/observed-outcomes.json')
+        return {key: artifact[key] for key in ('concurrencyHttp', 'concurrencyHttpClosure')}
 
 
 def materialize(real_core=False):
@@ -1086,6 +1189,7 @@ def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
     names = set(ROUTES) | set(OIDC_CLOSURE) | set(COMBO_METRICS_CLOSURE) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names |= set(CONCURRENCY_OWNERS) | {VISIBILITY_PROXIES, 'open-sse/services/rateLimitManager/bodyRetryPause.ts'}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -1129,6 +1233,27 @@ def provision(material):
             identities[name] = sha(data)
     for name in COMBO_METRICS_CLOSURE[1:]:
         identities[name] = sha((app / name).read_bytes())
+    concurrency_original = (app / CONCURRENCY_ROUTE).read_bytes()
+    concurrency_executed = concurrency_route_bytes(concurrency_original)
+    put(app, 'src/app/api/admin/concurrency/fixture-source.ts', concurrency_executed)
+    put(app, 'src/app/api/admin/concurrency/fixture-manager.ts', CONCURRENCY_MANAGER)
+    (app / CONCURRENCY_ROUTE).write_bytes(CONCURRENCY_WRAPPER)
+    identities[CONCURRENCY_ROUTE] = {'originalSha256': sha(concurrency_original), 'executedSha256': sha(concurrency_executed), 'wrapperSha256': sha(CONCURRENCY_WRAPPER), 'managerBoundarySha256': sha(CONCURRENCY_MANAGER)}
+    manager_original = (app / CONCURRENCY_MANAGER_SOURCE).read_bytes()
+    manager_executed = concurrency_manager_bytes(manager_original)
+    pause_original = (app / 'open-sse/services/rateLimitManager/bodyRetryPause.ts').read_bytes()
+    pause_executed = concurrency_pause_bytes(pause_original)
+    put(app, 'open-sse/services/fixtureConcurrencyPause.ts', pause_executed)
+    (app / CONCURRENCY_MANAGER_SOURCE).write_bytes(manager_executed)
+    visibility_original = (app / VISIBILITY_ROUTE).read_bytes()
+    proxies_original = (app / VISIBILITY_PROXIES).read_bytes()
+    visibility_executed = visibility_route_bytes(visibility_original)
+    proxies_executed = visibility_proxies_bytes(proxies_original)
+    (app / VISIBILITY_ROUTE).write_bytes(visibility_executed)
+    put(app, 'src/lib/db/fixtureVisibilityProxies.ts', proxies_executed)
+    identities[VISIBILITY_ROUTE] = {'originalSha256': sha(visibility_original), 'executedSha256': sha(visibility_executed), 'proxiesOriginalSha256': sha(proxies_original), 'proxiesExecutedSha256': sha(proxies_executed)}
+    concurrency_identity = {'sources': {name: material['configSupportSha256'][name] for name in CONCURRENCY_OWNERS}, 'managerExecutedSha256': sha(manager_executed), 'pauseOriginalSha256': sha(pause_original), 'pauseExecutedSha256': sha(pause_executed), 'package': next(item for item in json.loads((fixture / 'dependencies.json').read_text())['packages'] if item['location'] == 'node_modules/bottleneck')}
+    require(concurrency_identity['package']['name'] == 'bottleneck' and concurrency_identity['package']['version'] == '2.19.5', 'Bottleneck dependency mismatch')
     for name in (ACP_ROUTE, ACP_MANIFEST, ACP_PEER_STAMP, *ACP_AUTH_SOURCES):
         identities[name] = sha((app / name).read_bytes())
     registry_base = json.loads((fixture / 'source-manifest.json').read_text())['additionalFiles'][ACP_REGISTRY]['sha256']
@@ -1261,6 +1386,7 @@ def provision(material):
         'requireLoginClosure': login_identity,
         'a2aStatusClosure': a2a_identity,
         'oidcClosure': oidc_identity,
+        'concurrencyHttpClosure': concurrency_identity,
         'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
@@ -1514,6 +1640,7 @@ def core_lifecycle(material, deadline):
     identity['analyticsClosure'] = {name: source[name] for name in ('src/app/api/analytics/auto-routing/route.ts', 'src/lib/db/usageLogs.ts', 'src/lib/db/logicalCallSql.ts', 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}
     identity['compressionClosure'] = {name: source[name] for name in (*COMPRESSION_SOURCES, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}
     identity['diversityClosure'] = {name: source[name] for name in DIVERSITY_CLOSURE}
+    identity['concurrencyClosure'] = {name: source[name] for name in ('src/app/api/admin/concurrency/route.ts', 'open-sse/services/rateLimitManager.ts', 'open-sse/services/rateLimitSemaphore.ts', 'open-sse/services/accountSemaphore.ts', 'src/lib/api/requireManagementAuth.ts', 'src/lib/db/core.ts', 'package.json', 'open-sse/package.json')}
     identity['csrfClosure'] = {name: source[name] for name in CSRF_CLOSURE}
     identity['oidcClosure'] = {name: source[name] for name in OIDC_CLOSURE}
     identity['oidcCallbackSelectedSha256'] = sha(replace_once(callback_source, 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode())
@@ -1606,6 +1733,13 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         worker_stage('coldLifecycle' if phase == 'diversity-cold' else 'warmLifecycle')
         log = Path('/work/' + phase + '.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(diversity_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
+        validate_lifecycle_log(log)
+    concurrency_dir = Path('/work/concurrency-data')
+    concurrency_dir.mkdir(mode=0o700)
+    for phase in ('concurrency-cold', 'concurrency-warm'):
+        worker_stage('coldLifecycle' if phase == 'concurrency-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(concurrency_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
         validate_lifecycle_log(log)
     csrf_dir = Path('/work/csrf-data')
     csrf_dir.mkdir(mode=0o700)
@@ -1758,6 +1892,9 @@ def export_core_lifecycle(output, hashes):
     public_identity['compressionClosure'] = identity['compressionClosure']
     require(identity.get('diversityClosure') == {name: source[name] for name in DIVERSITY_CLOSURE}, 'invalid native diversity source closure')
     public_identity['diversityClosure'] = identity['diversityClosure']
+    concurrency_sources = ('src/app/api/admin/concurrency/route.ts', 'open-sse/services/rateLimitManager.ts', 'open-sse/services/rateLimitSemaphore.ts', 'open-sse/services/accountSemaphore.ts', 'src/lib/api/requireManagementAuth.ts', 'src/lib/db/core.ts', 'package.json', 'open-sse/package.json')
+    require(identity.get('concurrencyClosure') == {name: source[name] for name in concurrency_sources}, 'invalid native concurrency source closure')
+    public_identity['concurrencyClosure'] = identity['concurrencyClosure']
     require(identity.get('csrfClosure') == {name: source[name] for name in CSRF_CLOSURE}, 'invalid native CSRF source closure')
     public_identity['csrfClosure'] = identity['csrfClosure']
     require(identity.get('oidcClosure') == {name: source[name] for name in OIDC_CLOSURE}, 'invalid native OIDC source closure')
@@ -1834,9 +1971,13 @@ def export_core_lifecycle(output, hashes):
             and combo_warm['phase'] == 'warm' and combo_warm['driver'] == 'node:sqlite'
             and combo_warm['importedPersisted'] is True and combo_warm['deletedAbsent'] is True
             and json.dumps(combo_warm['metricsLifecycle'], sort_keys=True) == json.dumps(warm_metrics, sort_keys=True), 'combo warm lifecycle mismatch')
+    concurrency_observations = [bounded_json(output / ('concurrency-' + phase + '.json')) for phase in ('cold', 'warm')]
+    for cold_phase, value in zip((True, False), concurrency_observations):
+        require(value == {'databaseExistedBefore': not cold_phase, 'databaseAfterAuth': True, 'driver': 'node:sqlite', 'empty': {'rateLimits': 0, 'comboQueues': 0, 'semaphores': 0}, 'populated': {'rateLimits': 1, 'comboQueues': 1, 'semaphores': 1}, 'unchanged': True}, 'native concurrency lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
     save(export / 'a2a-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'inputSha256': hashes, 'identity': {**public_identity, 'a2aClosure': identity['a2aClosure']}, 'cold': a2a_cold, 'warm': a2a_warm})
+    save(export / 'concurrency-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Pinned route, manager and semaphores in isolated cold and warm native core processes; no HTTP ingress or provider dispatch.', 'inputSha256': hashes, 'identity': public_identity, 'cold': concurrency_observations[0], 'warm': concurrency_observations[1]})
     save(export / 'proxy-visibility-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned route and core in separate private cold and warm processes; not HTTP ingress or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': visibility_cold, 'warm': visibility_warm})
     save(export / 'csrf-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Pinned handler and native core in independent cold and warm processes; not central HTTP authorization or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': csrf_lifecycle['cold'], 'warm': csrf_lifecycle['warm']})
     save(export / 'oidc-settings-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Actual native callback, core and settings with explicit cookie seam and loopback issuer; no HTTP ingress or external provider.', 'inputSha256': hashes, 'identity': {**public_identity, 'oidcClosure': identity['oidcClosure'], 'oidcCallbackSelectedSha256': identity['oidcCallbackSelectedSha256']}, 'cold': oidc_lifecycle['cold'], 'warm': oidc_lifecycle['warm']})
@@ -2077,6 +2218,10 @@ def export_observations(output, hashes):
     source_hashes[REASONING_ROUTE] = {'originalSha256': reasoning_sha, 'executedSha256': reasoning_sha, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': hashes['test/fixtures/pinned-ingress/routes/management.ts']}
     source_hashes[COMBO_METRICS_ROUTE] = {'originalSha256': sha(source[COMBO_METRICS_ROUTE]), 'executedSha256': sha(source[COMBO_METRICS_ROUTE]), 'wrapperSha256': sha(COMBO_METRICS_WRAPPER), 'policySha256': hashes['test/fixtures/pinned-ingress/routes/management.ts']}
     source_hashes[REASONING_STORE] = sha(source[REASONING_STORE])
+    source_hashes[CONCURRENCY_ROUTE] = {'originalSha256': sha(source[CONCURRENCY_ROUTE]), 'executedSha256': sha(concurrency_route_bytes(source[CONCURRENCY_ROUTE])), 'wrapperSha256': sha(CONCURRENCY_WRAPPER), 'managerBoundarySha256': sha(CONCURRENCY_MANAGER)}
+    source_hashes[VISIBILITY_ROUTE] = {'originalSha256': sha(source[VISIBILITY_ROUTE]), 'executedSha256': sha(visibility_route_bytes(source[VISIBILITY_ROUTE])), 'proxiesOriginalSha256': sha(source[VISIBILITY_PROXIES]), 'proxiesExecutedSha256': sha(visibility_proxies_bytes(source[VISIBILITY_PROXIES]))}
+    package = next(item for item in json.loads((FIXTURE / 'dependencies.json').read_text())['packages'] if item['location'] == 'node_modules/bottleneck')
+    require(package['name'] == 'bottleneck' and package['version'] == '2.19.5' and identity['concurrencyHttpClosure'] == {'sources': {name: sha(source[name]) for name in CONCURRENCY_OWNERS}, 'managerExecutedSha256': sha(concurrency_manager_bytes(source[CONCURRENCY_MANAGER_SOURCE])), 'pauseOriginalSha256': sha(source['open-sse/services/rateLimitManager/bodyRetryPause.ts']), 'pauseExecutedSha256': sha(concurrency_pause_bytes(source['open-sse/services/rateLimitManager/bodyRetryPause.ts'])), 'package': package}, 'concurrency HTTP source closure mismatch')
     route, helper, registry = deprecated_ingress_source(source[DEPRECATED_ROUTE], source[DEPRECATED_HELPER], source[DEPRECATED_REGISTRY])
     source_hashes[DEPRECATED_ROUTE] = {'originalSha256': sha(source[DEPRECATED_ROUTE]), 'executedSha256': sha(route), 'wrapperSha256': sha(REASONING_WRAPPER), 'backendSha256': sha(DEPRECATED_BACKEND), 'helperOriginalSha256': sha(source[DEPRECATED_HELPER]), 'helperExecutedSha256': sha(helper), 'registryOriginalSha256': sha(source[DEPRECATED_REGISTRY]), 'registryExecutedSha256': sha(registry)}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
@@ -2179,6 +2324,23 @@ def export_observations(output, hashes):
         'afterEmptyDeleteNames': [], 'emptyStates': zero, 'afterGlobalNames': [], 'globalStates': zero,
     }
     require(json.dumps(combo_metrics_http, sort_keys=True) == json.dumps(expected_metrics, sort_keys=True), 'combo metrics HTTP mismatch')
+    concurrency = ingress['concurrencyHttp']
+    require(type(concurrency) is dict and set(concurrency) == {'auth', 'empty', 'populated', 'unchanged', 'failure'}, 'concurrency HTTP fields mismatch')
+    statuses = {'anonymous': 401, 'invalid': 403, 'inference': 403, 'writeKey': 403, 'session': 200, 'oma': 200, 'omaWrite': 200, 'omaAdmin': 200, 'manage': 200, 'admin': 200}
+    require(type(concurrency['auth']) is dict and set(concurrency['auth']) == set(statuses), 'concurrency HTTP authentication fields mismatch')
+    def check_concurrency_response(row, status, count):
+        require(type(row) is dict and set(row) == {'status', 'routeClass', 'cacheControl', 'contentType', 'counts', 'shape'} and type(row['status']) is int and row['status'] == status and row['routeClass'] == 'MANAGEMENT', 'concurrency HTTP response mismatch')
+        if status == 200:
+            require(row['cacheControl'] == 'private, no-store' and row['contentType'] == 'application/json' and row['shape'] is True and type(row['counts']) is dict and set(row['counts']) == {'rateLimits', 'comboQueues', 'semaphores'} and all(type(value) is int and value == count for value in row['counts'].values()), 'concurrency HTTP snapshot mismatch')
+        else:
+            require(row['cacheControl'] in (None, 'private, no-store') and row['contentType'] in (None, 'application/json') and row['counts'] is None and row['shape'] is None, 'concurrency HTTP denial mismatch')
+    for name, status in statuses.items():
+        check_concurrency_response(concurrency['auth'][name], status, 0)
+    check_concurrency_response(concurrency['empty'], 200, 0)
+    check_concurrency_response(concurrency['populated'], 200, 1)
+    require(concurrency['unchanged'] is True, 'concurrency HTTP read changed state')
+    failure = concurrency['failure']
+    require(type(failure) is dict and set(failure) == {'status', 'routeClass', 'cacheControl', 'contentType', 'json', 'privateMarkerPresent'} and type(failure['status']) is int and failure['status'] == 500 and failure['routeClass'] == 'MANAGEMENT' and failure['cacheControl'] is None and failure['contentType'] in (None, 'text/plain', 'text/plain; charset=utf-8') and failure['json'] is False and failure['privateMarkerPresent'] is False, 'concurrency HTTP framework failure mismatch')
     mfa_status_observation = ingress['mfaStatusHttp']
     require(set(mfa_status_observation) == {'cases', 'enrolled', 'failure'} and set(mfa_status_observation['cases']) == {'anonymous', 'invalid', 'session', 'key-read', 'key-write', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'}, 'MFA status HTTP cases incomplete')
     mfa_statuses = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 403, 'oma-write': 403, 'oma-admin': 200}
@@ -2388,6 +2550,9 @@ def export_observations(output, hashes):
     artifact['diversityHttp'] = diversity
     artifact['comboMetricsHttp'] = combo_metrics_http
     artifact['limitations'].append('Combo metrics HTTP uses a fixture-only same-bundle owner seeder and inspector; normal requests execute the pinned handler. This observes controlled process state, not production chat, durable counters, other processes, an atomic lock or executor qualification.')
+    artifact['concurrencyHttp'] = concurrency
+    artifact['concurrencyHttpClosure'] = identity['concurrencyHttpClosure']
+    artifact['limitations'].append('Concurrency HTTP seeds one synthetic limiter and one slot in each semaphore through fixture controls; it executes source-extracted manager declarations and pause tracking, not body-update or provider-dispatch code, and does not establish production state, persistence, or concurrency races.')
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]
     artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
     artifact['wellKnownHttp'] = public_cards

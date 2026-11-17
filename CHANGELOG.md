@@ -4,6 +4,11 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Add a source-only concurrency snapshot characterization using pinned
+  semaphore producers and closed, identity-withholding projection. Populated
+  Bottleneck state, independent HTTP and native lifecycle observations remain
+  unproven; this research does not qualify the operation for release.
+
 - Qualify the bounded dashboard CSRF issuance view through exact management
   HTTP and independent native cold/warm observations. Tokens, expiry and session
   credentials remain withheld, including private target views. Authentication

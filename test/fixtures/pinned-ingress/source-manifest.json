@@ -2045,6 +2045,18 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/admin/concurrency/route.ts": { "sha256": "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15", "gitBlob": "7fd03e4742e0daecc8bb74f88abba0cd61cee9c9" },
+    "open-sse/services/rateLimitManager.ts": { "sha256": "aa0063219f37cdec0ebc7a76c62bfd3ae36fddae7f09424fbda825b2f1e68353", "gitBlob": "4db0c3a4cc2fe61da287e4319b1b018c208bee00" },
+    "open-sse/services/bottleneckPatch.ts": { "sha256": "84c017f15a4ecf9ab2bb355d692b705f312b154333b35b099a1ff7ef10703e51", "gitBlob": "f2dcca9666805bcb29ec8e0aeffbafb3d6f2f4be" },
+    "open-sse/services/rateLimitManager/bodyRetryPause.ts": { "sha256": "056889ba60e6f3df345f11532f8645c6039924c9767aa9d219f8972203789bcf", "gitBlob": "8e8fe23b34e2710f76874b5978a4323d7aede494" },
+    "open-sse/services/rateLimitManager/queuedJobCancel.ts": { "sha256": "f4cacf95ed13b332edbfce4d0e3aab94e8f480123fa2f0acd748f3c4d1128035", "gitBlob": "2f2207174075a884702ac1f1498724ec17ad4458" },
+    "open-sse/services/rateLimitManager/wedgeWatchdog.ts": { "sha256": "959fed3188145af6084e4b865992ddcfb3d39dce53df96c693b95f7f6e587f9c", "gitBlob": "fefc551b1eaac5f238d175ef0866780a373a481c" },
+    "open-sse/services/rateLimitManager/overrideUpdates.ts": { "sha256": "2e42e5514ceae4d37d9b92bb54e4c212e5101704437f660e0e727d030fdca715", "gitBlob": "04fe751907a8cddf52c5cf1ea84a9b97a3a148ec" },
+    "open-sse/services/rateLimitManager/headers.ts": { "sha256": "f0bc397e123d33ecc2dd75856b5d44768c4f59ad156673b60bf79efe5ec458ae", "gitBlob": "4af44682da58f1b7392fb2b7368ba941fb61493e" },
+    "open-sse/services/rateLimitManager/admission.ts": { "sha256": "4c7c90e2ccda41807810942964c605fb11231331389a94f98219fce40eb5f850", "gitBlob": "af3192e0d526bf45098287c8a8c2b88e80cd0bd3" },
+    "open-sse/services/rateLimitManager/log.ts": { "sha256": "f15996a2f592c577fc1545dfa5f55ef9e6cacf5bf0486e054963c9ae05943a7c", "gitBlob": "9c3727f1045a0791359e213da784328d78676b25" },
+    "open-sse/services/rateLimitManager/autoProtection.ts": { "sha256": "eacb5dc2131b816d256e97b4a5a6a7e29b9204b6d8261ce3831f9d3a013ddb5f", "gitBlob": "f8aa89437bcf11090dfbcf7c7c8ef298f44037c9" },
+    "open-sse/services/rateLimitManager/requestCap.ts": { "sha256": "bc97b63bccd04b1e14e35fdee6f92d719a1eda0f0a089d64ba43730599f1a853", "gitBlob": "84b558df2d5ddb2d4f77ea66edb2ef4c4033cb50" },
     "src/app/api/auth/csrf/route.ts": { "sha256": "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5", "gitBlob": "a18026b4474ea4b7259d6ae0accfbc32429fef61" },
     "src/app/api/auth/oidc/login/route.ts": { "sha256": "560cef9fab79b924c12f7adfffedac346431aaebe16a954f811f71da4c5d1ba6", "gitBlob": "cac5a19000de65f08b8084c1b58de11f2a011c5b" },
     "src/app/api/auth/oidc/callback/route.ts": { "sha256": "5f7b2a82d550b7190b5853f5b2485e8d7ebb32ff5194ff11f036d5fea7874a52", "gitBlob": "f10477cd3613fc58c6984e4c8749b09ae0973a71" },

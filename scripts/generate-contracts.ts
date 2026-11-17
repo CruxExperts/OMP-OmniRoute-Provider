@@ -208,6 +208,10 @@ export function testOutcomeHash(
 ): string {
   const reviewed = requireRecord(reviewedContract, `${operationId}.reviewed contract`);
   assertKeys(reviewed, `${operationId}.reviewed contract`, OPERATION_CONTRACT_FIELDS);
+  if (operationId === "GET /api/admin/concurrency") {
+    assertConcurrencySourceBinding();
+    validateConcurrencyContract(reviewed);
+  }
   const secrets = requireRecord(reviewed.secrets, `${operationId}.reviewed contract.secrets`);
   assertKeys(secrets, `${operationId}.reviewed contract.secrets`, ["inputFields", "outputFields"]);
   stringList(secrets.inputFields, `${operationId}.reviewed contract.secrets.inputFields`);
@@ -326,6 +330,15 @@ export function testOutcomeHash(
     assertKeys(start, "CSRF before", ["handlerCalls"]); assertKeys(end, "CSRF after", ["handlerCalls"]);
     if (typeof start.handlerCalls !== "number" || !Number.isSafeInteger(start.handlerCalls) || start.handlerCalls < 0 || end.handlerCalls !== start.handlerCalls + 1 || result.status !== 200 || canonicalJson(body) !== canonicalJson({ issued: true })) throw new Error("CSRF source outcome mismatch");
   }
+  if (operationId === "GET /api/admin/concurrency") {
+    // This fixture observes real semaphores, but an empty rate manager. It is
+    // not independent evidence of a populated Bottleneck or of HTTP ingress.
+    const expectedBefore = { rateLimits: 0, comboQueues: 0, semaphores: 0 };
+    const expectedAfter = { rateLimits: 0, comboQueues: 1, semaphores: 1 };
+    const expectedBody = { rateLimits: {}, comboQueues: {}, semaphores: {} };
+    if (canonicalJson(before) !== canonicalJson(expectedBefore) || canonicalJson(after) !== canonicalJson(expectedAfter)
+      || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("concurrency semaphore fixture outcome mismatch");
+  }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -406,6 +419,8 @@ identities[m.REQUIRE_LOGIN] = {'originalSha256': m.sha(source[m.REQUIRE_LOGIN]),
 a2a = source['src/app/api/a2a/status/route.ts']; a2a_graph = m.a2a_status_closure(source, closures['src/lib/db/readCache.ts']); identities['src/app/api/a2a/status/route.ts'] = {'originalSha256': m.sha(a2a), 'executedSha256': m.sha(a2a_graph['src/app/api/a2a/status/route.ts'])}
 oidc_graph = m.oidc_closure(source, closures['src/lib/db/readCache.ts'])
 for name in (m.OIDC_LOGIN, m.OIDC_CALLBACK): identities[name] = {'originalSha256': m.sha(source[name]), 'executedSha256': m.sha(oidc_graph[name])}
+identities[m.CONCURRENCY_ROUTE] = {'originalSha256': m.sha(source[m.CONCURRENCY_ROUTE]), 'executedSha256': m.sha(m.concurrency_route_bytes(source[m.CONCURRENCY_ROUTE])), 'wrapperSha256': m.sha(m.CONCURRENCY_WRAPPER), 'managerBoundarySha256': m.sha(m.CONCURRENCY_MANAGER)}
+identities[m.VISIBILITY_ROUTE] = {'originalSha256': m.sha(source[m.VISIBILITY_ROUTE]), 'executedSha256': m.sha(m.visibility_route_bytes(source[m.VISIBILITY_ROUTE])), 'proxiesOriginalSha256': m.sha(source[m.VISIBILITY_PROXIES]), 'proxiesExecutedSha256': m.sha(m.visibility_proxies_bytes(source[m.VISIBILITY_PROXIES]))}
 print(json.dumps({'addedSourceSha256': identities, 'a2aStatusClosure': {'sources': {name: m.sha(source[name]) for name in ('src/app/api/a2a/status/route.ts', m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in a2a_graph.items()}}, 'authStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.AUTH_STATUS, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in auth_graph.items()}}, 'mfaStatusClosure': {'sources': {name: m.sha(source[name]) for name in (m.MFA_STATUS, m.MFA_DASHBOARD, m.MFA_STORAGE, m.MFA_SUPPORT)}, 'executed': {name: m.sha(data) for name, data in mfa_graph.items()}}, 'ssoConfigClosure': {'sources': {name: m.sha(source[name]) for name in (m.SSO_CONFIG, m.SSO_ENTRA, m.AUTH_SETTINGS, m.AUTH_SHARED)}, 'executed': {name: m.sha(data) for name, data in sso_graph.items()}}, 'requireLoginClosure': {'sources': {name: m.sha(source[name]) for name in (m.REQUIRE_LOGIN, m.LOGIN_FLAGS, m.LOGIN_PASSWORD, m.LOGIN_RUNTIME, m.AUTH_SESSION, m.AUTH_SETTINGS, m.AUTH_SHARED, *m.LOGIN_DEPENDENCIES)}, 'executed': {name: m.sha(data) for name, data in login_graph.items()}}, 'pingDeclarationSha256': m.sha(declaration.encode()), 'sourceOverlaySha256': mapping, 'executedOverlaySha256': overlays, **effective_identity}))`;
   const key = healthIngressDerivationKey(archive, version, commit, program);
   if (healthIngressIdentityCache?.key === key) return structuredClone(healthIngressIdentityCache.value);
@@ -483,11 +498,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (loginSource !== undefined && (loginSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "f24b9fe0702ce4ead3abc2cda77a2013d9ad3df47e034cd8e4e4dfff00aa1e31" || binding.handlerGitBlobSha !== "336aebcdafb778fe56e880c9d72a6ffe90e7dba4")) throw new Error(`${label} login source mismatch`);
   const historySource = operationId === "GET /api/a2a/tasks/history" ? added["src/app/api/a2a/tasks/history/route.ts"] : undefined;
   if (operationId === "GET /api/a2a/tasks/history" && (historySource !== "0c35eb4cffe05b36d66d725049e354fd70bab29e2fade1346760bf80c5e85d01" || binding.handlerSha256 !== historySource || binding.handlerGitBlobSha !== "1b93277bd5560075f14b6453458445ea3ade6daa" || added["src/app/api/a2a/_auth.ts"] !== "d0f8d6b85f05818f89095e4568ec6a68a1128799c702b0b71fcfa636f1049276" || added["src/lib/db/a2aTasks.ts"] !== "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838" || added["src/lib/a2a/authenticate.ts"] !== "2e9ce08e52918179a9e3f66d4e08a66b1cfcecb9ce78a9c66b8ebf9ad593e31e")) throw new Error(`${label} history source mismatch`);
-  const visibilitySource = operationId === "GET /api/admin/proxy-pool-visibility" ? added["src/app/api/admin/proxy-pool-visibility/route.ts"] : undefined;
+  const visibilitySource = operationId === "GET /api/admin/proxy-pool-visibility" ? requireRecord(added["src/app/api/admin/proxy-pool-visibility/route.ts"], `${label}.visibility source`) : undefined;
   const csrfSource = operationId === "GET /api/auth/csrf" ? added["src/app/api/auth/csrf/route.ts"] : undefined;
   if (operationId === "GET /api/auth/csrf" && (csrfSource !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || binding.handlerSha256 !== csrfSource || binding.handlerGitBlobSha !== "a18026b4474ea4b7259d6ae0accfbc32429fef61")) throw new Error(`${label} CSRF source mismatch`);
   if (operationId === "GET /api/auth/csrf" && (added["src/server/authz/csrf.ts"] !== "40db3c3e0696c4e1c4cd0a32a388cd9c6a9e845c5186863cfe090243debbec78" || added["src/shared/constants/dashboardCsrf.ts"] !== "15abffd3529ec0b63a42360ae44c3afc745038410becea9a2f5b59dd3f02618b")) throw new Error(`${label} CSRF issuer source mismatch`);
-  if (operationId === "GET /api/admin/proxy-pool-visibility" && (visibilitySource !== "58b6fb4ce329b58d35ff87af440857cf8ec70824b3d62f8c79ebf11ca797f8b8" || binding.handlerSha256 !== visibilitySource || binding.handlerGitBlobSha !== "dcec8ab22c00d6ecc622313339742117f3bafac4")) throw new Error(`${label} visibility source mismatch`);
+  if (operationId === "GET /api/admin/proxy-pool-visibility" && (visibilitySource?.originalSha256 !== "58b6fb4ce329b58d35ff87af440857cf8ec70824b3d62f8c79ebf11ca797f8b8" || binding.handlerSha256 !== visibilitySource.originalSha256 || binding.handlerGitBlobSha !== "dcec8ab22c00d6ecc622313339742117f3bafac4")) throw new Error(`${label} visibility source mismatch`);
   const analyticsSource = operationId === "GET /api/analytics/auto-routing" ? added["src/app/api/analytics/auto-routing/route.ts"] : undefined;
   if (operationId === "GET /api/analytics/auto-routing" && (analyticsSource !== "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1" || binding.handlerSha256 !== analyticsSource || binding.handlerGitBlobSha !== "27fd7e8350f76a3e1a1429b69344c21ce350d9b5" || added["src/lib/db/usageLogs.ts"] !== "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0" || added["src/lib/db/logicalCallSql.ts"] !== "5f59112ddcce301c4095635b7ec56456412c75465586371e256235707cf2b617")) throw new Error(`${label} analytics source mismatch`);
   const diversitySource = operationId === "GET /api/analytics/diversity" ? added["src/app/api/analytics/diversity/route.ts"] : undefined;
@@ -496,8 +511,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (operationId === "GET /api/analytics/compression" && (compressionSource !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || binding.handlerSha256 !== compressionSource || binding.handlerGitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f" || added["src/lib/db/compressionAnalytics.ts"] !== "2989f4d16a331bd20624748a8624dba0065e0e70dee96e6cf3227449e9b28f66" || added["src/lib/db/migrations/038_compression_analytics.sql"] !== "71b7d06e954d2c3733919a395a662adcd1b8bb605a9adb35025c44dc6d71ac2e")) throw new Error(`${label} compression source mismatch`);
   const comboMetricsSource = operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics" ? requireRecord(added["src/app/api/combos/metrics/route.ts"], `${label}.combo metrics source`) : undefined;
   if (comboMetricsSource !== undefined && (comboMetricsSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416" || binding.handlerGitBlobSha !== "9266bfc7ba5444f3b8685775d10ad72210050634" || added["open-sse/services/comboMetrics.ts"] !== "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41" || added["open-sse/services/autoCombo/providerDiversity.ts"] !== "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b")) throw new Error(`${label} combo metrics source mismatch`);
+  const concurrencySource = operationId === "GET /api/admin/concurrency" ? requireRecord(added["src/app/api/admin/concurrency/route.ts"], `${label}.concurrency source`) : undefined;
+  if (concurrencySource !== undefined && (concurrencySource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15" || binding.handlerGitBlobSha !== "7fd03e4742e0daecc8bb74f88abba0cd61cee9c9")) throw new Error(`${label} concurrency source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = csrfSource !== undefined ? csrfSource : comboMetricsSource !== undefined ? comboMetricsSource.originalSha256 : diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = concurrencySource !== undefined ? concurrencySource.originalSha256 : csrfSource !== undefined ? csrfSource : comboMetricsSource !== undefined ? comboMetricsSource.originalSha256 : diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource.originalSha256 : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -650,6 +667,57 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expected = { cases: Object.fromEntries(Object.entries(statuses).map(([name, authenticated]) => [name, { status: 200, routeClass: "PUBLIC", authenticated }])), invalidSettingsReads: 0, onboardingBefore: [], onboardingAfter: [{ key: "requireLogin", value: "true" }, { key: "setupComplete", value: "true" }] };
     if (canonicalJson(toJson(artifact.authStatusHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} auth status HTTP mismatch`);
   }
+  if (operationId === "GET /api/admin/concurrency") {
+    assertConcurrencySourceBinding();
+    const http = requireRecord(artifact.concurrencyHttp, `${label}.concurrency HTTP`);
+    assertKeys(http, label, ["auth", "empty", "populated", "unchanged", "failure"]);
+    const statuses: Record<string, number> = { anonymous: 401, invalid: 403, inference: 403, writeKey: 403, session: 200, oma: 200, omaWrite: 200, omaAdmin: 200, manage: 200, admin: 200 };
+    const auth = requireRecord(http.auth, `${label}.auth`);
+    assertKeys(auth, label, Object.keys(statuses));
+    const check = (value: unknown, status: number, count: number): void => {
+      const row = requireRecord(value, label);
+      assertKeys(row, label, ["status", "routeClass", "cacheControl", "contentType", "counts", "shape"]);
+      const counts = { rateLimits: count, comboQueues: count, semaphores: count };
+      if (row.status !== status || row.routeClass !== "MANAGEMENT" || (status === 200 ? row.cacheControl !== "private, no-store" || row.contentType !== "application/json" || row.shape !== true || canonicalJson(toJson(row.counts, label)) !== canonicalJson(counts) : ![null, "private, no-store"].includes(row.cacheControl as string | null) || ![null, "application/json"].includes(row.contentType as string | null) || row.counts !== null || row.shape !== null)) throw new Error(`${label} concurrency response mismatch`);
+    };
+    for (const [name, status] of Object.entries(statuses)) check(auth[name], status, 0);
+    check(http.empty, 200, 0); check(http.populated, 200, 1);
+    const failure = requireRecord(http.failure, `${label}.failure`);
+    assertKeys(failure, label, ["status", "routeClass", "cacheControl", "contentType", "json", "privateMarkerPresent"]);
+    if (http.unchanged !== true || failure.status !== 500 || failure.routeClass !== "MANAGEMENT" || failure.cacheControl !== null || ![null, "text/plain", "text/plain; charset=utf-8"].includes(failure.contentType as string | null) || failure.json !== false || failure.privateMarkerPresent !== false) throw new Error(`${label} concurrency framework failure mismatch`);
+    const closure = requireRecord(artifact.concurrencyHttpClosure, `${label}.concurrency HTTP closure`);
+    assertKeys(closure, label, ["sources", "managerExecutedSha256", "pauseOriginalSha256", "pauseExecutedSha256", "package"]);
+    const owners = requireRecord(closure.sources, `${label}.concurrency owners`);
+    assertKeys(owners, label, ["src/app/api/admin/concurrency/route.ts", "open-sse/services/rateLimitManager.ts", "open-sse/services/rateLimitSemaphore.ts", "open-sse/services/accountSemaphore.ts", "src/lib/api/requireManagementAuth.ts", "src/lib/db/core.ts", "package.json", "open-sse/package.json"]);
+    for (const [path, digest] of [["src/app/api/admin/concurrency/route.ts", "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15"], ["open-sse/services/rateLimitManager.ts", "aa0063219f37cdec0ebc7a76c62bfd3ae36fddae7f09424fbda825b2f1e68353"], ["open-sse/services/rateLimitSemaphore.ts", "201481f2939781920e98b4d0d009299f55502cf1b189b908539a8ed2ffc9330c"], ["open-sse/services/accountSemaphore.ts", "3b308d0995a4e1deb363e27c41d52a6f0e8d7aee593261618cd1303b1bd25eff"]] as const) if (owners[path] !== digest) throw new Error(`${label} concurrency owner mismatch: ${path}`);
+    const dependency = requireRecord(closure.package, `${label}.concurrency package`);
+    if (dependency.name !== "bottleneck" || dependency.version !== "2.19.5" || dependency.location !== "node_modules/bottleneck") throw new Error(`${label} concurrency package mismatch`);
+    const names = ["PINNED_INGRESS_ARCHIVE", "PINNED_INGRESS_NODE", "PINNED_INGRESS_DEPENDENCIES", "PINNED_INGRESS_BWRAP"] as const;
+    const paths = names.map(name => {
+      const value = process.env[name];
+      if (!value || !value.startsWith("/")) throw new Error(`${label} requires absolute ${name}`);
+      return value;
+    });
+    const program = `import json, pathlib, sys
+ns = {'__name__': 'pinned_ingress_expected', '__file__': sys.argv[1]}
+exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), ns)
+print(json.dumps(ns[sys.argv[2]](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
+    const invoke = (name: string): unknown => JSON.parse(execFileSync("python3", ["-c", program, resolve(packageRoot, "scripts/pinned-ingress.py"), name, ...paths], { cwd: packageRoot, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 900_000 })) as unknown;
+    const beforeKey = invoke("expected_core_lifecycle_input_key");
+    const current = requireRecord(invoke("expected_concurrency_http"), `${label}.current HTTP`);
+    const derive = `import importlib.util, json, pathlib, sys
+spec = importlib.util.spec_from_file_location('ingress', sys.argv[1])
+m = importlib.util.module_from_spec(spec); exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), m.__dict__)
+m.SOURCE = pathlib.Path(sys.argv[2]); source, _ = m.approved_source(with_identity=True)
+pause = 'open-sse/services/rateLimitManager/bodyRetryPause.ts'
+package = next(item for item in json.loads((m.FIXTURE / 'dependencies.json').read_text())['packages'] if item['location'] == 'node_modules/bottleneck')
+print(json.dumps({'sources': {name: m.sha(source[name]) for name in m.CONCURRENCY_OWNERS}, 'managerExecutedSha256': m.sha(m.concurrency_manager_bytes(source[m.CONCURRENCY_MANAGER_SOURCE])), 'pauseOriginalSha256': m.sha(source[pause]), 'pauseExecutedSha256': m.sha(m.concurrency_pause_bytes(source[pause])), 'package': package}))`;
+    const derived = JSON.parse(execFileSync("python3", ["-c", derive, resolve(packageRoot, "scripts/pinned-ingress.py"), paths[0]!], { cwd: packageRoot, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 60_000 })) as unknown;
+    if (canonicalJson(toJson(closure, label)) !== canonicalJson(toJson(derived, label))) throw new Error(`${label} transformed concurrency closure mismatch`);
+    if (typeof beforeKey !== "string" || !/^[a-f0-9]{64}$/.test(beforeKey) || invoke("expected_core_lifecycle_input_key") !== beforeKey) throw new Error(`${label} HTTP producer inputs changed`);
+    assertKeys(current, `${label}.current HTTP`, ["concurrencyHttp", "concurrencyHttpClosure"]);
+    if (canonicalJson(toJson(artifact.concurrencyHttp, label)) !== canonicalJson(toJson(current.concurrencyHttp, label)) || canonicalJson(toJson(artifact.concurrencyHttpClosure, label)) !== canonicalJson(toJson(current.concurrencyHttpClosure, label))) throw new Error(`${label} current HTTP mismatch`);
+  }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   if (operationId === "GET /api/a2a/status") {
     const path = "src/app/api/a2a/status/route.ts";
@@ -787,7 +855,6 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
     for (const name of ["src/app/api/a2a/tasks/history/route.ts", "src/app/api/a2a/_auth.ts", "src/lib/a2a/authenticate.ts", "src/lib/db/migrations/002_mcp_a2a_tables.sql"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
   }
-  if (operationId !== "GET /api/admin/proxy-pool-visibility" && !Object.hasOwn(added, "src/app/api/admin/proxy-pool-visibility/route.ts")) delete requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`)["src/app/api/admin/proxy-pool-visibility/route.ts"];
   if (operationId !== "GET /api/a2a/status" && operationId !== "GET /api/a2a/tasks/history" && !Object.hasOwn(added, "src/lib/db/a2aTasks.ts")) {
     delete requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`)["src/lib/db/a2aTasks.ts"];
   }
@@ -817,6 +884,21 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   for (const key of overlayIdentityHashFields) {
     if (canonicalJson(toJson(inputs[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} overlay identity mismatch: ${key}`);
   }
+}
+
+/** Compare the retained native outcome to a fresh isolated producer run. */
+export function validateConcurrencyLifecycleObservation(value: unknown, independent: unknown): void {
+  const label = "concurrency lifecycle evidence";
+  const artifact = requireRecord(value, label);
+  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "cold", "warm"]);
+  if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Pinned route, manager and semaphores in isolated cold and warm native core processes; no HTTP ingress or provider dispatch.") throw new Error(`${label} classification mismatch`);
+  const closure = requireRecord(requireRecord(artifact.identity, `${label}.identity`).concurrencyClosure, `${label}.closure`);
+  for (const [path, digest] of [["src/app/api/admin/concurrency/route.ts", "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15"], ["open-sse/services/rateLimitManager.ts", "aa0063219f37cdec0ebc7a76c62bfd3ae36fddae7f09424fbda825b2f1e68353"], ["open-sse/services/rateLimitSemaphore.ts", "201481f2939781920e98b4d0d009299f55502cf1b189b908539a8ed2ffc9330c"], ["open-sse/services/accountSemaphore.ts", "3b308d0995a4e1deb363e27c41d52a6f0e8d7aee593261618cd1303b1bd25eff"]] as const) if (closure[path] !== digest) throw new Error(`${label} owner mismatch: ${path}`);
+  for (const phase of ["cold", "warm"] as const) {
+    const wanted = { databaseExistedBefore: phase === "warm", databaseAfterAuth: true, driver: "node:sqlite", empty: { rateLimits: 0, comboQueues: 0, semaphores: 0 }, populated: { rateLimits: 1, comboQueues: 1, semaphores: 1 }, unchanged: true };
+    if (canonicalJson(toJson(artifact[phase], label)) !== canonicalJson(toJson(wanted, label))) throw new Error(`${label} ${phase} mismatch`);
+  }
+  if (canonicalJson(toJson(artifact, label)) !== canonicalJson(toJson(requireRecord(independent, `${label}.independent`), label))) throw new Error(`${label} independent observation mismatch`);
 }
 
 // Only expected producer results are cached; artifacts are always read and validated anew.
@@ -936,11 +1018,12 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
   if (effectValue !== undefined) {
     const csrf = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "csrf";
     const comboMetrics = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "comboMetrics";
-    const effect = requireRecord((csrf || comboMetrics) && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
+    const concurrency = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "concurrency";
+    const effect = requireRecord((csrf || comboMetrics || concurrency) && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
     const digest = requireString(effect.sha256, "deprecated provider effect digest");
     const path = requireString(effect.artifact, "deprecated provider effect artifact");
-    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${csrf ? "csrf-lifecycle" : comboMetrics ? "combo-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
+    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${csrf ? "csrf-lifecycle" : comboMetrics ? "combo-lifecycle" : concurrency ? "concurrency-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
     const file = resolve(packageRoot, path);
     const info = lstatSync(file);
     if (!info.isFile() || info.nlink !== 1 || realpathSync(file) !== file || info.size > 2 * 1024 * 1024) throw new Error("deprecated provider effect artifact invalid");
@@ -949,6 +1032,7 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     const observed = JSON.parse(bytes.toString("utf8")) as unknown;
     if (csrf) validateAuthCsrfLifecycleObservation(observed, requireRecord(expected, label).csrfLifecycle);
     else if (comboMetrics) validateComboMetricsLifecycleObservation(observed, requireRecord(expected, label).comboLifecycle);
+    else if (concurrency) validateConcurrencyLifecycleObservation(observed, requireRecord(expected, label).concurrencyLifecycle);
     else validateDeprecatedProviderSweepObservation(observed, requireRecord(expected, label).deprecatedSweep);
   }
 }
@@ -1992,7 +2076,7 @@ function bindingFor(operation: RecordValue, route: RecordValue, frameworkContext
     routeImportsSha256: requireString(route.resolvedImportsSha256, `${String(route.sourceFile)}.resolvedImportsSha256`),
     frameworkContextSha256,
     ...effectiveSourceBinding(manifest),
-    ...(operation.operationId === "GET /api/analytics/auto-routing" || operation.operationId === "GET /api/analytics/diversity" || operation.operationId === "GET /api/admin/proxy-pool-visibility" || operation.operationId === "GET /api/a2a/status" || operation.operationId === "GET /api/a2a/tasks/history" || operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || operation.operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
+    ...(operation.operationId === "GET /api/admin/concurrency" || operation.operationId === "GET /api/analytics/auto-routing" || operation.operationId === "GET /api/analytics/diversity" || operation.operationId === "GET /api/admin/proxy-pool-visibility" || operation.operationId === "GET /api/a2a/status" || operation.operationId === "GET /api/a2a/tasks/history" || operation.operationId === "GET /api/auth/status" || operation.operationId === "GET /api/auth/mfa/status" || operation.operationId === "GET /api/auth/sso/config" || operation.operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, "route.resolvedImports").includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true as const } : {}),
     mutationSafetySha256: sha256(canonicalJson(toJson(operation.mutationSafety, "operation.mutationSafety"))),
   };
 }
@@ -2085,6 +2169,18 @@ export function validateAcpNativeResults(value: unknown): void {
     const expectedStage = { stage: "cleanup", category: "passed", recordCount: 3, outcomeCount: 3, environmentMatches: true, unknownEnvironmentCount: 0, sentinelAssertionPassed: true, outcomes: { success: { status: 0, code: "none", signal: "none", stdout: "success", error: "none" }, failure: { status: 17, code: "none", signal: "none", stdout: "failure", error: "other" }, stall: { status: null, code: "ETIMEDOUT", signal: "SIGKILL", stdout: "empty", error: "timeout" } } };
     if (canonicalJson(toJson(result.stage, label)) !== canonicalJson(toJson(expectedStage, label))) throw new Error(`${label} stage mismatch`);
   }
+}
+
+export function validateConcurrencyContract(value: unknown): void {
+  const c = requireRecord(value, "concurrency contract"), request = requireRecord(c.request, "concurrency request"), auth = requireRecord(c.auth, "concurrency auth"), response = requireRecord(c.response, "concurrency response"), safety = requireRecord(c.mutationSafety, "concurrency safety");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "concurrency contract")) === canonicalJson(toJson(b, "concurrency contract"));
+  const empty = { type: "object", properties: {}, additionalProperties: false };
+  const map = { ...empty, maxProperties: 10000 };
+  const view = { type: "object", properties: { rateLimits: map, comboQueues: map, semaphores: map }, required: ["rateLimits", "comboQueues", "semaphores"], additionalProperties: false };
+  const policy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "oma-access-token", minimumScope: requiredOmaScope("GET", "/api/admin/concurrency") }, { kind: "trusted-local", loopbackOnly: true }] };
+  const success = requireArray(response.variants, "concurrency variants").filter(item => isRecord(item) && item.statusCode === "200");
+  if (!same(request.pathSchema, empty) || !same(request.querySchema, empty) || !same(request.pathParameters, []) || !same(request.parameters, []) || request.body !== null || !same(c.secrets, { inputFields: [], outputFields: ["timestamp"] }) || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || success.length !== 1 || !same(requireRecord(success[0], "concurrency success").content, [{ mediaType: "application/json", schema: view, sourceFile: "src/app/api/admin/concurrency/route.ts" }])) throw new Error("concurrency request or response projection mismatch");
+  if (c.sideEffect !== "lifecycle" || auth.domain !== "management" || !same(auth.sourcePolicy, policy) || requireRecord(c.confirmation, "concurrency confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "concurrency preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null }) || response.mediaType !== "application/json" || !same(response.schema, view)) throw new Error("concurrency contract does not match source-bound lifecycle behavior");
 }
 
 export function validateAcpContract(value: unknown): void {
@@ -2302,6 +2398,11 @@ function validateEligibility(
     validateComboMetricsContract(record.contract, operationId);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/combos/metrics/route.ts" || route.sha256 !== "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416" || route.gitBlobSha !== "9266bfc7ba5444f3b8685775d10ad72210050634") throw new Error("combo metrics requires exact lifecycle source");
   }
+  if (operationId === "GET /api/admin/concurrency") {
+    validateConcurrencyContract(record.contract);
+    assertConcurrencySourceBinding();
+    if (!binding.databaseInitializationRequired || record.effectEvidence === undefined) throw new Error("concurrency requires independent native lifecycle evidence");
+  }
   if (operationId === "GET /api/auth/csrf") {
     validateAuthCsrfContract(record.contract);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/csrf/route.ts" || route.sha256 !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || route.gitBlobSha !== "a18026b4474ea4b7259d6ae0accfbc32429fef61") throw new Error("CSRF requires exact lifecycle source");
@@ -2396,13 +2497,13 @@ function validateEligibility(
     validateHealthIngressEvidence(ingress, expectedBinding, operationId, specializedStatuses);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
-  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || comboMetrics) {
+  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || comboMetrics || operationId === "GET /api/admin/concurrency") {
     if (!binding.databaseInitializationRequired || record.effectEvidence === undefined) throw new Error(`independent effect evidence required: ${operationId}`);
     const effect = requireRecord(record.effectEvidence, `${operationId}.effectEvidence`);
-    const prefix = operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : comboMetrics ? "provenance/qualification/combo-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
+    const prefix = operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : operationId === "GET /api/admin/concurrency" ? "provenance/qualification/concurrency-lifecycle-" : comboMetrics ? "provenance/qualification/combo-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
     if (typeof effect.artifact !== "string" || !effect.artifact.startsWith(prefix)) throw new Error(`effect evidence domain mismatch: ${operationId}`);
   } else if (record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : comboMetrics ? ["comboMetrics", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : operationId === "GET /api/admin/concurrency" ? ["concurrency", record.effectEvidence] : comboMetrics ? ["comboMetrics", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
@@ -3122,7 +3223,7 @@ function makeOperation(
     operationId,
     method,
     pathTemplate: path,
-    ...(operationId === "GET /api/analytics/auto-routing" || operationId === "GET /api/admin/proxy-pool-visibility" || operationId === "GET /api/a2a/status" || operationId === "GET /api/a2a/tasks/history" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
+    ...(operationId === "GET /api/admin/concurrency" || operationId === "GET /api/analytics/auto-routing" || operationId === "GET /api/admin/proxy-pool-visibility" || operationId === "GET /api/a2a/status" || operationId === "GET /api/a2a/tasks/history" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || requireArray(route.resolvedImports, `${operationId}.resolvedImports`).includes("src/lib/db/core.ts") ? { databaseInitializationRequired: true } : {}),
     request,
     response,
     mediaType: { request: requestMediaType, response: responseMediaType },
@@ -3201,7 +3302,7 @@ function makeOperation(
       },
       ...(operationRequiresIngressEvidence(operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
       ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
-      ...(operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
+      ...(operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || operationId === "GET /api/admin/concurrency" || operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/acp/agents" ? { nativeEvidenceSha256: requireRecord(eligibilityRecord.nativeEvidence, `${operationId}.nativeEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/a2a/status" ? { a2aEvidenceSha256: requireRecord(eligibilityRecord.a2aEvidence, `${operationId}.a2aEvidence`).sha256 } : {}),
     };
@@ -3379,6 +3480,26 @@ export function assertCacheMetricsSourceBinding(operationId: string): void {
     || receipts[0]?.gitBlobSha !== "4a2ce8d5ecf2b8c7115d82a9922239a27ca04373") {
     throw new Error(`${operationId} cache metrics source differs from the reviewed handler and backend`);
   }
+}
+
+/** Bind the diagnostic fixture to each upstream snapshot owner, not only the route. */
+export function assertConcurrencySourceBinding(): void {
+  const operationId = "GET /api/admin/concurrency";
+  const { manifest, route } = sourceOperationFor(operationId);
+  const owners = [
+    ["open-sse/services/rateLimitManager.ts", "aa0063219f37cdec0ebc7a76c62bfd3ae36fddae7f09424fbda825b2f1e68353", "4db0c3a4cc2fe61da287e4319b1b018c208bee00"],
+    ["open-sse/services/rateLimitSemaphore.ts", "201481f2939781920e98b4d0d009299f55502cf1b189b908539a8ed2ffc9330c", "accbcb3128e3f96d9b6586dd573eabbe132f31b6"],
+    ["open-sse/services/accountSemaphore.ts", "3b308d0995a4e1deb363e27c41d52a6f0e8d7aee593261618cd1303b1bd25eff", "549f69123b079df85703212e7bca35c3d1ebc864"],
+  ];
+  const receipts = requireArray(requireRecord(manifest.sourceCorpus, "manifest.sourceCorpus").files, "manifest.sourceCorpus.files")
+    .map((value, index) => requireRecord(value, `manifest.sourceCorpus.files[${index}]`));
+  const imports = requireArray(route.resolvedImports, `${operationId}.resolvedImports`);
+  if (route.sha256 !== "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15"
+    || route.gitBlobSha !== "7fd03e4742e0daecc8bb74f88abba0cd61cee9c9"
+    || owners.some(([path, sha, blob]) => {
+      const matching = receipts.filter(receipt => receipt.path === path);
+      return !imports.includes(path) || matching.length !== 1 || matching[0]?.sha256 !== sha || matching[0]?.gitBlobSha !== blob;
+    })) throw new Error("concurrency route or owner source differs from reviewed source");
 }
 
 /** Compute a source/contract binding only; explicit contracts never create eligibility. */
