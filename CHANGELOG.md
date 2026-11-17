@@ -4,6 +4,11 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Characterize bounded compression analytics through the pinned route and SQL
+  owner, including lazy compatibility schema alterations and period aggregation.
+  Keep confirmation, uncertain initialization settlement and no replay; availability
+  still requires independently joined exact-source HTTP and lifecycle evidence.
+
 - Recognize explicitly synthetic cookie pairs in package secret scanning while
   continuing to reject real or mixed cookie values, including escaped literals,
   and other credentials.

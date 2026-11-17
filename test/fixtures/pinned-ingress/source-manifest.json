@@ -2047,6 +2047,9 @@
   "additionalFiles": {
     "src/app/api/analytics/auto-routing/route.ts": { "sha256": "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1", "gitBlob": "27fd7e8350f76a3e1a1429b69344c21ce350d9b5" },
     "src/lib/db/usageLogs.ts": { "sha256": "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0", "gitBlob": "20d423a5cfeb372c876196060b412f37cb54c801" },
+    "src/app/api/analytics/compression/route.ts": { "sha256": "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5", "gitBlob": "7006cac6eba75683d773afe1b1a1967607063e0f" },
+    "src/lib/db/compressionAnalytics.ts": { "sha256": "2989f4d16a331bd20624748a8624dba0065e0e70dee96e6cf3227449e9b28f66", "gitBlob": "66807e47b60ae4f8bdeb7ce716af410a0aa9e2ac" },
+    "src/lib/db/migrations/038_compression_analytics.sql": { "sha256": "71b7d06e954d2c3733919a395a662adcd1b8bb605a9adb35025c44dc6d71ac2e", "gitBlob": "eff5aadb16c314f52e1b032545ce4e1e2a2d665f" },
     "src/app/api/a2a/status/route.ts": { "sha256": "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2", "gitBlob": "4072255a115bd068918763682203c8f909d986df" },
     "src/lib/a2a/taskManager.ts": { "sha256": "b4fc6379c9cf4b1f3b40e2e9dfae86df77c631014121ed1fa8f87637cb606e4a", "gitBlob": "0c9f2801763e66e2e79d55df47dd33674f0429d6" },
     "src/lib/db/a2aTasks.ts": { "sha256": "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838", "gitBlob": "247aaae020f95766f81bd9298a79058364bde89c" },

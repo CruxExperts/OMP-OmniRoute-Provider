@@ -4,6 +4,7 @@
     ".github/workflows/qualification.yml",
     ".github/crux-experts-release-signing-key.asc",
     "provenance/upstreams.json",
+    "provenance/route-sources.json",
     "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
     "provenance/derivations/omniroute-3.8.53-startup/manifest.json.asc",
     "provenance/derivations/omniroute-3.8.53-startup/files/src/lib/db/core.ts",

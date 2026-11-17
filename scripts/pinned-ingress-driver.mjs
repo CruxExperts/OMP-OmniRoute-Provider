@@ -19,6 +19,9 @@ const db = new DatabaseSync(`${dir}/metrics.sqlite`);
 db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_input INTEGER, tokens_cache_read INTEGER, tokens_cache_creation INTEGER);
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
 db.exec("CREATE TABLE call_logs (requested_model TEXT, request_type TEXT, provider TEXT, error_summary TEXT); INSERT INTO call_logs VALUES ('auto', NULL, 'alpha', 'fixture-private'), ('auto', NULL, 'alpha', 'fixture-private'), ('auto/fast', NULL, 'beta', 'fixture-private'), ('auto/fast', NULL, ' ', 'fixture-private'), ('auto/smart', NULL, NULL, 'fixture-private'), ('auto/fast', 'upstream_http_attempt', 'alpha', 'fixture-private'), ('other', NULL, 'alpha', 'fixture-private')");
+db.exec(await readFile('/work/app/src/lib/db/migrations/038_compression_analytics.sql', 'utf8'));
+const compressionInsert = db.prepare('INSERT INTO compression_analytics (timestamp, provider, mode, original_tokens, compressed_tokens, tokens_saved, duration_ms) VALUES (?, ?, ?, 100, ?, ?, 20)');
+for (const [age, saved] of [[1, 30], [2 * 24, 20], [15 * 24, 10], [45 * 24, 5]]) compressionInsert.run(new Date(Date.now() - age * 3600000).toISOString(), 'fixture-private-provider', 'fixture-private-mode', 100 - saved, saved);
 db.exec(await readFile('/work/app/src/lib/db/migrations/002_mcp_a2a_tables.sql', 'utf8'));
 const ownerHash = key => createHash('sha256').update(key).digest('hex').slice(0, 32);
 const historyRows = [
@@ -130,6 +133,28 @@ try {
   const analyticsAfter = db.prepare('SELECT count(*) AS rows FROM call_logs').get().rows;
   const analyticsHttp = { auth: analyticsAuth, beforeRows: analyticsBefore, afterRows: analyticsAfter, failure: { status: analyticsFailure.status, routeClass: analyticsFailure.routeClass, body: analyticsFailure.body } };
   assert(analyticsFailure.status === 200 && !analyticsFailure.text.includes('fixture-private'), 'analytics-caught-failure');
+  const compressionPath = '/api/analytics/compression';
+  const compressionColumns = () => db.prepare('PRAGMA table_info(compression_analytics)').all().map(row => row.name);
+  const compressionBefore = compressionColumns();
+  const compressionAuth = {};
+  let deniedColumns;
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer invalid' }, inference: { authorization: `Bearer ${managementKeys.read}` }, session: { cookie }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.read}` } })) {
+    const r = await request(compressionPath, 'GET', headers);
+    compressionAuth[name] = { status: r.status, routeClass: r.routeClass };
+    if (name === 'inference') deniedColumns = compressionColumns().length;
+  }
+  const compressionAfter = compressionColumns();
+  const compressionPeriods = [];
+  for (const query of ['', '?since=24h', '?since=unknown', '?since=7d', '?since=30d', '?since=all']) {
+    const r = await request(compressionPath + query, 'GET', { cookie });
+    compressionPeriods.push({ status: r.status, routeClass: r.routeClass, totalRequests: r.body?.totalRequests, totalTokensSaved: r.body?.totalTokensSaved, chartLength: r.body?.last24h?.length, chartCount: r.body?.last24h?.reduce((sum, row) => sum + row.count, 0) });
+  }
+  db.exec('ALTER TABLE compression_analytics RENAME TO fixture_hidden_compression_analytics');
+  let compressionFailure;
+  try { const r = await request(compressionPath, 'GET', { cookie }); compressionFailure = { status: r.status, routeClass: r.routeClass, body: r.body }; }
+  finally { db.exec('ALTER TABLE fixture_hidden_compression_analytics RENAME TO compression_analytics'); }
+  const compressionHttp = { auth: compressionAuth, beforeColumns: compressionBefore.length, deniedColumns, afterColumns: compressionAfter.length, periods: compressionPeriods, failure: compressionFailure };
+  assert(compressionFailure.status === 500 && JSON.stringify(compressionFailure.body) === JSON.stringify({ error: 'Internal server error' }), 'compression-failure');
   await ready(historyChild, 43181);
   const historyPath = '/api/a2a/tasks/history';
   const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
@@ -504,7 +529,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
   visibilityDb.close();

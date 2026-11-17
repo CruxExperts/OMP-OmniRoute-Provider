@@ -18,8 +18,9 @@ const a2a = phase === 'a2a-cold' || phase === 'a2a-warm';
 const history = phase === 'history-cold' || phase === 'history-warm';
 const visibility = phase === 'visibility-cold' || phase === 'visibility-warm';
 const analytics = phase === 'analytics-cold' || phase === 'analytics-warm';
-const expectedDataDir = analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const compression = phase === 'compression-cold' || phase === 'compression-warm';
+const expectedDataDir = compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -235,6 +236,37 @@ if (visibility) {
     if (pauses.status !== 200 || pauses.body.pauses.length !== 1 || pauses.body.members !== undefined) throw new Error('visibility pause mismatch');
     if (beforeCleanup !== 1 || afterCleanup !== 0) throw new Error('visibility expiry cleanup mismatch');
     await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), initialTotal: first.body.total, ranked: true, flagDisabled: true, expiredBefore: beforeCleanup, expiredAfter: afterCleanup, activePauseCount: pauses.body.pauses.length }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+if (compression) {
+  const cold = phase === 'compression-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('compression database phase mismatch');
+  await ensureDbInitialized();
+  try {
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('compression driver mismatch');
+    // Recreate the pinned migration-038 baseline only in this disposable cold database.
+    if (cold) {
+      db.exec('DROP TABLE compression_analytics');
+      db.exec(await (await import('node:fs/promises')).readFile('/work/app/src/lib/db/migrations/038_compression_analytics.sql', 'utf8'));
+    }
+    const columns = () => db.prepare('PRAGMA table_info(compression_analytics)').all().map(row => row.name);
+    const beforeColumns = columns();
+    const { GET } = await import('/work/app/src/app/api/analytics/compression/route.ts');
+    const now = Math.floor(Date.now() / 1000);
+    const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now).setExpirationTime(now + 3600).setJti('fixture-compression-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const call = async () => { const r = await GET(new Request('http://localhost/api/analytics/compression?since=all', { headers: { cookie: `auth_token=${token}` } })); const body = await r.json(); return { status: r.status, totalRequests: body.totalRequests, chartLength: body.last24h?.length }; };
+    const first = await call();
+    const afterColumns = columns();
+    if (cold) db.prepare('INSERT INTO compression_analytics (timestamp, mode, original_tokens, compressed_tokens, tokens_saved) VALUES (?, ?, 100, 70, 30)').run(new Date().toISOString(), 'fixture');
+    const populated = await call();
+    const rows = db.prepare('SELECT count(*) AS count FROM compression_analytics').get().count;
+    const finalColumns = columns();
+    const databaseExistsAfter = (await files()).some(x => x.name === 'storage.sqlite');
+    if (first.status !== 200 || first.totalRequests !== (cold ? 0 : 1) || first.chartLength !== 24 || populated.status !== 200 || populated.totalRequests !== 1 || populated.chartLength !== 24 || rows !== 1 || afterColumns.length - beforeColumns.length !== (cold ? 18 : 0) || JSON.stringify(afterColumns) !== JSON.stringify(finalColumns)) throw new Error('compression lifecycle mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter, beforeColumns: beforeColumns.length, afterColumns: afterColumns.length, finalColumns: finalColumns.length, first, populated, rows }) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { await closeDbInstance(); }
   process.exit(0);
 }

@@ -164,6 +164,12 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   check(analyticsArtifact, analyticsBinding, "GET /api/analytics/auto-routing");
   check({ ...analyticsArtifact, autoRoutingAnalyticsHttp: { ...analyticsHttp, failure: { ...analyticsHttp.failure, status: 500 } } }, analyticsBinding, "GET /api/analytics/auto-routing", true);
   check(analyticsArtifact, { ...analyticsBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/analytics/auto-routing", true);
+  const compressionBinding = { handlerSha256: "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5", handlerGitBlobSha: "7006cac6eba75683d773afe1b1a1967607063e0f", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  const compressionHttp = { auth: Object.fromEntries(Object.entries(analyticsStatuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT" }])), beforeColumns: 10, deniedColumns: 10, afterColumns: 28, periods: [[1, 30], [1, 30], [1, 30], [2, 50], [3, 60], [4, 65]].map(([totalRequests, totalTokensSaved]) => ({ status: 200, routeClass: "MANAGEMENT", totalRequests, totalTokensSaved, chartLength: 24, chartCount: 1 })), failure: { status: 500, routeClass: "MANAGEMENT", body: { error: "Internal server error" } } };
+  const compressionArtifact = { ...artifact, compressionAnalyticsHttp: compressionHttp };
+  check(compressionArtifact, compressionBinding, "GET /api/analytics/compression");
+  check({ ...compressionArtifact, compressionAnalyticsHttp: { ...compressionHttp, afterColumns: 10 } }, compressionBinding, "GET /api/analytics/compression", true);
+  check(compressionArtifact, { ...compressionBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/analytics/compression", true);
   for (const [index, name] of ["agent-card.json", "agent.json"].entries()) {
     const operation = `GET /.well-known/${name}`;
     const route = `src/app/.well-known/${name}/route.ts`;
@@ -982,6 +988,7 @@ with tempfile.TemporaryDirectory() as temp:
  analytics_body={'totalRequests':5,'variantBreakdown':{'default':2,'fast':2,'smart':1},'topProviders':[{'provider':'alpha','count':2},{'provider':'beta','count':1}]}
  analytics_status={'anonymous':401,'invalid':403,'inference':403,'session':200,'oma':200,'manage':200,'admin':200}
  ingress['analyticsHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','body':analytics_body if status==200 else None} for name,status in analytics_status.items()},'beforeRows':7,'afterRows':7,'failure':{'status':200,'routeClass':'MANAGEMENT','body':{'totalRequests':0,'variantBreakdown':{},'topProviders':[]}}}
+ ingress['compressionHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT'} for name,status in analytics_status.items()},'beforeColumns':10,'deniedColumns':10,'afterColumns':28,'periods':[{'status':200,'routeClass':'MANAGEMENT','totalRequests':count,'totalTokensSaved':saved,'chartLength':24,'chartCount':1} for count,saved in ((1,30),(1,30),(1,30),(2,50),(3,60),(4,65))],'failure':{'status':500,'routeClass':'MANAGEMENT','body':{'error':'Internal server error'}}}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -1170,7 +1177,9 @@ spec=importlib.util.spec_from_file_location('ingress',sys.argv[1]); m=importlib.
 with tempfile.TemporaryDirectory() as d:
  m.effective_source_identities=lambda archive:{'effectiveTreeSha256':'b'*64}
  p=pathlib.Path(d); h='a'*64
- source={f'src/lib/db/migrations/{i:03}_fixture.sql':h for i in range(222)}
+ corpus=json.loads((m.ROOT/'provenance/route-sources.json').read_text())['root']['sourceCorpus']['files']
+ source={entry['path']:entry['sha256'] for entry in corpus if entry['path'].startswith('src/lib/db/migrations/') and entry['path'].endswith('.sql')}
+ assert len(source)==222
  source.update({'src/lib/db/healthCheckWorker.ts':h,'scripts/build/colocate-standalone.mjs':h,'src/lib/db/core.ts':h})
  source.update({name:h for name in (m.MFA_STATUS,m.MFA_DASHBOARD,m.MFA_STORAGE,m.MFA_SUPPORT)})
  source.update({name:h for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED,'src/lib/db/readCache.ts')})
@@ -1180,6 +1189,8 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in m.VISIBILITY_CLOSURE})
  analytics_sources=('src/app/api/analytics/auto-routing/route.ts','src/lib/db/usageLogs.ts','src/lib/db/logicalCallSql.ts','src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts')
  source.update({name:h for name in analytics_sources})
+ compression_sources=(*m.COMPRESSION_SOURCES,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts')
+ source.update({name:h for name in compression_sources if name not in source})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1189,6 +1200,7 @@ with tempfile.TemporaryDirectory() as d:
  identity['a2aClosure']={name:source[name] for name in a2a_sources}
  identity['visibilityClosure']={name:source[name] for name in m.VISIBILITY_CLOSURE}
  identity['analyticsClosure']={name:source[name] for name in analytics_sources}
+ identity['compressionClosure']={name:source[name] for name in compression_sources}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
@@ -1201,6 +1213,8 @@ with tempfile.TemporaryDirectory() as d:
   put('a2a-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'disabled':True,'enabled':True,'managerTimerCount':1,'activeTaskObserved':True,'expiredTaskPersistedFailed':True,'timerPurgedOldHistory':True})
   (p/('visibility-'+phase+'.private')).write_text('normal output\n')
   put('visibility-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'initialTotal':2 if phase=='warm' else 0,'ranked':True,'flagDisabled':True,'expiredBefore':1,'expiredAfter':0,'activePauseCount':1})
+  (p/('compression-'+phase+'.private')).write_text('normal output\n')
+  put('compression-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'beforeColumns':28 if phase=='warm' else 10,'afterColumns':28,'finalColumns':28,'first':{'status':200,'totalRequests':1 if phase=='warm' else 0,'chartLength':24},'populated':{'status':200,'totalRequests':1,'chartLength':24},'rows':1})
  put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  put('sso-cold.json',{'databaseExistedBefore':False,'databaseExistsAfter':True,'onboardingBefore':'absent','onboardingPersisted':True,'first':{'status':200,'body':{'enabled':False}},'cached':None,'refreshed':None})
@@ -1230,6 +1244,7 @@ with tempfile.TemporaryDirectory() as d:
  visibility_cold=json.loads((p/'visibility-cold.json').read_text()); visibility_cold['activePauseCount']=0; put('visibility-cold.json',visibility_cold); reject(); visibility_cold['activePauseCount']=1; put('visibility-cold.json',visibility_cold)
  original=identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']; identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']='b'*64; put('core-identity.json',identity); reject(); identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']=original; put('core-identity.json',identity)
  analytics_cold=json.loads((p/'analytics-cold.json').read_text()); analytics_cold['failure']['status']=500; put('analytics-cold.json',analytics_cold); reject(); analytics_cold['failure']['status']=200; put('analytics-cold.json',analytics_cold)
+ compression_cold=json.loads((p/'compression-cold.json').read_text()); compression_cold['afterColumns']=10; put('compression-cold.json',compression_cold); reject(); compression_cold['afterColumns']=28; put('compression-cold.json',compression_cold)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
  original=identity['ssoClosure'][m.SSO_CONFIG]; identity['ssoClosure'][m.SSO_CONFIG]='b'*64; put('core-identity.json',identity); reject(); identity['ssoClosure'][m.SSO_CONFIG]=original; put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()

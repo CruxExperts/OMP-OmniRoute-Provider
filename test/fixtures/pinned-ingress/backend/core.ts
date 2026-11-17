@@ -38,6 +38,11 @@ const db = {
       const normalized = sql.replace(/\s+/g, " ").trim();
       return {
         get(...args: unknown[]) {
+          if (normalized.includes("FROM compression_analytics")) {
+            event("compression:read");
+            analyticsDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            return analyticsDb.prepare(sql).get(...args as []);
+          }
           if (normalized === "SELECT strategy FROM proxy_scope_rotation WHERE scope = ? AND scope_id IS ?" || normalized === "SELECT id, name, type, host, port, username, password, region, notes, status, source, family, subscription_id, created_at, updated_at FROM proxy_registry WHERE id = ?") {
             event("visibility:lookup");
             visibilityDb ??= new DatabaseSync("/work/data/visibility.sqlite");
@@ -101,6 +106,11 @@ const db = {
           return unsupported(`run:${createHash("sha256").update(normalized).digest("hex")}`);
         },
         all(...args: unknown[]) {
+          if (normalized === "PRAGMA table_info(compression_analytics)" || normalized.includes("FROM compression_analytics")) {
+            event("compression:read");
+            analyticsDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            return analyticsDb.prepare(sql).all(...args as []);
+          }
           if (normalized.startsWith("SELECT p.id, p.name, p.type, p.host, p.port, p.username, p.password, p.notes, p.family, a.position AS __pos, a.id AS __aid FROM proxy_assignments a JOIN proxy_registry p ON p.id = a.proxy_id WHERE a.scope = ? ")) {
             event("visibility:pool");
             visibilityDb ??= new DatabaseSync("/work/data/visibility.sqlite");
@@ -136,7 +146,12 @@ const db = {
         },
       };
     },
-    exec() { return unsupported("exec"); },
+    exec(sql: string) {
+      if (!/^ALTER TABLE compression_analytics ADD COLUMN [a-z_]+ (?:INTEGER(?: DEFAULT 0)?|REAL|TEXT)$/.test(sql)) return unsupported("exec");
+      event("compression:schema");
+      analyticsDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+      return analyticsDb.exec(sql);
+    },
     pragma() { return unsupported("pragma"); },
     transaction() { return unsupported("transaction"); },
 };

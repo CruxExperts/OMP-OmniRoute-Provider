@@ -303,6 +303,11 @@ export function testOutcomeHash(
     const expectedBody = { totalRequests: 5, variantBreakdown: { default: 2, fast: 2, smart: 1 }, topProviders: [{ provider: "alpha", count: 2 }, { provider: "beta", count: 1 }] };
     if (canonicalJson(before) !== canonicalJson({ rows: 8 }) || canonicalJson(after) !== canonicalJson({ rows: 8 }) || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("auto-routing analytics observed outcome mismatch");
   }
+  if (operationId === "GET /api/analytics/compression") {
+    const initial = requireRecord(before, "compression before"), final = requireRecord(after, "compression after"), output = requireRecord(body, "compression body");
+    const chart = requireArray(output.last24h, "compression chart");
+    if (canonicalJson(before) !== canonicalJson(after) || !Array.isArray(initial.columns) || initial.columns.length !== 28 || canonicalJson(toJson(initial.rows, "compression rows")) !== canonicalJson({ count: 5 }) || canonicalJson(toJson(final.rows, "compression rows")) !== canonicalJson({ count: 5 }) || result.status !== 200 || output.totalRequests !== 4 || output.totalTokensSaved !== 65 || output.totalSkipped !== 1 || output.validationFallbacks !== 4 || chart.length !== 24 || chart.reduce<number>((total, item) => total + Number(requireRecord(item, "compression hour").count), 0) !== 1) throw new Error("compression analytics observed outcome mismatch");
+  }
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -460,8 +465,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (operationId === "GET /api/admin/proxy-pool-visibility" && (visibilitySource !== "58b6fb4ce329b58d35ff87af440857cf8ec70824b3d62f8c79ebf11ca797f8b8" || binding.handlerSha256 !== visibilitySource || binding.handlerGitBlobSha !== "dcec8ab22c00d6ecc622313339742117f3bafac4")) throw new Error(`${label} visibility source mismatch`);
   const analyticsSource = operationId === "GET /api/analytics/auto-routing" ? added["src/app/api/analytics/auto-routing/route.ts"] : undefined;
   if (operationId === "GET /api/analytics/auto-routing" && (analyticsSource !== "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1" || binding.handlerSha256 !== analyticsSource || binding.handlerGitBlobSha !== "27fd7e8350f76a3e1a1429b69344c21ce350d9b5" || added["src/lib/db/usageLogs.ts"] !== "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0" || added["src/lib/db/logicalCallSql.ts"] !== "5f59112ddcce301c4095635b7ec56456412c75465586371e256235707cf2b617")) throw new Error(`${label} analytics source mismatch`);
+  const compressionSource = operationId === "GET /api/analytics/compression" ? added["src/app/api/analytics/compression/route.ts"] : undefined;
+  if (operationId === "GET /api/analytics/compression" && (compressionSource !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || binding.handlerSha256 !== compressionSource || binding.handlerGitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f" || added["src/lib/db/compressionAnalytics.ts"] !== "2989f4d16a331bd20624748a8624dba0065e0e70dee96e6cf3227449e9b28f66" || added["src/lib/db/migrations/038_compression_analytics.sql"] !== "71b7d06e954d2c3733919a395a662adcd1b8bb605a9adb35025c44dc6d71ac2e")) throw new Error(`${label} compression source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -659,6 +666,12 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expected = { auth: Object.fromEntries(Object.entries(statuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", body: status === 200 ? body : null }])), beforeRows: 7, afterRows: 7, failure: { status: 200, routeClass: "MANAGEMENT", body: { totalRequests: 0, variantBreakdown: {}, topProviders: [] } } };
     if (canonicalJson(toJson(artifact.autoRoutingAnalyticsHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} analytics HTTP mismatch`);
   }
+  if (operationId === "GET /api/analytics/compression") {
+    const statuses: Record<string, number> = { anonymous: 401, invalid: 403, inference: 403, session: 200, oma: 200, manage: 200, admin: 200 };
+    const periods = [[1, 30], [1, 30], [1, 30], [2, 50], [3, 60], [4, 65]].map(([totalRequests, totalTokensSaved]) => ({ status: 200, routeClass: "MANAGEMENT", totalRequests, totalTokensSaved, chartLength: 24, chartCount: 1 }));
+    const expected = { auth: Object.fromEntries(Object.entries(statuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT" }])), beforeColumns: 10, deniedColumns: 10, afterColumns: 28, periods, failure: { status: 500, routeClass: "MANAGEMENT", body: { error: "Internal server error" } } };
+    if (canonicalJson(toJson(artifact.compressionAnalyticsHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} compression HTTP mismatch`);
+  }
   if (operationId === "GET /api/auth/mfa/status") {
     if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
     const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
@@ -721,6 +734,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
     const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
     for (const name of ["src/app/api/analytics/auto-routing/route.ts", "src/lib/db/usageLogs.ts", "src/lib/db/logicalCallSql.ts"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
   }
+  if (operationId !== "GET /api/analytics/compression") {
+    const expectedAdded = requireRecord(expectedIdentities.addedSourceSha256, `${label}.expected added sources`);
+    for (const name of ["src/app/api/analytics/compression/route.ts", "src/lib/db/compressionAnalytics.ts", "src/lib/db/migrations/038_compression_analytics.sql"]) if (!Object.hasOwn(added, name)) delete expectedAdded[name];
+  }
   const sourceIdentityHashFields = ["addedSourceSha256", "pingDeclarationSha256"] as const;
   for (const key of ["sourceDerivation", "effectiveTreeSha256"] as const) {
     if (canonicalJson(toJson(source[key] ?? null, label)) !== canonicalJson(toJson(expectedIdentities[key] ?? null, label))) throw new Error(`${label} effective source identity mismatch: ${key}`);
@@ -740,7 +757,7 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
 const coreLifecycleIdentityCache = new Map<string, unknown>();
 
 /** Join a research-only cold/warm observation to independently rerun producer identities. */
-export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false, requireLogin = false, a2aValue?: unknown, requireHistory = false, requireVisibility = false, requireAnalytics = false): void {
+export function validateCoreLifecycleEvidence(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, effectValue?: unknown, requireMfa = false, requireSso = false, requireLogin = false, a2aValue?: unknown, requireHistory = false, requireVisibility = false, requireAnalytics = false, requireCompression = false): void {
   const label = "core lifecycle evidence";
   const evidence = requireRecord(value, label);
   assertKeys(evidence, label, ["artifact", "sha256"]);
@@ -835,6 +852,12 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     const wanted = Object.fromEntries(["cold", "warm"].map(phase => [phase, { databaseExistedBefore: phase === "warm", databaseExistsAfter: true, first: { status: 200, body: phase === "cold" ? zero : populated }, populated: { status: 200, body: populated }, failure: { status: 200, body: zero }, rows: 1 }]));
     if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(wanted, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(independent.autoRoutingAnalytics, label))) throw new Error(`${label} analytics lifecycle mismatch`);
   }
+  if (requireCompression) {
+    const independent = requireRecord(expected, `${label}.independent`);
+    const actual = requireRecord(artifact.compressionAnalytics, `${label}.compressionAnalytics`);
+    const wanted = Object.fromEntries(["cold", "warm"].map(phase => [phase, { databaseExistedBefore: phase === "warm", databaseExistsAfter: true, beforeColumns: phase === "warm" ? 28 : 10, afterColumns: 28, finalColumns: 28, first: { status: 200, totalRequests: phase === "warm" ? 1 : 0, chartLength: 24 }, populated: { status: 200, totalRequests: 1, chartLength: 24 }, rows: 1 }]));
+    if (canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(wanted, label)) || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(independent.compressionAnalytics, label))) throw new Error(`${label} compression lifecycle mismatch`);
+  }
   if (effectValue !== undefined) {
     const effect = requireRecord(effectValue, "deprecated provider effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
@@ -895,7 +918,7 @@ export function validateDeprecatedProviderSweepObservation(value: unknown, indep
 export function validateCoreLifecycleObservation(value: unknown, binding: Pick<OperationEvidenceBinding, "sourceDerivation" | "effectiveTreeSha256">, independentValue: unknown): void {
   const label = "core lifecycle evidence";
   const artifact = requireRecord(value, label);
-  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"]), ...(artifact.requireLogin === undefined ? [] : ["requireLogin"]), ...(artifact.a2aHistory === undefined ? [] : ["a2aHistory"]), ...(artifact.autoRoutingAnalytics === undefined ? [] : ["autoRoutingAnalytics"]), ...(artifact.proxyVisibility === undefined ? [] : ["proxyVisibility"])]);
+  assertKeys(artifact, label, [...["status", "qualification", "boundary", "inputSha256", "identity", "isolation", "cold", "warm", "authStatus"], ...(artifact.mfaStatus === undefined ? [] : ["mfaStatus"]), ...(artifact.ssoConfig === undefined ? [] : ["ssoConfig"]), ...(artifact.requireLogin === undefined ? [] : ["requireLogin"]), ...(artifact.a2aHistory === undefined ? [] : ["a2aHistory"]), ...(artifact.autoRoutingAnalytics === undefined ? [] : ["autoRoutingAnalytics"]), ...(artifact.proxyVisibility === undefined ? [] : ["proxyVisibility"]), ...(artifact.compressionAnalytics === undefined ? [] : ["compressionAnalytics"])]);
   if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.") throw new Error(`${label} classification mismatch`);
   const identity = requireRecord(artifact.identity, `${label}.identity`);
   if (!binding.sourceDerivation || !binding.effectiveTreeSha256
@@ -2041,12 +2064,34 @@ export function validateAutoRoutingAnalyticsContract(value: unknown): void {
   if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.secrets, { inputFields: [], outputFields: ["error_summary", "api_key_id", "connection_id", "request_body", "response_body"] }) || requireRecord(c.confirmation, "analytics confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "analytics preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("analytics lifecycle or authorization mismatch");
 }
 
+export function validateCompressionAnalyticsContract(value: unknown): void {
+  const c = requireRecord(value, "compression contract"), request = requireRecord(c.request, "compression request"), response = requireRecord(c.response, "compression response"), auth = requireRecord(c.auth, "compression auth"), safety = requireRecord(c.mutationSafety, "compression safety");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "compression contract")) === canonicalJson(toJson(b, "compression contract"));
+  const route = "src/app/api/analytics/compression/route.ts", empty = { type: "object", properties: {}, additionalProperties: false }, number = { type: "number" };
+  const since = { type: "string", enum: ["24h", "7d", "30d", "all"] };
+  const hour = { type: "object", properties: { hour: { type: "string" }, count: number, tokensSaved: number }, required: ["hour", "count", "tokensSaved"], additionalProperties: false };
+  const usageNames = ["requestsWithReceipts", "promptTokens", "completionTokens", "totalTokens", "cacheReadTokens", "cacheWriteTokens", "estimatedUsdSaved"];
+  const usage = { type: "object", properties: Object.fromEntries(usageNames.map(name => [name, number])), required: usageNames, additionalProperties: false };
+  const mcp = { type: "object", properties: { snapshots: number, estimatedTokensSaved: number }, required: ["snapshots", "estimatedTokensSaved"], additionalProperties: false };
+  const fields = { totalRequests: number, totalTokensSaved: number, avgSavingsPct: number, avgDurationMs: number, last24h: { type: "array", minItems: 24, maxItems: 24, items: hour }, totalSkipped: number, validationFallbacks: number, realUsage: usage, mcpDescriptionCompression: mcp };
+  const view = { type: "object", properties: fields, required: Object.keys(fields), additionalProperties: false };
+  const parameters = [{ name: "since", in: "query", required: false, style: "form", explode: true, allowReserved: false, schema: since, inputAllowed: true, sourceFile: route }];
+  const policy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "oma-access-token", minimumScope: "read" }, { kind: "trusted-local", loopbackOnly: true }] };
+  const success = requireArray(response.variants, "compression variants").filter(v => isRecord(v) && v.statusCode === "200");
+  if (!same(request.pathSchema, empty) || !same(request.pathParameters, []) || !same(request.querySchema, { type: "object", properties: { since }, additionalProperties: false }) || !same(request.parameters, parameters) || request.body !== null || response.mediaType !== "application/json" || !same(response.schema, view) || success.length !== 1 || !same(requireRecord(success[0], "compression success").content, [{ mediaType: "application/json", schema: view, sourceFile: route }])) throw new Error("compression request or projection mismatch");
+  if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.secrets, { inputFields: [], outputFields: ["byProvider", "byCompressionCombo", "bySkipReason", "bySource", "byMode", "byEngine", "request_id", "combo_id", "error"] }) || requireRecord(c.confirmation, "compression confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "compression preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("compression safety mismatch");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
   route: RecordValue,
   binding: EvidenceBinding,
 ): boolean {
+  if (operationId === "GET /api/analytics/compression" && record) {
+    validateCompressionAnalyticsContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/analytics/compression/route.ts" || route.sha256 !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || route.gitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f") throw new Error("compression requires exact lifecycle source");
+  }
   if (!record) return false;
   if (operationId === "GET /api/admin/proxy-pool-visibility") {
     validateProxyPoolVisibilityContract(record.contract);
@@ -2134,7 +2179,7 @@ function validateEligibility(
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
   if (operationId === "GET /api/providers/deprecated" && (!binding.databaseInitializationRequired || record.effectEvidence === undefined)) throw new Error(`deprecated provider requires independent lifecycle and sweep evidence: ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing");
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   if (operationId !== "GET /api/providers/deprecated" && record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);

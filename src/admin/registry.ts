@@ -974,6 +974,15 @@ function isLoginDiscoveryBooleanField(identity: SourceOutputIdentity | undefined
     && identity.gitBlobSha === "336aebcdafb778fe56e880c9d72a6ffe90e7dba4"
     && parentPath.length === 0 && (key === "hasPassword" || key === "oidcDisablePasswordLogin");
 }
+function isCompressionNumericMetric(identity: SourceOutputIdentity | undefined, key: string, value: unknown, parentPath: readonly string[]): boolean {
+  if (identity?.operationId !== "GET /api/analytics/compression"
+    || identity.sha256 !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5"
+    || identity.gitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f"
+    || typeof value !== "number" || !Number.isFinite(value)) return false;
+  const path = [...parentPath, key].join(".");
+  return ["totalTokensSaved", "last24h.tokensSaved", "realUsage.promptTokens", "realUsage.completionTokens", "realUsage.totalTokens", "realUsage.cacheReadTokens", "realUsage.cacheWriteTokens", "mcpDescriptionCompression.estimatedTokensSaved"].includes(path);
+}
+
 
 export function isSecretOutputField(
   key: string,
@@ -989,6 +998,7 @@ export function isSecretOutputField(
     return normalized.includes(".") ? normalized === fieldPath : normalized === lowerKey;
   })) return true;
   if (typeof value === "boolean" && isLoginDiscoveryBooleanField(identity, key, parentPath)) return false;
+  if (isCompressionNumericMetric(identity, key, value, parentPath)) return false;
 
   const benignValue = Object.hasOwn(BENIGN_TOKEN_METADATA, lowerKey) ? BENIGN_TOKEN_METADATA[lowerKey] : undefined;
   if (benignValue?.(value)) return false;
@@ -1138,7 +1148,7 @@ function projectNode(
     const normalized = field.toLowerCase();
     return normalized.includes(".") ? normalized === fieldPath : normalized === key.toLowerCase();
   });
-  const numericMetric = key !== undefined && schema.type === "number" && typeof value === "number" && Number.isFinite(value)
+  const numericMetric = descriptor.operationId !== "GET /api/analytics/compression" && key !== undefined && schema.type === "number" && typeof value === "number" && Number.isFinite(value)
     && ["totalInputTokens", "totalCachedTokens", "totalCacheCreationTokens", "tokensSaved", "inputTokens", "cachedTokens", "cacheCreationTokens"].includes(key);
   const identity = { operationId: descriptor.operationId, sha256: descriptor.source.sha256, gitBlobSha: descriptor.source.gitBlobSha };
   if (!privateTarget && key && !explicitlySecret && isLoginDiscoveryBooleanField(identity, key, parentPath) && typeof value !== "boolean") throw new RegistryError("invalid-input", "invalid login discovery response", descriptor.operationId);
