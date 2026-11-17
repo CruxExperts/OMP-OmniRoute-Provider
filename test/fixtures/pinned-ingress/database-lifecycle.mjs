@@ -25,8 +25,9 @@ const diversity = phase === 'diversity-cold' || phase === 'diversity-warm';
 const csrf = phase === 'csrf-cold' || phase === 'csrf-warm';
 const oidc = phase === 'oidc-cold' || phase === 'oidc-warm';
 const concurrency = phase === 'concurrency-cold' || phase === 'concurrency-warm';
-const expectedDataDir = concurrency ? '/work/concurrency-data' : oidc ? '/work/oidc-data' : csrf ? '/work/csrf-data' : diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'csrf-cold', 'csrf-warm', 'oidc-cold', 'oidc-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'concurrency-cold', 'concurrency-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const batch = phase === 'batch-cold' || phase === 'batch-warm';
+const expectedDataDir = batch ? '/work/batch-data' : concurrency ? '/work/concurrency-data' : oidc ? '/work/oidc-data' : csrf ? '/work/csrf-data' : diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'csrf-cold', 'csrf-warm', 'oidc-cold', 'oidc-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'concurrency-cold', 'concurrency-warm', 'batch-cold', 'batch-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -44,6 +45,39 @@ const files = async () => {
   await walk(DATA_DIR);
   return result.sort((a, b) => a.name.localeCompare(b.name));
 };
+if (batch) {
+  const cold = phase === 'batch-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('batch database phase mismatch');
+  const { GET } = await import('/work/app/src/app/api/batches/route.ts');
+  const store = await import('/work/app/src/lib/db/batches.ts');
+  const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime('1h').setJti('fixture-batch-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const call = async () => {
+    const response = await GET(new Request('http://localhost/api/batches?limit=1', { headers: { cookie: `auth_token=${token}` } }));
+    const body = await response.json();
+    if (response.status !== 200 || !Array.isArray(body.batches)) throw new Error('batch native response mismatch');
+    return body.batches.map(row => ({ idValid: typeof row.id === 'string' && /^batch_[a-f0-9]{24}$/.test(row.id), status: row.status, createdAt: row.createdAt }));
+  };
+  try {
+    const first = await call();
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('batch driver mismatch');
+    if (cold) {
+      const { createApiKey } = await import('/work/app/src/lib/db/apiKeys.ts');
+      const { createFile } = await import('/work/app/src/lib/db/files.ts');
+      const owner = await createApiKey('fixture-batch-owner', 'fixture-batch-machine');
+      const input = createFile({ bytes: 0, filename: 'fixture-private-input', purpose: 'batch', apiKeyId: owner.id });
+      const created = store.createBatch({ endpoint: '/v1/chat/completions', completionWindow: '24h', inputFileId: input.id, apiKeyId: owner.id, metadata: { private: 'fixture' } });
+      if (!store.updateBatch(created.id, { status: 'completed', createdAt: 20, requestCountsTotal: 3, requestCountsCompleted: 2, requestCountsFailed: 1 })) throw new Error('batch native update failed');
+    }
+    const populated = await call();
+    const rows = db.prepare('SELECT count(*) AS count FROM batches').get().count;
+    const wanted = [{ idValid: true, status: 'completed', createdAt: 20 }];
+    if (JSON.stringify(first) !== JSON.stringify(cold ? [] : wanted) || JSON.stringify(populated) !== JSON.stringify(wanted) || rows !== 1) throw new Error('batch lifecycle outcome mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), driver: db.driver, first, populated, rows }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
 if (concurrency) {
   const cold = phase === 'concurrency-cold';
   const existed = (await files()).some(x => x.name === 'storage.sqlite');

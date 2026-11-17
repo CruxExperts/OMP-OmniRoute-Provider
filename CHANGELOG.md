@@ -4,6 +4,11 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Add a research-only bounded batch-list candidate using the pinned owner policy,
+  disposable SQLite and separate management and handler-scope authorization.
+  The client supports a bound dashboard session; key scope is server-enforced.
+  Admission remains closed pending independent ingress and lifecycle proof.
+
 - Retain the native qualification workspace unless a bounded process-group
   probe confirms termination after the owned POSIX tree is signalled. A timeout
   or uncertain probe does not establish that descendants have exited.

@@ -405,6 +405,38 @@ DIVERSITY_CLOSURE = ('src/app/api/analytics/diversity/route.ts', 'open-sse/servi
 CONCURRENCY_ROUTE = 'src/app/api/admin/concurrency/route.ts'
 CONCURRENCY_OWNERS = (CONCURRENCY_ROUTE, 'open-sse/services/rateLimitManager.ts', 'open-sse/services/rateLimitSemaphore.ts', 'open-sse/services/accountSemaphore.ts', 'src/lib/api/requireManagementAuth.ts', 'src/lib/db/core.ts', 'package.json', 'open-sse/package.json')
 ROUTES += (CONCURRENCY_ROUTE,)
+BATCH_LIST = 'src/app/api/batches/route.ts'
+BATCH_ITEM = 'src/app/api/batches/[id]/route.ts'
+BATCH_STORE = 'src/lib/db/batches.ts'
+BATCH_POLICY = 'src/app/api/v1/_helpers/apiKeyScope.ts'
+BATCH_MAPPING = 'src/lib/db/caseMapping.ts'
+BATCH_MIGRATION = 'src/lib/db/migrations/028_create_files_and_batches.sql'
+BATCH_SOURCES = (BATCH_LIST, BATCH_ITEM, BATCH_STORE, BATCH_POLICY, BATCH_MAPPING, BATCH_MIGRATION, 'src/lib/db/files.ts', 'src/shared/constants/batch.ts', 'src/lib/db/apiKeys.ts', 'src/shared/utils/apiKey.ts', 'src/lib/api/queryIntegerParam.ts', 'src/shared/constants/anonymousOwner.ts', 'src/shared/utils/cors.ts', 'src/server/cors/origins.ts')
+BATCH_CORE = b'''import { DatabaseSync } from "node:sqlite";
+import { rowToCamel, objToSnake } from "./caseMapping.ts";
+export { rowToCamel, objToSnake };
+let db: DatabaseSync | undefined;
+export function getDbInstance() { return db ??= new DatabaseSync("/work/data/batches.sqlite"); }
+'''
+
+def batch_graph(source):
+    text = source[BATCH_STORE].decode()
+    def span(start, end):
+        require(text.count(start) == 1 and text.count(end) == 1, 'batch declaration drift')
+        return text[text.index(start):text.index(end)]
+    store = ('import { getDbInstance, rowToCamel, objToSnake } from "./fixtureBatchCore.ts";\n'
+             'import { v4 as uuidv4 } from "uuid";\n' +
+             span('function parseBatchRow(', 'export type BatchItemCheckpointStatus') +
+             span('export function createBatch(', 'export function ensureBatchItemCheckpoints(') +
+             span('export function listBatches(', 'export function countBatches(')).encode()
+    files = source['src/lib/db/files.ts'].decode()
+    files = replace_once(files, 'from "./core"', 'from "./fixtureBatchCore.ts"')
+    files = replace_once(files, 'from "@/shared/constants/batch"', 'from "../../shared/constants/batch.ts"')
+    graph = {'src/lib/db/fixtureBatchCore.ts': BATCH_CORE, 'src/lib/db/fixtureBatchStore.ts': store, 'src/lib/db/fixtureBatchFiles.ts': files.encode()}
+    for name in (BATCH_LIST, BATCH_ITEM):
+        graph[name] = replace_once(source[name].decode(), '@/lib/db/batches', '@/lib/db/fixtureBatchStore').encode()
+    return graph
+
 CONCURRENCY_WRAPPER = b'''import { GET as sourceGet } from "./fixture-source";
 import { enableRateLimitProtection, updateFromHeaders } from "@omniroute/open-sse/services/rateLimitManager.ts";
 import { acquire as acquireCombo } from "@omniroute/open-sse/services/rateLimitSemaphore.ts";
@@ -686,7 +718,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'concurrencyLifecycle': bounded_json(output / 'export/concurrency-lifecycle.json'), 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json'), 'comboLifecycle': bounded_json(output / 'export/combo-lifecycle.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'batchLifecycle': bounded_json(output / 'export/batch-lifecycle.json'), 'concurrencyLifecycle': bounded_json(output / 'export/concurrency-lifecycle.json'), 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json'), 'comboLifecycle': bounded_json(output / 'export/combo-lifecycle.json')}
 
 
 def expected_concurrency_http(archive, node, dependency_dir, bwrap, root=ROOT):
@@ -703,6 +735,22 @@ def expected_concurrency_http(archive, node, dependency_dir, bwrap, root=ROOT):
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected HTTP identity output')
         artifact = bounded_json(output / 'export/observed-outcomes.json')
         return {key: artifact[key] for key in ('concurrencyHttp', 'concurrencyHttpClosure')}
+
+def expected_batch_http(archive, node, dependency_dir, bwrap, root=ROOT):
+    """Independently rerun the isolated HTTP producer; never reuse candidate observations."""
+    require(Path(root).resolve(strict=True) == ROOT, 'unexpected producer root')
+    with tempfile.TemporaryDirectory(prefix='pinned-batch-http-expect-') as temporary:
+        command = ['/usr/bin/python3', str(root / 'scripts/pinned-ingress.py'),
+                   '--source-archive', str(Path(archive).resolve(strict=True)),
+                   '--node', str(Path(node).resolve(strict=True)),
+                   '--dependency-dir', str(Path(dependency_dir).resolve(strict=True)),
+                   '--bwrap', str(Path(bwrap).resolve(strict=True)), '--output-dir', temporary]
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=660, check=True)
+        response = json.loads(result.stdout)
+        output = Path(response['output'])
+        require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected batch HTTP output')
+        artifact = bounded_json(output / 'export/observed-outcomes.json')
+        return {key: artifact[key] for key in ('batchHttp', 'batchHttpClosure')}
 
 
 def materialize(real_core=False):
@@ -1190,6 +1238,7 @@ def approved_source(with_identity=False):
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
     names = set(ROUTES) | set(OIDC_CLOSURE) | set(COMBO_METRICS_CLOSURE) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     names |= set(CONCURRENCY_OWNERS) | {VISIBILITY_PROXIES, 'open-sse/services/rateLimitManager/bodyRetryPause.ts'}
+    names |= set(BATCH_SOURCES)
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -1309,6 +1358,14 @@ def provision(material):
     proxy_expected = json.loads((fixture / 'source-manifest.json').read_text())['selectedFiles']['src/proxy.ts']['sha256']
     require(sha(proxy_bytes) == proxy_expected, 'proxy executed source mismatch')
     closure = read_closures(app, json.loads((fixture / 'source-manifest.json').read_text()))
+    batch_source = {name: (app / name).read_bytes() for name in BATCH_SOURCES}
+    batch_executed = batch_graph(batch_source)
+    for name, data in batch_executed.items():
+        if name in (BATCH_LIST, BATCH_ITEM):
+            (app / name).write_bytes(data)
+        else:
+            put(app, name, data)
+    batch_identity = {'sources': {name: sha(data) for name, data in batch_source.items()}, 'executed': {**{name: sha(batch_source[name]) for name in BATCH_SOURCES if name not in (BATCH_LIST, BATCH_ITEM, BATCH_STORE, 'src/lib/db/files.ts', 'src/lib/db/apiKeys.ts', 'src/shared/utils/apiKey.ts')}, **{name: sha(data) for name, data in batch_executed.items()}}}
     verify_flag_cache_fixture(closure['src/lib/db/featureFlags.ts'].decode(),
                               (fixture / 'extracted/feature-flag-cache.ts').read_text())
     for name, data in closure.items():
@@ -1387,6 +1444,7 @@ def provision(material):
         'a2aStatusClosure': a2a_identity,
         'oidcClosure': oidc_identity,
         'concurrencyHttpClosure': concurrency_identity,
+        'batchHttpClosure': batch_identity,
         'boundary': 'Actual Next default-bundler ingress and pinned handlers with disposable source overlays; source pingDb and cache SQL use node:sqlite against disposable file. Auth/settings storage remains bounded in-memory fixture; not production persistence, native DB adapter or full application.',
     }
     identity_path = Path('/work/data/pinned-ingress-identity.json')
@@ -1645,6 +1703,8 @@ def core_lifecycle(material, deadline):
     identity['oidcClosure'] = {name: source[name] for name in OIDC_CLOSURE}
     identity['oidcCallbackSelectedSha256'] = sha(replace_once(callback_source, 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode())
     identity['comboMetricsClosure'] = {name: source[name] for name in COMBO_METRICS_CLOSURE}
+    native_batch_sources = (*BATCH_SOURCES, 'src/lib/db/core.ts')
+    identity['batchClosure'] = {'sources': {name: source[name] for name in native_batch_sources}, 'executed': {name: source[name] for name in native_batch_sources if name != BATCH_ITEM}}
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1663,6 +1723,14 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         worker_stage('coldLifecycle' if phase == 'cold' else 'warmLifecycle')
         log = Path('/work/' + phase + '-lifecycle.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, env)
+        validate_lifecycle_log(log)
+    batch_dir = Path('/work/batch-data')
+    batch_dir.mkdir(mode=0o700)
+    batch_env = {**env, 'DATA_DIR': str(batch_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum'}
+    for phase in ('batch-cold', 'batch-warm'):
+        worker_stage('coldLifecycle' if phase == 'batch-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, batch_env)
         validate_lifecycle_log(log)
     auth_dir = Path('/work/auth-data')
     auth_dir.mkdir(mode=0o700)
@@ -1781,6 +1849,13 @@ def export_core_lifecycle(output, hashes):
     login_warm = bounded_json(output / 'login-warm.json')
     a2a_cold = bounded_json(output / 'a2a-cold.json')
     a2a_warm = bounded_json(output / 'a2a-warm.json')
+    batch_lifecycle = {}
+    for phase in ('cold', 'warm'):
+        validate_lifecycle_log(output / ('batch-' + phase + '.private'))
+        value = bounded_json(output / ('batch-' + phase + '.json'))
+        row = [{'idValid': True, 'status': 'completed', 'createdAt': 20}]
+        require(value == {'databaseExistedBefore': phase == 'warm', 'databaseExistsAfter': True, 'driver': 'node:sqlite', 'first': row if phase == 'warm' else [], 'populated': row, 'rows': 1}, 'batch native lifecycle mismatch')
+        batch_lifecycle[phase] = value
     for phase, value in (('a2a-cold', a2a_cold), ('a2a-warm', a2a_warm)):
         validate_lifecycle_log(output / (phase + '.private'))
         require(value == {'databaseExistedBefore': phase == 'a2a-warm', 'databaseExistsAfter': True, 'disabled': True, 'enabled': True, 'managerTimerCount': 1, 'activeTaskObserved': True, 'expiredTaskPersistedFailed': True, 'timerPurgedOldHistory': True}, 'A2A lifecycle mismatch')
@@ -1903,6 +1978,9 @@ def export_core_lifecycle(output, hashes):
     require(identity.get('oidcCallbackSelectedSha256') == sha(selected), 'native callback seam mismatch')
     require(all(name in source for name in COMBO_METRICS_CLOSURE) and identity.get('comboMetricsClosure') == {name: source[name] for name in COMBO_METRICS_CLOSURE}, 'invalid native combo metrics source closure')
     public_identity['comboMetricsClosure'] = identity['comboMetricsClosure']
+    native_batch_sources = (*BATCH_SOURCES, 'src/lib/db/core.ts')
+    require(identity.get('batchClosure') == {'sources': {name: source[name] for name in native_batch_sources}, 'executed': {name: source[name] for name in native_batch_sources if name != BATCH_ITEM}}, 'invalid native batch source closure')
+    public_identity['batchClosure'] = identity['batchClosure']
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
@@ -1976,6 +2054,7 @@ def export_core_lifecycle(output, hashes):
         require(value == {'databaseExistedBefore': not cold_phase, 'databaseAfterAuth': True, 'driver': 'node:sqlite', 'empty': {'rateLimits': 0, 'comboQueues': 0, 'semaphores': 0}, 'populated': {'rateLimits': 1, 'comboQueues': 1, 'semaphores': 1}, 'unchanged': True}, 'native concurrency lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
+    save(export / 'batch-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Pinned batch list route, database and scope policy in isolated cold and warm native core processes; no HTTP ingress or job dispatch.', 'inputSha256': hashes, 'identity': public_identity, 'cold': batch_lifecycle['cold'], 'warm': batch_lifecycle['warm']})
     save(export / 'a2a-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'inputSha256': hashes, 'identity': {**public_identity, 'a2aClosure': identity['a2aClosure']}, 'cold': a2a_cold, 'warm': a2a_warm})
     save(export / 'concurrency-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Pinned route, manager and semaphores in isolated cold and warm native core processes; no HTTP ingress or provider dispatch.', 'inputSha256': hashes, 'identity': public_identity, 'cold': concurrency_observations[0], 'warm': concurrency_observations[1]})
     save(export / 'proxy-visibility-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned route and core in separate private cold and warm processes; not HTTP ingress or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': visibility_cold, 'warm': visibility_warm})
@@ -2187,6 +2266,41 @@ def validate_oidc_http(value):
         require(isinstance(row, dict) and set(row) == set(expected) | {'jwksRequests'} and all(row[key] == val and type(row[key]) is type(val) for key, val in expected.items()) and type(row['jwksRequests']) is int and 0 <= row['jwksRequests'] <= 1, 'OIDC HTTP outcome mismatch: ' + name)
     require(value['cases']['nonce']['jwksRequests'] == 1 and value['cases']['rotation']['jwksRequests'] == 0 and value['cases']['success']['jwksRequests'] == 0 and value['cases']['rotation-recovery']['jwksRequests'] == 1, 'OIDC JWKS cache mismatch')
     return value
+def validate_batch_http(value):
+    """Validate fixed fixture rows without treating a bounded page as complete."""
+    require(isinstance(value, dict) and set(value) == {'central', 'owner', 'detail'}, 'batch observation shape')
+    groups = {'central': {'anonymous', 'invalid', 'owner', 'session', 'manage', 'invalidSession'}, 'owner': {'owner', 'foreign', 'default', 'overCap', 'zero', 'invalid'}, 'detail': {'own', 'foreign', 'missing', 'nullOwner', 'invalidSession'}}
+    for group, names in groups.items():
+        require(isinstance(value[group], dict) and set(value[group]) == names, 'batch cases missing')
+        for name, row in value[group].items():
+            if group == 'owner' and name in ('default', 'overCap') and row == {'transport': 'probe-body-limit-65536'}:
+                continue
+            require(isinstance(row, dict) and set(row) == {'status', 'routeClass', 'contentType', 'cacheControl', 'rowCount', 'rows', 'error', 'rawPrivatePresent'} and type(row['status']) is int and 100 <= row['status'] <= 599 and row['routeClass'] == 'MANAGEMENT' and row['contentType'] in (None, 'application/json') and (row['cacheControl'] is None or row['cacheControl'] in ('no-store', 'private, no-store')) and row['error'] in (None, 'handler-failure', 'not-found', 'other') and type(row['rawPrivatePresent']) is bool and (row['rowCount'] is None or type(row['rowCount']) is int and 0 <= row['rowCount'] <= 100), 'batch response shape')
+            if row['rows'] is not None:
+                require(isinstance(row['rows'], list) and len(row['rows']) <= 100 and all(isinstance(item, dict) and all(type(item.get(key)) is int for key in ('createdAt', 'requestCountsTotal', 'requestCountsCompleted', 'requestCountsFailed')) for item in row['rows']), 'invalid batch projection')
+    def expected_row(id, created):
+        return {'id': id, 'status': 'completed', 'requestCountsTotal': 3, 'requestCountsCompleted': 2, 'requestCountsFailed': 1, 'createdAt': created, **{key: None for key in ('inProgressAt', 'expiresAt', 'finalizingAt', 'completedAt', 'failedAt', 'expiredAt', 'cancellingAt', 'cancelledAt')}}
+    z = [expected_row('batch_z%03d' % i, 100) for i in range(102, -1, -1)]
+    expected = {'owner': z[:2], 'foreign': [expected_row('batch_b', 30)], 'zero': []}
+    for name, rows in expected.items():
+        response = value['owner'][name]
+        require(response['status'] == 200 and response['contentType'] == 'application/json' and response['rowCount'] == len(rows) and response['rows'] == rows and response['error'] is None and response['rawPrivatePresent'] == bool(rows), 'batch owner result mismatch')
+    response = value['owner']['default']
+    require(response == {'transport': 'probe-body-limit-65536'} or (response['status'] == 200 and response['contentType'] == 'application/json' and response['rowCount'] == 100 and response['rows'] == z[:100] and response['error'] is None and response['rawPrivatePresent'] is True), 'batch default result mismatch')
+    require(value['owner']['overCap'] == {'transport': 'probe-body-limit-65536'}, 'batch oversized probe was not refused')
+    require(value['owner']['invalid']['status'] == 400 and value['owner']['invalid']['rows'] is None and value['owner']['invalid']['rawPrivatePresent'] is False, 'batch invalid limit mismatch')
+    for name in ('session', 'manage'):
+        response = value['central'][name]
+        require(response['status'] == 200 and response['contentType'] == 'application/json' and response['rowCount'] == 2 and response['rows'] == z[:2] and response['rawPrivatePresent'] is True, 'batch central result mismatch')
+    for name in ('anonymous', 'invalid', 'owner'):
+        response = value['central'][name]
+        require(response['status'] in (401, 403) and response['rowCount'] is None and response['rows'] is None and response['rawPrivatePresent'] is False, 'batch central authorization mismatch')
+    response = value['central']['invalidSession']
+    require(response['status'] in (401, 403) and response['rows'] is None and response['rowCount'] is None and response['rawPrivatePresent'] is False, 'batch invalid session mismatch')
+    for name, response in value['detail'].items():
+        require(response['status'] != 200 and response['rowCount'] is None and response['rows'] is None and response['rawPrivatePresent'] is False, 'batch detail unexpectedly succeeded')
+    return value
+
 
 def export_observations(output, hashes):
     """Produce an allowlisted research artifact only after the complete isolated run."""
@@ -2223,6 +2337,8 @@ def export_observations(output, hashes):
     package = next(item for item in json.loads((FIXTURE / 'dependencies.json').read_text())['packages'] if item['location'] == 'node_modules/bottleneck')
     require(package['name'] == 'bottleneck' and package['version'] == '2.19.5' and identity['concurrencyHttpClosure'] == {'sources': {name: sha(source[name]) for name in CONCURRENCY_OWNERS}, 'managerExecutedSha256': sha(concurrency_manager_bytes(source[CONCURRENCY_MANAGER_SOURCE])), 'pauseOriginalSha256': sha(source['open-sse/services/rateLimitManager/bodyRetryPause.ts']), 'pauseExecutedSha256': sha(concurrency_pause_bytes(source['open-sse/services/rateLimitManager/bodyRetryPause.ts'])), 'package': package}, 'concurrency HTTP source closure mismatch')
     route, helper, registry = deprecated_ingress_source(source[DEPRECATED_ROUTE], source[DEPRECATED_HELPER], source[DEPRECATED_REGISTRY])
+    batch_executed = batch_graph(source)
+    require(identity['batchHttpClosure'] == {'sources': {name: sha(source[name]) for name in BATCH_SOURCES}, 'executed': {**{name: sha(source[name]) for name in BATCH_SOURCES if name not in (BATCH_LIST, BATCH_ITEM, BATCH_STORE, 'src/lib/db/files.ts', 'src/lib/db/apiKeys.ts', 'src/shared/utils/apiKey.ts')}, **{name: sha(data) for name, data in batch_executed.items()}}}, 'batch HTTP source closure mismatch')
     source_hashes[DEPRECATED_ROUTE] = {'originalSha256': sha(source[DEPRECATED_ROUTE]), 'executedSha256': sha(route), 'wrapperSha256': sha(REASONING_WRAPPER), 'backendSha256': sha(DEPRECATED_BACKEND), 'helperOriginalSha256': sha(source[DEPRECATED_HELPER]), 'helperExecutedSha256': sha(helper), 'registryOriginalSha256': sha(source[DEPRECATED_REGISTRY]), 'registryExecutedSha256': sha(registry)}
     declaration = ping_declaration(source['src/lib/db/core.ts'].decode('utf-8'))
     with tempfile.TemporaryDirectory() as temporary:
@@ -2551,6 +2667,9 @@ def export_observations(output, hashes):
     artifact['comboMetricsHttp'] = combo_metrics_http
     artifact['limitations'].append('Combo metrics HTTP uses a fixture-only same-bundle owner seeder and inspector; normal requests execute the pinned handler. This observes controlled process state, not production chat, durable counters, other processes, an atomic lock or executor qualification.')
     artifact['concurrencyHttp'] = concurrency
+    artifact['batchHttp'] = validate_batch_http(ingress['batchHttp'])
+    artifact['batchHttpClosure'] = identity['batchHttpClosure']
+    artifact['limitations'].append('Batch HTTP uses a warm private SQLite fixture and bounded list projections; no completeness, absence, cold initialization, detail qualification, or job dispatch is established.')
     artifact['concurrencyHttpClosure'] = identity['concurrencyHttpClosure']
     artifact['limitations'].append('Concurrency HTTP seeds one synthetic limiter and one slot in each semaphore through fixture controls; it executes source-extracted manager declarations and pause tracking, not body-update or provider-dispatch code, and does not establish production state, persistence, or concurrency races.')
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]

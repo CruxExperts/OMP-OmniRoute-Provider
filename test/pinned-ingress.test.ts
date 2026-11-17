@@ -898,6 +898,8 @@ with tempfile.TemporaryDirectory() as temp:
  m.require_login_closure = lambda source, cache, flags: {m.REQUIRE_LOGIN:b'login-route-executed','src/lib/db/fixtureLoginSettings.ts':b'login-settings-executed','src/shared/utils/fixtureLoginFlags.ts':b'login-flags-executed'}
  for name in m.LOGIN_DEPENDENCIES: sources.setdefault(name, ('source:'+name).encode())
  for name in m.OIDC_CLOSURE: sources.setdefault(name, ('source:'+name).encode())
+ for name in m.BATCH_SOURCES: sources.setdefault(name, ('source:'+name).encode())
+ m.batch_graph=lambda source:{m.BATCH_LIST:b'list-executed',m.BATCH_ITEM:b'item-executed','src/lib/db/fixtureBatchCore.ts':b'core-executed','src/lib/db/fixtureBatchStore.ts':b'store-executed','src/lib/db/fixtureBatchFiles.ts':b'files-executed'}
  m.oidc_closure = lambda source, cache: {m.OIDC_LOGIN:b'oidc-login-executed',m.OIDC_CALLBACK:b'oidc-callback-executed','src/lib/db/fixtureOidcSettings.ts':b'oidc-settings-executed'}
  m.auth_status_closure = lambda source, cache: {m.AUTH_STATUS:b'route-executed',m.AUTH_SESSION:b'session-executed','src/lib/db/fixtureAuthStatusCache.ts':b'cache-executed','src/lib/db/fixtureAuthStatusSettings.ts':b'settings-executed'}
  m.mfa_status_closure = lambda source: {m.MFA_STATUS:b'mfa-route-executed','src/server/auth/fixtureDashboardMfaStatus.ts':b'mfa-dashboard-executed','src/lib/db/fixtureDashboardMfaStatus.ts':b'mfa-storage-executed','src/server/auth/fixtureMfaRouteSupport.ts':b'mfa-support-executed','src/lib/db/fixtureMfaStatusCore.ts':b'mfa-core-executed'}
@@ -968,6 +970,7 @@ with tempfile.TemporaryDirectory() as temp:
  oidc_graph = m.oidc_closure(sources,b'cache')
  for name in (m.OIDC_LOGIN,m.OIDC_CALLBACK): identity['addedSourceSha256'][name] = {'originalSha256':m.sha(sources[name]),'executedSha256':m.sha(oidc_graph[name])}
  identity['oidcClosure'] = {'sources':{name:m.sha(sources[name]) for name in m.OIDC_CLOSURE},'executed':{name:m.sha(data) for name,data in oidc_graph.items()}}
+ identity['batchHttpClosure']={'sources':{name:m.sha(sources[name]) for name in m.BATCH_SOURCES},'executed':{**{name:m.sha(sources[name]) for name in m.BATCH_SOURCES if name not in (m.BATCH_LIST,m.BATCH_ITEM,m.BATCH_STORE,'src/lib/db/files.ts','src/lib/db/apiKeys.ts','src/shared/utils/apiKey.ts')},**{name:m.sha(data) for name,data in m.batch_graph(sources).items()}}}
  identity['addedSourceSha256'][m.CONCURRENCY_ROUTE]={'originalSha256':m.sha(sources[m.CONCURRENCY_ROUTE]),'executedSha256':m.sha(m.concurrency_route_bytes(sources[m.CONCURRENCY_ROUTE])),'wrapperSha256':m.sha(m.CONCURRENCY_WRAPPER),'managerBoundarySha256':m.sha(m.CONCURRENCY_MANAGER)}
  identity['addedSourceSha256'][m.VISIBILITY_ROUTE]={'originalSha256':m.sha(sources[m.VISIBILITY_ROUTE]),'executedSha256':m.sha(m.visibility_route_bytes(sources[m.VISIBILITY_ROUTE])),'proxiesOriginalSha256':m.sha(sources[m.VISIBILITY_PROXIES]),'proxiesExecutedSha256':m.sha(m.visibility_proxies_bytes(sources[m.VISIBILITY_PROXIES]))}
  package=next(item for item in json.loads((fixture/'dependencies.json').read_text())['packages'] if item['location']=='node_modules/bottleneck')
@@ -1061,6 +1064,12 @@ with tempfile.TemporaryDirectory() as temp:
  def concurrency_row(status,count=0):
   return {'status':status,'routeClass':'MANAGEMENT','cacheControl':'private, no-store' if status==200 else None,'contentType':'application/json' if status==200 else None,'counts':{'rateLimits':count,'comboQueues':count,'semaphores':count} if status==200 else None,'shape':True if status==200 else None}
  ingress['concurrencyHttp']={'auth':{name:concurrency_row(status) for name,status in visibility_status.items()},'empty':concurrency_row(200),'populated':concurrency_row(200,1),'unchanged':True,'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':None,'contentType':None,'json':False,'privateMarkerPresent':False}}
+ def batch_row(id,created=100): return {'id':id,'status':'completed','requestCountsTotal':3,'requestCountsCompleted':2,'requestCountsFailed':1,'createdAt':created,**{key:None for key in ('inProgressAt','expiresAt','finalizingAt','completedAt','failedAt','expiredAt','cancellingAt','cancelledAt')}}
+ def batch_response(status,rows=None): return {'status':status,'routeClass':'MANAGEMENT','contentType':'application/json','cacheControl':None,'rowCount':len(rows) if rows is not None else None,'rows':rows if rows is not None else None,'error':None,'rawPrivatePresent':bool(rows)}
+ z=[batch_row('batch_z%03d'%i) for i in range(102,-1,-1)]
+ ingress['batchHttp']={'central':{'anonymous':batch_response(401),'invalid':batch_response(403),'owner':batch_response(403),'session':batch_response(200,z[:2]),'manage':batch_response(200,z[:2]),'invalidSession':batch_response(401)},'owner':{'owner':batch_response(200,z[:2]),'foreign':batch_response(200,[batch_row('batch_b',30)]),'default':{'transport':'probe-body-limit-65536'},'overCap':{'transport':'probe-body-limit-65536'},'zero':batch_response(200,[]),'invalid':batch_response(400)},'detail':{name:batch_response(500) for name in ('own','foreign','missing','nullOwner','invalidSession')}}
+ refused_default=ingress['batchHttp']['owner']['default']
+ ingress['batchHttp']['owner']['default']=batch_response(200,z[:100]); m.validate_batch_http(ingress['batchHttp']); ingress['batchHttp']['owner']['default']=refused_default
  oidc_errors={'nonce':'id_token_invalid','missing-nonce':'id_token_invalid','token-missing-nonce':'id_token_invalid','signature':'id_token_invalid','issuer':'id_token_invalid','audience':'id_token_invalid','expired':'id_token_invalid','future':'id_token_invalid','subject':'subject_not_allowed','role':'role_not_allowed','malformed-role':'role_not_allowed','exchange':'token_exchange','exchange-network':'token_exchange','bad-json':'token_response','no-token':'no_id_token','missing-code':'missing_code','missing-state':'missing_code','wrong-state':'invalid_state','rotation':'id_token_invalid','rotation-recovery':'dashboard','no-verifier':'dashboard','discovery-fallback':'dashboard','success':'dashboard','secure':'dashboard','missing-secret':'server_misconfigured'}
  config_case={'loginStatus':400,'loginPublic':True,'fixedError':True,'noLoginCookies':True,'callbackStatus':307,'callbackResult':'not_configured','callbackPublic':True}
  ingress['oidcHttp']={'cases':{},'configCases':{'disabled':config_case,'incomplete':config_case}}
@@ -1136,6 +1145,16 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['concurrencyHttp']['populated']['counts']['wrongFamily']=1; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['concurrencyHttp']['populated']['counts']['wrongFamily']
  ingress['concurrencyHttp']['private']='fixture-private'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['concurrencyHttp']['private']
  ingress['concurrencyHttp']['failure']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['concurrencyHttp']['failure']['status']=500
+ original=ingress['batchHttp']['owner']['owner']['rows'].pop(); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['batchHttp']['owner']['owner']['rows'].append(original)
+ ingress['batchHttp']['owner']['foreign']['rows'][0]['apiKeyId']='private'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['batchHttp']['owner']['foreign']['rows'][0]['apiKeyId']
+ original=ingress['batchHttp']['owner']['owner']['routeClass']; ingress['batchHttp']['owner']['owner']['routeClass']='PUBLIC'; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['batchHttp']['owner']['owner']['routeClass']=original
+ original=ingress['batchHttp']['owner']['foreign']['rows'][0]['id']; ingress['batchHttp']['owner']['foreign']['rows'][0]['id']='batch_a1'; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['batchHttp']['owner']['foreign']['rows'][0]['id']=original
+ ingress['batchHttp']['owner']['owner']['private']='private'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['batchHttp']['owner']['owner']['private']
+ ingress['batchHttp']['owner']['overCap']['transport']='complete'; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['batchHttp']['owner']['overCap']['transport']='probe-body-limit-65536'
+ ingress['batchHttp']['detail']['own']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['batchHttp']['detail']['own']['status']=500
+ original=identity['batchHttpClosure']['executed'][m.BATCH_LIST]; identity['batchHttpClosure']['executed'][m.BATCH_LIST]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['batchHttpClosure']['executed'][m.BATCH_LIST]=original
+ original=identity['batchHttpClosure']['sources'][m.BATCH_LIST]; identity['batchHttpClosure']['sources'][m.BATCH_LIST]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['batchHttpClosure']['sources'][m.BATCH_LIST]=original
+ identity['batchHttpClosure']['executed']['src/lib/db/apiKeys.ts']=identity['batchHttpClosure']['sources']['src/lib/db/apiKeys.ts']; put('data/pinned-ingress-observations.json',ingress); rejected(); del identity['batchHttpClosure']['executed']['src/lib/db/apiKeys.ts']
  original=identity['concurrencyHttpClosure']['sources'][m.CONCURRENCY_ROUTE]; identity['concurrencyHttpClosure']['sources'][m.CONCURRENCY_ROUTE]='b'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['concurrencyHttpClosure']['sources'][m.CONCURRENCY_ROUTE]=original
  original=ingress.pop('csrfHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['csrfHttp']=original
  for field in ('hmacBound','expiryValid','shapeValid','noStore'):
@@ -1309,6 +1328,7 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in m.OIDC_CLOSURE if name not in source})
  source.update({name:h for name in m.COMBO_METRICS_CLOSURE if name not in source})
  source.update({name:h for name in m.CONCURRENCY_OWNERS if name not in source})
+ source.update({name:h for name in m.BATCH_SOURCES if name not in source})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1326,6 +1346,7 @@ with tempfile.TemporaryDirectory() as d:
  identity['csrfClosure']={name:source[name] for name in m.CSRF_CLOSURE}
  identity['oidcClosure']={name:source[name] for name in m.OIDC_CLOSURE}
  identity['comboMetricsClosure']={name:source[name] for name in m.COMBO_METRICS_CLOSURE}
+ identity['batchClosure']={'sources':{name:source[name] for name in (*m.BATCH_SOURCES,'src/lib/db/core.ts')},'executed':{name:source[name] for name in (*m.BATCH_SOURCES,'src/lib/db/core.ts') if name != m.BATCH_ITEM}}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
@@ -1334,6 +1355,9 @@ with tempfile.TemporaryDirectory() as d:
  for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm','analytics-cold','analytics-warm','diversity-cold','diversity-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  for phase in ('cold','warm'):
+  (p/('batch-'+phase+'.private')).write_text('normal output\n')
+  rows=[{'idValid':True,'status':'completed','createdAt':20}]
+  put('batch-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'driver':'node:sqlite','first':rows if phase=='warm' else [],'populated':rows,'rows':1})
   (p/('oidc-'+phase+'.private')).write_text('normal output\n')
   put('oidc-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'setupBefore':phase=='warm','setupPersisted':True,'settingsPersisted':True,'callbackStatus':307,'callbackResult':'dashboard' if phase=='warm' else 'server_misconfigured','sessionIssued':phase=='warm'})
   (p/('a2a-'+phase+'.private')).write_text('normal output\n')
@@ -1383,6 +1407,8 @@ with tempfile.TemporaryDirectory() as d:
  csrf_cold=json.loads((p/'csrf-cold.json').read_text()); csrf_cold['settingsUnchanged']=False; put('csrf-cold.json',csrf_cold); reject(); csrf_cold['settingsUnchanged']=True; put('csrf-cold.json',csrf_cold)
  diversity_cold['databaseAfterRoute']=True; put('diversity-cold.json',diversity_cold); reject(); diversity_cold['databaseAfterRoute']=False; put('diversity-cold.json',diversity_cold)
  original=identity['diversityClosure']['open-sse/services/comboMetrics.ts']; identity['diversityClosure']['open-sse/services/comboMetrics.ts']='b'*64; put('core-identity.json',identity); reject(); identity['diversityClosure']['open-sse/services/comboMetrics.ts']=original; put('core-identity.json',identity)
+ batchcold=json.loads((p/'batch-cold.json').read_text()); batchcold['rows']=0; put('batch-cold.json',batchcold); reject(); batchcold['rows']=1; put('batch-cold.json',batchcold)
+ original=identity['batchClosure']['executed'][m.BATCH_LIST]; identity['batchClosure']['executed'][m.BATCH_LIST]='b'*64; put('core-identity.json',identity); reject(); identity['batchClosure']['executed'][m.BATCH_LIST]=original; put('core-identity.json',identity)
  original=identity.pop('concurrencyClosure'); put('core-identity.json',identity); reject(); identity['concurrencyClosure']=original; put('core-identity.json',identity)
  original=identity['concurrencyClosure'][m.CONCURRENCY_ROUTE]; identity['concurrencyClosure'][m.CONCURRENCY_ROUTE]='b'*64; put('core-identity.json',identity); reject(); identity['concurrencyClosure'][m.CONCURRENCY_ROUTE]=original; put('core-identity.json',identity)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
@@ -1453,6 +1479,7 @@ with tempfile.TemporaryDirectory() as d:
  concurrency=json.loads((p/'export/concurrency-lifecycle.json').read_text())
  assert set(concurrency)=={'status','qualification','boundary','inputSha256','identity','cold','warm'} and concurrency['status']=='research-observed' and concurrency['qualification'] is False and 'private-canary' not in json.dumps(concurrency)
  assert concurrency['identity']['concurrencyClosure']==identity['concurrencyClosure'] and all(concurrency[phase]==json.loads((p/('concurrency-'+phase+'.json')).read_text()) for phase in ('cold','warm'))
+ batch=json.loads((p/'export/batch-lifecycle.json').read_text()); assert batch['identity']['batchClosure']==identity['batchClosure'] and batch['qualification'] is False and batch['cold']['rows']==1
  assert result['ssoConfig']['cold']['onboardingBefore']=='absent' and result['ssoConfig']['warm']['onboardingBefore']=='persisted' and result['ssoConfig']['warm']['cached'] is True and result['ssoConfig']['warm']['refreshed'] is False
  assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
  assert result['identity']['runnerArguments']==identity['runnerArguments'] and 'runnerOutputSha256' not in result['identity']

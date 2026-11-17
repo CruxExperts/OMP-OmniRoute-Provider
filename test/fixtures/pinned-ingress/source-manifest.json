@@ -2045,6 +2045,16 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/batches/route.ts": { "sha256": "656711e21613d8a4c9f865117ae6011d9799e0d5e9eb5f7831560c0990210468", "gitBlob": "178c6a7a4768fe85aa167d24aa033e7676f4318b" },
+    "src/app/api/batches/[id]/route.ts": { "sha256": "5627068f31885d38a6ed08352de777a181d88b8b3399230b37aa7fd0f91228c8", "gitBlob": "fabe13a071986805500b6879c3ec42e3c75775aa" },
+    "src/lib/db/batches.ts": { "sha256": "b7f2dd6f7bec9d6d48e6c82128bc4179df332b83eacf58f7a393eb65efc86276", "gitBlob": "47147438a346108fd90b1a2a023036476312921d" },
+    "src/lib/db/files.ts": { "sha256": "0ab194070d59024e372885cac10258164f367de0d902d044d5af1bb399544708", "gitBlob": "c5c9f1bbe394ffaf5f1880c8ce20e43ea64770b3" },
+    "src/shared/constants/batch.ts": { "sha256": "083380ed3a9f268556990da30dad7c2a11b30665f3056c6dc6507e97a1648bd0", "gitBlob": "726f20a7402211d5b83d72220f4f9ed502d63489" },
+    "src/app/api/v1/_helpers/apiKeyScope.ts": { "sha256": "d4b51c6415b6293b7801ee0b61eb2364ea0878db967db1e69bc6fce76da93463", "gitBlob": "d40f9af22d276902762a5fdfd3c5bf210923c84c" },
+    "src/lib/api/queryIntegerParam.ts": { "sha256": "5e71efd69186829d9f3a935541a431f90aa1dc1d47d76f39c6492179fcbc8cb4", "gitBlob": "174b8584e5f0bbb72b6278215664a54f1339b30f" },
+    "src/shared/constants/anonymousOwner.ts": { "sha256": "741356dd7b5d644e124271a3768e5b84817e7fa34e061376736b3b851104bddf", "gitBlob": "f2af479f031f836a0952e0811ff912964d6e4472" },
+    "src/lib/db/migrations/028_create_files_and_batches.sql": { "sha256": "eb8407bed7d8585481aec17992ee5316eb204638470cf9ae95f6da1db7d68616", "gitBlob": "99c6ad962088279301ab02755210a22fc7da3061" },
+    "src/shared/utils/cors.ts": { "sha256": "f093c56cbd0b258cadddd298d48bf6e4b79fe6c3ff3cf557252b505379e2fb8a", "gitBlob": "743baeeecd4201d4d4bfe0e5234441588a1b2288" },
     "src/app/api/admin/concurrency/route.ts": { "sha256": "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15", "gitBlob": "7fd03e4742e0daecc8bb74f88abba0cd61cee9c9" },
     "open-sse/services/rateLimitManager.ts": { "sha256": "aa0063219f37cdec0ebc7a76c62bfd3ae36fddae7f09424fbda825b2f1e68353", "gitBlob": "4db0c3a4cc2fe61da287e4319b1b018c208bee00" },
     "open-sse/services/bottleneckPatch.ts": { "sha256": "84c017f15a4ecf9ab2bb355d692b705f312b154333b35b099a1ff7ef10703e51", "gitBlob": "f2dcca9666805bcb29ec8e0aeffbafb3d6f2f4be" },

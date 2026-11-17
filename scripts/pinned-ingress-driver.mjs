@@ -37,6 +37,19 @@ const historyRows = [
 ];
 const historyInsert = db.prepare('INSERT INTO a2a_tasks (id,state,skill_id,api_key_id,created_at,updated_at,completed_at,input_json,output_json) VALUES (?,?,?,?,?,?,?,?,?)');
 for (const [id, state, skill, owner, date] of historyRows) historyInsert.run(id, state, skill, owner, date, date, state === 'completed' ? date : null, 'fixture-private-input', 'fixture-private-output');
+// Warm disposable database only. Cold initialization belongs to native lifecycle evidence.
+const batchDb = new DatabaseSync(`${dir}/batches.sqlite`);
+batchDb.exec(await readFile('/work/app/src/lib/db/migrations/028_create_files_and_batches.sql', 'utf8'));
+const batchStore = await import('/work/app/src/lib/db/fixtureBatchStore.ts');
+const batchFiles = await import('/work/app/src/lib/db/fixtureBatchFiles.ts');
+function seedBatch(id, owner, createdAt) {
+  const input = batchFiles.createFile({ bytes: 0, filename: 'fixture-private-input', purpose: 'batch', apiKeyId: owner });
+  const output = batchFiles.createFile({ bytes: 0, filename: 'fixture-private-output', purpose: 'batch_output', apiKeyId: owner });
+  const row = batchStore.createBatch({ endpoint: '/v1/chat/completions', completionWindow: '24h', status: 'completed', inputFileId: input.id, outputFileId: output.id, apiKeyId: owner, metadata: { secret: 'fixture-private-metadata' }, errors: [{ message: 'fixture-private-error' }] });
+  batchStore.updateBatch(row.id, { id, createdAt, requestCountsTotal: 3, requestCountsCompleted: 2, requestCountsFailed: 1 });
+}
+for (const [id, owner, created] of [['batch_a1', 'key-read', 10], ['batch_a2', 'key-read', 20], ['batch_a3', 'key-read', 20], ['batch_b', 'key-write', 30], ['batch_null', null, 40]]) seedBatch(id, owner, created);
+for (let i = 0; i < 103; i++) seedBatch(`batch_z${String(i).padStart(3, '0')}`, 'key-read', 100);
 const statusDb = new DatabaseSync(`${dir}/auth-status.sqlite`);
 statusDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const mfaDb = new DatabaseSync(`${dir}/mfa-status.sqlite`);
@@ -352,6 +365,24 @@ try {
   const secondConcurrency = await request(concurrencyPath, 'GET', { cookie });
   const concurrencyFailure = await request(concurrencyPath, 'GET', { cookie, 'x-ingress-concurrency-control': 'failure' });
   const concurrencyHttp = { auth: concurrencyAuth, empty: concurrencyEmpty, populated: concurrencyProject(firstConcurrency), unchanged: ['rateLimits', 'comboQueues', 'semaphores'].every(key => JSON.stringify(firstConcurrency.body?.[key]) === JSON.stringify(secondConcurrency.body?.[key])), failure: { status: concurrencyFailure.status, routeClass: concurrencyFailure.routeClass, cacheControl: concurrencyFailure.cacheControl, contentType: concurrencyFailure.contentType, json: concurrencyFailure.body !== null, privateMarkerPresent: concurrencyFailure.text.includes('fixture-private') } };
+  await ready(csrfDisabledChild, 43185);
+  const batchFields = ['id', 'status', 'requestCountsTotal', 'requestCountsCompleted', 'requestCountsFailed', 'createdAt', 'inProgressAt', 'expiresAt', 'finalizingAt', 'completedAt', 'failedAt', 'expiredAt', 'cancellingAt', 'cancelledAt'];
+  const batchCall = async (path, headers, targetPort = port) => {
+    let r;
+    try { r = await request(path, 'GET', headers, targetPort); }
+    catch (error) {
+      if (error instanceof Error && error.message === 'INGRESS_BODY_LIMIT') return { transport: 'probe-body-limit-65536' };
+      throw error;
+    }
+    const rows = r.body?.batches;
+    return { status: r.status, routeClass: r.routeClass, contentType: r.contentType, cacheControl: r.cacheControl, rowCount: Array.isArray(rows) ? rows.length : null, rows: Array.isArray(rows) ? rows.slice(0, 100).map(row => Object.fromEntries(batchFields.map(key => [key, row[key]]))) : null, error: r.body?.error === 'Failed to fetch batch' ? 'handler-failure' : r.body?.error === 'Batch not found' ? 'not-found' : r.body?.error ? 'other' : null, rawPrivatePresent: r.text.includes('fixture-private') };
+  };
+  const owner = { authorization: `Bearer ${managementKeys.read}` };
+  const operator = { cookie };
+  const batchHttp = { central: {}, owner: {}, detail: {} };
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer invalid' }, owner, session: operator, manage: { authorization: `Bearer ${managementKeys.manage}` }, invalidSession: { authorization: 'Bearer invalid', cookie } })) batchHttp.central[name] = await batchCall('/api/batches?limit=2', headers);
+  for (const [name, path, headers] of [['owner', '/api/batches?limit=2', owner], ['foreign', '/api/batches?limit=2', { authorization: `Bearer ${managementKeys.write}` }], ['default', '/api/batches', owner], ['overCap', '/api/batches?limit=101', owner], ['zero', '/api/batches?limit=0', owner], ['invalid', '/api/batches?limit=x', owner]]) batchHttp.owner[name] = await batchCall(path, headers, 43185);
+  for (const [name, id, headers] of [['own', 'batch_a1', operator], ['foreign', 'batch_b', operator], ['missing', 'batch_missing', operator], ['nullOwner', 'batch_null', operator], ['invalidSession', 'batch_b', { authorization: 'Bearer invalid', cookie }]]) batchHttp.detail[name] = await batchCall(`/api/batches/${id}`, headers);
   await ready(historyChild, 43181);
   const historyPath = '/api/a2a/tasks/history';
   const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
@@ -726,8 +757,9 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, concurrencyHttp, oidcHttp, metricsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, concurrencyHttp, batchHttp, oidcHttp, metricsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
+  batchDb.close();
   oidcDb.close();
   await new Promise(resolve => issuer.close(resolve));
   statusDb.close();

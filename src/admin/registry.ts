@@ -32,6 +32,7 @@ export type OperationSourceAuthorizationPolicy =
       readonly localOnly: boolean;
       readonly handlerGuard: "none" | "requireManagementAuth" | "isAuthenticated";
       readonly bootstrap: "none" | "oma-whoami";
+      readonly handlerScope?: "batch-list-resolve-scope";
       readonly alternatives: readonly ManagementAuthorizationAlternative[];
     }
   | {
@@ -421,11 +422,20 @@ function assertSourceAuthorizationPolicy(descriptor: OperationDescriptor): void 
   }
   if (policy.alternatives.length === 0) throw new RegistryError("invalid-inventory", "authorization policy has no alternatives", operationId);
   const routeClass = policy.routeClass;
+  if (operationId === "GET /api/batches" && (routeClass !== "management" || policy.handlerScope !== "batch-list-resolve-scope")) {
+    throw new RegistryError("invalid-inventory", "batch list requires its handler scope policy", operationId);
+  }
   if (routeClass === "management") {
-    exactKeys(policy, ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"], operationId);
+    exactKeys(policy, policy.handlerScope === undefined ? ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"] : ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives", "handlerScope"], operationId);
     if (typeof policy.localOnly !== "boolean" || (policy.handlerGuard !== "none" && policy.handlerGuard !== "requireManagementAuth" && policy.handlerGuard !== "isAuthenticated")
       || (policy.bootstrap !== "none" && policy.bootstrap !== "oma-whoami")) {
       throw new RegistryError("invalid-inventory", "management authorization policy is invalid", operationId);
+    }
+    if (policy.handlerScope !== undefined && (policy.handlerScope !== "batch-list-resolve-scope"
+      || operationId !== "GET /api/batches" || descriptor.method !== "GET" || descriptor.pathTemplate !== "/api/batches"
+      || descriptor.source.file !== "src/app/api/batches/route.ts" || descriptor.source.sha256 !== "656711e21613d8a4c9f865117ae6011d9799e0d5e9eb5f7831560c0990210468"
+      || descriptor.auth.domain !== "management" || policy.handlerGuard !== "none" || policy.bootstrap !== "none")) {
+      throw new RegistryError("invalid-inventory", "handler scope is not bound to its exact batch list source", operationId);
     }
   } else if (routeClass === "client-api") {
     exactKeys(policy, ["status", "source", "routeClass", "localOnly", "alternatives"], operationId);

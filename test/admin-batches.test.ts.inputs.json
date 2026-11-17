@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    "contracts/release-eligibility.schema.json",
+    "test/fixtures/pinned-ingress/database-lifecycle.mjs",
+    "provenance/route-sources.json",
+    "provenance/upstreams.json",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json",
+    "provenance/derivations/omniroute-3.8.53-startup/manifest.json.asc",
+    "scripts/prepare-upstream.py",
+    "src/admin/adapters.ts",
+    "scripts/route-source-store.ts",
+    "test/fixtures/batches.fixture.ts",
+    "test/fixtures/pinned-handler.fixture.ts"
+  ]
+}

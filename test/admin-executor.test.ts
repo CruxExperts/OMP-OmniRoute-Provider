@@ -229,6 +229,38 @@ function setup(options: SetupOptions = {}): ExecutorHarness {
   executor.bindCredential({ profileId: PROFILE_ID, endpoint: ENDPOINT, apiKey: "management-secret" });
   return { executor, calls: () => calls };
 }
+
+test("batch scope requires a single bound dashboard session, never a central-only credential", async () => {
+  const source = getOperationRegistry().getOperation("GET /api/batches")!;
+  const descriptor: OperationDescriptor = {
+    ...source, databaseInitializationRequired: true,
+    auth: { ...source.auth, domain: "management", sourcePolicy: {
+      status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false,
+      handlerGuard: "none", bootstrap: "none", handlerScope: "batch-list-resolve-scope",
+      alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" },
+        { kind: "oma-access-token", minimumScope: "read" }, { kind: "trusted-local", loopbackOnly: true },
+        { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }],
+    } },
+    sideEffect: "read", confirmation: { required: false, reason: "Synthetic authorization test only." },
+    response: { ...source.response, schema: { type: "object", properties: { ok: { type: "boolean" } }, additionalProperties: false }, variants: [] },
+    coverage: { status: "invokable", adapterId: "typed.fixture.batch", reason: null },
+  };
+  const seen: (AdminOperationAuthBinding["credential"])[] = [];
+  const executor = createAdminExecutor({ registry: fixtureRegistry([descriptor]), dispatch: async (_request, context) => {
+    seen.push(context.auth.credential); return { ok: true };
+  } });
+  executor.setAdminBinding({ profileId: PROFILE_ID, endpoint: ENDPOINT });
+  await expect(executor.read(descriptor.operationId, {}, { profileId: PROFILE_ID, endpoint: ENDPOINT })).rejects.toMatchObject({ code: "credential-required" });
+  for (const apiKey of ["oma_fixture_read", "ordinary-key", "management-key", "revoked-key"]) {
+    executor.bindCredential({ profileId: PROFILE_ID, endpoint: ENDPOINT, apiKey });
+    await expect(executor.read(descriptor.operationId, {})).rejects.toMatchObject({ code: "credential-required" });
+  }
+  expect(() => executor.bindCredential({ profileId: PROFILE_ID, endpoint: ENDPOINT, apiKey: "key", cookie: "session=fixture" })).toThrow();
+  expect(seen).toEqual([]);
+  executor.bindCredential({ profileId: PROFILE_ID, endpoint: ENDPOINT, cookie: "session=fixture" });
+  await executor.read(descriptor.operationId, {});
+  expect(seen).toEqual([{ kind: "cookie", value: "session=fixture" }]);
+});
 function accessTokenRecord(secret: string, scope: FixtureAccessScope): FixtureAccessRecord {
   return {
     secret,

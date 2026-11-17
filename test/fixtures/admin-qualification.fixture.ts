@@ -20,7 +20,7 @@ export function fixtureRegistry(input: readonly OperationDescriptor[]): Operatio
     const ingress = operationRequiresIngressEvidence(descriptor.operationId) ? { ingressSha256: "0".repeat(64) } : {};
     const metrics = descriptor.operationId === "GET /api/combos/metrics" || descriptor.operationId === "DELETE /api/combos/metrics";
     const lifecycle = descriptor.databaseInitializationRequired ? { lifecycleSha256: "0".repeat(64) } : {};
-    const effect = descriptor.operationId === "GET /api/providers/deprecated" || descriptor.operationId === "GET /api/auth/csrf" || (metrics && descriptor.databaseInitializationRequired) ? { effectSha256: "0".repeat(64) } : {};
+    const effect = descriptor.operationId === "GET /api/providers/deprecated" || descriptor.operationId === "GET /api/auth/csrf" || ((metrics || descriptor.operationId === "GET /api/batches") && descriptor.databaseInitializationRequired) ? { effectSha256: "0".repeat(64) } : {};
     const native = descriptor.operationId === "GET /api/acp/agents" ? { nativeEvidenceSha256: "0".repeat(64) } : {};
     const a2a = descriptor.operationId === "GET /api/a2a/status" ? { a2aEvidenceSha256: "0".repeat(64) } : {};
     records.push({ operationId: descriptor.operationId, status: "verified", reason: "Synthetic fixture authority; not release qualification.",

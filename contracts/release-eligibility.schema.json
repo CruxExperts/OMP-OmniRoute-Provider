@@ -86,7 +86,7 @@
     "effectEvidence": {
       "type": "object", "additionalProperties": false, "required": ["artifact", "sha256"],
       "properties": {
-        "artifact": { "type": "string", "pattern": "^provenance/qualification/(?:deprecated-provider-sweep|csrf-lifecycle|combo-lifecycle|concurrency-lifecycle)-[a-f0-9]{64}\\.json$" },
+        "artifact": { "type": "string", "pattern": "^provenance/qualification/(?:deprecated-provider-sweep|csrf-lifecycle|combo-lifecycle|concurrency-lifecycle|batch-lifecycle)-[a-f0-9]{64}\\.json$" },
         "sha256": { "$ref": "#/$defs/sha256" }
       }
     },
@@ -229,7 +229,7 @@
       ],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}", "GET /api/providers/deprecated", "GET /api/acp/agents", "GET /api/a2a/status", "GET /api/auth/csrf", "GET /api/admin/concurrency", "GET /api/combos/metrics", "DELETE /api/combos/metrics"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /livez", "HEAD /livez", "GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/agent-skills/{id}", "GET /api/agent-skills/coverage", "GET /api/model-combo-mappings", "POST /api/model-combo-mappings", "GET /api/model-combo-mappings/{id}", "PUT /api/model-combo-mappings/{id}", "DELETE /api/model-combo-mappings/{id}", "GET /api/providers/deprecated", "GET /api/acp/agents", "GET /api/a2a/status", "GET /api/auth/csrf", "GET /api/admin/concurrency", "GET /api/combos/metrics", "DELETE /api/combos/metrics", "GET /api/batches"] } }, "required": ["operationId"] },
           "then": { "required": ["ingressEvidence"] },
           "else": { "not": { "required": ["ingressEvidence"] } }
         },
@@ -239,7 +239,7 @@
           "else": { "not": { "required": ["lifecycleEvidence"] } }
         },
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/providers/deprecated", "GET /api/auth/csrf", "GET /api/admin/concurrency", "GET /api/combos/metrics", "DELETE /api/combos/metrics"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/providers/deprecated", "GET /api/auth/csrf", "GET /api/admin/concurrency", "GET /api/combos/metrics", "DELETE /api/combos/metrics", "GET /api/batches"] } }, "required": ["operationId"] },
           "then": { "required": ["effectEvidence"] },
           "else": { "not": { "required": ["effectEvidence"] } }
         },
@@ -258,6 +258,10 @@
         {
           "if": { "properties": { "operationId": { "const": "GET /api/admin/concurrency" } }, "required": ["operationId"] },
           "then": { "required": ["effectEvidence", "lifecycleEvidence", "ingressEvidence"], "properties": { "binding": { "required": ["databaseInitializationRequired"] }, "effectEvidence": { "properties": { "artifact": { "pattern": "^provenance/qualification/concurrency-lifecycle-[a-f0-9]{64}\\.json$" } } } } }
+        },
+        {
+          "if": { "properties": { "operationId": { "const": "GET /api/batches" } }, "required": ["operationId"] },
+          "then": { "required": ["effectEvidence", "lifecycleEvidence", "ingressEvidence"], "properties": { "binding": { "required": ["databaseInitializationRequired"] }, "effectEvidence": { "properties": { "artifact": { "pattern": "^provenance/qualification/batch-lifecycle-[a-f0-9]{64}\\.json$" } } } } }
         },
         {
           "if": { "properties": { "operationId": { "const": "GET /api/acp/agents" } }, "required": ["operationId"] },

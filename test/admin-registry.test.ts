@@ -266,6 +266,24 @@ test("legacy isAuthenticated policy accepts only source-supported management alt
   expect(new OperationRegistry([descriptor({ status: "unknown" })], { records: [] }).getEligibility(base.operationId).status).toBe("unavailable");
 });
 
+test("batch list handler scope is closed and pinned to its exact route", () => {
+  const base = getOperation("GET /api/batches")!;
+  const policy = {
+    status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false,
+    handlerGuard: "none", bootstrap: "none", handlerScope: "batch-list-resolve-scope",
+    alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }],
+  } as const;
+  const descriptor = (sourcePolicy: unknown): OperationDescriptor => ({
+    ...base, auth: { ...base.auth, domain: "management", sourcePolicy: sourcePolicy as OperationDescriptor["auth"]["sourcePolicy"] },
+  });
+  expect(() => new OperationRegistry([descriptor(policy)], { records: [] })).not.toThrow();
+  expect(() => new OperationRegistry([descriptor({ ...policy, handlerScope: "other" })], { records: [] })).toThrow();
+  const { handlerScope: _scope, ...flat } = policy;
+  expect(() => new OperationRegistry([descriptor(flat)], { records: [] })).toThrow();
+  expect(() => new OperationRegistry([{ ...descriptor(policy), source: { ...base.source, sha256: "0".repeat(64) } }], { records: [] })).toThrow();
+  expect(() => new OperationRegistry([{ ...descriptor(policy), operationId: "GET /api/other", pathTemplate: "/api/other" }], { records: [] })).toThrow();
+});
+
 
 test("source-only approvals and changed authentication or reconciliation contracts cannot grant execution", () => {
   const descriptor = fixtureOperation();

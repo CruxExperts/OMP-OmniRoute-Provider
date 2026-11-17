@@ -212,6 +212,7 @@ export function testOutcomeHash(
     assertConcurrencySourceBinding();
     validateConcurrencyContract(reviewed);
   }
+  if (operationId === "GET /api/batches") validateBatchListContract(reviewed);
   const secrets = requireRecord(reviewed.secrets, `${operationId}.reviewed contract.secrets`);
   assertKeys(secrets, `${operationId}.reviewed contract.secrets`, ["inputFields", "outputFields"]);
   stringList(secrets.inputFields, `${operationId}.reviewed contract.secrets.inputFields`);
@@ -339,6 +340,7 @@ export function testOutcomeHash(
     if (canonicalJson(before) !== canonicalJson(expectedBefore) || canonicalJson(after) !== canonicalJson(expectedAfter)
       || result.status !== 200 || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error("concurrency semaphore fixture outcome mismatch");
   }
+  if (operationId === "GET /api/batches") validateBatchListObservation(before, after, result.status, body);
   const canonicalObservation = toJson({ before, after, result: { status: result.status, body } }, `${operationId}.observation`);
   return sha256(canonicalJson(canonicalObservation));
 }
@@ -513,9 +515,11 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (comboMetricsSource !== undefined && (comboMetricsSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416" || binding.handlerGitBlobSha !== "9266bfc7ba5444f3b8685775d10ad72210050634" || added["open-sse/services/comboMetrics.ts"] !== "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41" || added["open-sse/services/autoCombo/providerDiversity.ts"] !== "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b")) throw new Error(`${label} combo metrics source mismatch`);
   const concurrencySource = operationId === "GET /api/admin/concurrency" ? requireRecord(added["src/app/api/admin/concurrency/route.ts"], `${label}.concurrency source`) : undefined;
   if (concurrencySource !== undefined && (concurrencySource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "d153dfc298841d3971c7ffab84f043386e4afd0902ccd64df874640c22f94a15" || binding.handlerGitBlobSha !== "7fd03e4742e0daecc8bb74f88abba0cd61cee9c9")) throw new Error(`${label} concurrency source mismatch`);
+  const batchSource = operationId === "GET /api/batches" ? requireRecord(requireRecord(artifact.batchHttpClosure, `${label}.batch closure`).sources, `${label}.batch sources`)["src/app/api/batches/route.ts"] : undefined;
+  if (operationId === "GET /api/batches" && (batchSource !== binding.handlerSha256 || binding.handlerSha256 !== "656711e21613d8a4c9f865117ae6011d9799e0d5e9eb5f7831560c0990210468" || binding.handlerGitBlobSha !== "178c6a7a4768fe85aa167d24aa033e7676f4318b")) throw new Error(`${label} batch source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
   const specialSource = concurrencySource !== undefined ? concurrencySource.originalSha256 : csrfSource !== undefined ? csrfSource : comboMetricsSource !== undefined ? comboMetricsSource.originalSha256 : diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource.originalSha256 : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
-    : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
+    : operationId === "GET /api/batches" ? batchSource : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
   if (source.commit !== release.commit || source.commit !== manifest.commit || `v${String(source.version)}` !== release.tag
@@ -718,6 +722,30 @@ print(json.dumps({'sources': {name: m.sha(source[name]) for name in m.CONCURRENC
     assertKeys(current, `${label}.current HTTP`, ["concurrencyHttp", "concurrencyHttpClosure"]);
     if (canonicalJson(toJson(artifact.concurrencyHttp, label)) !== canonicalJson(toJson(current.concurrencyHttp, label)) || canonicalJson(toJson(artifact.concurrencyHttpClosure, label)) !== canonicalJson(toJson(current.concurrencyHttpClosure, label))) throw new Error(`${label} current HTTP mismatch`);
   }
+  if (operationId === "GET /api/batches") {
+    const names = ["PINNED_INGRESS_ARCHIVE", "PINNED_INGRESS_NODE", "PINNED_INGRESS_DEPENDENCIES", "PINNED_INGRESS_BWRAP"] as const;
+    const paths = names.map(name => { const value = process.env[name]; if (!value || !value.startsWith("/")) throw new Error(`${label} requires absolute ${name}`); return value; });
+    const program = `import json, pathlib, sys
+ns = {'__name__': 'pinned_ingress_expected', '__file__': sys.argv[1]}
+exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), ns)
+print(json.dumps(ns[sys.argv[2]](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
+    const invoke = (name: string): unknown => JSON.parse(execFileSync("python3", ["-c", program, resolve(packageRoot, "scripts/pinned-ingress.py"), name, ...paths], { cwd: packageRoot, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 900_000 })) as unknown;
+    const beforeKey = invoke("expected_core_lifecycle_input_key");
+    const independent = requireRecord(invoke("expected_batch_http"), `${label}.independent batch HTTP`);
+    assertKeys(independent, label, ["batchHttp", "batchHttpClosure"]);
+    validateBatchHttpObservation(artifact.batchHttp);
+    const derive = `import importlib.util, json, pathlib, sys, tempfile
+spec = importlib.util.spec_from_file_location('ingress', sys.argv[1])
+m = importlib.util.module_from_spec(spec); exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), m.__dict__)
+with tempfile.TemporaryDirectory() as temp:
+ root = pathlib.Path(temp) / 'source'; m.effective_source(pathlib.Path(sys.argv[2]), m.ROOT, root)
+ source = {name: (root / name).read_bytes() for name in m.BATCH_SOURCES}; graph = m.batch_graph(source)
+ executed = {name: m.sha(data) for name, data in source.items() if name not in (m.BATCH_LIST, m.BATCH_ITEM, m.BATCH_STORE, 'src/lib/db/files.ts', 'src/lib/db/apiKeys.ts', 'src/shared/utils/apiKey.ts')}
+ executed.update({name: m.sha(data) for name, data in graph.items()})
+ print(json.dumps({'sources': {name: m.sha(data) for name, data in source.items()}, 'executed': executed}))`;
+    const derived = JSON.parse(execFileSync("python3", ["-c", derive, resolve(packageRoot, "scripts/pinned-ingress.py"), paths[0]!], { cwd: packageRoot, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 120_000 })) as unknown;
+    if (typeof beforeKey !== "string" || !/^[a-f0-9]{64}$/.test(beforeKey) || invoke("expected_core_lifecycle_input_key") !== beforeKey || canonicalJson(toJson(artifact.batchHttp, label)) !== canonicalJson(toJson(independent.batchHttp, label)) || canonicalJson(toJson(artifact.batchHttpClosure, label)) !== canonicalJson(toJson(derived, label)) || canonicalJson(toJson(independent.batchHttpClosure, label)) !== canonicalJson(toJson(derived, label))) throw new Error(`${label} independently observed batch HTTP mismatch`);
+  }
   const expectedIdentities = expectedHealthIngressIdentities(String(source.version), String(source.commit));
   if (operationId === "GET /api/a2a/status") {
     const path = "src/app/api/a2a/status/route.ts";
@@ -885,6 +913,64 @@ print(json.dumps({'sources': {name: m.sha(source[name]) for name in m.CONCURRENC
     if (canonicalJson(toJson(inputs[key], label)) !== canonicalJson(toJson(expectedIdentities[key], label))) throw new Error(`${label} overlay identity mismatch: ${key}`);
   }
 }
+/** Validate fixture semantics separately from the independently rerun producer. */
+export function validateBatchHttpObservation(value: unknown): void {
+  const label = "batch HTTP observation", http = requireRecord(value, label);
+  assertKeys(http, label, ["central", "owner", "detail"]);
+  const groups = { central: ["anonymous", "invalid", "owner", "session", "manage", "invalidSession"], owner: ["owner", "foreign", "default", "overCap", "zero", "invalid"], detail: ["own", "foreign", "missing", "nullOwner", "invalidSession"] } as const;
+  for (const [group, names] of Object.entries(groups)) {
+    const cases = requireRecord(http[group], label); assertKeys(cases, label, names);
+    for (const name of names) {
+      const row = requireRecord(cases[name], label);
+      if (group === "owner" && (name === "default" || name === "overCap") && Object.keys(row).length === 1 && row.transport === "probe-body-limit-65536") continue;
+      assertKeys(row, label, ["status", "routeClass", "contentType", "cacheControl", "rowCount", "rows", "error", "rawPrivatePresent"]);
+      if (!Number.isInteger(row.status) || Number(row.status) < 100 || Number(row.status) > 599 || row.routeClass !== "MANAGEMENT" || ![null, "application/json"].includes(row.contentType as string | null) || ![null, "no-store", "private, no-store"].includes(row.cacheControl as string | null) || ![null, "handler-failure", "not-found", "other"].includes(row.error as string | null) || typeof row.rawPrivatePresent !== "boolean" || !(row.rowCount === null || Number.isInteger(row.rowCount) && Number(row.rowCount) >= 0 && Number(row.rowCount) <= 100)) throw new Error(`${label} malformed ${group}.${name}`);
+    }
+  }
+  const project = (id: string, createdAt: number) => ({ id, status: "completed", requestCountsTotal: 3, requestCountsCompleted: 2, requestCountsFailed: 1, createdAt, inProgressAt: null, expiresAt: null, finalizingAt: null, completedAt: null, failedAt: null, expiredAt: null, cancellingAt: null, cancelledAt: null });
+  const z = Array.from({ length: 103 }, (_, index) => project(`batch_z${String(102 - index).padStart(3, "0")}`, 100));
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, label)) === canonicalJson(toJson(b, label));
+  const owner = requireRecord(http.owner, label), central = requireRecord(http.central, label), detail = requireRecord(http.detail, label);
+  for (const [name, rows] of Object.entries({ owner: z.slice(0, 2), foreign: [project("batch_b", 30)], zero: [] })) {
+    const row = requireRecord(owner[name], label);
+    if (row.status !== 200 || row.contentType !== "application/json" || row.rowCount !== rows.length || !same(row.rows, rows) || row.error !== null || row.rawPrivatePresent !== (rows.length > 0)) throw new Error(`${label} owner ${name} mismatch`);
+  }
+  const defaultRows = z.slice(0, 100), defaultRow = requireRecord(owner.default, label);
+  if (!same(defaultRow, { transport: "probe-body-limit-65536" }) && (defaultRow.status !== 200 || defaultRow.contentType !== "application/json" || defaultRow.rowCount !== 100 || !same(defaultRow.rows, defaultRows) || defaultRow.error !== null || defaultRow.rawPrivatePresent !== true)) throw new Error(`${label} default batch result mismatch`);
+  if (!same(owner.overCap, { transport: "probe-body-limit-65536" })) throw new Error(`${label} oversized probe was not refused`);
+  const invalid = requireRecord(owner.invalid, label);
+  if (invalid.status !== 400 || invalid.rows !== null || invalid.rowCount !== null || invalid.rawPrivatePresent !== false) throw new Error(`${label} invalid limit mismatch`);
+  for (const name of ["session", "manage"]) { const row = requireRecord(central[name], label); if (row.status !== 200 || row.contentType !== "application/json" || row.rowCount !== 2 || !same(row.rows, z.slice(0, 2)) || row.rawPrivatePresent !== true) throw new Error(`${label} central ${name} mismatch`); }
+  for (const name of ["anonymous", "invalid", "owner", "invalidSession"]) { const row = requireRecord(central[name], label); if (![401, 403].includes(Number(row.status)) || row.rowCount !== null || row.rows !== null || row.rawPrivatePresent !== false) throw new Error(`${label} central ${name} mismatch`); }
+  for (const value of Object.values(detail)) { const row = requireRecord(value, label); if (row.status === 200 || row.rowCount !== null || row.rows !== null || row.rawPrivatePresent !== false) throw new Error(`${label} detail unexpectedly succeeded`); }
+}
+
+
+/** A retained batch read is evidence only when an independent native run agrees. */
+export function validateBatchLifecycleObservation(value: unknown, independent: unknown): void {
+  const label = "batch lifecycle evidence";
+  const artifact = requireRecord(value, label);
+  assertKeys(artifact, label, ["status", "qualification", "boundary", "inputSha256", "identity", "cold", "warm"]);
+  if (artifact.status !== "research-observed" || artifact.qualification !== false || artifact.boundary !== "Pinned batch list route, database and scope policy in isolated cold and warm native core processes; no HTTP ingress or job dispatch.") throw new Error(`${label} classification mismatch`);
+  requireRecord(artifact.inputSha256, `${label}.inputSha256`);
+  const identity = requireRecord(artifact.identity, `${label}.identity`);
+  const closure = requireRecord(identity.batchClosure, `${label}.closure`);
+  const sources = requireRecord(closure.sources, `${label}.sources`);
+  const executed = requireRecord(closure.executed, `${label}.executed`);
+  for (const [path, digest] of [["src/app/api/batches/route.ts", "656711e21613d8a4c9f865117ae6011d9799e0d5e9eb5f7831560c0990210468"], ["src/app/api/v1/_helpers/apiKeyScope.ts", "d4b51c6415b6293b7801ee0b61eb2364ea0878db967db1e69bc6fce76da93463"], ["src/lib/db/batches.ts", "b7f2dd6f7bec9d6d48e6c82128bc4179df332b83eacf58f7a393eb65efc86276"], ["src/lib/db/migrations/028_create_files_and_batches.sql", "eb8407bed7d8585481aec17992ee5316eb204638470cf9ae95f6da1db7d68616"]] as const) if (sources[path] !== digest) throw new Error(`${label} source identity mismatch: ${path}`);
+  for (const [path, digest] of [["src/lib/db/files.ts", "0ab194070d59024e372885cac10258164f367de0d902d044d5af1bb399544708"], ["src/shared/constants/batch.ts", "083380ed3a9f268556990da30dad7c2a11b30665f3056c6dc6507e97a1648bd0"], ["src/lib/db/apiKeys.ts", "4e9bc2be404d6c74e1fbf9fc1d62b03853a84eead453ce70e2fc8cadd33673eb"], ["src/shared/utils/apiKey.ts", "da784cd366e9a5bff8eb54b2ad33b9e96a8d6dc33f18d145388128a20a56a813"]] as const) if (sources[path] !== digest) throw new Error(`${label} owner source identity mismatch: ${path}`);
+  const nativePaths = ["src/app/api/batches/route.ts", "src/app/api/batches/[id]/route.ts", "src/lib/db/batches.ts", "src/app/api/v1/_helpers/apiKeyScope.ts", "src/lib/db/caseMapping.ts", "src/lib/db/migrations/028_create_files_and_batches.sql", "src/lib/db/files.ts", "src/shared/constants/batch.ts", "src/lib/db/apiKeys.ts", "src/shared/utils/apiKey.ts", "src/lib/api/queryIntegerParam.ts", "src/shared/constants/anonymousOwner.ts", "src/shared/utils/cors.ts", "src/server/cors/origins.ts", "src/lib/db/core.ts"];
+  assertKeys(closure, `${label}.closure`, ["sources", "executed"]);
+  assertKeys(sources, `${label}.sources`, nativePaths);
+  assertKeys(executed, `${label}.executed`, nativePaths.filter(path => path !== "src/app/api/batches/[id]/route.ts"));
+  for (const path of Object.keys(executed)) if (executed[path] !== sources[path] || typeof executed[path] !== "string" || !/^[a-f0-9]{64}$/.test(String(executed[path]))) throw new Error(`${label} native execution mismatch: ${path}`);
+  const populated = [{ idValid: true, status: "completed", createdAt: 20 }];
+  for (const phase of ["cold", "warm"] as const) {
+    const wanted = { databaseExistedBefore: phase === "warm", databaseExistsAfter: true, driver: "node:sqlite", first: phase === "cold" ? [] : populated, populated, rows: 1 };
+    if (canonicalJson(toJson(artifact[phase], label)) !== canonicalJson(toJson(wanted, label))) throw new Error(`${label} ${phase} mismatch`);
+  }
+  if (canonicalJson(toJson(artifact, label)) !== canonicalJson(toJson(requireRecord(independent, `${label}.independent`), label))) throw new Error(`${label} independent observation mismatch`);
+}
 
 /** Compare the retained native outcome to a fresh isolated producer run. */
 export function validateConcurrencyLifecycleObservation(value: unknown, independent: unknown): void {
@@ -1019,11 +1105,12 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     const csrf = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "csrf";
     const comboMetrics = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "comboMetrics";
     const concurrency = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "concurrency";
-    const effect = requireRecord((csrf || comboMetrics || concurrency) && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
+    const batch = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "batch";
+    const effect = requireRecord((csrf || comboMetrics || concurrency || batch) && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
     const digest = requireString(effect.sha256, "deprecated provider effect digest");
     const path = requireString(effect.artifact, "deprecated provider effect artifact");
-    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${csrf ? "csrf-lifecycle" : comboMetrics ? "combo-lifecycle" : concurrency ? "concurrency-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
+    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${batch ? "batch-lifecycle" : csrf ? "csrf-lifecycle" : comboMetrics ? "combo-lifecycle" : concurrency ? "concurrency-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
     const file = resolve(packageRoot, path);
     const info = lstatSync(file);
     if (!info.isFile() || info.nlink !== 1 || realpathSync(file) !== file || info.size > 2 * 1024 * 1024) throw new Error("deprecated provider effect artifact invalid");
@@ -1033,6 +1120,20 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     if (csrf) validateAuthCsrfLifecycleObservation(observed, requireRecord(expected, label).csrfLifecycle);
     else if (comboMetrics) validateComboMetricsLifecycleObservation(observed, requireRecord(expected, label).comboLifecycle);
     else if (concurrency) validateConcurrencyLifecycleObservation(observed, requireRecord(expected, label).concurrencyLifecycle);
+    else if (batch) {
+      const independent = requireRecord(requireRecord(expected, label).batchLifecycle, `${label}.independent batch`);
+      const closure = requireRecord(requireRecord(independent.identity, label).batchClosure, label);
+      const derive = `import importlib.util, json, pathlib, sys, tempfile
+spec = importlib.util.spec_from_file_location('ingress', sys.argv[1])
+m = importlib.util.module_from_spec(spec); exec(compile(pathlib.Path(sys.argv[1]).read_bytes(), sys.argv[1], 'exec'), m.__dict__)
+with tempfile.TemporaryDirectory() as temp:
+ root = pathlib.Path(temp) / 'source'; m.effective_source(pathlib.Path(sys.argv[2]), m.ROOT, root)
+ names = (*m.BATCH_SOURCES, 'src/lib/db/core.ts'); sources = {name: m.sha((root / name).read_bytes()) for name in names}
+ print(json.dumps({'sources': sources, 'executed': {name: digest for name, digest in sources.items() if name != m.BATCH_ITEM}}))`;
+      const derived = JSON.parse(execFileSync("python3", ["-c", derive, resolve(packageRoot, "scripts/pinned-ingress.py"), paths[0]!], { cwd: packageRoot, encoding: "utf8", maxBuffer: 2 * 1024 * 1024, timeout: 120_000 })) as unknown;
+      if (canonicalJson(toJson(closure, label)) !== canonicalJson(toJson(derived, label)) || inputKey() !== key) throw new Error(`${label} native source derivation mismatch`);
+      validateBatchLifecycleObservation(observed, independent);
+    }
     else validateDeprecatedProviderSweepObservation(observed, requireRecord(expected, label).deprecatedSweep);
   }
 }
@@ -2382,6 +2483,27 @@ export function validateAuthCsrfContract(value: unknown): void {
   if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.secrets, { inputFields: [], outputFields: ["token", "expiresAt"] }) || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || requireRecord(c.confirmation, "CSRF confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "CSRF preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("CSRF safety mismatch");
 }
 
+export function validateBatchListObservation(before: unknown, after: unknown, status: unknown, body: unknown): void {
+  const row = { status: "completed", requestCountsTotal: 3, requestCountsCompleted: 2, requestCountsFailed: 1, createdAt: 20, inProgressAt: null, expiresAt: null, finalizingAt: null, completedAt: null, failedAt: null, expiredAt: null, cancellingAt: null, cancelledAt: null };
+  const state = { rows: 5, ownerRows: 3 };
+  if (canonicalJson(toJson(before, "batch before")) !== canonicalJson(state) || canonicalJson(toJson(after, "batch after")) !== canonicalJson(state) || status !== 200 || canonicalJson(toJson(body, "batch body")) !== canonicalJson({ batches: [{ id: "batch_a3", ...row }, { id: "batch_a2", ...row }] })) throw new Error("batch list owner, limit or projection outcome mismatch");
+}
+
+export function validateBatchListContract(value: unknown): void {
+  const c = requireRecord(value, "batch contract"), request = requireRecord(c.request, "batch request"), response = requireRecord(c.response, "batch response"), auth = requireRecord(c.auth, "batch auth"), safety = requireRecord(c.mutationSafety, "batch safety");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "batch contract")) === canonicalJson(toJson(b, "batch contract"));
+  const route = "src/app/api/batches/route.ts", empty = { type: "object", properties: {}, additionalProperties: false };
+  const limit = { type: "integer", minimum: 1, maximum: 100 }, count = { type: "integer", minimum: 0, maximum: 4294967295 }, time = { type: ["integer", "null"], minimum: 0, maximum: 4294967295 };
+  const fields = { id: { type: "string", pattern: "^batch_[a-zA-Z0-9_-]{1,128}$" }, status: { type: "string", enum: ["validating", "failed", "in_progress", "finalizing", "completed", "expired", "cancelling", "cancelled"] }, requestCountsTotal: count, requestCountsCompleted: count, requestCountsFailed: count, createdAt: count, inProgressAt: time, expiresAt: time, finalizingAt: time, completedAt: time, failedAt: time, expiredAt: time, cancellingAt: time, cancelledAt: time };
+  const item = { type: "object", properties: fields, required: Object.keys(fields), additionalProperties: false };
+  const view = { type: "object", properties: { batches: { type: "array", maxItems: 100, items: item } }, required: ["batches"], additionalProperties: false };
+  const parameter = { name: "limit", in: "query", required: false, style: "form", explode: true, allowReserved: false, schema: limit, inputAllowed: true, sourceFile: route };
+  const policy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "none", handlerScope: "batch-list-resolve-scope", bootstrap: "none", alternatives: [{ kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "oma-access-token", minimumScope: "read" }, { kind: "trusted-local", loopbackOnly: true }] };
+  const success = requireArray(response.variants, "batch variants").filter(v => isRecord(v) && v.statusCode === "200");
+  if (!same(request.pathSchema, empty) || !same(request.pathParameters, []) || !same(request.querySchema, { type: "object", properties: { limit }, additionalProperties: false }) || !same(request.parameters, [parameter]) || request.body !== null || response.mediaType !== "application/json" || !same(response.schema, view) || success.length !== 1 || !same(requireRecord(success[0], "batch success").content, [{ mediaType: "application/json", schema: view, sourceFile: route }])) throw new Error("batch request or projection mismatch");
+  if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.secrets, { inputFields: [], outputFields: ["inputFileId", "outputFileId", "errorFileId", "apiKeyId", "metadata", "errors", "model", "usage"] }) || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.confirmation, { required: true, reason: "Authentication and database initialization may write; the bounded list does not establish completeness or settlement, and raw responses remain subject to the adapter byte limit." }) || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || !same(safety.preflight, { kind: "not-applicable", sourceReason: "No independent read settles initialization effects." }) || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("batch authorization or lifecycle safety mismatch");
+}
+
 function validateEligibility(
   record: RecordValue | undefined,
   operationId: string,
@@ -2393,6 +2515,11 @@ function validateEligibility(
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/analytics/compression/route.ts" || route.sha256 !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || route.gitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f") throw new Error("compression requires exact lifecycle source");
   }
   if (!record) return false;
+  if (operationId === "GET /api/batches/{id}") throw new Error("batch detail independent ingress and lifecycle evidence are not qualified");
+  if (operationId === "GET /api/batches") {
+    validateBatchListContract(record.contract);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/batches/route.ts" || route.sha256 !== "656711e21613d8a4c9f865117ae6011d9799e0d5e9eb5f7831560c0990210468" || route.gitBlobSha !== "178c6a7a4768fe85aa167d24aa033e7676f4318b" || record.ingressEvidence === undefined || record.effectEvidence === undefined || record.lifecycleEvidence === undefined) throw new Error("batch list requires exact source and independent ingress and lifecycle evidence");
+  }
   const comboMetrics = operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics";
   if (comboMetrics) {
     validateComboMetricsContract(record.contract, operationId);
@@ -2497,13 +2624,13 @@ function validateEligibility(
     validateHealthIngressEvidence(ingress, expectedBinding, operationId, specializedStatuses);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
-  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || comboMetrics || operationId === "GET /api/admin/concurrency") {
+  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || comboMetrics || operationId === "GET /api/admin/concurrency" || operationId === "GET /api/batches") {
     if (!binding.databaseInitializationRequired || record.effectEvidence === undefined) throw new Error(`independent effect evidence required: ${operationId}`);
     const effect = requireRecord(record.effectEvidence, `${operationId}.effectEvidence`);
-    const prefix = operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : operationId === "GET /api/admin/concurrency" ? "provenance/qualification/concurrency-lifecycle-" : comboMetrics ? "provenance/qualification/combo-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
+    const prefix = operationId === "GET /api/batches" ? "provenance/qualification/batch-lifecycle-" : operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : operationId === "GET /api/admin/concurrency" ? "provenance/qualification/concurrency-lifecycle-" : comboMetrics ? "provenance/qualification/combo-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
     if (typeof effect.artifact !== "string" || !effect.artifact.startsWith(prefix)) throw new Error(`effect evidence domain mismatch: ${operationId}`);
   } else if (record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : operationId === "GET /api/admin/concurrency" ? ["concurrency", record.effectEvidence] : comboMetrics ? ["comboMetrics", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/batches" ? ["batch", record.effectEvidence] : operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : operationId === "GET /api/admin/concurrency" ? ["concurrency", record.effectEvidence] : comboMetrics ? ["comboMetrics", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
@@ -2992,10 +3119,16 @@ function validateSourceAuthorizationPolicy(value: unknown, domain: string, opera
         break;
     }
   }
+  if (operationId === "GET /api/batches" && (routeClass !== "management" || policy.handlerScope !== "batch-list-resolve-scope")) {
+    throw new Error(`${operationId}.auth.sourcePolicy requires the batch list handler scope`);
+  }
   if (routeClass === "management") {
-    assertKeys(policy, `${operationId}.sourcePolicy`, ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"]);
+    assertKeys(policy, `${operationId}.sourcePolicy`, policy.handlerScope === undefined ? ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives"] : ["status", "source", "routeClass", "localOnly", "handlerGuard", "bootstrap", "alternatives", "handlerScope"]);
     if (typeof policy.localOnly !== "boolean" || typeof policy.handlerGuard !== "string" || !["none", "requireManagementAuth", "isAuthenticated"].includes(policy.handlerGuard)
       || !["none", "oma-whoami"].includes(String(policy.bootstrap))) throw new Error(`${operationId}.auth.sourcePolicy management fields are invalid`);
+    if (policy.handlerScope !== undefined && (policy.handlerScope !== "batch-list-resolve-scope" || operationId !== "GET /api/batches" || domain !== "management" || policy.handlerGuard !== "none" || policy.bootstrap !== "none")) {
+      throw new Error(`${operationId}.auth.sourcePolicy handler scope is not bound to batch list`);
+    }
     if (policy.handlerGuard === "isAuthenticated"
       && (policy.bootstrap !== "none" || alternatives.some(item => !isRecord(item)
         || !["management-api-key", "dashboard-session", "auth-disabled"].includes(String(item.kind))))) {

@@ -943,6 +943,11 @@ export class AdminExecutorImpl implements AdminExecutor {
       if (binding.profileId !== selection.profileId || binding.endpoint !== selection.endpoint) {
         throw this.#error("credential-mismatch", "management binding changed", descriptor.operationId);
       }
+      // The executor transports one credential, and cannot verify API-key IDs or
+      // management scopes. A cookie is still checked by both server layers.
+      if (policy.handlerScope === "batch-list-resolve-scope" && (!credential?.enabled || credential.cookie === undefined)) {
+        throw this.#error("credential-required", "batch list requires a bound dashboard session; API-key scope cannot be verified by this client", descriptor.operationId);
+      }
       if (!credential?.enabled) {
         if (loopback && policy.alternatives.some(alternative => alternative.kind === "trusted-local" && alternative.loopbackOnly)) {
           return {
