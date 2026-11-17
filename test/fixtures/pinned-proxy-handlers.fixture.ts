@@ -6,7 +6,7 @@ import { createPinnedManagementAuthorization, loadExtractedPinnedDeclarations, l
 import { projectAssignment, projectAssignmentProof, projectAssignments, projectProxy, projectProxyList, projectProxyListProof, projectProxyProof, projectProxyUsage } from "./proxies.fixture.ts";
 
 /** Receipt-verified route and store, with SQLite and bounded infrastructure edges. */
-export function createPinnedProxyHandlers(sharedDb?: Database, options: { uuid?: () => string; date?: DateConstructor } = {}) {
+export function createPinnedProxyHandlers(sharedDb?: Database, options: { uuid?: () => string; date?: DateConstructor; boundaries?: Record<string, unknown> } = {}) {
   const db = sharedDb ?? new Database(":memory:");
   const schema = /const SCHEMA_SQL = `([\s\S]*?)`;/m.exec(readPinnedSource("src/lib/db/core.ts"))?.[1];
   if (!schema) throw new Error("Pinned core schema unavailable");
@@ -45,6 +45,7 @@ export function createPinnedProxyHandlers(sharedDb?: Database, options: { uuid?:
     "src/shared/constants/providers.ts": { providerAllowsOptionalApiKey: () => false },
     "src/shared/constants/sidebarVisibility.ts": { HIDEABLE_SIDEBAR_ITEM_IDS: [] },
     "src/lib/api/requireManagementAuth.ts": { requireManagementAuth: (request: Request) => auth.requireManagementAuth(request) },
+    ...options.boundaries,
   };
   const sourcePath = (parent: string, specifier: string) => {
     const path = specifier.startsWith("@/") ? `src/${specifier.slice(2)}` : specifier.startsWith("@omniroute/open-sse/") ? `open-sse/${specifier.slice("@omniroute/open-sse/".length)}` : specifier.startsWith(".") ? posix.normalize(posix.join(posix.dirname(parent), specifier)) : "";
@@ -73,6 +74,7 @@ export function createPinnedProxyHandlers(sharedDb?: Database, options: { uuid?:
   const collection = load("src/app/api/settings/proxies/route.ts");
   const assignments = load("src/app/api/settings/proxies/assignments/route.ts");
   return {
+    db, auth, load,
     async request(method: "GET" | "POST" | "PATCH" | "DELETE" | "PUT", path: string, options: { body?: unknown; rawBody?: string; token?: string; assignmentProof?: boolean; proxyProof?: boolean } = {}) {
       const url = new URL(path, "http://127.0.0.1:3190");
       if (url.pathname !== "/api/settings/proxies" && url.pathname !== "/api/settings/proxies/assignments") throw new Error("Unsupported proxy fixture path");

@@ -156,6 +156,14 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   check(artifact, historyBinding, "GET /api/a2a/tasks/history", true);
   check({ ...artifact, a2aHistoryHttp: { auth: {}, pages: [], invalid: [], failure: { status: 200, hasTasks: true } } }, historyBinding, "GET /api/a2a/tasks/history", true);
   check(artifact, { ...historyBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/a2a/tasks/history", true);
+  const analyticsBinding = { handlerSha256: "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1", handlerGitBlobSha: "27fd7e8350f76a3e1a1429b69344c21ce350d9b5", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  const analyticsBody = { totalRequests: 5, variantBreakdown: { default: 2, fast: 2, smart: 1 }, topProviders: [{ provider: "alpha", count: 2 }, { provider: "beta", count: 1 }] };
+  const analyticsStatuses: Record<string, number> = { anonymous: 401, invalid: 403, inference: 403, session: 200, oma: 200, manage: 200, admin: 200 };
+  const analyticsHttp = { auth: Object.fromEntries(Object.entries(analyticsStatuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", body: status === 200 ? analyticsBody : null }])), beforeRows: 7, afterRows: 7, failure: { status: 200, routeClass: "MANAGEMENT", body: { totalRequests: 0, variantBreakdown: {}, topProviders: [] } } };
+  const analyticsArtifact = { ...artifact, autoRoutingAnalyticsHttp: analyticsHttp };
+  check(analyticsArtifact, analyticsBinding, "GET /api/analytics/auto-routing");
+  check({ ...analyticsArtifact, autoRoutingAnalyticsHttp: { ...analyticsHttp, failure: { ...analyticsHttp.failure, status: 500 } } }, analyticsBinding, "GET /api/analytics/auto-routing", true);
+  check(analyticsArtifact, { ...analyticsBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/analytics/auto-routing", true);
   for (const [index, name] of ["agent-card.json", "agent.json"].entries()) {
     const operation = `GET /.well-known/${name}`;
     const route = `src/app/.well-known/${name}/route.ts`;
@@ -968,6 +976,12 @@ with tempfile.TemporaryDirectory() as temp:
  history_auth={'anonymous':(401,None),'invalid':(403,None),'inference':(403,None),'session':(200,['five','four','three','two','one']),'oma':(200,['five','four','three','two','one']),'manage':(200,['five','four','two','one']),'admin':(200,['five','three','one'])}
  history_pages=[(['five','four'],5,2,0),(['three','two'],5,2,2),(['one'],5,2,4),([],5,2,8),(['five','four','three','two','one'],5,500,0),(['four'],1,100,0)]
  ingress['a2aHistoryHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','ids':ids} for name,(status,ids) in history_auth.items()},'pages':[{'status':200,'ids':ids,'total':total,'limit':limit,'offset':offset} for ids,total,limit,offset in history_pages],'invalid':[400]*5,'failure':{'status':500,'routeClass':'MANAGEMENT','hasTasks':False}}
+ visibility_status={'anonymous':401,'invalid':403,'inference':403,'writeKey':403,'session':200,'oma':200,'omaWrite':200,'omaAdmin':200,'manage':200,'admin':200}
+ visibility_cases={'global':(200,1,'global',False,None),'provider':(200,1,'provider',False,None),'account':(200,1,'account',False,None),'combo':(200,1,'combo',False,None),'key':(200,1,'account',False,None),'proxy':(200,1,None,False,None),'unknownProxy':(200,1,None,True,None),'unknownScope':(200,0,'unknown',None,None),'missing':(400,None,None,None,None),'missingId':(400,None,None,None,None),'pauseMissing':(400,None,None,None,None),'pauses':(200,None,None,None,0),'nonOpencode':(200,None,None,None,0)}
+ ingress['proxyVisibilityHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT'} for name,status in visibility_status.items()},'cases':{name:{'status':status,'routeClass':'MANAGEMENT','total':total,'scope':scope,'opaque':opaque,'pauses':pauses} for name,(status,total,scope,opaque,pauses) in visibility_cases.items()},'failure':{'status':500,'routeClass':'MANAGEMENT'}}
+ analytics_body={'totalRequests':5,'variantBreakdown':{'default':2,'fast':2,'smart':1},'topProviders':[{'provider':'alpha','count':2},{'provider':'beta','count':1}]}
+ analytics_status={'anonymous':401,'invalid':403,'inference':403,'session':200,'oma':200,'manage':200,'admin':200}
+ ingress['analyticsHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','body':analytics_body if status==200 else None} for name,status in analytics_status.items()},'beforeRows':7,'afterRows':7,'failure':{'status':200,'routeClass':'MANAGEMENT','body':{'totalRequests':0,'variantBreakdown':{},'topProviders':[]}}}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -1017,6 +1031,11 @@ with tempfile.TemporaryDirectory() as temp:
  original=ingress.pop('a2aHistoryHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHistoryHttp']=original
  original=ingress['a2aHistoryHttp']['pages'][0]['total']; ingress['a2aHistoryHttp']['pages'][0]['total']=0; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHistoryHttp']['pages'][0]['total']=original
  original=ingress['a2aHistoryHttp']['auth']['inference']['status']; ingress['a2aHistoryHttp']['auth']['inference']['status']=200; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['a2aHistoryHttp']['auth']['inference']['status']=original
+ original=ingress.pop('proxyVisibilityHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['proxyVisibilityHttp']=original
+ original=ingress['proxyVisibilityHttp']['cases']['key']['scope']; ingress['proxyVisibilityHttp']['cases']['key']['scope']='key'; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['proxyVisibilityHttp']['cases']['key']['scope']=original
+ ingress['proxyVisibilityHttp']['privateCanary']='fixture-private-credential'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['proxyVisibilityHttp']['privateCanary']
+ original=ingress.pop('analyticsHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['analyticsHttp']=original
+ original=ingress['analyticsHttp']['failure']['status']; ingress['analyticsHttp']['failure']['status']=500; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['analyticsHttp']['failure']['status']=original
  original=ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']; ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=original
  original=identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]; identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]=original
  original = ingress['ssoConfigHttp']['cases']['enabled']['body']; ingress['ssoConfigHttp']['cases']['enabled']['body']={'enabled':False}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['ssoConfigHttp']['cases']['enabled']['body']=original
@@ -1158,6 +1177,9 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in (m.REQUIRE_LOGIN,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.LOGIN_FLAGS,m.AUTH_SESSION,*m.LOGIN_DEPENDENCIES)})
  a2a_sources=('src/app/api/a2a/status/route.ts','src/lib/a2a/taskManager.ts','src/lib/db/a2aTasks.ts','src/lib/events/eventBus.ts','src/lib/db/readCache.ts',m.AUTH_SETTINGS,m.AUTH_SHARED,'src/app/.well-known/agent.json/route.ts','src/lib/a2a/agentCardMetadata.ts','src/lib/conductor/fleetSkills.ts','src/lib/wellKnown.ts','src/shared/constants/appConfig.ts')
  source.update({name:h for name in a2a_sources})
+ source.update({name:h for name in m.VISIBILITY_CLOSURE})
+ analytics_sources=('src/app/api/analytics/auto-routing/route.ts','src/lib/db/usageLogs.ts','src/lib/db/logicalCallSql.ts','src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts')
+ source.update({name:h for name in analytics_sources})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1165,16 +1187,20 @@ with tempfile.TemporaryDirectory() as d:
  identity['ssoClosure']={name:source[name] for name in (m.SSO_CONFIG,m.SSO_ENTRA,m.AUTH_SETTINGS,m.AUTH_SHARED,'src/lib/db/readCache.ts')}
  identity['loginClosure']={'sources':{name:source[name] for name in (m.REQUIRE_LOGIN,m.LOGIN_PASSWORD,m.LOGIN_RUNTIME,m.LOGIN_FLAGS,m.AUTH_SETTINGS,m.AUTH_SHARED,m.AUTH_SESSION,'src/lib/db/readCache.ts',*m.LOGIN_DEPENDENCIES)},'selectedSha256':h}
  identity['a2aClosure']={name:source[name] for name in a2a_sources}
+ identity['visibilityClosure']={name:source[name] for name in m.VISIBILITY_CLOSURE}
+ identity['analyticsClosure']={name:source[name] for name in analytics_sources}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
  authcold={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':False,'onboardingBefore':'absent','onboardingAfter':'persisted','invalidNoDatabase':True}
  authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
- for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm'): (p/(phase+'.private')).write_text('normal output\n')
+ for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm','analytics-cold','analytics-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  for phase in ('cold','warm'):
   (p/('a2a-'+phase+'.private')).write_text('normal output\n')
   put('a2a-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'disabled':True,'enabled':True,'managerTimerCount':1,'activeTaskObserved':True,'expiredTaskPersistedFailed':True,'timerPurgedOldHistory':True})
+  (p/('visibility-'+phase+'.private')).write_text('normal output\n')
+  put('visibility-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'initialTotal':2 if phase=='warm' else 0,'ranked':True,'flagDisabled':True,'expiredBefore':1,'expiredAfter':0,'activePauseCount':1})
  put('auth-cold.json',authcold); put('auth-warm.json',authwarm)
  sso_enabled={'enabled':True,'authorityHost':'https://login.example.test','tenantId':'tenant.example','clientId':'fixture-client','audience':'api://fixture-audience','issuer':'https://login.example.test/tenant.example/v2.0','scope':'api://fixture-audience/.default'}
  put('sso-cold.json',{'databaseExistedBefore':False,'databaseExistsAfter':True,'onboardingBefore':'absent','onboardingPersisted':True,'first':{'status':200,'body':{'enabled':False}},'cached':None,'refreshed':None})
@@ -1182,6 +1208,8 @@ with tempfile.TemporaryDirectory() as d:
  login_body={'authenticated':False,'requireLogin':True,'hasPassword':True,'setupComplete':True,'oidcEnabled':False,'oidcDisablePasswordLogin':False,'nodeVersion':'v24.17.0','nodeCompatible':True}
  for phase in ('cold','warm'): put('login-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'onboardingBefore':'persisted' if phase=='warm' else 'absent','onboardingPersisted':True,'status':200,'body':login_body})
  for phase in ('cold','warm'): put('history-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'status':200,'body':{'tasks':[],'total':0,'limit':100,'offset':0},'rows':0,'onboardingPersisted':True})
+ zero={'totalRequests':0,'variantBreakdown':{},'topProviders':[]}; populated={'totalRequests':1,'variantBreakdown':{'fast':1},'topProviders':[{'provider':'alpha','count':1}]}
+ for phase in ('cold','warm'): put('analytics-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'first':{'status':200,'body':zero if phase=='cold' else populated},'populated':{'status':200,'body':populated},'failure':{'status':200,'body':zero},'rows':1})
  mfa_base={'databaseExistsAfter':True,'beforeFileCount':0,'afterFileCount':1,'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False,'mfaRows':0}
  mfacold={**mfa_base,'databaseExistedBefore':False,'corruptEnabled':None,'corruptCount':None,'rowUnchanged':None}
  mfawarm={**mfa_base,'databaseExistedBefore':True,'corruptEnabled':True,'corruptCount':1,'rowUnchanged':True}
@@ -1199,6 +1227,9 @@ with tempfile.TemporaryDirectory() as d:
  sso_warm=json.loads((p/'sso-warm.json').read_text()); sso_warm['cached']=False; put('sso-warm.json',sso_warm); reject(); sso_warm['cached']=True; put('sso-warm.json',sso_warm)
  login_cold=json.loads((p/'login-cold.json').read_text()); login_cold['onboardingPersisted']=False; put('login-cold.json',login_cold); reject(); login_cold['onboardingPersisted']=True; put('login-cold.json',login_cold)
  history_cold=json.loads((p/'history-cold.json').read_text()); history_cold['onboardingPersisted']=False; put('history-cold.json',history_cold); reject(); history_cold['onboardingPersisted']=True; put('history-cold.json',history_cold)
+ visibility_cold=json.loads((p/'visibility-cold.json').read_text()); visibility_cold['activePauseCount']=0; put('visibility-cold.json',visibility_cold); reject(); visibility_cold['activePauseCount']=1; put('visibility-cold.json',visibility_cold)
+ original=identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']; identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']='b'*64; put('core-identity.json',identity); reject(); identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']=original; put('core-identity.json',identity)
+ analytics_cold=json.loads((p/'analytics-cold.json').read_text()); analytics_cold['failure']['status']=500; put('analytics-cold.json',analytics_cold); reject(); analytics_cold['failure']['status']=200; put('analytics-cold.json',analytics_cold)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
  original=identity['ssoClosure'][m.SSO_CONFIG]; identity['ssoClosure'][m.SSO_CONFIG]='b'*64; put('core-identity.json',identity); reject(); identity['ssoClosure'][m.SSO_CONFIG]=original; put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()

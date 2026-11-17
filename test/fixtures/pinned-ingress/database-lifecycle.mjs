@@ -16,8 +16,10 @@ const sso = phase === 'sso-cold' || phase === 'sso-warm';
 const login = phase === 'login-cold' || phase === 'login-warm';
 const a2a = phase === 'a2a-cold' || phase === 'a2a-warm';
 const history = phase === 'history-cold' || phase === 'history-warm';
-const expectedDataDir = history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const visibility = phase === 'visibility-cold' || phase === 'visibility-warm';
+const analytics = phase === 'analytics-cold' || phase === 'analytics-warm';
+const expectedDataDir = analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -190,6 +192,76 @@ if (a2a) {
     manager.destroy();
     await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), disabled: true, enabled: true, managerTimerCount: timers.length, activeTaskObserved: true, expiredTaskPersistedFailed: true, timerPurgedOldHistory: true }) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { globalThis.setInterval = originalInterval; await closeDbInstance(); }
+  process.exit(0);
+}
+if (visibility) {
+  const cold = phase === 'visibility-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('visibility database phase mismatch');
+  const { GET } = await import('/work/app/src/app/api/admin/proxy-pool-visibility/route.ts');
+  const now = Math.floor(Date.now() / 1000);
+  const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now).setExpirationTime(now + 3600).setJti('fixture-visibility-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const call = async query => { const response = await GET(new Request(`http://localhost/api/admin/proxy-pool-visibility${query}`, { headers: { cookie: `auth_token=${token}` } })); return { status: response.status, body: await response.json() }; };
+  try {
+    const first = await call('?scope=global');
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite' || first.status !== 200 || first.body.total !== (cold ? 0 : 2)) throw new Error('visibility initialization mismatch');
+    if (cold) {
+      const insert = db.prepare('INSERT INTO proxy_registry (id,name,type,host,port,username,password,status) VALUES (?,?,?,?,?,?,?,?)');
+      insert.run('visibility-a', 'private-a', 'http', 'visibility-a.invalid', 8080, '', '', 'active');
+      insert.run('visibility-b', 'private-b', 'http', 'visibility-b.invalid', 8081, '', '', 'active');
+      const assign = db.prepare('INSERT INTO proxy_assignments (proxy_id,scope,scope_id,position) VALUES (?,?,?,?)');
+      assign.run('visibility-a', 'global', '__global__', 0); assign.run('visibility-b', 'global', '__global__', 1);
+    }
+    const flags = await import('/work/app/src/lib/db/featureFlags.ts');
+    const memory = await import('/work/app/open-sse/utils/proxyRefusalMemory.ts');
+    flags.setFeatureFlagOverride('PROXY_SKIP_RECENTLY_FAILED', 'true');
+    const key = memory.proxyEgressKey({ type: 'http', host: 'visibility-a.invalid', port: 8080 });
+    memory.noteProxyRefusal(key, 'proxy_unreachable', Date.now());
+    const ranked = await call('?scope=global');
+    if (ranked.status !== 200 || ranked.body.rankedBy !== 'health' || ranked.body.members[0].id !== 'visibility-b' || ranked.body.members[1].signal !== 'set-aside') throw new Error('visibility health rank mismatch');
+    flags.setFeatureFlagOverride('PROXY_SKIP_RECENTLY_FAILED', 'false');
+    const position = await call('?scope=global');
+    if (position.body.rankedBy !== 'position' || position.body.members[0].id !== 'visibility-a') throw new Error('visibility flag mismatch');
+    memory.__resetProxyRefusalMemoryForTesting();
+    memory.noteProxyRefusal(key, 'proxy_unreachable', Date.now() - 86400000);
+    const beforeCleanup = memory.__proxyRefusalMemorySizeForTesting();
+    await call('?scope=global');
+    const afterCleanup = memory.__proxyRefusalMemorySizeForTesting();
+    const pauseMemory = await import('/work/app/open-sse/services/opencodeFreeTierSkip.ts');
+    pauseMemory.noteOpencodeFreeTierSkip('opencode-fixture', Date.now(), 120000, 'private-model');
+    pauseMemory.noteOpencodeFreeTierSkip('opencode-fixture', Date.now() - 10000, 1000, 'expired-model');
+    const pauses = await call('?freeTierPauses=1&provider=opencode-fixture&scope=global');
+    if (pauses.status !== 200 || pauses.body.pauses.length !== 1 || pauses.body.members !== undefined) throw new Error('visibility pause mismatch');
+    if (beforeCleanup !== 1 || afterCleanup !== 0) throw new Error('visibility expiry cleanup mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: (await files()).some(x => x.name === 'storage.sqlite'), initialTotal: first.body.total, ranked: true, flagDisabled: true, expiredBefore: beforeCleanup, expiredAfter: afterCleanup, activePauseCount: pauses.body.pauses.length }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+if (analytics) {
+  const cold = phase === 'analytics-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('analytics database phase mismatch');
+  const { GET } = await import('/work/app/src/app/api/analytics/auto-routing/route.ts');
+  const now = Math.floor(Date.now() / 1000);
+  const token = await new SignJWT({ authenticated: true }).setProtectedHeader({ alg: 'HS256' }).setIssuedAt(now).setExpirationTime(now + 3600).setJti('fixture-analytics-session').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+  const call = async () => { const response = await GET(new Request('http://localhost/api/analytics/auto-routing', { headers: { cookie: `auth_token=${token}` } })); return { status: response.status, body: await response.json() }; };
+  try {
+    const first = await call();
+    const db = getDbInstance();
+    if (db.driver !== 'node:sqlite') throw new Error('analytics database driver mismatch');
+    if (cold) db.prepare("INSERT INTO call_logs (id, timestamp, requested_model, provider, error_summary) VALUES ('fixture', '2026-01-01', 'auto/fast', 'alpha', 'fixture-private')").run();
+    const rows = db.prepare('SELECT count(*) AS count FROM call_logs').get().count;
+    const populated = await call();
+    db.exec('ALTER TABLE call_logs RENAME TO fixture_hidden_call_logs');
+    let failure;
+    try { failure = await call(); } finally { db.exec('ALTER TABLE fixture_hidden_call_logs RENAME TO call_logs'); }
+    const after = await files();
+    const zero = { totalRequests: 0, variantBreakdown: {}, topProviders: [] };
+    const expected = { totalRequests: 1, variantBreakdown: { fast: 1 }, topProviders: [{ provider: 'alpha', count: 1 }] };
+    if (first.status !== 200 || JSON.stringify(first.body) !== JSON.stringify(cold ? zero : expected) || populated.status !== 200 || JSON.stringify(populated.body) !== JSON.stringify(expected) || failure.status !== 200 || JSON.stringify(failure.body) !== JSON.stringify(zero) || rows !== 1) throw new Error('analytics lifecycle mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter: after.some(x => x.name === 'storage.sqlite'), first, populated, failure, rows }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
   process.exit(0);
 }
 if (history) {

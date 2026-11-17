@@ -100,7 +100,8 @@ export function operationRequiresIngressEvidence(operationId: string): boolean {
   return FAMILY_INGRESS_SET.has(operationId) || operationId === "GET /livez" || operationId === "HEAD /livez"
     || operationId === "GET /api/health" || operationId === "GET /api/health/degradation"
     || operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics"
-    || operationId === "GET /api/a2a/tasks/history"
+    || operationId === "GET /api/a2a/tasks/history" || operationId === "GET /api/admin/proxy-pool-visibility"
+    || operationId === "GET /api/analytics/auto-routing"
     || operationId === "GET /api/acp/agents" || operationId === "GET /api/auth/status" || operationId === "GET /api/auth/mfa/status" || operationId === "GET /api/auth/sso/config" || operationId === "GET /api/settings/require-login" || operationId === "GET /api/a2a/status"
     || operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json"
     || /^GET \/api\/agent-skills(?:\/\{id\}|\/coverage)?$/.test(operationId)

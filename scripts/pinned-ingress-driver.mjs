@@ -18,6 +18,7 @@ const cookie = `auth_token=${payload}.${createHmac('sha256', secret).update(payl
 const db = new DatabaseSync(`${dir}/metrics.sqlite`);
 db.exec(`CREATE TABLE usage_history (provider TEXT, combo_strategy TEXT, tokens_input INTEGER, tokens_cache_read INTEGER, tokens_cache_creation INTEGER);
   INSERT INTO usage_history VALUES ('alpha', NULL, 100, 50, 10), ('alpha', 'round-robin', 40, 0, 0), ('beta', 'round-robin', 200, 100, 0);`);
+db.exec("CREATE TABLE call_logs (requested_model TEXT, request_type TEXT, provider TEXT, error_summary TEXT); INSERT INTO call_logs VALUES ('auto', NULL, 'alpha', 'fixture-private'), ('auto', NULL, 'alpha', 'fixture-private'), ('auto/fast', NULL, 'beta', 'fixture-private'), ('auto/fast', NULL, ' ', 'fixture-private'), ('auto/smart', NULL, NULL, 'fixture-private'), ('auto/fast', 'upstream_http_attempt', 'alpha', 'fixture-private'), ('other', NULL, 'alpha', 'fixture-private')");
 db.exec(await readFile('/work/app/src/lib/db/migrations/002_mcp_a2a_tables.sql', 'utf8'));
 const ownerHash = key => createHash('sha256').update(key).digest('hex').slice(0, 32);
 const historyRows = [
@@ -39,6 +40,13 @@ const loginDb = new DatabaseSync(`${dir}/login-settings.sqlite`);
 loginDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
 const a2aDb = new DatabaseSync(`${dir}/a2a-status.sqlite`);
 a2aDb.exec('CREATE TABLE key_value (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key));');
+const visibilityDb = new DatabaseSync(`${dir}/visibility.sqlite`);
+visibilityDb.exec(`CREATE TABLE proxy_registry (id TEXT PRIMARY KEY, name TEXT NOT NULL, type TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, username TEXT, password TEXT, region TEXT, notes TEXT, status TEXT, source TEXT, family TEXT, subscription_id TEXT, created_at TEXT, updated_at TEXT);
+  CREATE TABLE proxy_assignments (id INTEGER PRIMARY KEY, proxy_id TEXT, scope TEXT, scope_id TEXT, position INTEGER);
+  CREATE TABLE proxy_scope_rotation (scope TEXT, scope_id TEXT, strategy TEXT);
+  INSERT INTO proxy_registry VALUES ('private-a','private-name','http','fixture-private.invalid',8080,'fixture-user','fixture-password',NULL,'fixture-note','active','manual','auto',NULL,'2026','2026');
+  INSERT INTO proxy_assignments VALUES (1,'private-a','global','__global__',0),(2,'private-a','provider','private-provider',0),(3,'private-a','account','private-account',0),(4,'private-a','combo','private-combo',0);
+  INSERT INTO proxy_scope_rotation VALUES ('provider','private-provider','sticky');`);
 const scopedTokens = Object.fromEntries(['read', 'write', 'admin'].map(scope => [scope, `oma_live_fixture_${scope}_only`]));
 const managementKeys = Object.fromEntries(['read', 'write', 'admin', 'manage'].map(scope => [scope, `fixture_api_key_${scope}`]));
 const ownedProbe = '/work/fixture/acp-owned-probe';
@@ -108,6 +116,20 @@ try {
   await ready();
   await ready(acpChild, 43180);
   const statusPath = '/api/auth/status';
+  const analyticsPath = '/api/analytics/auto-routing';
+  const analyticsAuth = {};
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, inference: { authorization: `Bearer ${managementKeys.read}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.read}` } })) {
+    const r = await request(analyticsPath, 'GET', headers);
+    assert(!r.text.includes('fixture-private') && !r.text.includes('invalid-fixture-secret'), 'analytics-private-data');
+    analyticsAuth[name] = { status: r.status, routeClass: r.routeClass, body: r.status === 200 ? r.body : null };
+  }
+  const analyticsBefore = db.prepare('SELECT count(*) AS rows FROM call_logs').get().rows;
+  db.exec('ALTER TABLE call_logs RENAME TO fixture_hidden_call_logs');
+  const analyticsFailure = await request(analyticsPath, 'GET', { cookie });
+  db.exec('ALTER TABLE fixture_hidden_call_logs RENAME TO call_logs');
+  const analyticsAfter = db.prepare('SELECT count(*) AS rows FROM call_logs').get().rows;
+  const analyticsHttp = { auth: analyticsAuth, beforeRows: analyticsBefore, afterRows: analyticsAfter, failure: { status: analyticsFailure.status, routeClass: analyticsFailure.routeClass, body: analyticsFailure.body } };
+  assert(analyticsFailure.status === 200 && !analyticsFailure.text.includes('fixture-private'), 'analytics-caught-failure');
   await ready(historyChild, 43181);
   const historyPath = '/api/a2a/tasks/history';
   const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
@@ -131,6 +153,22 @@ try {
   const historyFailure = await historyCall('', { cookie });
   const a2aHistoryHttp = { auth: historyAuth, pages: historyPages, invalid: invalidHistory, failure: { status: historyFailure.status, routeClass: historyFailure.routeClass, hasTasks: Array.isArray(historyFailure.body?.tasks) } };
   assert(historyFailure.status === 500 && !a2aHistoryHttp.failure.hasTasks, 'history-storage-failure');
+  const visibilityPath = '/api/admin/proxy-pool-visibility';
+  const visibilityCall = (query, headers = { cookie }) => request(visibilityPath + query, 'GET', headers, 43181);
+  const visibilityAuth = {};
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer invalid' }, session: { cookie }, inference: { authorization: `Bearer ${managementKeys.read}` }, writeKey: { authorization: `Bearer ${managementKeys.write}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.read}` }, omaWrite: { authorization: `Bearer ${scopedTokens.write}` }, omaAdmin: { authorization: `Bearer ${scopedTokens.admin}` } })) {
+    const result = await visibilityCall('?scope=global', headers);
+    visibilityAuth[name] = { status: result.status, routeClass: result.routeClass };
+  }
+  const visibilityCases = {};
+  for (const [name, query] of Object.entries({ global: '?scope=global', provider: '?scope=provider&scopeId=private-provider', account: '?scope=account&scopeId=private-account', combo: '?scope=combo&scopeId=private-combo', key: '?scope=key&scopeId=private-account', proxy: '?proxyId=private-a', unknownProxy: '?proxyId=unknown-private', unknownScope: '?scope=unknown&scopeId=private-id', missing: '', missingId: '?scope=provider', pauseMissing: '?freeTierPauses=1', pauses: '?freeTierPauses=1&provider=opencode-private&scope=global&proxyId=private-a', nonOpencode: '?freeTierPauses=1&provider=other' })) {
+    const result = await visibilityCall(query);
+    visibilityCases[name] = { status: result.status, routeClass: result.routeClass, total: Number.isInteger(result.body?.total) ? result.body.total : null, scope: typeof result.body?.scope === 'string' ? result.body.scope : null, opaque: result.body?.members?.[0]?.opaque ?? null, pauses: Array.isArray(result.body?.pauses) ? result.body.pauses.length : null };
+  }
+  visibilityDb.exec('DROP TABLE proxy_registry');
+  const visibilityFailure = await visibilityCall('?scope=global');
+  const proxyVisibilityHttp = { auth: visibilityAuth, cases: visibilityCases, failure: { status: visibilityFailure.status, routeClass: visibilityFailure.routeClass } };
+  assert(visibilityFailure.status === 500, 'visibility-storage-failure');
   const statusRows = () => statusDb.prepare("SELECT key, value FROM key_value WHERE namespace = 'settings' AND key IN ('setupComplete', 'requireLogin') ORDER BY key").all();
   const statusBefore = statusRows();
   const statusCases = {};
@@ -466,9 +504,10 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
+  visibilityDb.close();
   a2aDb.close();
   loginDb.close();
   mfaDb.close();

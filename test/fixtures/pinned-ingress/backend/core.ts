@@ -31,11 +31,23 @@ export function cleanNulls(): never { return unsupported("cleanNulls"); }
 export function applyDatabaseOptimizationSettings(): never { return unsupported("applyDatabaseOptimizationSettings"); }
 let reasoningDb: DatabaseSync | undefined;
 let historyDb: DatabaseSync | undefined;
+let visibilityDb: DatabaseSync | undefined;
+let analyticsDb: DatabaseSync | undefined;
 const db = {
     prepare(sql: string) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       return {
         get(...args: unknown[]) {
+          if (normalized === "SELECT strategy FROM proxy_scope_rotation WHERE scope = ? AND scope_id IS ?" || normalized === "SELECT id, name, type, host, port, username, password, region, notes, status, source, family, subscription_id, created_at, updated_at FROM proxy_registry WHERE id = ?") {
+            event("visibility:lookup");
+            visibilityDb ??= new DatabaseSync("/work/data/visibility.sqlite");
+            return visibilityDb.prepare(sql).get(...args as []);
+          }
+          if (normalized === "SELECT COUNT(*) as count FROM call_logs WHERE (request_type IS NULL OR request_type <> 'upstream_http_attempt') AND (requested_model = 'auto' OR requested_model LIKE 'auto/%')") {
+            event("analytics:total");
+            analyticsDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            return analyticsDb.prepare(sql).get();
+          }
           if (/^SELECT COUNT\(\*\) AS count FROM a2a_tasks(?: WHERE .*)?$/.test(normalized)) {
             event("history:count");
             historyDb ??= new DatabaseSync("/work/data/metrics.sqlite");
@@ -89,6 +101,16 @@ const db = {
           return unsupported(`run:${createHash("sha256").update(normalized).digest("hex")}`);
         },
         all(...args: unknown[]) {
+          if (normalized.startsWith("SELECT p.id, p.name, p.type, p.host, p.port, p.username, p.password, p.notes, p.family, a.position AS __pos, a.id AS __aid FROM proxy_assignments a JOIN proxy_registry p ON p.id = a.proxy_id WHERE a.scope = ? ")) {
+            event("visibility:pool");
+            visibilityDb ??= new DatabaseSync("/work/data/visibility.sqlite");
+            return visibilityDb.prepare(sql).all(...args as []);
+          }
+          if ((normalized.startsWith("SELECT CASE WHEN requested_model = 'auto' THEN 'default'") || normalized.startsWith("SELECT provider, COUNT(*) as count FROM call_logs")) && normalized.includes("FROM call_logs WHERE (request_type IS NULL OR request_type <> 'upstream_http_attempt')")) {
+            event("analytics:aggregate");
+            analyticsDb ??= new DatabaseSync("/work/data/metrics.sqlite");
+            return analyticsDb.prepare(sql).all();
+          }
           if (/^SELECT id, state, skill_id, input_json, output_json, api_key_id, created_at, updated_at, completed_at FROM a2a_tasks(?: WHERE .*)? ORDER BY created_at DESC LIMIT @limit OFFSET @offset$/.test(normalized)) {
             event("history:read");
             historyDb ??= new DatabaseSync("/work/data/metrics.sqlite");
