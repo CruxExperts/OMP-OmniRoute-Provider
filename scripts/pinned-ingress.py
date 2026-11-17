@@ -2163,7 +2163,7 @@ def export_observations(output, hashes):
     diversity = ingress['diversityHttp']
     diversity_body = {'score': 1, 'totalRequests': 0, 'providers': {}, 'windowSize': 200, 'ttlMs': 3600000}
     require(diversity == {'auth': {name: {'status': status, 'routeClass': 'MANAGEMENT', 'body': diversity_body if status == 200 else None} for name, status in analytics_statuses.items()}}, 'diversity HTTP mismatch')
-    metrics = ingress['metricsHttp']
+    combo_metrics_http = ingress['metricsHttp']
     get_status = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-manage': 200, 'key-admin': 200, 'oma-read': 200, 'oma-write': 200, 'oma-admin': 200}
     delete_status = {**get_status, 'oma-read': 403}
     state = lambda visible, hidden: {'visible': visible, 'hidden': hidden}
@@ -2178,7 +2178,7 @@ def export_observations(output, hashes):
         'selectedStates': [state(False, 0), state(True, 1), state(False, 1), state(True, 0)],
         'afterEmptyDeleteNames': [], 'emptyStates': zero, 'afterGlobalNames': [], 'globalStates': zero,
     }
-    require(json.dumps(metrics, sort_keys=True) == json.dumps(expected_metrics, sort_keys=True), 'combo metrics HTTP mismatch')
+    require(json.dumps(combo_metrics_http, sort_keys=True) == json.dumps(expected_metrics, sort_keys=True), 'combo metrics HTTP mismatch')
     mfa_status_observation = ingress['mfaStatusHttp']
     require(set(mfa_status_observation) == {'cases', 'enrolled', 'failure'} and set(mfa_status_observation['cases']) == {'anonymous', 'invalid', 'session', 'key-read', 'key-write', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'}, 'MFA status HTTP cases incomplete')
     mfa_statuses = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 403, 'oma-write': 403, 'oma-admin': 200}
@@ -2272,13 +2272,13 @@ def export_observations(output, hashes):
         cache = response['cacheControl']
         require(len(cache) <= 128 and all(re.fullmatch(r'(?:no-store|no-cache|private|public|must-revalidate|proxy-revalidate|max-age=\d+|s-maxage=\d+)', part.strip()) for part in cache.split(',')), 'unsupported cache control')
         health.append({'method': 'GET', 'path': path, 'status': response['status'], 'bodyKeys': sorted(body), 'timestamp': body['timestamp'], 'cacheControl': cache, **({'latencyMs': body['latencyMs']} if 'latencyMs' in body else {})})
-    metrics = []
+    cache_metrics = []
     for row, method in zip(rows[2:4], ('GET', 'DELETE')):
         denied, invalid, allowed = row['denied'], row['invalid'], row['allowed']
         body = allowed['body']
         expected = {'totalRequests': 3, 'requestsWithCacheControl': 2, 'totalInputTokens': 300, 'totalCachedTokens': 150, 'totalCacheCreationTokens': 10}
         require(denied['status'] in (401, 403) and invalid['status'] in (401, 403) and allowed['status'] == 200 and all(body.get(k) == v for k, v in expected.items()) and body['byProvider']['alpha']['totalRequests'] == 2 and body['byStrategy']['direct']['cachedTokens'] == 50 and row['usageRowsAfter'] == 3, 'metrics outcome mismatch')
-        metrics.append({'method': method, 'path': '/api/settings/cache-metrics', 'unauthenticatedStatus': denied['status'], 'invalidTokenStatus': invalid['status'], 'sessionStatus': allowed['status'], 'selectedValues': {**expected, 'alphaRequests': 2, 'directCachedTokens': 50}, 'usageRowsAfter': 3})
+        cache_metrics.append({'method': method, 'path': '/api/settings/cache-metrics', 'unauthenticatedStatus': denied['status'], 'invalidTokenStatus': invalid['status'], 'sessionStatus': allowed['status'], 'selectedValues': {**expected, 'alphaRequests': 2, 'directCachedTokens': 50}, 'usageRowsAfter': 3})
     fallback = rows[4]['response']
     require(fallback['status'] == 200 and fallback['body']['totalRequests'] == 0 and fallback['body']['totalCachedTokens'] == 0 and fallback['body']['byProvider'] == {}, 'fallback mismatch')
     drain = rows[5]
@@ -2358,7 +2358,7 @@ def export_observations(output, hashes):
         require((original == alias['sourceSha256'] if change is None else change['input_sha256'] == alias['sourceSha256'] and original == change['output_sha256']) and fixture_hashes[replacement] == alias['replacementSha256'], 'overlay input mismatch: ' + name)
         expected_overlays[name] = {'originalSha256': original, 'replacement': replacement, 'executedSha256': overlays.get(replacement, fixture_hashes[replacement])}
     require(identity['sourceOverlaySha256'] == expected_overlays, 'executed source overlay mismatch')
-    artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Default Next bundler uses disposable source overlays; runtime observation is not production database qualification.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
+    artifact = {'schemaVersion': 1, 'classification': 'research-only-not-qualification', 'source': {'version': '3.8.53', 'commit': COMMIT, 'archiveSha256': ARCHIVE_SHA, 'addedSourceSha256': source_hashes, 'pingDeclarationSha256': identity['pingDeclarationSha256']}, 'inputs': {'sha256': hashes, 'nodeSha256': NODE_SHA, 'runtime': identity['runtime']}, 'isolation': {'namespacesDistinct': True, 'memoryLimitEnforced': True, 'cpuLimitEnforced': True, 'privateLoopbackOnly': True, 'environmentAllowlisted': True}, 'sharedAuthentication': cases, 'health': health, 'cacheMetrics': cache_metrics, 'missingUsageHistory': {'status': fallback['status'], 'totalRequests': 0, 'totalCachedTokens': 0, 'providerCount': 0}, 'drain': {'path': '/api/health', 'statuses': [503, 200]}, 'limitations': ['Research observation only; not operation qualification.', 'Default Next bundler uses disposable source overlays; runtime observation is not production database qualification.', 'Selected SQLite reads use a disposable database; authentication and settings use fixture storage, not production persistence or the native database adapter.']}
     artifact['source'].update(source_identity)
     artifact['inputs']['sourceOverlaySha256'] = expected_overlays
     artifact['publicHealthHttp'] = public_health
@@ -2386,7 +2386,7 @@ def export_observations(output, hashes):
     artifact['autoRoutingAnalyticsHttp'] = analytics
     artifact['compressionAnalyticsHttp'] = compression_http
     artifact['diversityHttp'] = diversity
-    artifact['comboMetricsHttp'] = metrics
+    artifact['comboMetricsHttp'] = combo_metrics_http
     artifact['limitations'].append('Combo metrics HTTP uses a fixture-only same-bundle owner seeder and inspector; normal requests execute the pinned handler. This observes controlled process state, not production chat, durable counters, other processes, an atomic lock or executor qualification.')
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]
     artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
@@ -2416,6 +2416,7 @@ def export_observations(output, hashes):
     artifact['limitations'].append('Degradation handler failure was not induced; fixture signals control only the disposable in-process source registry.')
     artifact['limitations'].append('The IP filter denial and recovery exercise forwarding-header fallback with unknown peer locality under bare Next start. They do not demonstrate authenticated peer-stamp denial, peer locality, or reverse-proxy trust.')
     artifact['inputs']['executedOverlaySha256'] = overlays
+    require(json.dumps(artifact.get('comboMetricsHttp'), sort_keys=True) == json.dumps(expected_metrics, sort_keys=True), 'exported combo metrics HTTP mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
     save(export / 'observed-outcomes.json', artifact)

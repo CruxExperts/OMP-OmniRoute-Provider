@@ -18,6 +18,8 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   from durable combo rows; public reads cannot establish the absence of
   hidden-only counters or prototype-key entries. Qualification and publication
   remain separate controller decisions.
+- Keep combo-metrics and cache-metrics HTTP witnesses separate; reject a
+  cross-family or malformed witness before exporting qualification evidence.
 
 - Construct synthetic private-path sanitizer test data at runtime so release
   exports retain the regression without embedding private-looking paths.

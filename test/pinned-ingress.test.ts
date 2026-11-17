@@ -1069,6 +1069,8 @@ with tempfile.TemporaryDirectory() as temp:
  exported = json.loads((p/'export/observed-outcomes.json').read_text())
  assert 'private-canary' not in json.dumps(exported) and len(exported['sharedAuthentication']) == 12
  assert exported['health'][0]['bodyKeys'] == ['status','timestamp'] and exported['drain']['statuses'] == [503,200]
+ assert exported['comboMetricsHttp'] == ingress['metricsHttp'] and isinstance(exported['comboMetricsHttp'],dict)
+ assert [(row['method'],row['path']) for row in exported['cacheMetrics']] == [('GET','/api/settings/cache-metrics'),('DELETE','/api/settings/cache-metrics')]
  assert exported['publicHealthHttp']['drain']['correlationMatchesRequestId'] is True and exported['publicHealthHttp']['cors']['unlistedOriginOmitted'] is True
  assert exported['publicLivenessHttp'] == {'method':'GET','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':ingress['liveness']}
  assert exported['publicLivenessHeadHttp'] == {'method':'HEAD','path':'/livez','matcher':'not-matched','proxyIdentity':identity['proxyIdentity'],'cases':{name:{'status':200,'body':'','contentType':'text/plain; charset=utf-8','cacheControl':'no-store','contentLength':'3','routeClass':None} for name in ('anonymous','invalidCredential','session')}}
@@ -1154,6 +1156,11 @@ with tempfile.TemporaryDirectory() as temp:
   original = discovery.pop(name); put('data/pinned-ingress-observations.json',ingress); rejected(); discovery[name] = original
  rows.remove(discovery); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.append(discovery)
  rows.append(discovery); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.pop()
+ original=ingress.pop('metricsHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp']=original
+ ingress['metricsHttp']=exported['cacheMetrics']; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp']=original
+ ingress['metricsHttp']['extra']='unexpected'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['metricsHttp']['extra']
+ ingress['metricsHttp']['auth']['GET']['session']['extra']='unexpected'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['metricsHttp']['auth']['GET']['session']['extra']
+ ingress['metricsHttp']['hiddenOnlyCount']=True; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp']['hiddenOnlyCount']=1
  for key in list(ingress['metricsHttp']):
   original=ingress['metricsHttp'].pop(key); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp'][key]=original
  original=ingress['metricsHttp']['globalStates'][2]['hidden']; ingress['metricsHttp']['globalStates'][2]['hidden']=1; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp']['globalStates'][2]['hidden']=original
