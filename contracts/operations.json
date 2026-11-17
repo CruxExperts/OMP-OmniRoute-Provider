@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "a581f2f445e4074268665977dab3acdb36f7ba448fb6a4cd245575638399e60f",
+    "eligibilitySha256": "c2110df38b4ddba8f97f9d87a7cf4365a4edb5cbc706be0e1e6cdc0749547a0a",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "b5104175aa38022d133b0fadd71c1996c3164a8f8d6f05c18eea91887ade730b",
     "sourceCorpusFileCount": 4806
@@ -34525,7 +34525,7 @@
         "lifecycleSha256": "89d43201184eeeee990207a4aa71b8e78f478dda5c4e8a2c03f5044e23dbfb09",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "6db842ee3324f927782f717ff72aff7afe663394d85c110059a944802b4a8b8c",
+          "caseSha256": "1365790b341b1c31b61cd61173cdf7d697899d1a15f7db39112adb23326c9973",
           "id": "test/admin-diversity-analytics.test.ts",
           "outcomeSha256": "8ad0dd91f9e64c65ce92d8cb156daa9fbb5255d47a3b472bb415005a663d240b"
         }

@@ -4,6 +4,9 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## 1.0.5 — 2026-11-10
 
+- Construct synthetic private-path sanitizer test data at runtime so release
+  exports retain the regression without embedding private-looking paths.
+
 - Qualify bounded compression analytics through exact SQL, management HTTP and
   independently replayed native lifecycle evidence, including lazy compatibility
   schema alterations. Initialization effects require confirmation, unknown

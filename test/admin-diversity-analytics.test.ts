@@ -100,13 +100,14 @@ test("central management authorization protects the handler without a route guar
 
 test("caught owner failure uses the real upstream error sanitizer", async () => {
   const secret = ["sk", "fixturecredential123456"].join("-");
-  f.failure = new Error(`Failure ${secret} at /home/private/fixture.txt\n    at secret (/home/private/file.ts:2:3)`);
+  const syntheticPrivatePath = ["", "home", "private"].join("/");
+  f.failure = new Error(`Failure ${secret} at ${syntheticPrivatePath}/fixture.txt\n    at secret (${syntheticPrivatePath}/file.ts:2:3)`);
   try {
     const actual = await result();
     expect(actual.status).toBe(500);
     const serialized = JSON.stringify(actual.body);
     expect(serialized).not.toContain(secret);
-    expect(serialized).not.toContain("/home/private");
+    expect(serialized).not.toContain(syntheticPrivatePath);
     expect(() => adapter.project(actual.body)).toThrow();
     expect(serialized).not.toContain("at secret");
     completed.add("error");
