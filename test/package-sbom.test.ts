@@ -160,6 +160,26 @@ test("package secret scanning accepts only explicitly synthetic cookie pairs", a
       await scanText(root, [file], issues);
       expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like literal" });
     }
+    for (const literal of [
+      String.raw`'auth_token=fixture-session\'; other=real-session'`,
+      String.raw`"auth_token=fixture-session\"; other=real-session"`,
+      String.raw`'auth_token=fixture-session\x3b other=real-session'`,
+      String.raw`"auth_token=fixture-session\u003b other=real-session"`,
+    ]) {
+      issues.length = 0;
+      await writeFile(join(root, file), ["headers.", "cookie", " = ", literal, ";"].join(""));
+      await scanText(root, [file], issues);
+      expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like literal" });
+    }
+    for (const quote of ["'", '"']) {
+      for (const newline of ["\n", "\r\n", "\u2028", "\u2029"]) {
+        issues.length = 0;
+        const literal = [quote, "auth_token=fixture-session", "\\", newline, "; other=real-session", quote].join("");
+        await writeFile(join(root, file), ["headers.", "cookie", " = ", literal, ";"].join(""));
+        await scanText(root, [file], issues);
+        expect(issues).toContainEqual({ kind: "secret", path: file, detail: "credential-like literal" });
+      }
+    }
 
     issues.length = 0;
     await writeFile(join(root, file), `headers.authorization = ${JSON.stringify(`Bearer ${opaque}`)};`);

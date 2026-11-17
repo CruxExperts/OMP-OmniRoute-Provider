@@ -717,7 +717,7 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     "cookie",
   ].join("|");
   const credentialAssignmentPattern = new RegExp(
-    `(?<![A-Za-z0-9_$])(?:[A-Za-z0-9_$]*${credentialNamePattern}[A-Za-z0-9_$]*|key)(?![A-Za-z0-9_$])\\s*(?::|=(?![=>]))\\s*(?:"([^"]*)"|'([^']*)')`,
+    `(?<![A-Za-z0-9_$])(?:[A-Za-z0-9_$]*${credentialNamePattern}[A-Za-z0-9_$]*|key)(?![A-Za-z0-9_$])\\s*(?::|=(?![=>]))\\s*(?:"((?:\\\\[\\s\\S]|[^"\\\\])*)"|'((?:\\\\[\\s\\S]|[^'\\\\])*)')`,
     "gi",
   );
   const unquotedCredentialPattern = new RegExp(
@@ -725,7 +725,7 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     "gi",
   );
   const bearerPattern = /\bBearer\s+([A-Za-z0-9][A-Za-z0-9._~+/=-]{7,})\b/gi;
-  const literalPattern = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g;
+  const literalPattern = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g;
 
   const isIdentifierReference = (value: string): boolean => /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$/.test(value);
   const isNonLiteralReference = (value: string): boolean => isIdentifierReference(value) || value.startsWith("`") || value.startsWith("$");
@@ -780,15 +780,33 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
       }
       return undefined;
     };
+    let sourceLiteralValues: Map<number, string> | undefined;
+    const sourceLiteralValue = (start: number): string | undefined => {
+      if (!sourceLiteralValues) {
+        sourceLiteralValues = new Map();
+        const source = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true);
+        const visit = (node: ts.Node): void => {
+          if (ts.isStringLiteral(node)) sourceLiteralValues!.set(node.getStart(source), node.text);
+          ts.forEachChild(node, visit);
+        };
+        visit(source);
+      }
+      return sourceLiteralValues.get(start);
+    };
     if (absolutePathPattern.test(text) || privateTempPathPattern.test(text)) issues.push({ kind: "private-path", path: relativePath, detail: "private filesystem path marker" });
     for (const match of text.matchAll(credentialAssignmentPattern)) {
-      const value = match[1] ?? match[2] ?? "";
-      const cookiePairs = /^cookie\s*(?::|=)/i.test(match[0]) && /[=;]/.test(value);
-      const placeholder = cookiePairs ? value.split(";").every(part => {
+      const rawValue = match[1] ?? match[2] ?? "";
+      const cookie = /^cookie\s*(?::|=)/i.test(match[0]);
+      const start = (match.index ?? 0) + match[0].length - rawValue.length - 2;
+      const value = cookie && rawValue.includes("\\")
+        ? jsonLiterals?.get(start)?.value ?? (/\.[cm]?[jt]sx?$/.test(relativePath) ? sourceLiteralValue(start) : undefined)
+        : rawValue;
+      const cookiePairs = cookie && (value === undefined || /[=;]/.test(value));
+      const placeholder = cookiePairs ? value !== undefined && value.split(";").every(part => {
         const pair = /^\s*[!#$%&'*+.^_`|~0-9A-Za-z-]+=([^\s;]+)\s*$/.exec(part);
         return pair !== null && /^(?:fixture|example|placeholder|redacted|dummy|fake|sample|test|your|replace|change|insert|set)(?:[-_].*)?$/i.test(pair[1]!);
-      }) : isPlaceholder(value);
-      if (!isNonLiteralReference(value) && !placeholder) issues.push({ kind: "secret", path: relativePath, detail: "credential-like literal" });
+      }) : isPlaceholder(value ?? "");
+      if ((value === undefined || !isNonLiteralReference(value)) && !placeholder) issues.push({ kind: "secret", path: relativePath, detail: "credential-like literal" });
     }
     for (const match of text.matchAll(unquotedCredentialPattern)) {
       const value = match[1] ?? "";
@@ -807,7 +825,6 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
     }
     let immutableSourceFields: Set<number> | undefined;
     let publicIdentifiers: Set<number> | undefined;
-    let sourceLiteralValues: Map<number, string> | undefined;
     for (const match of text.matchAll(literalPattern)) {
       const value = match[0].slice(1, -1);
       const start = match.index ?? -1;
@@ -819,16 +836,7 @@ export async function scanText(root: string, files: string[], issues: ScanIssue[
       const sourceLiteral = !jsonLiterals && !python && /\.[cm]?[jt]sx?$/.test(relativePath);
       if (!hasHighEntropy(entropyValue) && !(sourceLiteral && value.includes("\\"))) continue;
       if (sourceLiteral) {
-        if (!sourceLiteralValues) {
-          sourceLiteralValues = new Map();
-          const source = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true);
-          const visit = (node: ts.Node): void => {
-            if (ts.isStringLiteral(node)) sourceLiteralValues!.set(node.getStart(source), node.text);
-            ts.forEachChild(node, visit);
-          };
-          visit(source);
-        }
-        const decoded = sourceLiteralValues.get(start);
+        const decoded = sourceLiteralValue(start);
         if (decoded !== undefined) entropyValue = decoded;
       }
       if (!hasHighEntropy(entropyValue)) continue;
