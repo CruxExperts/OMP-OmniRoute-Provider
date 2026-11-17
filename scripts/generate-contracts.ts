@@ -313,6 +313,14 @@ export function testOutcomeHash(
     const projected = { score: expected.score, totalRequests: 3, windowSize: 200, ttlMs: 3_600_000 };
     if (canonicalJson(before) !== canonicalJson(expected) || canonicalJson(after) !== canonicalJson(expected) || result.status !== 200 || canonicalJson(body) !== canonicalJson(projected)) throw new Error("diversity observed outcome mismatch");
   }
+  if (operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics") {
+    const counts = { production: 1, shadow: 1, hidden: 1 };
+    const read = operationId.startsWith("GET ");
+    const expectedBefore = read ? counts : { selected: counts, other: counts };
+    const expectedAfter = read ? counts : { selected: null, other: counts };
+    const expectedBody = read ? counts : { success: true, message: "Metrics reset for Probe" };
+    if (result.status !== 200 || canonicalJson(before) !== canonicalJson(expectedBefore) || canonicalJson(after) !== canonicalJson(expectedAfter) || canonicalJson(body) !== canonicalJson(expectedBody)) throw new Error(`combo metrics observed outcome mismatch: ${operationId}`);
+  }
   if (operationId === "GET /api/auth/csrf") {
     const start = requireRecord(before, "CSRF before"), end = requireRecord(after, "CSRF after");
     assertKeys(start, "CSRF before", ["handlerCalls"]); assertKeys(end, "CSRF after", ["handlerCalls"]);
@@ -374,12 +382,13 @@ for a in aliases:
  assert (original == a['sourceSha256']) if a['source'] != 'src/lib/db/core.ts' else True
  assert replacement == a['replacementSha256']
  mapping[a['source']] = {'originalSha256': original, 'replacement': a['replacement'], 'executedSha256': overlays.get(a['replacement'], replacement)}
-identities = {name: m.sha(source[name]) for name in set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}}
+identities = {name: m.sha(source[name]) for name in set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.COMBO_METRICS_CLOSURE) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'}}
 for name in ('src/app/api/health/degradation/route.ts', 'src/domain/degradation.ts'):
  data = source[name]; executed = b'import "./fixture-control";\\n' + data if name.endswith('/route.ts') else data
  identities[name] = {'originalSha256': m.sha(data), 'executedSha256': m.sha(executed)}
 identities['src/app/livez/route.ts'] = {'originalSha256': m.sha(source['src/app/livez/route.ts']), 'executedSha256': m.sha(source['src/app/livez/route.ts'])}
 identities[m.REASONING_ROUTE] = {'originalSha256': m.sha(source[m.REASONING_ROUTE]), 'executedSha256': m.sha(source[m.REASONING_ROUTE]), 'wrapperSha256': m.sha(m.REASONING_WRAPPER), 'policySha256': m.sha((m.FIXTURE / 'routes/management.ts').read_bytes())}
+identities[m.COMBO_METRICS_ROUTE] = {'originalSha256': m.sha(source[m.COMBO_METRICS_ROUTE]), 'executedSha256': m.sha(source[m.COMBO_METRICS_ROUTE]), 'wrapperSha256': m.sha(m.COMBO_METRICS_WRAPPER), 'policySha256': m.sha((m.FIXTURE / 'routes/management.ts').read_bytes())}
 identities[m.REASONING_STORE] = m.sha(source[m.REASONING_STORE])
 route, helper, registry = m.deprecated_ingress_source(source[m.DEPRECATED_ROUTE], source[m.DEPRECATED_HELPER], source[m.DEPRECATED_REGISTRY])
 identities[m.DEPRECATED_ROUTE] = {'originalSha256': m.sha(source[m.DEPRECATED_ROUTE]), 'executedSha256': m.sha(route), 'wrapperSha256': m.sha(m.REASONING_WRAPPER), 'backendSha256': m.sha(m.DEPRECATED_BACKEND), 'helperOriginalSha256': m.sha(source[m.DEPRECATED_HELPER]), 'helperExecutedSha256': m.sha(helper), 'registryOriginalSha256': m.sha(source[m.DEPRECATED_REGISTRY]), 'registryExecutedSha256': m.sha(registry)}
@@ -485,8 +494,10 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
   if (operationId === "GET /api/analytics/diversity" && (diversitySource !== "5309a9f0b87006e3c613aa494c0364cf93f9c81d5c14bdde23865a858d1ba934" || binding.handlerSha256 !== diversitySource || binding.handlerGitBlobSha !== "15005c7d702621c7eacd93b4b079099a4e1dca65")) throw new Error(`${label} diversity source mismatch`);
   const compressionSource = operationId === "GET /api/analytics/compression" ? added["src/app/api/analytics/compression/route.ts"] : undefined;
   if (operationId === "GET /api/analytics/compression" && (compressionSource !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || binding.handlerSha256 !== compressionSource || binding.handlerGitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f" || added["src/lib/db/compressionAnalytics.ts"] !== "2989f4d16a331bd20624748a8624dba0065e0e70dee96e6cf3227449e9b28f66" || added["src/lib/db/migrations/038_compression_analytics.sql"] !== "71b7d06e954d2c3733919a395a662adcd1b8bb605a9adb35025c44dc6d71ac2e")) throw new Error(`${label} compression source mismatch`);
+  const comboMetricsSource = operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics" ? requireRecord(added["src/app/api/combos/metrics/route.ts"], `${label}.combo metrics source`) : undefined;
+  if (comboMetricsSource !== undefined && (comboMetricsSource.originalSha256 !== binding.handlerSha256 || binding.handlerSha256 !== "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416" || binding.handlerGitBlobSha !== "9266bfc7ba5444f3b8685775d10ad72210050634" || added["open-sse/services/comboMetrics.ts"] !== "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41" || added["open-sse/services/autoCombo/providerDiversity.ts"] !== "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b")) throw new Error(`${label} combo metrics source mismatch`);
   const cardOperation = operationId === "GET /.well-known/agent-card.json" || operationId === "GET /.well-known/agent.json";
-  const specialSource = csrfSource !== undefined ? csrfSource : diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
+  const specialSource = csrfSource !== undefined ? csrfSource : comboMetricsSource !== undefined ? comboMetricsSource.originalSha256 : diversitySource !== undefined ? diversitySource : compressionSource !== undefined ? compressionSource : analyticsSource !== undefined ? analyticsSource : visibilitySource !== undefined ? visibilitySource : historySource !== undefined ? historySource : operationId === "GET /api/a2a/status" ? requireRecord(added["src/app/api/a2a/status/route.ts"], `${label}.A2A source`).originalSha256 : loginSource !== undefined ? loginSource.originalSha256 : ssoSource !== undefined ? ssoSource.originalSha256 : mfaSource !== undefined ? mfaSource.originalSha256 : authSource !== undefined ? authSource.originalSha256 : operationId === "GET /api/acp/agents" ? added["src/app/api/acp/agents/route.ts"] : cardOperation ? added[`src/app${operationId.slice(4)}/route.ts`] : operationId === "GET /api/health/ping" ? added["src/app/api/health/ping/route.ts"]
     : operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics" ? added["src/app/api/settings/cache-metrics/route.ts"] : undefined;
   if ((operationId === "GET /api/health/ping" || operationId === "GET /api/settings/cache-metrics" || operationId === "DELETE /api/settings/cache-metrics") && specialSource !== binding.handlerSha256) throw new Error(`${label} source mismatch`);
   if (cardOperation && specialSource !== binding.handlerSha256) throw new Error(`${label} card source mismatch`);
@@ -708,6 +719,20 @@ export function validateHealthIngressEvidence(value: unknown, binding: Operation
       if (row.status !== status || row.routeClass !== "MANAGEMENT" || row.cookieMutation !== false || row.sessionDistinct !== (name === "session2" ? true : null) || typeof row.noStore !== "boolean" || typeof row.json !== "boolean" || (status === 200 ? row.noStore !== true || row.json !== true || row.shapeValid !== true || row.issued !== session || row.hmacBound !== (session ? true : null) || row.expiryValid !== (session ? true : null) : [row.issued, row.hmacBound, row.expiryValid, row.shapeValid].some(value => value !== null))) throw new Error(`${label} CSRF HTTP mismatch`);
     }
   }
+  if (comboMetricsSource !== undefined) {
+    const get: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-manage": 200, "key-admin": 200, "oma-read": 200, "oma-write": 200, "oma-admin": 200 };
+    const states = (visible: boolean, hidden: number) => ({ visible, hidden });
+    const zero = Array.from({ length: 4 }, () => states(false, 0));
+    const expected = {
+      auth: Object.fromEntries(Object.entries({ GET: get, DELETE: { ...get, "oma-read": 403 } }).map(([method, statuses]) => [method, Object.fromEntries(Object.entries(statuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT" }]))])),
+      hiddenOnlyGetNull: true, hiddenOnlyCount: 1, selectedProduction: 1, selectedShadow: 1, selectedHidden: 1,
+      allNames: ["fixture-other", "fixture-selected"], emptyNames: ["fixture-other", "fixture-selected"], prototypeSelected: 1, prototypeInAll: false,
+      seededStates: [states(true, 1), states(true, 1), states(false, 1), states(true, 0)], selectedAfterNull: true,
+      unrelatedProduction: 1, unrelatedShadow: 1, unrelatedHidden: 1,
+      selectedStates: [states(false, 0), states(true, 1), states(false, 1), states(true, 0)], afterEmptyDeleteNames: [], emptyStates: zero, afterGlobalNames: [], globalStates: zero,
+    };
+    if (canonicalJson(toJson(artifact.comboMetricsHttp, label)) !== canonicalJson(toJson(expected, label))) throw new Error(`${label} combo metrics HTTP mismatch`);
+  }
   if (operationId === "GET /api/auth/mfa/status") {
     if (canonicalJson(toJson(artifact.mfaStatusClosure, label)) !== canonicalJson(toJson(expectedIdentities.mfaStatusClosure, label))) throw new Error(`${label} MFA status closure mismatch`);
     const http = requireRecord(artifact.mfaStatusHttp, `${label}.MFA HTTP`);
@@ -910,11 +935,12 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
   }
   if (effectValue !== undefined) {
     const csrf = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "csrf";
-    const effect = requireRecord(csrf && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
+    const comboMetrics = Array.isArray(effectValue) && effectValue.length === 2 && effectValue[0] === "comboMetrics";
+    const effect = requireRecord((csrf || comboMetrics) && Array.isArray(effectValue) ? effectValue[1] : effectValue, "effect evidence");
     assertKeys(effect, "deprecated provider effect evidence", ["artifact", "sha256"]);
     const digest = requireString(effect.sha256, "deprecated provider effect digest");
     const path = requireString(effect.artifact, "deprecated provider effect artifact");
-    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${csrf ? "csrf-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
+    if (!/^[a-f0-9]{64}$/.test(digest) || path !== `provenance/qualification/${csrf ? "csrf-lifecycle" : comboMetrics ? "combo-lifecycle" : "deprecated-provider-sweep"}-${digest}.json`) throw new Error("effect evidence path mismatch");
     const file = resolve(packageRoot, path);
     const info = lstatSync(file);
     if (!info.isFile() || info.nlink !== 1 || realpathSync(file) !== file || info.size > 2 * 1024 * 1024) throw new Error("deprecated provider effect artifact invalid");
@@ -922,6 +948,7 @@ print(json.dumps(ns[name](*(pathlib.Path(p) for p in sys.argv[3:]))))`;
     if (createHash("sha256").update(bytes).digest("hex") !== digest) throw new Error("deprecated provider effect digest mismatch");
     const observed = JSON.parse(bytes.toString("utf8")) as unknown;
     if (csrf) validateAuthCsrfLifecycleObservation(observed, requireRecord(expected, label).csrfLifecycle);
+    else if (comboMetrics) validateComboMetricsLifecycleObservation(observed, requireRecord(expected, label).comboLifecycle);
     else validateDeprecatedProviderSweepObservation(observed, requireRecord(expected, label).deprecatedSweep);
   }
 }
@@ -975,6 +1002,24 @@ export function validateA2aLifecycleObservation(value: unknown, independentValue
   if (closure["src/app/api/a2a/status/route.ts"] !== "d230afbd417035cd919d25853cf03e165392f83b1774739b780dd0000c8f6dc2" || closure["src/lib/a2a/taskManager.ts"] !== "b4fc6379c9cf4b1f3b40e2e9dfae86df77c631014121ed1fa8f87637cb606e4a" || closure["src/lib/db/a2aTasks.ts"] !== "19dbc63c5513f3dfc9b74534eb9805b8c8274d5391ef631110fe76d1b2b3a838") throw new Error(`${label} source closure mismatch`);
 }
 
+/** Compare paired metrics observations with the independently rerun native owner. */
+export function validateComboMetricsLifecycleObservation(value: unknown, independentValue: unknown): void {
+  const label = "combo metrics native lifecycle";
+  const actual = requireRecord(value, label), independent = requireRecord(independentValue, `${label}.independent`);
+  assertKeys(actual, label, ["status", "qualification", "boundary", "inputSha256", "identity", "cold", "warm"]);
+  if (actual.status !== "research-observed" || actual.qualification !== false || canonicalJson(toJson(actual, label)) !== canonicalJson(toJson(independent, label))) throw new Error(`${label} independent producer mismatch`);
+  const identity = requireRecord(actual.identity, `${label}.identity`), closure = requireRecord(identity.comboMetricsClosure, `${label}.closure`);
+  if (canonicalJson(toJson(closure, label)) !== canonicalJson({ "src/app/api/combos/metrics/route.ts": "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416", "open-sse/services/comboMetrics.ts": "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41", "open-sse/services/autoCombo/providerDiversity.ts": "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b" })) throw new Error(`${label} source mismatch`);
+  const cold = requireRecord(actual.cold, `${label}.cold`), warm = requireRecord(actual.warm, `${label}.warm`);
+  assertKeys(cold, `${label}.cold`, ["phase", "driver", "observations", "grantAfterDelete", "deletedAbsent", "importedPersisted", "exportSecretAbsent", "metricsLifecycle"]);
+  assertKeys(warm, `${label}.warm`, ["phase", "driver", "importedPersisted", "deletedAbsent", "metricsLifecycle"]);
+  const operations = requireArray(cold.observations, `${label}.observations`).filter(row => isRecord(row) && (row.operation === "GET /api/combos/metrics" || row.operation === "DELETE /api/combos/metrics"));
+  const sequence = ["GET", "GET", "GET", "DELETE", "GET", "GET", "DELETE", "GET"].map(method => ({ operation: `${method} /api/combos/metrics`, status: 200, mediaType: "application/json" }));
+  if (canonicalJson(toJson(operations, label)) !== canonicalJson(sequence)) throw new Error(`${label} operation sequence mismatch`);
+  const coldMetrics = { hiddenOnlyGetNull: true, hiddenOnlyOwnerCount: 1, selectedProduction: 1, selectedShadow: 1, selectedHidden: 1, allNames: 2, selectedResetAbsent: true, unrelatedProduction: 1, unrelatedShadow: 1, unrelatedHidden: 1, globalResetAbsent: true, restartSeedProduction: 1, restartSeedShadow: 1, restartSeedHidden: 1, cleanupTimerObservable: false };
+  const warmMetrics = { freshProcessProductionAndShadowAbsent: true, freshProcessHiddenCount: 0, cleanupTimerObservable: false };
+  if (cold.phase !== "cold" || cold.driver !== "node:sqlite" || cold.importedPersisted !== true || cold.deletedAbsent !== true || warm.phase !== "warm" || warm.driver !== "node:sqlite" || warm.importedPersisted !== true || warm.deletedAbsent !== true || canonicalJson(toJson(cold.metricsLifecycle, label)) !== canonicalJson(coldMetrics) || canonicalJson(toJson(warm.metricsLifecycle, label)) !== canonicalJson(warmMetrics)) throw new Error(`${label} lifecycle mismatch`);
+}
 /** Compare a CSRF native observation with a separately executed producer. */
 export function validateAuthCsrfLifecycleObservation(value: unknown, independentValue: unknown): void {
   const label = "CSRF lifecycle evidence";
@@ -2195,6 +2240,41 @@ export function validateDiversityAnalyticsContract(value: unknown): void {
   if (auth.domain !== "management" || !same(auth.sourcePolicy, policy) || c.sideEffect !== "lifecycle" || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.secrets, { inputFields: [], outputFields: ["providers", "error", "model", "connection", "request"] }) || requireRecord(c.confirmation, "diversity confirmation").required !== true || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || c.reconciliation !== null || requireRecord(safety.preflight, "diversity preflight").kind !== "not-applicable" || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("diversity authorization or lifecycle mismatch");
 }
 
+export function validateComboMetricsContract(value: unknown, operationId: string): void {
+  const read = operationId === "GET /api/combos/metrics";
+  if (!read && operationId !== "DELETE /api/combos/metrics") throw new Error("invalid combo metrics operation");
+  const c = requireRecord(value, "combo metrics contract"), request = requireRecord(c.request, "combo metrics request"), auth = requireRecord(c.auth, "combo metrics auth"), response = requireRecord(c.response, "combo metrics response");
+  const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "combo metrics contract")) === canonicalJson(toJson(b, "combo metrics contract"));
+  const route = "src/app/api/combos/metrics/route.ts", path = { type: "object", properties: {}, additionalProperties: false }, selector = { type: "string", maxLength: 100 };
+  const policy = { status: "qualified", source: "omniroute-v3.8.53", routeClass: "management", localOnly: false, handlerGuard: "requireManagementAuth", bootstrap: "none", alternatives: [{ kind: "auth-disabled", when: "central-and-handler-auth-not-required" }, { kind: "management-api-key", anyOf: ["manage", "admin"] }, { kind: "dashboard-session" }, { kind: "oma-access-token", minimumScope: read ? "read" : "write" }, { kind: "trusted-local", loopbackOnly: true }] };
+  const param = { name: "combo", in: "query", required: false, style: "form", explode: true, allowReserved: false, schema: selector, inputAllowed: true, sourceFile: route };
+  const num = { type: "number", minimum: 0 }, str = { type: "string", minLength: 1, maxLength: 200 }, nullable = { oneOf: [{ type: "string", maxLength: 200 }, { type: "null" }] };
+  const obj = (properties: Record<string, unknown>, required: string[]) => ({ type: "object", properties, required, additionalProperties: false });
+  const modelFields = { requests: num, successes: num, failures: num, totalLatencyMs: num, lastStatus: { oneOf: [{ type: "string", enum: ["ok", "error"] }, { type: "null" }] }, lastUsedAt: nullable, avgLatencyMs: num, successRate: num };
+  const model = obj(modelFields, Object.keys(modelFields));
+  const targetFields = { ...modelFields, executionKey: str, stepId: nullable, model: { type: "string", minLength: 1, maxLength: 300 }, provider: nullable, providerId: nullable, connectionId: nullable, label: nullable };
+  const map = (schema: unknown) => ({ type: "object", "x-key-role": "identifier", additionalProperties: schema });
+  const byModel = map(model), byTarget = map(obj(targetFields, Object.keys(targetFields)));
+  const shadowFields = { totalRequests: num, totalSuccesses: num, totalFailures: num, totalLatencyMs: num, lastUsedAt: nullable, byModel, byTarget, avgLatencyMs: num, successRate: num };
+  const viewFields = { totalRequests: num, totalSuccesses: num, totalFailures: num, totalFallbacks: num, requestsWithFallback: num, skipsPerRequest: num, totalLatencyMs: num, strategy: { type: "string" }, lastUsedAt: nullable, intentCounts: map(num), byModel, byTarget, productionTraffic: { type: "boolean" }, avgLatencyMs: num, successRate: num, fallbackRate: num, persistedSkipBypassed: num, shadow: obj(shadowFields, Object.keys(shadowFields)) };
+  const view = obj(viewFields, Object.keys(viewFields));
+  const schema = read ? obj({ metrics: { oneOf: [{ type: "null" }, view, map({ oneOf: [view, { type: "null" }] })] }, message: { type: "string", maxLength: 200 } }, ["metrics"]) : obj({ success: { const: true }, message: str }, ["success", "message"]);
+  const success = requireArray(response.variants, "metrics response variants").filter(row => isRecord(row) && row.statusCode === "200");
+  if (!same(response.schema, schema) || success.length !== 1 || !same(requireRecord(success[0], "metrics success").content, [{ mediaType: "application/json", schema, sourceFile: route }])) throw new Error("combo metrics response mismatch");
+  if (!same(request.pathSchema, path) || !same(request.pathParameters, []) || !same(request.querySchema, { ...path, properties: { combo: selector }, required: [] }) || !same(request.parameters, [param]) || request.body !== null || (read ? request.sourceNormalizer !== undefined : request.sourceNormalizer !== "omniroute-v3.8.52.combos.metrics-reset-query") || auth.domain !== "management" || !same(auth.sourcePolicy, policy) || response.mediaType !== "application/json" || c.sideEffect !== (read ? "read" : "mutation") || !same(c.pagination, { mode: "none", parameters: [] }) || !same(c.streaming, { mode: "json", framing: "application/json" }) || !same(c.retry, { allowed: false, maxAttempts: 1, statusCodes: [] }) || requireRecord(c.confirmation, "metrics confirmation").required !== !read) throw new Error("combo metrics contract mismatch");
+  if (!same(c.secrets, { inputFields: [], outputFields: ["providers.connections.lastError", "config.apiKey"] }) || !same(c.confirmation, { required: !read, reason: read ? "Source-defined management-authorized read." : "Human confirmation is required before applying this combo management mutation." }) || request.specificationDocumented !== read) throw new Error("combo metrics metadata mismatch");
+  if (read) { if (c.mutationSafety !== null || c.reconciliation !== null) throw new Error("combo metrics read safety mismatch"); return; }
+  const safety = requireRecord(c.mutationSafety, "metrics safety"), preflight = requireRecord(safety.preflight, "metrics preflight");
+  const observations = requireArray(preflight.observations, "metrics observations"), limits = stringList(preflight.visibilityLimits, "metrics visibility limits");
+  const observation = requireRecord(observations[0], "metrics observation"), completeness = requireRecord(observation.readCompleteness, "metrics completeness"), relation = requireRecord(c.reconciliation, "metrics relation");
+  const inputs = [{ source: { section: "query", path: ["combo"] }, target: { section: "query", field: "combo" } }];
+  const targetRead = { operationId: "GET /api/combos/metrics", inputs, snapshot: { kind: "collection", identity: [{ name: "comboName", path: ["comboName"] }], state: [{ name: "metrics", path: ["metrics"] }] }, sourceView: "omniroute-v3.8.52.combos.metrics-reset-reconcile" };
+  const expectedRelation = { targetRead, reconcile: { operationId: "GET /api/combos/metrics", inputs, outcome: { kind: "absent", identityFields: ["comboName"], stateFields: [] } } };
+  const visibility = ["A named GET returns that name's metrics object or null; null means no exposed production or shadow metrics, not that hidden persisted-skip state is absent.", "An all-name GET exposes production and shadow metrics entries; standalone persisted-skip counters and names present only in that counter map are omitted.", "The all-name JSON map omits a metric named __proto__; a named GET can still observe that name directly.", "A named reset deletes production metrics, shadow metrics, and the selected name's persisted-skip counter.", "Reset-all deletes all three counter maps and stops the metrics cleanup interval until module reload.", "Preflight and readback observe only the visible view and are not an atomic lock against other writers or process-local state changes."];
+  const expectedCompleteness = { kind: "single-response", sourceReason: "The pinned GET returns one selected production/shadow metrics object or null, or the complete exposed map for all production/shadow names. Neither response exposes standalone persisted-skip counters or names present only in that hidden counter map." };
+  if (preflight.kind !== "required" || observations.length !== 1 || observation.name !== "metrics-reset-scope" || !same(completeness, expectedCompleteness) || !same(observation.read, relation.targetRead) || !same(relation, expectedRelation) || !same(limits, visibility) || !same(safety.reconciliation, { kind: "unknown" }) || !same(safety.settlement, { responseComplete: { statusCodes: [] }, definiteRejection: null })) throw new Error("combo metrics reset safety mismatch");
+}
+
 export function validateAuthCsrfContract(value: unknown): void {
   const c = requireRecord(value, "CSRF contract"), request = requireRecord(c.request, "CSRF request"), response = requireRecord(c.response, "CSRF response"), auth = requireRecord(c.auth, "CSRF auth"), safety = requireRecord(c.mutationSafety, "CSRF safety");
   const same = (a: unknown, b: unknown) => canonicalJson(toJson(a, "CSRF contract")) === canonicalJson(toJson(b, "CSRF contract"));
@@ -2217,6 +2297,11 @@ function validateEligibility(
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/analytics/compression/route.ts" || route.sha256 !== "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5" || route.gitBlobSha !== "7006cac6eba75683d773afe1b1a1967607063e0f") throw new Error("compression requires exact lifecycle source");
   }
   if (!record) return false;
+  const comboMetrics = operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics";
+  if (comboMetrics) {
+    validateComboMetricsContract(record.contract, operationId);
+    if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/combos/metrics/route.ts" || route.sha256 !== "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416" || route.gitBlobSha !== "9266bfc7ba5444f3b8685775d10ad72210050634") throw new Error("combo metrics requires exact lifecycle source");
+  }
   if (operationId === "GET /api/auth/csrf") {
     validateAuthCsrfContract(record.contract);
     if (!binding.databaseInitializationRequired || route.sourceFile !== "src/app/api/auth/csrf/route.ts" || route.sha256 !== "05ed2a77a15c322bdde3614a80b6057a788f99fcd221d90e2eb7a638561491a5" || route.gitBlobSha !== "a18026b4474ea4b7259d6ae0accfbc32429fef61") throw new Error("CSRF requires exact lifecycle source");
@@ -2311,13 +2396,13 @@ function validateEligibility(
     validateHealthIngressEvidence(ingress, expectedBinding, operationId, specializedStatuses);
   }
   else if (record.ingressEvidence !== undefined) throw new Error(`ingress evidence is unsupported for ${operationId}`);
-  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf") {
+  if (operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || comboMetrics) {
     if (!binding.databaseInitializationRequired || record.effectEvidence === undefined) throw new Error(`independent effect evidence required: ${operationId}`);
     const effect = requireRecord(record.effectEvidence, `${operationId}.effectEvidence`);
-    const prefix = operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
+    const prefix = operationId === "GET /api/auth/csrf" ? "provenance/qualification/csrf-lifecycle-" : comboMetrics ? "provenance/qualification/combo-lifecycle-" : "provenance/qualification/deprecated-provider-sweep-";
     if (typeof effect.artifact !== "string" || !effect.artifact.startsWith(prefix)) throw new Error(`effect evidence domain mismatch: ${operationId}`);
   } else if (record.effectEvidence !== undefined) throw new Error(`effect evidence is unsupported for ${operationId}`);
-  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
+  if (binding.databaseInitializationRequired) validateCoreLifecycleEvidence(record.lifecycleEvidence, binding, operationId === "GET /api/auth/csrf" ? ["csrf", record.effectEvidence] : comboMetrics ? ["comboMetrics", record.effectEvidence] : operationId === "GET /api/providers/deprecated" ? record.effectEvidence : undefined, operationId === "GET /api/auth/mfa/status", operationId === "GET /api/auth/sso/config", operationId === "GET /api/settings/require-login", operationId === "GET /api/a2a/status" ? record.a2aEvidence : undefined, operationId === "GET /api/a2a/tasks/history", operationId === "GET /api/admin/proxy-pool-visibility", operationId === "GET /api/analytics/auto-routing", operationId === "GET /api/analytics/compression", operationId === "GET /api/analytics/diversity");
   else if (record.lifecycleEvidence !== undefined) throw new Error(`lifecycle evidence is unsupported for ${operationId}`);
   const evidence = requireArray(record.evidence, `${operationId}.eligibility.evidence`);
   if (evidence.length === 0) throw new Error(`eligibility evidence is empty: ${operationId}`);
@@ -3116,7 +3201,7 @@ function makeOperation(
       },
       ...(operationRequiresIngressEvidence(operationId) ? { ingressSha256: requireRecord(eligibilityRecord.ingressEvidence, `${operationId}.ingressEvidence`).sha256 } : {}),
       ...(binding.databaseInitializationRequired ? { lifecycleSha256: requireRecord(eligibilityRecord.lifecycleEvidence, `${operationId}.lifecycleEvidence`).sha256 } : {}),
-      ...(operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
+      ...(operationId === "GET /api/providers/deprecated" || operationId === "GET /api/auth/csrf" || operationId === "GET /api/combos/metrics" || operationId === "DELETE /api/combos/metrics" ? { effectSha256: requireRecord(eligibilityRecord.effectEvidence, `${operationId}.effectEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/acp/agents" ? { nativeEvidenceSha256: requireRecord(eligibilityRecord.nativeEvidence, `${operationId}.nativeEvidence`).sha256 } : {}),
       ...(operationId === "GET /api/a2a/status" ? { a2aEvidenceSha256: requireRecord(eligibilityRecord.a2aEvidence, `${operationId}.a2aEvidence`).sha256 } : {}),
     };

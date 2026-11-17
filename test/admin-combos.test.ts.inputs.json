@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    "contracts/operations.schema.json",
+    "contracts/release-eligibility.schema.json"
+  ]
+}

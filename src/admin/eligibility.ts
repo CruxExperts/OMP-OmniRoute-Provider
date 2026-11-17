@@ -143,13 +143,14 @@ function parseRecord(value: unknown): OperationEligibilityRecord | undefined {
     if (!record(ingress) || !sha(ingress.sha256, 64) || ingress.artifact !== `provenance/qualification/ingress-${ingress.sha256}.json`) return undefined;
   } else if (ingress !== undefined) return undefined;
   const lifecycle = value.lifecycleEvidence;
+  if ((value.operationId === "GET /api/combos/metrics" || value.operationId === "DELETE /api/combos/metrics") && !databaseRequired) return undefined;
   if (databaseRequired) {
     if (!derived || !record(lifecycle) || Object.keys(lifecycle).sort().join(",") !== "artifact,sha256" || !sha(lifecycle.sha256, 64)
       || lifecycle.artifact !== `provenance/qualification/core-lifecycle-${lifecycle.sha256}.json`) return undefined;
   } else if (lifecycle !== undefined) return undefined;
   const effect = value.effectEvidence;
-  if (value.operationId === "GET /api/providers/deprecated" || value.operationId === "GET /api/auth/csrf") {
-    const prefix = value.operationId === "GET /api/auth/csrf" ? "csrf-lifecycle" : "deprecated-provider-sweep";
+  if (value.operationId === "GET /api/providers/deprecated" || value.operationId === "GET /api/auth/csrf" || value.operationId === "GET /api/combos/metrics" || value.operationId === "DELETE /api/combos/metrics") {
+    const prefix = value.operationId === "GET /api/auth/csrf" ? "csrf-lifecycle" : value.operationId.endsWith(" /api/combos/metrics") ? "combo-lifecycle" : "deprecated-provider-sweep";
     if (!databaseRequired || !record(effect) || Object.keys(effect).sort().join(",") !== "artifact,sha256" || !sha(effect.sha256, 64)
       || effect.artifact !== `provenance/qualification/${prefix}-${effect.sha256}.json`) return undefined;
   } else if (effect !== undefined) return undefined;
@@ -225,12 +226,13 @@ export function isVerifiedEligibility(item: OperationEligibilityRecord, expected
   if (operationRequiresIngressEvidence(item.operationId)) {
     if (!sha(item.ingressSha256, 64) || item.ingressSha256 !== qualification.ingressSha256) return false;
   } else if (item.ingressSha256 !== undefined || qualification.ingressSha256 !== undefined) return false;
+  if ((item.operationId === "GET /api/combos/metrics" || item.operationId === "DELETE /api/combos/metrics") && binding.databaseInitializationRequired !== true) return false;
   if (binding.databaseInitializationRequired === true) {
     if (item.binding.databaseInitializationRequired !== true || qualification.binding.databaseInitializationRequired !== true
       || !binding.sourceDerivation || !sha(item.lifecycleSha256, 64) || item.lifecycleSha256 !== qualification.lifecycleSha256) return false;
   } else if (binding.databaseInitializationRequired !== undefined || item.binding.databaseInitializationRequired !== undefined
     || qualification.binding.databaseInitializationRequired !== undefined || item.lifecycleSha256 !== undefined || qualification.lifecycleSha256 !== undefined) return false;
-  if (item.operationId === "GET /api/providers/deprecated" || item.operationId === "GET /api/auth/csrf") {
+  if (item.operationId === "GET /api/providers/deprecated" || item.operationId === "GET /api/auth/csrf" || item.operationId === "GET /api/combos/metrics" || item.operationId === "DELETE /api/combos/metrics") {
     if (!sha(item.effectSha256, 64) || item.effectSha256 !== qualification.effectSha256) return false;
   } else if (item.effectSha256 !== undefined || qualification.effectSha256 !== undefined) return false;
   if (item.operationId === "GET /api/acp/agents") {

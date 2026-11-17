@@ -156,6 +156,18 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
     check({ ...a2aArtifact, a2aStatusClosure: { ...closure, executed: missing } }, a2aBinding, "GET /api/a2a/status", /A2A closure mismatch/);
     check({ ...a2aArtifact, a2aStatusClosure: { ...closure, executed: { ...closure.executed, [file]: "0".repeat(64) } } }, a2aBinding, "GET /api/a2a/status", /A2A closure mismatch/);
   }
+  const metricGet: Record<string, number> = { anonymous: 401, invalid: 403, session: 200, "key-read": 403, "key-write": 403, "key-manage": 200, "key-admin": 200, "oma-read": 200, "oma-write": 200, "oma-admin": 200 };
+  const metricState = (visible: boolean, hidden: number) => ({ visible, hidden });
+  const metricHttp = { auth: Object.fromEntries(Object.entries({ GET: metricGet, DELETE: { ...metricGet, "oma-read": 403 } }).map(([method, statuses]) => [method, Object.fromEntries(Object.entries(statuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT" }]))])), hiddenOnlyGetNull: true, hiddenOnlyCount: 1, selectedProduction: 1, selectedShadow: 1, selectedHidden: 1, allNames: ["fixture-other", "fixture-selected"], emptyNames: ["fixture-other", "fixture-selected"], prototypeSelected: 1, prototypeInAll: false, seededStates: [metricState(true, 1), metricState(true, 1), metricState(false, 1), metricState(true, 0)], selectedAfterNull: true, unrelatedProduction: 1, unrelatedShadow: 1, unrelatedHidden: 1, selectedStates: [metricState(false, 0), metricState(true, 1), metricState(false, 1), metricState(true, 0)], afterEmptyDeleteNames: [], emptyStates: Array.from({ length: 4 }, () => metricState(false, 0)), afterGlobalNames: [], globalStates: Array.from({ length: 4 }, () => metricState(false, 0)) };
+  const metricBinding = { handlerSha256: "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416", handlerGitBlobSha: "9266bfc7ba5444f3b8685775d10ad72210050634", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  for (const method of ["GET", "DELETE"] as const) {
+    const policy = { method, path: "/api/combos/metrics", routeClass: "MANAGEMENT", anonymousStatus: 401, invalidCredentialStatus: 401, authorizedStatus: 200, readScopeStatus: method === "GET" ? 200 : 403, writeScopeStatus: 200, adminScopeStatus: 200 };
+    const evidence = { ...artifact, familyPolicy: [...policies, policy], comboMetricsHttp: metricHttp };
+    check(evidence, metricBinding, `${method} /api/combos/metrics`);
+    check({ ...evidence, comboMetricsHttp: { ...metricHttp, hiddenOnlyCount: 0 } }, metricBinding, `${method} /api/combos/metrics`, /combo metrics HTTP mismatch/);
+    check({ ...evidence, comboMetricsHttp: undefined }, metricBinding, `${method} /api/combos/metrics`, true);
+    check({ ...evidence, comboMetricsHttp: { ...metricHttp, globalStates: [] } }, metricBinding, `${method} /api/combos/metrics`, /combo metrics HTTP mismatch/);
+  }
   for (const [index, [operation, route]] of cases.entries()) {
     const routeIdentity = (identities.addedSourceSha256 as Record<string, unknown>)[route];
     if (typeof routeIdentity !== "string" && (!routeIdentity || typeof routeIdentity !== "object" || !("originalSha256" in routeIdentity) || typeof routeIdentity.originalSha256 !== "string")) throw new Error("invalid route identity");
@@ -871,7 +883,7 @@ with tempfile.TemporaryDirectory() as temp:
  for name, data in [('backend/core.ts',core),('backend/settings.ts',settings)]: hashes['test/fixtures/pinned-ingress/'+name] = m.sha(data)
  declaration = b'export function pingDb(): boolean {\n  return true;\n}'
  aliases = json.loads((m.FIXTURE/'alias-map.json').read_text())['aliases']
- names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.READ_CLOSURES) | set(m.ACP_AUTH_SOURCES) | {m.ACP_ROUTE,m.ACP_REGISTRY,m.ACP_MANIFEST,m.ACP_PEER_STAMP,m.LIVE_ROUTE,m.REASONING_STORE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
+ names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.COMBO_METRICS_CLOSURE) | set(m.READ_CLOSURES) | set(m.ACP_AUTH_SOURCES) | {m.ACP_ROUTE,m.ACP_REGISTRY,m.ACP_MANIFEST,m.ACP_PEER_STAMP,m.LIVE_ROUTE,m.REASONING_STORE,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts','src/proxy.ts'} | {a['source'] for a in aliases}
  sources = {name: ('source:'+name).encode() for name in names}; sources['src/lib/db/core.ts'] = b'// source\n'+declaration+b'\n'
  sources[m.DEPRECATED_HELPER]=b'helper'; sources[m.DEPRECATED_REGISTRY]=b'registry'
  m.deprecated_ingress_source=lambda route,helper,registry:(route+b':executed',helper+b':executed',registry+b':executed')
@@ -913,7 +925,7 @@ with tempfile.TemporaryDirectory() as temp:
  put('materialization.json', material)
  put('host-namespaces.json', {k:'host' for k in ('user','mnt','net','pid')})
  put('preflight.json', {'namespaces':{k:'sandbox' for k in ('user','mnt','net','pid')}, 'memoryMax':m.MEMORY, 'cpuAffinity':[0], 'network':'private-loopback-only', 'nodeSha256':m.NODE_SHA, 'environmentKeys':['PATH'], 'mountInfo':'private-canary'})
- identity_names = set(m.ROUTES) | set(m.POLICY_SOURCES) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
+ identity_names = set(m.ROUTES) | set(m.POLICY_SOURCES) | set(m.COMBO_METRICS_CLOSURE) | {'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts','src/app/api/health/route.ts'}
  identity = {'sourceCommit':m.COMMIT,'sourceVersion':'3.8.53','archiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'runtime':{'node':'24.17.0','next':'16.4.2','react':'19.2.8','react-dom':'19.2.8'},'addedSourceSha256':{k:m.sha(sources[k]) for k in identity_names},'pingDeclarationSha256':m.sha(declaration),'runtimeInputSha256':{n:hashes['test/fixtures/pinned-ingress/'+n] for n in ('source-manifest.json','dependencies.json','runtime.json')}}
  identity['addedSourceSha256'].update({name:m.sha(sources[name]) for name in (m.ACP_ROUTE,m.ACP_MANIFEST,m.ACP_PEER_STAMP,*m.ACP_AUTH_SOURCES)})
  identity['addedSourceSha256'][m.ACP_REGISTRY] = {'originalSha256':m.sha(sources[m.ACP_REGISTRY]),'executedSha256':m.sha(m.acp_registry_bytes(sources[m.ACP_REGISTRY])),'processBoundarySha256':m.sha(m.acp_process_boundary()),'ownedProbeSha256':m.sha(m.ACP_PROBE)}
@@ -921,6 +933,8 @@ with tempfile.TemporaryDirectory() as temp:
  identity['addedSourceSha256'][m.LIVE_ROUTE] = {'originalSha256':m.sha(sources[m.LIVE_ROUTE]),'executedSha256':m.sha(sources[m.LIVE_ROUTE])}
  reasoning_sha = m.sha(sources[m.REASONING_ROUTE])
  identity['addedSourceSha256'][m.REASONING_ROUTE] = {'originalSha256':reasoning_sha,'executedSha256':reasoning_sha,'wrapperSha256':m.sha(m.REASONING_WRAPPER),'policySha256':hashes['test/fixtures/pinned-ingress/routes/management.ts']}
+ combo_sha=m.sha(sources[m.COMBO_METRICS_ROUTE])
+ identity['addedSourceSha256'][m.COMBO_METRICS_ROUTE]={'originalSha256':combo_sha,'executedSha256':combo_sha,'wrapperSha256':m.sha(m.COMBO_METRICS_WRAPPER),'policySha256':hashes['test/fixtures/pinned-ingress/routes/management.ts']}
  identity['addedSourceSha256'][m.REASONING_STORE] = m.sha(sources[m.REASONING_STORE])
  dr,dh,dt=m.deprecated_ingress_source(sources[m.DEPRECATED_ROUTE],sources[m.DEPRECATED_HELPER],sources[m.DEPRECATED_REGISTRY])
  identity['addedSourceSha256'][m.DEPRECATED_ROUTE]={'originalSha256':m.sha(sources[m.DEPRECATED_ROUTE]),'executedSha256':m.sha(dr),'wrapperSha256':m.sha(m.REASONING_WRAPPER),'backendSha256':m.sha(m.DEPRECATED_BACKEND),'helperOriginalSha256':m.sha(sources[m.DEPRECATED_HELPER]),'helperExecutedSha256':m.sha(dh),'registryOriginalSha256':m.sha(sources[m.DEPRECATED_REGISTRY]),'registryExecutedSha256':m.sha(dt)}
@@ -1039,6 +1053,9 @@ with tempfile.TemporaryDirectory() as temp:
  for name,result in oidc_errors.items():
   success=name in ('success','secure','rotation-recovery','no-verifier','discovery-fallback'); early=name in ('missing-code','missing-state','wrong-state')
   ingress['oidcHttp']['cases'][name]={'loginStatus':307,'loginPublic':True,'loginCookiesValid':True,'stateMatches':True,'nonceMatches':True,'challengeMatches':True,'callbackStatus':307,'callbackPublic':True,'result':result,'stateCleared':not early,'clearCookiesValid':success,'sessionIssued':success,'sessionValid':success,'sessionAttributesValid':True,'setupComplete':success or name=='missing-secret','exchangeCount':0 if early else 1,'jwksRequests':1 if name in ('nonce','rotation-recovery') else 0}
+ metric_status={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-manage':200,'key-admin':200,'oma-read':200,'oma-write':200,'oma-admin':200}
+ state=lambda visible,hidden:{'visible':visible,'hidden':hidden}
+ ingress['metricsHttp']={'auth':{method:{name:{'status':status,'routeClass':'MANAGEMENT'} for name,status in statuses.items()} for method,statuses in [('GET',metric_status),('DELETE',{**metric_status,'oma-read':403})]},'hiddenOnlyGetNull':True,'hiddenOnlyCount':1,'selectedProduction':1,'selectedShadow':1,'selectedHidden':1,'allNames':['fixture-other','fixture-selected'],'emptyNames':['fixture-other','fixture-selected'],'prototypeSelected':1,'prototypeInAll':False,'seededStates':[state(True,1),state(True,1),state(False,1),state(True,0)],'selectedAfterNull':True,'unrelatedProduction':1,'unrelatedShadow':1,'unrelatedHidden':1,'selectedStates':[state(False,0),state(True,1),state(False,1),state(True,0)],'afterEmptyDeleteNames':[],'emptyStates':[state(False,0) for _ in range(4)],'afterGlobalNames':[],'globalStates':[state(False,0) for _ in range(4)]}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -1137,6 +1154,10 @@ with tempfile.TemporaryDirectory() as temp:
   original = discovery.pop(name); put('data/pinned-ingress-observations.json',ingress); rejected(); discovery[name] = original
  rows.remove(discovery); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.append(discovery)
  rows.append(discovery); put('data/pinned-ingress-observations.json',ingress); rejected(); rows.pop()
+ for key in list(ingress['metricsHttp']):
+  original=ingress['metricsHttp'].pop(key); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp'][key]=original
+ original=ingress['metricsHttp']['globalStates'][2]['hidden']; ingress['metricsHttp']['globalStates'][2]['hidden']=1; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['metricsHttp']['globalStates'][2]['hidden']=original
+ original=identity['addedSourceSha256'][m.COMBO_METRICS_ROUTE]['wrapperSha256']; identity['addedSourceSha256'][m.COMBO_METRICS_ROUTE]['wrapperSha256']='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][m.COMBO_METRICS_ROUTE]['wrapperSha256']=original
  source_name = 'src/app/api/settings/cc-discovery-metrics/route.ts'; original = identity['addedSourceSha256'].pop(source_name)
  put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][source_name] = 'a'*64
  put('data/pinned-ingress-observations.json',ingress); rejected(); identity['addedSourceSha256'][source_name] = original
@@ -1259,6 +1280,7 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in m.DIVERSITY_CLOSURE if name not in source})
  source.update({name:h for name in m.CSRF_CLOSURE if name not in source})
  source.update({name:h for name in m.OIDC_CLOSURE if name not in source})
+ source.update({name:h for name in m.COMBO_METRICS_CLOSURE if name not in source})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1274,6 +1296,7 @@ with tempfile.TemporaryDirectory() as d:
  identity['diversityClosure']={name:source[name] for name in m.DIVERSITY_CLOSURE}
  identity['csrfClosure']={name:source[name] for name in m.CSRF_CLOSURE}
  identity['oidcClosure']={name:source[name] for name in m.OIDC_CLOSURE}
+ identity['comboMetricsClosure']={name:source[name] for name in m.COMBO_METRICS_CLOSURE}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
@@ -1361,8 +1384,12 @@ with tempfile.TemporaryDirectory() as d:
  collection={'getStatus':200,'patchStatus':200,'patchCount':1,'patchedActive':True,'deleteStatus':200,'deleteCount':1,'deletedAbsent':True,'nodeGetStatus':200,'nodeCount':0}
  node={'status':201,'persisted':True,'prefix':'native-fixture-node'}
  cases=[('GET /api/keys',200),('GET /api/keys/{id}',200),('GET /api/settings/proxies/assignments',200),('GET /api/v1/management/proxies/assignments',200),('GET /api/v1/management/proxies/assignments',400),('GET /api/models',200),('GET /api/models',400),('POST /api/combos',201),('GET /api/settings/proxies/assignments',200),('GET /api/v1/management/proxies/assignments',200),('POST /api/combos',201),('PATCH /api/combos/{id}',200),('PUT /api/combos/{id}',200),('GET /api/combos/{id}',200),('GET /api/combos',200),('POST /api/combos/reorder',200),('GET /api/combos/export',200),('POST /api/combos/import',200),('POST /api/combos/import',400),('DELETE /api/combos/{id}',200),('GET /api/settings/proxies/assignments',200),('GET /api/keys/{id}',200),('POST /api/combos/import',200),('GET /api/combos/auto',200),('GET /api/combos/builder/options',200),('POST /api/combos/duplicate',201),('GET /api/combos/metrics',200),('DELETE /api/combos/metrics',200),('POST /api/combos/duplicate',422),('POST /api/combos/test',404)]
- combo={'phase':'cold','driver':'node:sqlite','observations':[{'operation':op,'status':status,'mediaType':'application/json'} for op,status in cases],'grantAfterDelete':['combo/*'],'deletedAbsent':True,'importedPersisted':True,'exportSecretAbsent':True}
- cwarm={'phase':'warm','driver':'node:sqlite','importedPersisted':True,'deletedAbsent':True}
+ metrics_index=cases.index(('GET /api/combos/metrics',200))
+ cases[metrics_index:metrics_index+2]=[(method+' /api/combos/metrics',200) for method in ('GET','GET','GET','DELETE','GET','GET','DELETE','GET')]
+ coldmetrics={'hiddenOnlyGetNull':True,'hiddenOnlyOwnerCount':1,'selectedProduction':1,'selectedShadow':1,'selectedHidden':1,'allNames':2,'selectedResetAbsent':True,'unrelatedProduction':1,'unrelatedShadow':1,'unrelatedHidden':1,'globalResetAbsent':True,'restartSeedProduction':1,'restartSeedShadow':1,'restartSeedHidden':1,'cleanupTimerObservable':False}
+ warmmetrics={'freshProcessProductionAndShadowAbsent':True,'freshProcessHiddenCount':0,'cleanupTimerObservable':False}
+ combo={'phase':'cold','driver':'node:sqlite','observations':[{'operation':op,'status':status,'mediaType':'application/json'} for op,status in cases],'grantAfterDelete':['combo/*'],'deletedAbsent':True,'importedPersisted':True,'exportSecretAbsent':True,'metricsLifecycle':coldmetrics}
+ cwarm={'phase':'warm','driver':'node:sqlite','importedPersisted':True,'deletedAbsent':True,'metricsLifecycle':warmmetrics}
  for name,value in [('provider-lifecycle.json',provider),('provider-warm.json',pwarm),('provider-collection-lifecycle.json',collection),('provider-node-create.json',node),('cold-combo-lifecycle.json',combo),('warm-combo-lifecycle.json',cwarm)]: put(name,value)
  sweeps=[{'phase':phase,'firstStatus':200,'secondStatus':200,'encryptedAfterFirst':success,'encryptedAfterSecond':success,'cacheInvalidated':success,'nativeBackupCalls':0,'backupCountBefore':0,'backupCountAfter':0} for phase,success in [('sweep-success',True),('sweep-failure',False)]]
  for value in sweeps: put(value['phase']+'.json',value)
@@ -1375,6 +1402,11 @@ with tempfile.TemporaryDirectory() as d:
  collection['deletedAbsent']=False; put('provider-collection-lifecycle.json',collection); reject_without_export(); collection['deletedAbsent']=True; put('provider-collection-lifecycle.json',collection)
  node['persisted']=False; put('provider-node-create.json',node); reject_without_export(); node['persisted']=True; put('provider-node-create.json',node)
  combo['observations'][0]['status']=500; put('cold-combo-lifecycle.json',combo); reject_without_export(); combo['observations'][0]['status']=200; put('cold-combo-lifecycle.json',combo)
+ removed=combo['observations'].pop(metrics_index); put('cold-combo-lifecycle.json',combo); reject_without_export(); combo['observations'].insert(metrics_index,removed); put('cold-combo-lifecycle.json',combo)
+ coldmetrics['unrelatedHidden']=0; put('cold-combo-lifecycle.json',combo); reject_without_export(); coldmetrics['unrelatedHidden']=1; put('cold-combo-lifecycle.json',combo)
+ removed=coldmetrics.pop('hiddenOnlyOwnerCount'); put('cold-combo-lifecycle.json',combo); reject_without_export(); coldmetrics['hiddenOnlyOwnerCount']=removed; put('cold-combo-lifecycle.json',combo)
+ warmmetrics['freshProcessHiddenCount']=False; put('warm-combo-lifecycle.json',cwarm); reject_without_export(); warmmetrics['freshProcessHiddenCount']=0; put('warm-combo-lifecycle.json',cwarm)
+ closure=identity['comboMetricsClosure']; identity['comboMetricsClosure']={**closure,m.COMBO_METRICS_CLOSURE[0]:'c'*64}; put('core-identity.json',identity); reject_without_export(); identity['comboMetricsClosure']=closure; put('core-identity.json',identity)
  cwarm['importedPersisted']=False; put('warm-combo-lifecycle.json',cwarm); reject_without_export(); cwarm['importedPersisted']=True; put('warm-combo-lifecycle.json',cwarm)
  (p/'provider-node-create.json').unlink(); reject_without_export(); put('provider-node-create.json',node)
  sweeps[1]['encryptedAfterSecond']=True; put('sweep-failure.json',sweeps[1]); reject_without_export(); sweeps[1]['encryptedAfterSecond']=False; put('sweep-failure.json',sweeps[1])

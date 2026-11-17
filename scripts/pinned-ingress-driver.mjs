@@ -295,6 +295,52 @@ try {
     diversityAuth[name] = { status: r.status, routeClass: r.routeClass, body: r.status === 200 ? r.body : null };
   }
   const diversityHttp = { auth: diversityAuth };
+  // The wrapper exists only in this disposable bundle; ordinary requests run the pinned route.
+  const metricsPath = '/api/combos/metrics';
+  const metricsAuth = {};
+  const metricsCredentials = { anonymous: {}, invalid: { authorization: 'Bearer invalid' }, session: { cookie }, 'key-read': { authorization: `Bearer ${managementKeys.read}` }, 'key-write': { authorization: `Bearer ${managementKeys.write}` }, 'key-manage': { authorization: `Bearer ${managementKeys.manage}` }, 'key-admin': { authorization: `Bearer ${managementKeys.admin}` }, 'oma-read': { authorization: `Bearer ${scopedTokens.read}` }, 'oma-write': { authorization: `Bearer ${scopedTokens.write}` }, 'oma-admin': { authorization: `Bearer ${scopedTokens.admin}` } };
+  for (const method of ['GET', 'DELETE']) {
+    metricsAuth[method] = {};
+    for (const [name, headers] of Object.entries(metricsCredentials)) {
+      const r = await request(metricsPath, method, headers);
+      metricsAuth[method][name] = { status: r.status, routeClass: r.routeClass };
+    }
+  }
+  const fixtureMetrics = async action => {
+    const r = await request(metricsPath, 'GET', { cookie, 'x-ingress-metrics-fixture': action });
+    assert(r.status === 200 && r.routeClass === 'MANAGEMENT' && Array.isArray(r.body?.states), `metrics-fixture-${action}`);
+    return r.body.states;
+  };
+  const metricGet = async query => {
+    const r = await request(metricsPath + query, 'GET', { cookie });
+    assert(r.status === 200 && r.routeClass === 'MANAGEMENT', `metrics-get-${query}`);
+    return r.body.metrics;
+  };
+  const metricDelete = async query => {
+    const r = await request(metricsPath + query, 'DELETE', { cookie });
+    assert(r.status === 200 && r.routeClass === 'MANAGEMENT' && r.body?.success === true, `metrics-delete-${query}`);
+  };
+  await fixtureMetrics('hidden');
+  const hiddenOnlyGetNull = (await metricGet('?combo=fixture-selected')) === null;
+  const hiddenOnlyCount = (await fixtureMetrics('inspect'))[0].hidden;
+  await fixtureMetrics('seed');
+  const selected = await metricGet('?combo=fixture-selected');
+  const all = await metricGet('');
+  const metricsEmpty = await metricGet('?combo=');
+  const prototype = await metricGet('?combo=__proto__');
+  const seededStates = await fixtureMetrics('inspect');
+  await metricDelete('?combo=fixture-selected');
+  const selectedAfter = await metricGet('?combo=fixture-selected');
+  const otherAfter = await metricGet('?combo=fixture-other');
+  const selectedStates = await fixtureMetrics('inspect');
+  await metricDelete('?combo=');
+  const afterEmptyDelete = await metricGet('');
+  const emptyStates = await fixtureMetrics('inspect');
+  await fixtureMetrics('hidden'); await fixtureMetrics('seed');
+  await metricDelete('');
+  const afterGlobal = await metricGet('');
+  const globalStates = await fixtureMetrics('inspect');
+  const metricsHttp = { auth: metricsAuth, hiddenOnlyGetNull, hiddenOnlyCount, selectedProduction: selected?.totalRequests, selectedShadow: selected?.shadow?.totalRequests, selectedHidden: selected?.persistedSkipBypassed, allNames: Object.keys(all).sort(), emptyNames: Object.keys(metricsEmpty).sort(), prototypeSelected: prototype?.totalRequests, prototypeInAll: Object.hasOwn(all, '__proto__'), seededStates, selectedAfterNull: selectedAfter === null, unrelatedProduction: otherAfter?.totalRequests, unrelatedShadow: otherAfter?.shadow?.totalRequests, unrelatedHidden: otherAfter?.persistedSkipBypassed, selectedStates, afterEmptyDeleteNames: Object.keys(afterEmptyDelete).sort(), emptyStates, afterGlobalNames: Object.keys(afterGlobal).sort(), globalStates };
   await ready(historyChild, 43181);
   const historyPath = '/api/a2a/tasks/history';
   const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
@@ -651,7 +697,7 @@ try {
     ['PUT', '/api/providers/fixture-id/param-filters'],
   ];
   for (const [method, path] of familyPolicyCases) {
-    const control = path === reasoningPath || path === deprecatedPath ? { 'x-ingress-policy-control': '1' } : {};
+    const control = path === reasoningPath || path === deprecatedPath || path === metricsPath ? { 'x-ingress-policy-control': '1' } : {};
     const denied = await request(path, method, control);
     const invalid = await request(path, method, { ...control, authorization: `Bearer ${invalidCredential}` });
     const allowed = await request(path, method, { ...control, cookie });
@@ -669,7 +715,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, oidcHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, csrfHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp, oidcHttp, metricsHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   oidcDb.close();
   await new Promise(resolve => issuer.close(resolve));

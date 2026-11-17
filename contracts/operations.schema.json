@@ -1061,7 +1061,7 @@
       "required": ["operationId", "method", "pathTemplate", "request", "response", "mediaType", "auth", "secrets", "sideEffect", "pagination", "streaming", "confirmation", "retry", "source", "specification", "reconciliation", "mutationSafety", "coverage"],
       "allOf": [
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/providers/deprecated", "GET /api/acp/agents", "GET /api/a2a/status", "GET /api/auth/csrf"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/health", "GET /api/health/degradation", "GET /api/agent-skills", "GET /api/providers/deprecated", "GET /api/acp/agents", "GET /api/a2a/status", "GET /api/auth/csrf", "GET /api/combos/metrics", "DELETE /api/combos/metrics"] } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["ingressSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["ingressSha256"] } } } }
         },
@@ -1071,12 +1071,16 @@
           "else": { "properties": { "qualification": { "not": { "required": ["lifecycleSha256"] }, "properties": { "binding": { "not": { "required": ["databaseInitializationRequired"] } } } } } }
         },
         {
-          "if": { "properties": { "operationId": { "enum": ["GET /api/providers/deprecated", "GET /api/auth/csrf"] } }, "required": ["operationId"] },
+          "if": { "properties": { "operationId": { "enum": ["GET /api/providers/deprecated", "GET /api/auth/csrf", "GET /api/combos/metrics", "DELETE /api/combos/metrics"] } }, "required": ["operationId"] },
           "then": { "properties": { "qualification": { "required": ["effectSha256"] } } },
           "else": { "properties": { "qualification": { "not": { "required": ["effectSha256"] } } } }
         },
         {
           "if": { "properties": { "operationId": { "const": "GET /api/auth/csrf" } }, "required": ["operationId"] },
+          "then": { "required": ["databaseInitializationRequired"], "properties": { "qualification": { "required": ["effectSha256", "lifecycleSha256", "ingressSha256"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } } } }
+        },
+        {
+          "if": { "properties": { "operationId": { "enum": ["GET /api/combos/metrics", "DELETE /api/combos/metrics"] } }, "required": ["operationId"] },
           "then": { "required": ["databaseInitializationRequired"], "properties": { "qualification": { "required": ["effectSha256", "lifecycleSha256", "ingressSha256"], "properties": { "binding": { "required": ["databaseInitializationRequired"] } } } } }
         },
         {

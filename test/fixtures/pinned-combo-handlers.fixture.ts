@@ -70,6 +70,9 @@ export interface PinnedComboMetrics {
     options: { success: boolean; latencyMs: number; fallbackCount?: number; strategy?: string; target?: Record<string, unknown> },
   ): void;
   recordComboIntent(name: string, intent: string): void;
+  recordComboShadowRequest(name: string, model: string | null, options: { success: boolean; latencyMs: number }): void;
+  recordPersistedSkipBypass(name: string): void;
+  getPersistedSkipBypassed(name: string): number;
   resetComboMetrics(name: string): void;
   resetAllComboMetrics(): void;
 }
@@ -594,6 +597,7 @@ function loadComboRoutes(options: {
   breakerState: () => string;
   capabilityDrift: () => boolean;
   includeSecondModel: boolean;
+  metricsFailure: () => "GET" | "DELETE" | undefined;
 }): { routes: PinnedComboHandlers["routes"]; metrics: PinnedComboMetrics } {
   const { authorization, store } = options;
   class FixtureNextResponse extends Response {
@@ -726,14 +730,23 @@ function loadComboRoutes(options: {
     if (specifier === "@omniroute/open-sse/services/autoCombo/builtinCatalog") return builtinCatalog;
     throw new Error(`Unapproved pinned auto-virtual import: ${specifier}`);
   });
+  const diversity = loadPinnedModule("open-sse/services/autoCombo/providerDiversity.ts", specifier => {
+    throw new Error(`Unapproved pinned provider-diversity import: ${specifier}`);
+  }, { date: options.date });
   const metricsModule = loadPinnedModule("open-sse/services/comboMetrics.ts", specifier => {
-    if (specifier === "./autoCombo/providerDiversity") return { recordProviderUsage: () => undefined };
+    if (specifier === "./autoCombo/providerDiversity") return diversity;
     throw new Error(`Unapproved pinned combo-metrics import: ${specifier}`);
   }, { date: options.date });
   for (const exportName of ["getAllComboMetrics", "getComboMetrics", "recordComboRequest", "recordComboIntent", "resetComboMetrics", "resetAllComboMetrics"]) {
     if (typeof metricsModule[exportName] !== "function") throw new Error(`Pinned combo metrics omitted ${exportName}`);
   }
   const metrics = metricsModule as unknown as PinnedComboMetrics;
+  const routeMetrics = {
+    getAllComboMetrics: () => { if (options.metricsFailure() === "GET") throw new Error("fixture-private-metrics-failure"); return metrics.getAllComboMetrics(); },
+    getComboMetrics: (name: string) => { if (options.metricsFailure() === "GET") throw new Error("fixture-private-metrics-failure"); return metrics.getComboMetrics(name); },
+    resetComboMetrics: (name: string) => { if (options.metricsFailure() === "DELETE") throw new Error("fixture-private-metrics-failure"); metrics.resetComboMetrics(name); },
+    resetAllComboMetrics: () => { if (options.metricsFailure() === "DELETE") throw new Error("fixture-private-metrics-failure"); metrics.resetAllComboMetrics(); },
+  };
   const mediaCatalogs = loadPinnedMediaCatalogs();
   const builderOptions = loadPinnedModule("src/lib/combos/builderOptions.ts", specifier => {
     if (Object.hasOwn(mediaCatalogs, specifier)) return mediaCatalogs[specifier];
@@ -807,7 +820,7 @@ function loadComboRoutes(options: {
       "@/lib/combos/portable": portable,
       "@/app/api/settings/export-json/route": { filterPaidComboSteps: () => { throw new Error("Paid-model filtering is outside this fixture"); } },
     }),
-    "src/app/api/combos/metrics/route.ts": loadRoute("src/app/api/combos/metrics/route.ts", { "@omniroute/open-sse/services/comboMetrics.ts": metrics }),
+    "src/app/api/combos/metrics/route.ts": loadRoute("src/app/api/combos/metrics/route.ts", { "@omniroute/open-sse/services/comboMetrics.ts": routeMetrics }),
     "src/app/api/combos/duplicate/route.ts": loadRoute("src/app/api/combos/duplicate/route.ts", {
       "@/lib/combos/snapshotWeights": loadPinnedModule("src/lib/combos/snapshotWeights.ts", () => { throw new Error("Pinned snapshot weight normalizer has no runtime imports"); }),
       "@omniroute/open-sse/services/autoCombo/builtinCatalog": builtinCatalog,
@@ -874,6 +887,7 @@ export function createPinnedComboHandlers(options: {
   breakerState?: () => string;
   capabilityDrift?: () => boolean;
   includeSecondModel?: boolean;
+  metricsFailure?: () => "GET" | "DELETE" | undefined;
 }): PinnedComboHandlers {
   const loaded = loadComboRoutes({
     ...options,
@@ -881,6 +895,7 @@ export function createPinnedComboHandlers(options: {
     date: options.date ?? globalThis.Date,
     breakerState: options.breakerState ?? (() => "CLOSED"),
     capabilityDrift: options.capabilityDrift ?? (() => false),
+    metricsFailure: options.metricsFailure ?? (() => undefined),
     includeSecondModel: options.includeSecondModel ?? false,
   });
   return { authorization: options.authorization, routes: loaded.routes, metrics: loaded.metrics };

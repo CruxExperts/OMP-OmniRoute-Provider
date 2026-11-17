@@ -407,6 +407,39 @@ OIDC_LOGIN = 'src/app/api/auth/oidc/login/route.ts'
 OIDC_CALLBACK = 'src/app/api/auth/oidc/callback/route.ts'
 OIDC_CLOSURE = (OIDC_LOGIN, OIDC_CALLBACK, 'src/lib/oauth/utils/pkce.ts', 'src/shared/utils/oidcAdmissionClaim.ts', 'src/shared/utils/timingSafeCompare.ts', 'src/shared/utils/dashboardSessionToken.ts', 'src/lib/db/readCache.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts', 'src/lib/db/encryption.ts')
 ROUTES += (OIDC_LOGIN, OIDC_CALLBACK, 'src/lib/oauth/utils/pkce.ts', 'src/shared/utils/oidcAdmissionClaim.ts')
+COMBO_METRICS_CLOSURE = ('src/app/api/combos/metrics/route.ts', 'open-sse/services/comboMetrics.ts', 'open-sse/services/autoCombo/providerDiversity.ts')
+COMBO_METRICS_ROUTE = COMBO_METRICS_CLOSURE[0]
+COMBO_METRICS_WRAPPER = b'''import { GET as sourceGet, DELETE as sourceDelete } from "./fixture-source";
+import { GET as policyGet, DELETE as policyDelete } from "./fixture-policy";
+import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { NextResponse } from "next/server";
+import { recordComboRequest, recordComboShadowRequest, recordPersistedSkipBypass, getComboMetrics, getPersistedSkipBypassed, resetAllComboMetrics } from "@omniroute/open-sse/services/comboMetrics.ts";
+export const dynamic = "force-dynamic";
+export async function GET(request: Request) {
+  if (request.headers.get("x-ingress-policy-control") === "1") return policyGet();
+  const action = request.headers.get("x-ingress-metrics-fixture");
+  if (!action) return sourceGet(request);
+  const denied = await requireManagementAuth(request);
+  if (denied) return denied;
+  if (action === "hidden") {
+    resetAllComboMetrics();
+    recordPersistedSkipBypass("fixture-selected");
+  } else if (action === "seed") {
+    for (const name of ["fixture-selected", "fixture-other"]) {
+      recordComboRequest(name, null, { success: true, latencyMs: 1 });
+      recordComboShadowRequest(name, null, { success: true, latencyMs: 1 });
+    }
+    recordPersistedSkipBypass("fixture-other");
+    recordPersistedSkipBypass("fixture-hidden");
+    recordComboRequest("__proto__", null, { success: true, latencyMs: 1 });
+  } else if (action !== "inspect") return NextResponse.json({ error: "fixture action" }, { status: 400 });
+  const names = ["fixture-selected", "fixture-other", "fixture-hidden", "__proto__"];
+  return NextResponse.json({ states: names.map(name => ({ visible: getComboMetrics(name) !== null, hidden: getPersistedSkipBypassed(name) })) });
+}
+export async function DELETE(request: Request) {
+  return request.headers.get("x-ingress-policy-control") === "1" ? policyDelete() : sourceDelete(request);
+}
+'''
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
@@ -566,7 +599,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'csrfLifecycle': bounded_json(output / 'export/csrf-lifecycle.json'), 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json'), 'oidcLifecycle': bounded_json(output / 'export/oidc-settings-lifecycle.json'), 'comboLifecycle': bounded_json(output / 'export/combo-lifecycle.json')}
 
 
 def materialize(real_core=False):
@@ -677,6 +710,8 @@ def materialize(real_core=False):
         require(support[REASONING_ROUTE] == '8607798ef6ffb9deed566cea0f25e7c9438be8eb090d1196240fab6a4f6d3018', 'reasoning route identity mismatch')
         put(app, 'src/app/api/settings/reasoning-routing-rules/fixture-source.ts', (app / REASONING_ROUTE).read_bytes())
         put(app, 'src/app/api/settings/reasoning-routing-rules/fixture-policy.ts', control)
+        put(app, 'src/app/api/combos/metrics/fixture-source.ts', (app / COMBO_METRICS_ROUTE).read_bytes())
+        put(app, 'src/app/api/combos/metrics/fixture-policy.ts', control)
         deprecated_route, deprecated_helper, deprecated_registry = deprecated_ingress_source(
             (app / DEPRECATED_ROUTE).read_bytes(), (effective / DEPRECATED_HELPER).read_bytes(), (effective / DEPRECATED_REGISTRY).read_bytes())
         put(app, 'src/app/api/providers/deprecated/fixture-source.ts', deprecated_route)
@@ -685,7 +720,8 @@ def materialize(real_core=False):
         put(app, DEPRECATED_HELPER, deprecated_helper)
         put(app, 'src/lib/providers/fixture-deprecation-registry.ts', deprecated_registry)
         for route in POLICY_SOURCES:
-            replace_policy_control(app, route, support[route], REASONING_WRAPPER if route in (REASONING_ROUTE, DEPRECATED_ROUTE) else control)
+            wrapper = COMBO_METRICS_WRAPPER if route == COMBO_METRICS_ROUTE else REASONING_WRAPPER if route in (REASONING_ROUTE, DEPRECATED_ROUTE) else control
+            replace_policy_control(app, route, support[route], wrapper)
     (app / 'docs').mkdir(exist_ok=True)
     os.symlink('/work/app/node_modules', '/work/node_modules')
     return {'selectedSourceFiles': len(selected), 'configSupportSha256': support, 'packageCount': len(locations), 'archiveSha256': ARCHIVE_SHA, **source_identity}
@@ -1049,7 +1085,7 @@ def apply_overlays(app, fixture, aliases):
 def approved_source(with_identity=False):
     raw = SOURCE.read_bytes()
     require(sha(raw) == ARCHIVE_SHA, 'source archive mismatch')
-    names = set(ROUTES) | set(OIDC_CLOSURE) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
+    names = set(ROUTES) | set(OIDC_CLOSURE) | set(COMBO_METRICS_CLOSURE) | set(POLICY_SOURCES) | set(READ_CLOSURES) | set(ACP_AUTH_SOURCES) | set(LOGIN_DEPENDENCIES) | {LOGIN_PASSWORD, LOGIN_FLAGS, DEPRECATED_HELPER, DEPRECATED_REGISTRY, AUTH_SESSION, AUTH_SETTINGS, AUTH_SHARED, ACP_ROUTE, ACP_REGISTRY, ACP_MANIFEST, ACP_PEER_STAMP, LIVE_ROUTE, REASONING_STORE, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts', 'src/proxy.ts'} | {a['source'] for a in json.loads((FIXTURE / 'alias-map.json').read_text())['aliases']}
     found = {}
     with tarfile.open(fileobj=io.BytesIO(raw), mode='r:gz') as archive:
         for member in archive:
@@ -1091,6 +1127,8 @@ def provision(material):
             else:
                 target.write_bytes(data)
             identities[name] = sha(data)
+    for name in COMBO_METRICS_CLOSURE[1:]:
+        identities[name] = sha((app / name).read_bytes())
     for name in (ACP_ROUTE, ACP_MANIFEST, ACP_PEER_STAMP, *ACP_AUTH_SOURCES):
         identities[name] = sha((app / name).read_bytes())
     registry_base = json.loads((fixture / 'source-manifest.json').read_text())['additionalFiles'][ACP_REGISTRY]['sha256']
@@ -1122,6 +1160,9 @@ def provision(material):
     require(sha((app / 'src/app/api/settings/reasoning-routing-rules/fixture-source.ts').read_bytes()) == reasoning_original, 'reasoning source mount mismatch')
     require((app / REASONING_ROUTE).read_bytes() == REASONING_WRAPPER and (app / 'src/app/api/settings/reasoning-routing-rules/fixture-policy.ts').read_bytes() == (fixture / 'routes/management.ts').read_bytes(), 'reasoning wrapper mismatch')
     identities[REASONING_ROUTE] = {'originalSha256': reasoning_original, 'executedSha256': reasoning_original, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': sha((fixture / 'routes/management.ts').read_bytes())}
+    combo_original = material['configSupportSha256'][COMBO_METRICS_ROUTE]
+    require(sha((app / 'src/app/api/combos/metrics/fixture-source.ts').read_bytes()) == combo_original and (app / COMBO_METRICS_ROUTE).read_bytes() == COMBO_METRICS_WRAPPER and (app / 'src/app/api/combos/metrics/fixture-policy.ts').read_bytes() == (fixture / 'routes/management.ts').read_bytes(), 'combo metrics fixture boundary mismatch')
+    identities[COMBO_METRICS_ROUTE] = {'originalSha256': combo_original, 'executedSha256': combo_original, 'wrapperSha256': sha(COMBO_METRICS_WRAPPER), 'policySha256': sha((fixture / 'routes/management.ts').read_bytes())}
     identities[REASONING_STORE] = sha((app / REASONING_STORE).read_bytes())
     with tarfile.open(archive_path, 'r:gz') as archive:
         originals = {}
@@ -1476,6 +1517,7 @@ def core_lifecycle(material, deadline):
     identity['csrfClosure'] = {name: source[name] for name in CSRF_CLOSURE}
     identity['oidcClosure'] = {name: source[name] for name in OIDC_CLOSURE}
     identity['oidcCallbackSelectedSha256'] = sha(replace_once(callback_source, 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode())
+    identity['comboMetricsClosure'] = {name: source[name] for name in COMBO_METRICS_CLOSURE}
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1722,6 +1764,8 @@ def export_core_lifecycle(output, hashes):
     approved = approved_source()
     selected = replace_once(approved[OIDC_CALLBACK].decode(), 'from "next/headers"', 'from "./pinnedLifecycleCookies"').encode()
     require(identity.get('oidcCallbackSelectedSha256') == sha(selected), 'native callback seam mismatch')
+    require(all(name in source for name in COMBO_METRICS_CLOSURE) and identity.get('comboMetricsClosure') == {name: source[name] for name in COMBO_METRICS_CLOSURE}, 'invalid native combo metrics source closure')
+    public_identity['comboMetricsClosure'] = identity['comboMetricsClosure']
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
@@ -1773,15 +1817,23 @@ def export_core_lifecycle(output, hashes):
         ('GET /api/combos/export', 200), ('POST /api/combos/import', 200), ('POST /api/combos/import', 400),
         ('DELETE /api/combos/{id}', 200), ('GET /api/settings/proxies/assignments', 200), ('GET /api/keys/{id}', 200),
         ('POST /api/combos/import', 200), ('GET /api/combos/auto', 200), ('GET /api/combos/builder/options', 200),
-        ('POST /api/combos/duplicate', 201), ('GET /api/combos/metrics', 200), ('DELETE /api/combos/metrics', 200),
+        ('POST /api/combos/duplicate', 201), ('GET /api/combos/metrics', 200), ('GET /api/combos/metrics', 200),
+        ('GET /api/combos/metrics', 200), ('DELETE /api/combos/metrics', 200), ('GET /api/combos/metrics', 200),
+        ('GET /api/combos/metrics', 200), ('DELETE /api/combos/metrics', 200), ('GET /api/combos/metrics', 200),
         ('POST /api/combos/duplicate', 422), ('POST /api/combos/test', 404),
     ]
-    require(isinstance(combo_cold, dict) and set(combo_cold) == {'phase', 'driver', 'observations', 'grantAfterDelete', 'deletedAbsent', 'importedPersisted', 'exportSecretAbsent'}
+    cold_metrics = {'hiddenOnlyGetNull': True, 'hiddenOnlyOwnerCount': 1, 'selectedProduction': 1, 'selectedShadow': 1, 'selectedHidden': 1, 'allNames': 2, 'selectedResetAbsent': True, 'unrelatedProduction': 1, 'unrelatedShadow': 1, 'unrelatedHidden': 1, 'globalResetAbsent': True, 'restartSeedProduction': 1, 'restartSeedShadow': 1, 'restartSeedHidden': 1, 'cleanupTimerObservable': False}
+    warm_metrics = {'freshProcessProductionAndShadowAbsent': True, 'freshProcessHiddenCount': 0, 'cleanupTimerObservable': False}
+    require(isinstance(combo_cold, dict) and set(combo_cold) == {'phase', 'driver', 'observations', 'grantAfterDelete', 'deletedAbsent', 'importedPersisted', 'exportSecretAbsent', 'metricsLifecycle'}
             and combo_cold['phase'] == 'cold' and combo_cold['driver'] == 'node:sqlite'
             and combo_cold['grantAfterDelete'] == ['combo/*'] and combo_cold['deletedAbsent'] is True
             and combo_cold['importedPersisted'] is True and combo_cold['exportSecretAbsent'] is True
+            and json.dumps(combo_cold['metricsLifecycle'], sort_keys=True) == json.dumps(cold_metrics, sort_keys=True)
             and combo_cold['observations'] == [{'operation': operation, 'status': status, 'mediaType': 'application/json'} for operation, status in expected_combo], 'combo cold lifecycle mismatch')
-    require(combo_warm == {'phase': 'warm', 'driver': 'node:sqlite', 'importedPersisted': True, 'deletedAbsent': True}, 'combo warm lifecycle mismatch')
+    require(isinstance(combo_warm, dict) and set(combo_warm) == {'phase', 'driver', 'importedPersisted', 'deletedAbsent', 'metricsLifecycle'}
+            and combo_warm['phase'] == 'warm' and combo_warm['driver'] == 'node:sqlite'
+            and combo_warm['importedPersisted'] is True and combo_warm['deletedAbsent'] is True
+            and json.dumps(combo_warm['metricsLifecycle'], sort_keys=True) == json.dumps(warm_metrics, sort_keys=True), 'combo warm lifecycle mismatch')
     export = output / 'export'
     export.mkdir(mode=0o700)
     save(export / 'a2a-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'inputSha256': hashes, 'identity': {**public_identity, 'a2aClosure': identity['a2aClosure']}, 'cold': a2a_cold, 'warm': a2a_warm})
@@ -1804,7 +1856,7 @@ def export_core_lifecycle(output, hashes):
          'scenarioArguments': [runner_arguments + [phase] for phase in ('sweep-success', 'sweep-failure')],
          'scenarioEnvironment': {'encryptionKey': 'fixture-only', 'database': 'fresh-per-process', 'auth': 'disabled'}, 'scenarios': sweeps})
     save(export / 'combo-lifecycle.json', {'status': 'research-observed', 'qualification': False,
-         'boundary': 'Pinned combo handlers and stores in the real cold core with a separate warm read; not an ingress or executor qualification.',
+         'boundary': 'Pinned combo handlers and stores in the real cold core with a separate warm process. Durable combo rows and process-local metrics are distinct observations; hidden-only counters and prototype keys cannot be excluded by GET alone. No ingress, atomic lock or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': combo_cold, 'warm': combo_warm})
 
 
@@ -2011,7 +2063,7 @@ def export_observations(output, hashes):
     source_identity = effective_source_identities(SOURCE)
     require(all(material.get(key) == value and identity.get(key) == value for key, value in source_identity.items()) and all(key in source_identity or (key not in material and key not in identity) for key in ('sourceDerivation', 'effectiveTreeSha256')), 'effective source identity mismatch')
     source = approved_source()
-    identity_names = set(ROUTES) | set(POLICY_SOURCES) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
+    identity_names = set(ROUTES) | set(POLICY_SOURCES) | set(COMBO_METRICS_CLOSURE) | {'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts', 'src/app/api/health/route.ts'}
     source_hashes = {name: sha(source[name]) for name in identity_names}
     source_hashes.update({name: sha(source[name]) for name in (ACP_ROUTE, ACP_MANIFEST, ACP_PEER_STAMP, *ACP_AUTH_SOURCES)})
     source_hashes[ACP_REGISTRY] = {'originalSha256': sha(source[ACP_REGISTRY]), 'executedSha256': sha(acp_registry_bytes(source[ACP_REGISTRY])), 'processBoundarySha256': sha(acp_process_boundary()), 'ownedProbeSha256': sha(ACP_PROBE)}
@@ -2023,6 +2075,7 @@ def export_observations(output, hashes):
     source_hashes[LIVE_ROUTE] = {'originalSha256': live_sha, 'executedSha256': live_sha}
     reasoning_sha = sha(source[REASONING_ROUTE])
     source_hashes[REASONING_ROUTE] = {'originalSha256': reasoning_sha, 'executedSha256': reasoning_sha, 'wrapperSha256': sha(REASONING_WRAPPER), 'policySha256': hashes['test/fixtures/pinned-ingress/routes/management.ts']}
+    source_hashes[COMBO_METRICS_ROUTE] = {'originalSha256': sha(source[COMBO_METRICS_ROUTE]), 'executedSha256': sha(source[COMBO_METRICS_ROUTE]), 'wrapperSha256': sha(COMBO_METRICS_WRAPPER), 'policySha256': hashes['test/fixtures/pinned-ingress/routes/management.ts']}
     source_hashes[REASONING_STORE] = sha(source[REASONING_STORE])
     route, helper, registry = deprecated_ingress_source(source[DEPRECATED_ROUTE], source[DEPRECATED_HELPER], source[DEPRECATED_REGISTRY])
     source_hashes[DEPRECATED_ROUTE] = {'originalSha256': sha(source[DEPRECATED_ROUTE]), 'executedSha256': sha(route), 'wrapperSha256': sha(REASONING_WRAPPER), 'backendSha256': sha(DEPRECATED_BACKEND), 'helperOriginalSha256': sha(source[DEPRECATED_HELPER]), 'helperExecutedSha256': sha(helper), 'registryOriginalSha256': sha(source[DEPRECATED_REGISTRY]), 'registryExecutedSha256': sha(registry)}
@@ -2110,6 +2163,22 @@ def export_observations(output, hashes):
     diversity = ingress['diversityHttp']
     diversity_body = {'score': 1, 'totalRequests': 0, 'providers': {}, 'windowSize': 200, 'ttlMs': 3600000}
     require(diversity == {'auth': {name: {'status': status, 'routeClass': 'MANAGEMENT', 'body': diversity_body if status == 200 else None} for name, status in analytics_statuses.items()}}, 'diversity HTTP mismatch')
+    metrics = ingress['metricsHttp']
+    get_status = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-manage': 200, 'key-admin': 200, 'oma-read': 200, 'oma-write': 200, 'oma-admin': 200}
+    delete_status = {**get_status, 'oma-read': 403}
+    state = lambda visible, hidden: {'visible': visible, 'hidden': hidden}
+    zero = [state(False, 0) for _ in range(4)]
+    expected_metrics = {
+        'auth': {method: {name: {'status': status, 'routeClass': 'MANAGEMENT'} for name, status in statuses.items()} for method, statuses in (('GET', get_status), ('DELETE', delete_status))},
+        'hiddenOnlyGetNull': True, 'hiddenOnlyCount': 1, 'selectedProduction': 1, 'selectedShadow': 1, 'selectedHidden': 1,
+        'allNames': ['fixture-other', 'fixture-selected'], 'emptyNames': ['fixture-other', 'fixture-selected'],
+        'prototypeSelected': 1, 'prototypeInAll': False,
+        'seededStates': [state(True, 1), state(True, 1), state(False, 1), state(True, 0)],
+        'selectedAfterNull': True, 'unrelatedProduction': 1, 'unrelatedShadow': 1, 'unrelatedHidden': 1,
+        'selectedStates': [state(False, 0), state(True, 1), state(False, 1), state(True, 0)],
+        'afterEmptyDeleteNames': [], 'emptyStates': zero, 'afterGlobalNames': [], 'globalStates': zero,
+    }
+    require(json.dumps(metrics, sort_keys=True) == json.dumps(expected_metrics, sort_keys=True), 'combo metrics HTTP mismatch')
     mfa_status_observation = ingress['mfaStatusHttp']
     require(set(mfa_status_observation) == {'cases', 'enrolled', 'failure'} and set(mfa_status_observation['cases']) == {'anonymous', 'invalid', 'session', 'key-read', 'key-write', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'}, 'MFA status HTTP cases incomplete')
     mfa_statuses = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 403, 'oma-write': 403, 'oma-admin': 200}
@@ -2317,6 +2386,8 @@ def export_observations(output, hashes):
     artifact['autoRoutingAnalyticsHttp'] = analytics
     artifact['compressionAnalyticsHttp'] = compression_http
     artifact['diversityHttp'] = diversity
+    artifact['comboMetricsHttp'] = metrics
+    artifact['limitations'].append('Combo metrics HTTP uses a fixture-only same-bundle owner seeder and inspector; normal requests execute the pinned handler. This observes controlled process state, not production chat, durable counters, other processes, an atomic lock or executor qualification.')
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]
     artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
     artifact['wellKnownHttp'] = public_cards

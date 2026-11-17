@@ -1,8 +1,9 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash } from "../scripts/generate-contracts.ts";
+import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash, validateComboMetricsContract, validateComboMetricsLifecycleObservation } from "../scripts/generate-contracts.ts";
 import { createAdminExecutor, type AdminExecutor } from "../src/admin/executor.ts";
 import { invokeJsonAdapter } from "../src/admin/adapters.ts";
 import { canonicalizeJson, type OperationAdapter } from "../src/admin/registry.ts";
@@ -30,7 +31,8 @@ const executors: AdminExecutor[] = [];
 const observations = new Map<string, Observation>();
 const completedCases = new Map<string, Set<string>>();
 const REQUIRED_CASES = ["authorized-source-http-semantics", "safe-projection-and-state-observation", "denied-management-boundary", "capability-observation"] as const;
-const RESET_REQUIRED_CASES = ["visibility-limited-confirmation-and-one-shot-settlement"] as const;
+const RESET_REQUIRED_CASES = ["visibility-limited-confirmation-and-one-shot-settlement", "reset-plan-invalidation"] as const;
+const METRICS_REQUIRED_CASES = ["paired-source-lifecycle", "selector-and-error-boundary", "management-scope-boundary"] as const;
 const QUALIFIABLE_READ_OPERATIONS = [
   "GET /api/combos", "GET /api/combos/{id}",
   "GET /api/combos/auto", "GET /api/combos/builder/options", "GET /api/combos/metrics",
@@ -179,9 +181,11 @@ afterEach(async () => {
 });
 afterAll(async () => {
   const complete = QUALIFIABLE_OPERATIONS.filter(operationId => {
-    const requiredCases = operationId === "DELETE /api/combos/metrics" ? [...REQUIRED_CASES, ...RESET_REQUIRED_CASES] : operationId === "DELETE /api/combos/{id}" ? [...REQUIRED_CASES, "grant-assignment-drift", "incomplete-inventory", "delete-safety", "dependent-cleanup"] : REQUIRED_CASES;
+    const requiredCases = operationId === "DELETE /api/combos/metrics" ? [...REQUIRED_CASES, ...RESET_REQUIRED_CASES, ...METRICS_REQUIRED_CASES] : operationId === "GET /api/combos/metrics" ? [...REQUIRED_CASES, ...METRICS_REQUIRED_CASES] : operationId === "DELETE /api/combos/{id}" ? [...REQUIRED_CASES, "grant-assignment-drift", "incomplete-inventory", "delete-safety", "dependent-cleanup"] : REQUIRED_CASES;
     return !Object.hasOwn(HELD_SOURCE_ONLY_OPERATION_IDS, operationId) && requiredCases.every(caseId => completedCases.get(operationId)?.has(caseId)) && observations.has(operationId);
   });
+  const pairedMetrics = ["GET /api/combos/metrics", "DELETE /api/combos/metrics"] as const;
+  if (pairedMetrics.some(id => complete.includes(id)) && !pairedMetrics.every(id => complete.includes(id))) throw new Error("Both metrics operation receipts require the complete paired cases");
   if (complete.length === 0) return;
   const directory = resolve(process.cwd(), ".agents/state/omp-provider-release/qualification-observations");
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -193,6 +197,80 @@ afterAll(async () => {
     testOutcomeHash(operationId, TEST_ID, caseSha256, binding, COMBO_SOURCE_CONTRACTS[operationId], artifactPath);
   }
 });
+test("metrics qualification rejects drift in contract and independent native outcomes", () => {
+  const get = "GET /api/combos/metrics", del = "DELETE /api/combos/metrics";
+  validateComboMetricsContract(COMBO_SOURCE_CONTRACTS[get], get);
+  validateComboMetricsContract(COMBO_SOURCE_CONTRACTS[del], del);
+  const unsafe = structuredClone(COMBO_SOURCE_CONTRACTS[del]);
+  expect(() => validateComboMetricsContract({ ...unsafe, retry: { allowed: true, maxAttempts: 2, statusCodes: [] } }, del)).toThrow();
+  const getContract = COMBO_SOURCE_CONTRACTS[get];
+  expect(() => validateComboMetricsContract({ ...getContract, response: { ...getContract.response, schema: { type: "object" } } }, get)).toThrow();
+  expect(() => validateComboMetricsContract({ ...getContract, auth: { ...getContract.auth, domain: "none" } }, get)).toThrow();
+  expect(() => validateComboMetricsContract({ ...unsafe, mutationSafety: { ...unsafe.mutationSafety!, reconciliation: { kind: "absent" } } }, del)).toThrow();
+  const identity = { comboMetricsClosure: { "src/app/api/combos/metrics/route.ts": "e4757286e25c18ad075c5b948bb27cf1e7e3fcb2d01d8053c7d893af9a190416", "open-sse/services/comboMetrics.ts": "9646c1c8138c2ce8ca8440d251cc9e7753ee7ab793fc033b91607fdb922c5b41", "open-sse/services/autoCombo/providerDiversity.ts": "cd9ea0e52b1c86c382129d64ee1c309d3b2723dce3b5037388bfb5d4f642ea9b" } };
+  const coldMetrics = { hiddenOnlyGetNull: true, hiddenOnlyOwnerCount: 1, selectedProduction: 1, selectedShadow: 1, selectedHidden: 1, allNames: 2, selectedResetAbsent: true, unrelatedProduction: 1, unrelatedShadow: 1, unrelatedHidden: 1, globalResetAbsent: true, restartSeedProduction: 1, restartSeedShadow: 1, restartSeedHidden: 1, cleanupTimerObservable: false };
+  const warmMetrics = { freshProcessProductionAndShadowAbsent: true, freshProcessHiddenCount: 0, cleanupTimerObservable: false };
+  const observations = ["GET", "GET", "GET", "DELETE", "GET", "GET", "DELETE", "GET"].map(method => ({ operation: `${method} /api/combos/metrics`, status: 200, mediaType: "application/json" }));
+  const native = { status: "research-observed", qualification: false, boundary: "fixture", inputSha256: {}, identity, cold: { phase: "cold", driver: "node:sqlite", observations, grantAfterDelete: ["combo/*"], exportSecretAbsent: true, importedPersisted: true, deletedAbsent: true, metricsLifecycle: coldMetrics }, warm: { phase: "warm", driver: "node:sqlite", importedPersisted: true, deletedAbsent: true, metricsLifecycle: warmMetrics } };
+  validateComboMetricsLifecycleObservation(native, structuredClone(native));
+  expect(() => validateComboMetricsLifecycleObservation({ ...native, cold: { ...native.cold, metricsLifecycle: { ...coldMetrics, unrelatedHidden: 0 } } }, native)).toThrow();
+  const drift = { ...native, warm: { ...native.warm, metricsLifecycle: { ...warmMetrics, freshProcessHiddenCount: 1 } } };
+  expect(() => validateComboMetricsLifecycleObservation(drift, structuredClone(drift))).toThrow();
+  const incomplete = { ...native, cold: { ...native.cold, observations: observations.slice(1) } };
+  expect(() => validateComboMetricsLifecycleObservation(incomplete, structuredClone(incomplete))).toThrow();
+  expect(() => validateComboMetricsLifecycleObservation({ ...native, identity: { comboMetricsClosure: {} } }, native)).toThrow();
+});
+test("effect schemas isolate lifecycle domains and forbid unrelated effects", () => {
+  type Clause = { if: { properties: { operationId: { const?: string; enum?: string[] } } }; then: { required?: string[]; properties?: { effectEvidence?: { properties: { artifact: { pattern: string } } }; qualification?: { required: string[] } } }; else?: { not?: { required: string[] }; properties?: { qualification: { not: { required: string[] } } } } };
+  const eligibility = JSON.parse(readFileSync(resolve(process.cwd(), "contracts/release-eligibility.schema.json"), "utf8")) as { $defs: { operation: { allOf: Clause[] } } };
+  const operations = JSON.parse(readFileSync(resolve(process.cwd(), "contracts/operations.schema.json"), "utf8")) as { $defs: { operation: { allOf: Clause[] } } };
+  const choices = ["GET /api/providers/deprecated", "GET /api/auth/csrf", "GET /api/combos/metrics", "DELETE /api/combos/metrics"];
+  const conditions = eligibility.$defs.operation.allOf;
+  const main = conditions.find(row => row.if?.properties?.operationId?.enum?.includes("GET /api/combos/metrics") && row.then?.required?.includes("effectEvidence"));
+  expect(main?.if.properties.operationId.enum).toEqual(choices);
+  expect(main?.then.required).toContain("effectEvidence");
+  expect(main?.else?.not?.required).toEqual(["effectEvidence"]);
+  const domains: Record<string, string> = { "GET /api/providers/deprecated": "deprecated-provider-sweep", "GET /api/auth/csrf": "csrf-lifecycle", "GET /api/combos/metrics": "combo-lifecycle", "DELETE /api/combos/metrics": "combo-lifecycle" };
+  for (const [operationId, expected] of Object.entries(domains)) {
+    const clause = conditions.find(row => (row.if?.properties?.operationId?.const === operationId || row.if?.properties?.operationId?.enum?.includes(operationId)) && row.then?.properties?.effectEvidence);
+    const pattern = clause?.then.properties?.effectEvidence?.properties.artifact.pattern;
+    if (!pattern) throw new Error(`Missing effect schema domain: ${operationId}`);
+    for (const domain of ["deprecated-provider-sweep", "csrf-lifecycle", "combo-lifecycle"]) expect(new RegExp(pattern).test(`provenance/qualification/${domain}-${"a".repeat(64)}.json`)).toBe(domain === expected);
+  }
+  const receipt = operations.$defs.operation.allOf.find(row => row.if?.properties?.operationId?.enum?.includes("GET /api/combos/metrics") && row.then?.properties?.qualification?.required?.includes("effectSha256"));
+  expect(receipt?.if.properties.operationId.enum).toEqual(choices);
+  expect(receipt?.else?.properties?.qualification.not.required).toEqual(["effectSha256"]);
+  const ingress = conditions.find(row => row.then?.required?.includes("ingressEvidence"));
+  const ingressReceipt = operations.$defs.operation.allOf.find(row => row.then?.properties?.qualification?.required?.includes("ingressSha256"));
+  for (const operationId of ["GET /api/auth/csrf", "GET /api/combos/metrics", "DELETE /api/combos/metrics"]) {
+    expect(ingress?.if.properties.operationId.enum).toContain(operationId);
+    expect(ingressReceipt?.if.properties.operationId.enum).toContain(operationId);
+  }
+  expect(ingress?.then.required).toContain("ingressEvidence");
+  expect(ingressReceipt?.then.properties?.qualification?.required).toContain("ingressSha256");
+  expect(choices).not.toContain("GET /api/combos");
+});
+
+test("metrics outcome hashes reject nonsemantic and drifted receipts", async () => {
+  const counts = { production: 1, shadow: 1, hidden: 1 };
+  for (const operationId of ["GET /api/combos/metrics", "DELETE /api/combos/metrics"] as const) {
+    const contract = COMBO_SOURCE_CONTRACTS[operationId], binding = operationEvidenceBinding(operationId, contract), caseSha256 = testCaseSourceHash(TEST_ID);
+    const read = operationId.startsWith("GET ");
+    const observation = read ? { before: counts, after: counts, result: { status: 200, body: counts } } : { before: { selected: counts, other: counts }, after: { selected: null, other: counts }, result: { status: 200, body: { success: true, message: "Metrics reset for Probe" } } };
+    for (const [valid, candidate] of [[true, observation], [false, { ...observation, after: null }], [false, { ...observation, result: { status: 200, body: {} } }]] as const) {
+      const artifact = { operationId, testId: TEST_ID, caseSha256, binding, observation: candidate };
+      const bytes = canonicalizeJson(artifact), digest = createHash("sha256").update(bytes).digest("hex");
+      const path = `provenance/qualification/${digest}.json`, file = resolve(process.cwd(), path);
+      await writeFile(file, bytes, { flag: "wx", mode: 0o600 });
+      try {
+        const validate = () => testOutcomeHash(operationId, TEST_ID, caseSha256, binding, contract, path);
+        if (valid) expect(validate).not.toThrow(); else expect(validate).toThrow();
+      } finally { await unlink(file); }
+    }
+  }
+});
+
+
 
 test("combo deletion revokes matching SQLite grants atomically without removing wildcard access", async () => {
   const runtime = createPinnedSqliteComboStore([
@@ -840,6 +918,109 @@ describe("pinned OmniRoute v3.8.53 combo operation semantics", () => {
     expect(COMBO_OPERATION_IDS.every(id => observations.has(id))).toBe(true);
   });
 
+  test("metrics source reads and resets selected and global process-local counters", async () => {
+    const pair = startFixture(); const harness = createHarness(pair);
+    const get = "GET /api/combos/metrics"; const del = "DELETE /api/combos/metrics";
+    const rowsBefore = persistedCombos(pair.route);
+    pair.route.recordComboMetrics("Other");
+    pair.route.recordShadowMetrics("Probe");
+    pair.route.recordShadowMetrics("Other");
+    pair.route.recordHiddenPersistedSkipBypass("Probe");
+    pair.route.recordHiddenPersistedSkipBypass("Other");
+    const beforeOther = await harness.executor.read(get, { query: { combo: "Other" } });
+    expect(beforeOther.output).toMatchObject({ metrics: { totalRequests: 1, persistedSkipBypassed: 1, shadow: { totalRequests: 1 } } });
+    const beforeProbe = await harness.executor.read(get, { query: { combo: "Probe" } });
+    const probeResponse = latest(harness, get);
+    expect(beforeProbe.output).toMatchObject({ metrics: { totalRequests: 1, persistedSkipBypassed: 1, shadow: { totalRequests: 1 } } });
+    const probeReadback = await harness.executor.read(get, { query: { combo: "Probe" } });
+    expect(probeReadback.output).toEqual(beforeProbe.output);
+    const all = await harness.executor.read(get, {});
+    expect(all.output).toMatchObject({ metrics: { Probe: { totalRequests: 1 }, Other: { totalRequests: 1 } } });
+    const checkFinite = (value: unknown): void => {
+      if (typeof value === "number") expect(Number.isFinite(value)).toBe(true);
+      else if (Array.isArray(value)) value.forEach(checkFinite);
+      else if (isRecord(value)) Object.values(value).forEach(checkFinite);
+    };
+    checkFinite(all.output);
+    expect(JSON.stringify(all.output)).not.toContain("fixture-provider-secret");
+    expect(JSON.stringify(all.output)).not.toContain(MANAGE_KEY);
+    const reset = await apply(harness, del, { query: { combo: "Probe" } });
+    expect(reset.status).toBe("unknown");
+    const selectedAfterReset = await harness.executor.read(get, { query: { combo: "Probe" } });
+    const otherAfterReset = await harness.executor.read(get, { query: { combo: "Other" } });
+    expect(selectedAfterReset.output).toMatchObject({ metrics: null });
+    expect(otherAfterReset.output).toEqual(beforeOther.output);
+    const resetResponse = latest(harness, del);
+    expect(pair.route.hiddenPersistedSkipBypasses("Probe")).toBe(0);
+    expect(pair.route.hiddenPersistedSkipBypasses("Other")).toBe(1);
+    expect(persistedCombos(pair.route)).toEqual(rowsBefore);
+    expect((await apply(harness, del, {})).status).toBe("unknown");
+    expect((await harness.executor.read(get, {})).output).toEqual({ metrics: {} });
+    expect(pair.route.hiddenPersistedSkipBypasses("Other")).toBe(0);
+    const selectedBefore = isRecord(beforeProbe.output) && isRecord(beforeProbe.output.metrics) ? beforeProbe.output.metrics : undefined;
+    const otherBefore = isRecord(beforeOther.output) && isRecord(beforeOther.output.metrics) ? beforeOther.output.metrics : undefined;
+    if (!selectedBefore || !otherBefore) throw new Error("Missing bounded metrics observations");
+    const counts = (value: Record<string, unknown>) => ({ production: value.totalRequests, shadow: isRecord(value.shadow) ? value.shadow.totalRequests : null, hidden: value.persistedSkipBypassed });
+    const selectedCounts = counts(selectedBefore), otherCounts = counts(otherBefore);
+    const selectedAfterValue = isRecord(selectedAfterReset.output) ? selectedAfterReset.output.metrics : undefined;
+    const otherAfterValue = isRecord(otherAfterReset.output) && isRecord(otherAfterReset.output.metrics) ? otherAfterReset.output.metrics : undefined;
+    if (!otherAfterValue) throw new Error("Missing unrelated post-reset observation");
+    const readbackValue = isRecord(probeReadback.output) && isRecord(probeReadback.output.metrics) ? probeReadback.output.metrics : undefined;
+    if (!readbackValue) throw new Error("Missing metrics readback observation");
+    if (!isRecord(probeResponse.body) || !isRecord(probeResponse.body.metrics)) throw new Error("Missing metrics response observation");
+    observe(get, selectedCounts, counts(readbackValue), { status: probeResponse.status, body: counts(probeResponse.body.metrics) });
+    observe(del, { selected: selectedCounts, other: otherCounts }, { selected: selectedAfterValue, other: counts(otherAfterValue) }, resetResponse);
+    expect(persistedCombos(pair.route)).toEqual(rowsBefore);
+    expect(harness.dispatchCount(del)).toBe(2);
+    for (const id of [get, del]) mark(id, "paired-source-lifecycle");
+  });
+
+  test("metrics selectors, management scope and error responses follow the source boundary", async () => {
+    const pair = startFixture(); const get = "GET /api/combos/metrics"; const del = "DELETE /api/combos/metrics";
+    const request = (method: string, query: string, bearer = MANAGE_KEY) => directRequest(pair.route, `${method} /api/combos/metrics${query}`, { bearer });
+    for (const method of ["GET", "DELETE"]) {
+      const denied = await request(method, "?combo=Probe", READ_KEY);
+      expect(denied.status).toBe(403);
+    }
+    expect((await request("GET", "?combo=missing")).status).toBe(200);
+    expect(await (await request("GET", "?combo=missing")).json()).toEqual({ metrics: null, message: "No metrics for this combo yet" });
+    expect(await (await request("GET", "?combo=")).json()).toEqual(await (await request("GET", "")).json());
+    const missingReset = await request("DELETE", "?combo=missing");
+    expect(await missingReset.json()).toEqual({ success: true, message: "Metrics reset for missing" });
+    expect((await request("GET", "?combo=Probe")).status).toBe(200);
+    const emptyReset = await request("DELETE", "?combo=");
+    expect(await emptyReset.json()).toEqual({ success: true, message: "All combo metrics reset" });
+    expect(await (await request("GET", "")).json()).toEqual({ metrics: {} });
+    pair.route.recordComboMetrics("Probe");
+    for (const method of ["GET", "DELETE"] as const) {
+      pair.route.setMetricsFailure(method);
+      const response = await request(method, "?combo=Probe");
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body).toEqual({ error: method === "GET" ? "Failed to fetch combo metrics" : "Failed to reset combo metrics" });
+      expect(JSON.stringify(body)).not.toContain("fixture-private-metrics-failure");
+      pair.route.setMetricsFailure(undefined);
+    }
+    expect(await (await request("GET", "?combo=Probe")).json()).toMatchObject({ metrics: { totalRequests: 1 } });
+    for (const id of [get, del]) { mark(id, "selector-and-error-boundary"); mark(id, "management-scope-boundary"); }
+  });
+
+  test("metrics reset cancellation, expiry and credential rotation prevent dispatch", async () => {
+    const pair = startFixture(); let now = 1000;
+    const harness = createHarness(pair, { now: () => now });
+    const operation = "DELETE /api/combos/metrics"; const input = { query: { combo: "Probe" } };
+    const cancelled = await harness.executor.plan(operation, input);
+    const abort = new AbortController(); abort.abort();
+    await expect(harness.executor.apply(cancelled.planId, { confirmed: true, signal: abort.signal })).rejects.toMatchObject({ code: "plan-invalidated" });
+    const expired = await harness.executor.plan(operation, input); now = expired.expiresAt;
+    await expect(harness.executor.apply(expired.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-expired" });
+    const rotated = await harness.executor.plan(operation, input);
+    harness.executor.bindCredential({ profileId: PROFILE_ID, endpoint: pair.route.endpoint, apiKey: "fixture-rotated-key" });
+    await expect(harness.executor.apply(rotated.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-invalidated" });
+    expect(harness.dispatchCount(operation)).toBe(0);
+    mark(operation, "reset-plan-invalidation");
+  });
+
   test("metrics reset confirms exposed scope while disclosing and preserving hidden-state uncertainty", async () => {
     const pair = startFixture();
     const harness = createHarness(pair);
@@ -897,6 +1078,7 @@ describe("pinned OmniRoute v3.8.53 combo operation semantics", () => {
     harness.loseNextResponse("DELETE /api/combos/metrics");
     const allResult = await harness.executor.apply(allPlan.planId, { confirmed: true });
     expect(allResult.status).toBe("unknown");
+    await expect(harness.executor.apply(allPlan.planId, { confirmed: true })).rejects.toMatchObject({ code: "plan-already-applied" });
     expect(harness.dispatchCount("DELETE /api/combos/metrics")).toBe(2);
     expect(pair.route.hiddenPersistedSkipBypasses("hidden-only-all")).toBe(0);
     mark("DELETE /api/combos/metrics", "visibility-limited-confirmation-and-one-shot-settlement");

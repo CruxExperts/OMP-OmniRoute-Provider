@@ -431,6 +431,7 @@ function contractFor(operationId: string): OperationSourceContract {
           "The all-name JSON map omits a metric named __proto__; a named GET can still observe that name directly.",
           "A named reset deletes production metrics, shadow metrics, and the selected name's persisted-skip counter.",
           "Reset-all deletes all three counter maps and stops the metrics cleanup interval until module reload.",
+          "Preflight and readback observe only the visible view and are not an atomic lock against other writers or process-local state changes.",
         ] as const,
       }
     : { kind: "required" as const, observations: [
@@ -541,6 +542,7 @@ export class CombosHttpFixture {
   readonly #counts = new Map<string, number>();
   #breakerState: "CLOSED" | "OPEN" = "CLOSED";
   #capabilityDrift = false;
+  #metricsFailure: "GET" | "DELETE" | undefined;
   readonly #rejectedProbeModels = new Set<string>();
   readonly #server: Bun.Server<undefined>;
 
@@ -564,6 +566,7 @@ export class CombosHttpFixture {
       uuid: fixtureUuid,
       breakerState: () => this.#breakerState,
       capabilityDrift: () => this.#capabilityDrift,
+      metricsFailure: () => this.#metricsFailure,
       includeSecondModel,
       date: fixtureDate,
     });
@@ -607,14 +610,18 @@ export class CombosHttpFixture {
     this.#rejectedProbeModels.add(model);
   }
   recordHiddenPersistedSkipBypass(name: string): void {
-    (this.#handlers.metrics as unknown as { recordPersistedSkipBypass(name: string): void }).recordPersistedSkipBypass(name);
+    this.#handlers.metrics.recordPersistedSkipBypass(name);
   }
   hiddenPersistedSkipBypasses(name: string): number {
-    return (this.#handlers.metrics as unknown as { getPersistedSkipBypassed(name: string): number }).getPersistedSkipBypassed(name);
+    return this.#handlers.metrics.getPersistedSkipBypassed(name);
   }
   recordComboMetrics(name: string): void {
     this.#handlers.metrics.recordComboRequest(name, "fixture/chat", { success: true, latencyMs: 7, strategy: "priority" });
   }
+  recordShadowMetrics(name: string): void {
+    this.#handlers.metrics.recordComboShadowRequest(name, "fixture/chat", { success: false, latencyMs: 9 });
+  }
+  setMetricsFailure(method: "GET" | "DELETE" | undefined): void { this.#metricsFailure = method; }
   get state(): JsonValue {
     return sanitizePrivateFixtureState({
       ...this.#storage.snapshot(),

@@ -12,6 +12,12 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   schemas, separate from deprecated-provider sweep evidence. The issuer test
   executes authenticated pinned modules in a narrow child rather than rebuilding
   the full fixture graph on hosted runners.
+- Require pinned metrics contracts, semantic paired outcomes, independent
+  management HTTP, and separately reproduced native lifecycle evidence before
+  admitting combo metrics reads or resets. Process-local counters are distinct
+  from durable combo rows; public reads cannot establish the absence of
+  hidden-only counters or prototype-key entries. Qualification and publication
+  remain separate controller decisions.
 
 - Construct synthetic private-path sanitizer test data at runtime so release
   exports retain the regression without embedding private-looking paths.

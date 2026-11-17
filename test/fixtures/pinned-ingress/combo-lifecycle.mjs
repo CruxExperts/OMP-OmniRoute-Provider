@@ -23,6 +23,8 @@ export async function observeComboLifecycle(phase) {
   for (const path of ['/api/keys', '/api/keys/fixture-id', '/api/settings/proxies/assignments', '/api/models']) assert.equal(classifyRoute(path, 'GET').routeClass, 'MANAGEMENT');
   assert.equal(classifyRoute('/api/v1/management/proxies/assignments', 'GET').routeClass, 'CLIENT_API');
   const store = await import('/work/app/src/lib/db/combos.ts');
+  const metricsOwner = await import('/work/app/open-sse/services/comboMetrics.ts');
+  const metricNames = ['Native Metrics Probe', 'Native Metrics Other'];
   const observations = [];
   let credential;
   async function request(operation, handler, path, body, id) {
@@ -143,18 +145,75 @@ export async function observeComboLifecycle(phase) {
     assert.equal(duplicated.response.status, 201);
     const duplicatedRow = await store.getComboById(duplicated.data.id);
     assert.ok(duplicatedRow && duplicatedRow.name.startsWith('static-best-coding') && duplicatedRow.models.length > 0);
-    const metric = await request('GET /api/combos/metrics', metrics.GET, '/api/combos/metrics?combo=Native%20Keep');
-    assert.equal(metric.response.status, 200);
-    const reset = await request('DELETE /api/combos/metrics', metrics.DELETE, '/api/combos/metrics?combo=Native%20Keep');
+    const [probeName, otherName] = metricNames;
+    metricsOwner.recordPersistedSkipBypass(probeName);
+    const hiddenOnly = await request('GET /api/combos/metrics', metrics.GET, `/api/combos/metrics?combo=${encodeURIComponent(probeName)}`);
+    assert.equal(hiddenOnly.response.status, 200);
+    assert.equal(hiddenOnly.data.metrics, null);
+    assert.equal(metricsOwner.getPersistedSkipBypassed(probeName), 1);
+    for (const name of metricNames) {
+      metricsOwner.recordComboRequest(name, null, { success: true, latencyMs: 1 });
+      metricsOwner.recordComboShadowRequest(name, null, { success: true, latencyMs: 1 });
+      if (name === otherName) metricsOwner.recordPersistedSkipBypass(name);
+    }
+    const selectedMetrics = await request('GET /api/combos/metrics', metrics.GET, `/api/combos/metrics?combo=${encodeURIComponent(probeName)}`);
+    const allMetrics = await request('GET /api/combos/metrics', metrics.GET, '/api/combos/metrics');
+    assert.equal(selectedMetrics.response.status, 200);
+    assert.equal(allMetrics.response.status, 200);
+    assert.deepEqual(Object.keys(allMetrics.data.metrics).sort(), [...metricNames].sort());
+    for (const name of metricNames) {
+      const actual = allMetrics.data.metrics[name];
+      assert.equal(actual.totalRequests, 1);
+      assert.equal(actual.shadow.totalRequests, 1);
+      assert.equal(actual.persistedSkipBypassed, 1);
+      assert.deepEqual(actual, metricsOwner.getComboMetrics(name));
+      assert.equal(metricsOwner.getPersistedSkipBypassed(name), 1);
+    }
+    assert.deepEqual(selectedMetrics.data.metrics, allMetrics.data.metrics[probeName]);
+    const reset = await request('DELETE /api/combos/metrics', metrics.DELETE, `/api/combos/metrics?combo=${encodeURIComponent(probeName)}`);
     assert.equal(reset.response.status, 200);
+    assert.equal(reset.data.success, true);
+    const afterSelected = await request('GET /api/combos/metrics', metrics.GET, `/api/combos/metrics?combo=${encodeURIComponent(probeName)}`);
+    const unrelated = await request('GET /api/combos/metrics', metrics.GET, `/api/combos/metrics?combo=${encodeURIComponent(otherName)}`);
+    assert.equal(afterSelected.response.status, 200);
+    assert.equal(afterSelected.data.metrics, null);
+    assert.equal(metricsOwner.getComboMetrics(probeName), null);
+    assert.equal(metricsOwner.getPersistedSkipBypassed(probeName), 0);
+    assert.equal(unrelated.response.status, 200);
+    assert.deepEqual(unrelated.data.metrics, allMetrics.data.metrics[otherName]);
+    assert.equal(metricsOwner.getPersistedSkipBypassed(otherName), 1);
+    const resetAll = await request('DELETE /api/combos/metrics', metrics.DELETE, '/api/combos/metrics');
+    assert.equal(resetAll.response.status, 200);
+    assert.equal(resetAll.data.success, true);
+    const afterAll = await request('GET /api/combos/metrics', metrics.GET, '/api/combos/metrics');
+    assert.equal(afterAll.response.status, 200);
+    assert.deepEqual(afterAll.data.metrics, {});
+    for (const name of metricNames) {
+      assert.equal(metricsOwner.getComboMetrics(name), null);
+      assert.equal(metricsOwner.getPersistedSkipBypassed(name), 0);
+    }
+    // Leave process-local state populated for the independent warm-process observation.
+    metricsOwner.recordComboRequest(probeName, null, { success: true, latencyMs: 1 });
+    metricsOwner.recordComboShadowRequest(probeName, null, { success: true, latencyMs: 1 });
+    metricsOwner.recordPersistedSkipBypass(probeName);
+    const restartSeed = metricsOwner.getComboMetrics(probeName);
+    assert.equal(restartSeed.totalRequests, 1);
+    assert.equal(restartSeed.shadow.totalRequests, 1);
+    assert.equal(metricsOwner.getPersistedSkipBypassed(probeName), 1);
+    const metricsLifecycle = { hiddenOnlyGetNull: true, hiddenOnlyOwnerCount: 1, selectedProduction: 1, selectedShadow: 1, selectedHidden: 1, allNames: 2, selectedResetAbsent: true, unrelatedProduction: 1, unrelatedShadow: 1, unrelatedHidden: 1, globalResetAbsent: true, restartSeedProduction: 1, restartSeedShadow: 1, restartSeedHidden: 1, cleanupTimerObservable: false };
     const invalidDuplicate = await request('POST /api/combos/duplicate', duplicate.POST, '/api/combos/duplicate', { name: 'auto/not-a-built-in-template' });
     assert.equal(invalidDuplicate.response.status, 422);
     const invalidProbe = await request('POST /api/combos/test', probe.POST, '/api/combos/test', { comboName: 'missing-combo' });
     assert.equal(invalidProbe.response.status, 404);
-    return { phase, driver: 'node:sqlite', observations, grantAfterDelete: scopedAfter.allowedCombos, deletedAbsent: true, importedPersisted: true, exportSecretAbsent: true };
+    return { phase, driver: 'node:sqlite', observations, grantAfterDelete: scopedAfter.allowedCombos, deletedAbsent: true, importedPersisted: true, exportSecretAbsent: true, metricsLifecycle };
   }
   const stored = await store.getCombos();
   assert.ok(stored.some(row => row.name === 'Native Imported'));
   assert.ok(!stored.some(row => row.name === 'Native Delete'));
-  return { phase, driver: 'node:sqlite', importedPersisted: true, deletedAbsent: true };
+  for (const name of metricNames) {
+    assert.equal(metricsOwner.getComboMetrics(name), null);
+    assert.equal(metricsOwner.getPersistedSkipBypassed(name), 0);
+  }
+  const metricsLifecycle = { freshProcessProductionAndShadowAbsent: true, freshProcessHiddenCount: 0, cleanupTimerObservable: false };
+  return { phase, driver: 'node:sqlite', importedPersisted: true, deletedAbsent: true, metricsLifecycle };
 }
