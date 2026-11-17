@@ -399,6 +399,8 @@ VISIBILITY_CLOSURE = ('src/app/api/admin/proxy-pool-visibility/route.ts', 'src/l
 ROUTES += ('src/app/api/analytics/auto-routing/route.ts', 'src/lib/db/usageLogs.ts', 'src/lib/db/logicalCallSql.ts')
 COMPRESSION_SOURCES = ('src/app/api/analytics/compression/route.ts', 'src/lib/db/compressionAnalytics.ts', 'src/lib/db/migrations/038_compression_analytics.sql')
 ROUTES += COMPRESSION_SOURCES
+ROUTES += ('src/app/api/analytics/diversity/route.ts',)
+DIVERSITY_CLOSURE = ('src/app/api/analytics/diversity/route.ts', 'open-sse/services/autoCombo/providerDiversity.ts', 'open-sse/services/comboMetrics.ts', 'src/lib/db/core.ts', 'src/lib/db/settings.ts', 'src/lib/db/settings/shared.ts')
 POLICY_SOURCES = ('src/app/api/model-combo-mappings/route.ts', 'src/app/api/model-combo-mappings/[id]/route.ts', 'src/app/api/combos/route.ts', 'src/app/api/combos/[id]/route.ts', 'src/app/api/combos/auto/route.ts', 'src/app/api/combos/builder/options/route.ts', 'src/app/api/combos/metrics/route.ts', 'src/app/api/model-capability-overrides/route.ts')
 POLICY_SOURCES += ('src/app/api/fallback/chains/route.ts', 'src/app/api/providers/[id]/cc-alias/route.ts', 'src/app/api/provider-nodes/route.ts', 'src/app/api/providers/route.ts', 'src/app/api/providers/[id]/interception-rules/route.ts', 'src/app/api/providers/[id]/param-filters/route.ts', 'src/app/api/combos/import/route.ts', 'src/app/api/combos/export/route.ts')
 POLICY_SOURCES += ('src/app/api/combos/duplicate/route.ts', 'src/app/api/combos/reorder/route.ts', 'src/app/api/combos/test/route.ts')
@@ -558,7 +560,7 @@ def expected_core_lifecycle_identities(archive, node, dependency_dir, bwrap, roo
         output = Path(response['output'])
         require(output.parent == Path(temporary) and not output.is_symlink(), 'unexpected identity output')
         artifact = bounded_json(output / 'export/core-lifecycle.json')
-        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json')}
+        return {**{key: artifact[key] for key in ('identity', 'inputSha256', 'isolation', 'cold', 'warm', 'authStatus', 'mfaStatus', 'ssoConfig', 'requireLogin', 'a2aHistory', 'proxyVisibility', 'autoRoutingAnalytics', 'compressionAnalytics', 'diversity')}, 'deprecatedSweep': bounded_json(output / 'export/deprecated-provider-sweep.json'), 'a2aLifecycle': bounded_json(output / 'export/a2a-lifecycle.json')}
 
 
 def materialize(real_core=False):
@@ -1388,6 +1390,7 @@ def core_lifecycle(material, deadline):
     identity['visibilityClosure'] = {name: source[name] for name in VISIBILITY_CLOSURE}
     identity['analyticsClosure'] = {name: source[name] for name in ('src/app/api/analytics/auto-routing/route.ts', 'src/lib/db/usageLogs.ts', 'src/lib/db/logicalCallSql.ts', 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}
     identity['compressionClosure'] = {name: source[name] for name in (*COMPRESSION_SOURCES, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}
+    identity['diversityClosure'] = {name: source[name] for name in DIVERSITY_CLOSURE}
     identity.update({key: material[key] for key in ('sourceDerivation', 'effectiveTreeSha256') if key in material})
     save(Path('/work/core-identity.json'), identity)
     isolate = ['/runtime/bwrap', '--cap-drop', 'ALL', '--die-with-parent', '--bind', '/', '/', '--dev-bind', '/dev', '/dev', '--ro-bind', '/work/app', '/work/app', '--ro-bind', '/work/fixture', '/work/fixture', '--chdir', '/work/app', '--']
@@ -1470,6 +1473,12 @@ for (const [name, version, entry] of [['tsx', '4.23.13', 'tsx/esm'], ['sql.js', 
         worker_stage('coldLifecycle' if phase == 'compression-cold' else 'warmLifecycle')
         log = Path('/work/' + phase + '.private')
         run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(compression_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
+    diversity_dir = Path('/work/diversity-data')
+    diversity_dir.mkdir(mode=0o700)
+    for phase in ('diversity-cold', 'diversity-warm'):
+        worker_stage('coldLifecycle' if phase == 'diversity-cold' else 'warmLifecycle')
+        log = Path('/work/' + phase + '.private')
+        run_bounded(isolate + runner_arguments + [phase], log, deadline, {**env, 'DATA_DIR': str(diversity_dir), 'JWT_SECRET': 'research-only-jwt-secret-32-byte-minimum', 'INITIAL_PASSWORD': 'fixture-only-initial-password'})
         validate_lifecycle_log(log)
     for phase in ('sweep-success', 'sweep-failure'):
         worker_stage('coldLifecycle')
@@ -1526,6 +1535,12 @@ def export_core_lifecycle(output, hashes):
         expected = {'databaseExistedBefore': phase == 'warm', 'databaseExistsAfter': True, 'beforeColumns': 28 if phase == 'warm' else 10, 'afterColumns': 28, 'finalColumns': 28, 'first': {'status': 200, 'totalRequests': 1 if phase == 'warm' else 0, 'chartLength': 24}, 'populated': {'status': 200, 'totalRequests': 1, 'chartLength': 24}, 'rows': 1}
         require(value == expected, 'compression lifecycle mismatch')
         compression[phase] = value
+    diversity_lifecycle = {}
+    for phase in ('cold', 'warm'):
+        validate_lifecycle_log(output / ('diversity-' + phase + '.private'))
+        value = bounded_json(output / ('diversity-' + phase + '.json'))
+        require(value == {'databaseExistedBefore': phase == 'warm', 'databaseAfterRoute': phase == 'warm', 'databaseAfterSettings': True, 'first': 0, 'populated': 1, 'unchanged': True}, 'diversity lifecycle mismatch')
+        diversity_lifecycle[phase] = value
     login_body = {'authenticated': False, 'requireLogin': True, 'hasPassword': True, 'setupComplete': True, 'oidcEnabled': False, 'oidcDisablePasswordLogin': False, 'nodeVersion': 'v24.17.0', 'nodeCompatible': True}
     for phase, value in (('login-cold', login_cold), ('login-warm', login_warm)):
         validate_lifecycle_log(output / (phase + '.private'))
@@ -1587,6 +1602,8 @@ def export_core_lifecycle(output, hashes):
     public_identity['analyticsClosure'] = identity['analyticsClosure']
     require(identity.get('compressionClosure') == {name: source[name] for name in (*COMPRESSION_SOURCES, 'src/lib/db/core.ts', 'src/lib/api/requireManagementAuth.ts')}, 'invalid native compression source closure')
     public_identity['compressionClosure'] = identity['compressionClosure']
+    require(identity.get('diversityClosure') == {name: source[name] for name in DIVERSITY_CLOSURE}, 'invalid native diversity source closure')
+    public_identity['diversityClosure'] = identity['diversityClosure']
     public_identity.update(expected_source)
     public_identity['sourceFilesManifestSha256'] = sha(json.dumps(source, sort_keys=True, separators=(',', ':')).encode())
     public_identity['migrationSqlManifestSha256'] = sha(json.dumps(migrations, sort_keys=True, separators=(',', ':')).encode())
@@ -1651,7 +1668,7 @@ def export_core_lifecycle(output, hashes):
     export.mkdir(mode=0o700)
     save(export / 'a2a-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'inputSha256': hashes, 'identity': {**public_identity, 'a2aClosure': identity['a2aClosure']}, 'cold': a2a_cold, 'warm': a2a_warm})
     save(export / 'proxy-visibility-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned route and core in separate private cold and warm processes; not HTTP ingress or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'cold': visibility_cold, 'warm': visibility_warm})
-    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}, 'ssoConfig': {'cold': sso_cold, 'warm': sso_warm}, 'requireLogin': {'cold': login_cold, 'warm': login_warm}, 'a2aHistory': {'cold': history_cold, 'warm': history_warm}, 'proxyVisibility': {'cold': visibility_cold, 'warm': visibility_warm}, 'autoRoutingAnalytics': analytics, 'compressionAnalytics': compression})
+    save(export / 'core-lifecycle.json', {'status': 'research-observed', 'qualification': False, 'boundary': 'Direct pinned core and settings in isolated Node processes; auth uses a separate persistent database and an explicit cookie boundary; no HTTP, authorization, packaged application or operation qualification.', 'inputSha256': hashes, 'identity': public_identity, 'isolation': {'network': 'private-loopback-only', 'capabilities': 'dropped', 'source': 'read-only', 'processes': 'separate-cold-warm', 'startupRegressions': 'passed'}, 'cold': observations[0], 'warm': observations[1], 'authStatus': {'cold': auth_cold, 'warm': auth_warm}, 'mfaStatus': {'cold': mfa_cold, 'warm': mfa_warm}, 'ssoConfig': {'cold': sso_cold, 'warm': sso_warm}, 'requireLogin': {'cold': login_cold, 'warm': login_warm}, 'a2aHistory': {'cold': history_cold, 'warm': history_warm}, 'proxyVisibility': {'cold': visibility_cold, 'warm': visibility_warm}, 'autoRoutingAnalytics': analytics, 'compressionAnalytics': compression, 'diversity': diversity_lifecycle})
     save(export / 'provider-lifecycle.json', {'status': 'research-observed', 'qualification': False,
          'boundary': 'Pinned handlers and source stores in the real cold core with authentication disabled; separate warm alias read. No ingress or executor qualification.',
          'inputSha256': hashes, 'identity': public_identity, 'cold': provider['results'], 'warmAlias': warm_provider})
@@ -1943,6 +1960,9 @@ def export_observations(output, hashes):
     compression_http = ingress['compressionHttp']
     expected_periods = [{'status': 200, 'routeClass': 'MANAGEMENT', 'totalRequests': count, 'totalTokensSaved': saved, 'chartLength': 24, 'chartCount': 1} for count, saved in ((1, 30), (1, 30), (1, 30), (2, 50), (3, 60), (4, 65))]
     require(compression_http == {'auth': {name: {'status': status, 'routeClass': 'MANAGEMENT'} for name, status in analytics_statuses.items()}, 'beforeColumns': 10, 'deniedColumns': 10, 'afterColumns': 28, 'periods': expected_periods, 'failure': {'status': 500, 'routeClass': 'MANAGEMENT', 'body': {'error': 'Internal server error'}}}, 'compression HTTP mismatch')
+    diversity = ingress['diversityHttp']
+    diversity_body = {'score': 1, 'totalRequests': 0, 'providers': {}, 'windowSize': 200, 'ttlMs': 3600000}
+    require(diversity == {'auth': {name: {'status': status, 'routeClass': 'MANAGEMENT', 'body': diversity_body if status == 200 else None} for name, status in analytics_statuses.items()}}, 'diversity HTTP mismatch')
     mfa_status_observation = ingress['mfaStatusHttp']
     require(set(mfa_status_observation) == {'cases', 'enrolled', 'failure'} and set(mfa_status_observation['cases']) == {'anonymous', 'invalid', 'session', 'key-read', 'key-write', 'key-admin', 'key-manage', 'oma-read', 'oma-write', 'oma-admin'}, 'MFA status HTTP cases incomplete')
     mfa_statuses = {'anonymous': 401, 'invalid': 403, 'session': 200, 'key-read': 403, 'key-write': 403, 'key-admin': 200, 'key-manage': 200, 'oma-read': 403, 'oma-write': 403, 'oma-admin': 200}
@@ -2144,6 +2164,7 @@ def export_observations(output, hashes):
     artifact['proxyVisibilityHttp'] = visibility
     artifact['autoRoutingAnalyticsHttp'] = analytics
     artifact['compressionAnalyticsHttp'] = compression_http
+    artifact['diversityHttp'] = diversity
     artifact['supportedJsonHttp'] = [{'operationId': 'GET /api/auth/mfa/status', 'method': 'GET', 'path': '/api/auth/mfa/status', 'status': mfa_status_observation['enrolled']['status'], 'contentType': mfa_status_observation['enrolled']['contentType']}]
     artifact['limitations'].append('Auth status uses actual Next cookies, JOSE and pinned settings/cache declarations with a private disposable SQLite boundary; it is not native core lifecycle or optional executor credential qualification.')
     artifact['wellKnownHttp'] = public_cards

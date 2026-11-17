@@ -9,6 +9,12 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   schema alterations. Initialization effects require confirmation, unknown
   settlement and no replay; private grouping labels remain withheld.
 
+- Characterize diversity analytics against the pinned successful combo-request
+  producer, rolling-window owner and central management authorization. The
+  candidate withholds the provider map and caught error details because they can
+  contain private data. Independent ingress and cold/warm lifecycle evidence
+  remain required before qualification.
+
 - Recognize explicitly synthetic cookie pairs in package secret scanning while
   continuing to reject real or mixed cookie values, including escaped literals,
   and other credentials.

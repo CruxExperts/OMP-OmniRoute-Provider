@@ -2045,6 +2045,7 @@
     }
   },
   "additionalFiles": {
+    "src/app/api/analytics/diversity/route.ts": { "sha256": "5309a9f0b87006e3c613aa494c0364cf93f9c81d5c14bdde23865a858d1ba934", "gitBlob": "15005c7d702621c7eacd93b4b079099a4e1dca65" },
     "src/app/api/analytics/auto-routing/route.ts": { "sha256": "a29213937ad3210c5edb4a3bf07c4c3bd55d52dca45ff1a76a185e06527ecbf1", "gitBlob": "27fd7e8350f76a3e1a1429b69344c21ce350d9b5" },
     "src/lib/db/usageLogs.ts": { "sha256": "bbd5f8b9f03a7e54ea0ebb83c2061bf1d7cf679b3c276a4d8f948dd87d12d3f0", "gitBlob": "20d423a5cfeb372c876196060b412f37cb54c801" },
     "src/app/api/analytics/compression/route.ts": { "sha256": "4159741eb6a3a6f0529bf290d0ec2287c56ff604af7ffb7a1689f36353c40fd5", "gitBlob": "7006cac6eba75683d773afe1b1a1967607063e0f" },

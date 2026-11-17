@@ -170,6 +170,13 @@ test("read ingress rejects missing, contradictory, duplicate, and source-mismatc
   check(compressionArtifact, compressionBinding, "GET /api/analytics/compression");
   check({ ...compressionArtifact, compressionAnalyticsHttp: { ...compressionHttp, afterColumns: 10 } }, compressionBinding, "GET /api/analytics/compression", true);
   check(compressionArtifact, { ...compressionBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/analytics/compression", true);
+  const diversityBinding = { handlerSha256: "5309a9f0b87006e3c613aa494c0364cf93f9c81d5c14bdde23865a858d1ba934", handlerGitBlobSha: "15005c7d702621c7eacd93b4b079099a4e1dca65", sourceDerivation: identities.sourceDerivation, effectiveTreeSha256: identities.effectiveTreeSha256 } as OperationEvidenceBinding;
+  const diversityBody = { score: 1, totalRequests: 0, providers: {}, windowSize: 200, ttlMs: 3_600_000 };
+  const diversityHttp = { auth: Object.fromEntries(Object.entries(analyticsStatuses).map(([name, status]) => [name, { status, routeClass: "MANAGEMENT", body: status === 200 ? diversityBody : null }])) };
+  const diversityArtifact = { ...artifact, diversityHttp };
+  check(diversityArtifact, diversityBinding, "GET /api/analytics/diversity");
+  check({ ...diversityArtifact, diversityHttp: { auth: {} } }, diversityBinding, "GET /api/analytics/diversity", true);
+  check(diversityArtifact, { ...diversityBinding, handlerGitBlobSha: "0".repeat(40) }, "GET /api/analytics/diversity", true);
   for (const [index, name] of ["agent-card.json", "agent.json"].entries()) {
     const operation = `GET /.well-known/${name}`;
     const route = `src/app/.well-known/${name}/route.ts`;
@@ -989,6 +996,8 @@ with tempfile.TemporaryDirectory() as temp:
  analytics_status={'anonymous':401,'invalid':403,'inference':403,'session':200,'oma':200,'manage':200,'admin':200}
  ingress['analyticsHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','body':analytics_body if status==200 else None} for name,status in analytics_status.items()},'beforeRows':7,'afterRows':7,'failure':{'status':200,'routeClass':'MANAGEMENT','body':{'totalRequests':0,'variantBreakdown':{},'topProviders':[]}}}
  ingress['compressionHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT'} for name,status in analytics_status.items()},'beforeColumns':10,'deniedColumns':10,'afterColumns':28,'periods':[{'status':200,'routeClass':'MANAGEMENT','totalRequests':count,'totalTokensSaved':saved,'chartLength':24,'chartCount':1} for count,saved in ((1,30),(1,30),(1,30),(2,50),(3,60),(4,65))],'failure':{'status':500,'routeClass':'MANAGEMENT','body':{'error':'Internal server error'}}}
+ diversity_body={'score':1,'totalRequests':0,'providers':{},'windowSize':200,'ttlMs':3600000}
+ ingress['diversityHttp']={'auth':{name:{'status':status,'routeClass':'MANAGEMENT','body':diversity_body if status==200 else None} for name,status in analytics_status.items()}}
  ingress['mfaStatusHttp'] = {'cases':{name:{'status':200,'routeClass':'MANAGEMENT','cacheControl':'no-store','body':{'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False}} for name in ('anonymous','invalid','session','key-read','key-write','key-admin','key-manage','oma-read','oma-write','oma-admin')},'failure':{'status':500,'routeClass':'MANAGEMENT','cacheControl':'no-store','privateMarkerPresent':False}}
  mfa_statuses={'anonymous':401,'invalid':403,'session':200,'key-read':403,'key-write':403,'key-admin':200,'key-manage':200,'oma-read':403,'oma-write':403,'oma-admin':200}
  for name,status in mfa_statuses.items():
@@ -1043,6 +1052,8 @@ with tempfile.TemporaryDirectory() as temp:
  ingress['proxyVisibilityHttp']['privateCanary']='fixture-private-credential'; put('data/pinned-ingress-observations.json',ingress); rejected(); del ingress['proxyVisibilityHttp']['privateCanary']
  original=ingress.pop('analyticsHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['analyticsHttp']=original
  original=ingress['analyticsHttp']['failure']['status']; ingress['analyticsHttp']['failure']['status']=500; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['analyticsHttp']['failure']['status']=original
+ original=ingress.pop('diversityHttp'); put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['diversityHttp']=original
+ original=ingress['diversityHttp']['auth']['session']['status']; ingress['diversityHttp']['auth']['session']['status']=401; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['diversityHttp']['auth']['session']['status']=original
  original=ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']; ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=False; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['requireLoginHttp']['cases']['configured']['body']['oidcDisablePasswordLogin']=original
  original=identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]; identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]='a'*64; put('data/pinned-ingress-observations.json',ingress); rejected(); identity['requireLoginClosure']['executed'][m.REQUIRE_LOGIN]=original
  original = ingress['ssoConfigHttp']['cases']['enabled']['body']; ingress['ssoConfigHttp']['cases']['enabled']['body']={'enabled':False}; put('data/pinned-ingress-observations.json',ingress); rejected(); ingress['ssoConfigHttp']['cases']['enabled']['body']=original
@@ -1191,6 +1202,7 @@ with tempfile.TemporaryDirectory() as d:
  source.update({name:h for name in analytics_sources})
  compression_sources=(*m.COMPRESSION_SOURCES,'src/lib/db/core.ts','src/lib/api/requireManagementAuth.ts')
  source.update({name:h for name in compression_sources if name not in source})
+ source.update({name:h for name in m.DIVERSITY_CLOSURE if name not in source})
  migrations={k:v for k,v in source.items() if k.endswith('.sql')}
  identity={'sourceArchiveSha256':m.ARCHIVE_SHA,'nodeSha256':m.NODE_SHA,'sourceFilesSha256':source,'migrationSqlSha256':migrations,'workerSourceSha256':h,'productionRecipeSha256':h,'workerBuildArguments':['--bundle','--platform=node','--packages=external','--format=esm'],'workerOutputSha256':h,'runnerSourceSha256':h,'runnerArguments':['/runtime/node','--import','tsx/esm','/work/app/src/lib/db/pinnedLifecycleFixture.mjs'],'private':'private-canary'}
  identity['effectiveTreeSha256']='b'*64
@@ -1201,12 +1213,13 @@ with tempfile.TemporaryDirectory() as d:
  identity['visibilityClosure']={name:source[name] for name in m.VISIBILITY_CLOSURE}
  identity['analyticsClosure']={name:source[name] for name in analytics_sources}
  identity['compressionClosure']={name:source[name] for name in compression_sources}
+ identity['diversityClosure']={name:source[name] for name in m.DIVERSITY_CLOSURE}
  db={'name':'storage.sqlite','kind':'file','size':1}
  base={'driver':'node:sqlite','ping':True,'healthWorker':True,'healthy':True,'settingsMarker':'cold-written','tables':['_omniroute_migrations','db_meta'],'migrations':[{'version':'001','name':'initial_schema'}],'after':[db], 'meta':[{'key':'secret','value':'private-canary'}]}
  cold={**base,'phase':'cold','before':[],'runtimeSettingApplied':True}; warm={**base,'phase':'warm','before':[db],'runtimeSettingApplied':False}
  authcold={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':False,'onboardingBefore':'absent','onboardingAfter':'persisted','invalidNoDatabase':True}
  authwarm={'invalidRejected':True,'validAccepted':True,'databaseExistedBefore':True,'onboardingBefore':'persisted','onboardingAfter':'persisted','cachedRevocation':True,'revocationAfterExpiry':True,'passwordCutoffAfterExpiry':True}
- for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm','analytics-cold','analytics-warm'): (p/(phase+'.private')).write_text('normal output\n')
+ for phase in ('cold-lifecycle','warm-lifecycle','auth-cold','auth-warm','mfa-cold','mfa-warm','sso-cold','sso-warm','login-cold','login-warm','history-cold','history-warm','analytics-cold','analytics-warm','diversity-cold','diversity-warm'): (p/(phase+'.private')).write_text('normal output\n')
  def put(name,value): (p/name).write_text(json.dumps(value))
  for phase in ('cold','warm'):
   (p/('a2a-'+phase+'.private')).write_text('normal output\n')
@@ -1224,6 +1237,7 @@ with tempfile.TemporaryDirectory() as d:
  for phase in ('cold','warm'): put('history-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'status':200,'body':{'tasks':[],'total':0,'limit':100,'offset':0},'rows':0,'onboardingPersisted':True})
  zero={'totalRequests':0,'variantBreakdown':{},'topProviders':[]}; populated={'totalRequests':1,'variantBreakdown':{'fast':1},'topProviders':[{'provider':'alpha','count':1}]}
  for phase in ('cold','warm'): put('analytics-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseExistsAfter':True,'first':{'status':200,'body':zero if phase=='cold' else populated},'populated':{'status':200,'body':populated},'failure':{'status':200,'body':zero},'rows':1})
+ for phase in ('cold','warm'): put('diversity-'+phase+'.json',{'databaseExistedBefore':phase=='warm','databaseAfterRoute':phase=='warm','databaseAfterSettings':True,'first':0,'populated':1,'unchanged':True})
  mfa_base={'databaseExistsAfter':True,'beforeFileCount':0,'afterFileCount':1,'enabled':False,'backupCodesRemaining':0,'recoverySwitchSet':False,'mfaRows':0}
  mfacold={**mfa_base,'databaseExistedBefore':False,'corruptEnabled':None,'corruptCount':None,'rowUnchanged':None}
  mfawarm={**mfa_base,'databaseExistedBefore':True,'corruptEnabled':True,'corruptCount':1,'rowUnchanged':True}
@@ -1245,6 +1259,9 @@ with tempfile.TemporaryDirectory() as d:
  original=identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']; identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']='b'*64; put('core-identity.json',identity); reject(); identity['visibilityClosure']['src/lib/db/proxies/rotation.ts']=original; put('core-identity.json',identity)
  analytics_cold=json.loads((p/'analytics-cold.json').read_text()); analytics_cold['failure']['status']=500; put('analytics-cold.json',analytics_cold); reject(); analytics_cold['failure']['status']=200; put('analytics-cold.json',analytics_cold)
  compression_cold=json.loads((p/'compression-cold.json').read_text()); compression_cold['afterColumns']=10; put('compression-cold.json',compression_cold); reject(); compression_cold['afterColumns']=28; put('compression-cold.json',compression_cold)
+ diversity_cold=json.loads((p/'diversity-cold.json').read_text()); diversity_cold['unchanged']=False; put('diversity-cold.json',diversity_cold); reject(); diversity_cold['unchanged']=True; put('diversity-cold.json',diversity_cold)
+ diversity_cold['databaseAfterRoute']=True; put('diversity-cold.json',diversity_cold); reject(); diversity_cold['databaseAfterRoute']=False; put('diversity-cold.json',diversity_cold)
+ original=identity['diversityClosure']['open-sse/services/comboMetrics.ts']; identity['diversityClosure']['open-sse/services/comboMetrics.ts']='b'*64; put('core-identity.json',identity); reject(); identity['diversityClosure']['open-sse/services/comboMetrics.ts']=original; put('core-identity.json',identity)
  original=identity['loginClosure']['sources'][m.REQUIRE_LOGIN]; identity['loginClosure']['sources'][m.REQUIRE_LOGIN]='b'*64; put('core-identity.json',identity); reject(); identity['loginClosure']['sources'][m.REQUIRE_LOGIN]=original; put('core-identity.json',identity)
  original=identity['ssoClosure'][m.SSO_CONFIG]; identity['ssoClosure'][m.SSO_CONFIG]='b'*64; put('core-identity.json',identity); reject(); identity['ssoClosure'][m.SSO_CONFIG]=original; put('core-identity.json',identity)
  warm['migrations']=[{'version':'002','name':'other'}]; put('warm-lifecycle.json',warm); reject()
@@ -1299,6 +1316,7 @@ with tempfile.TemporaryDirectory() as d:
  assert 'private-canary' not in json.dumps(result) and result['qualification'] is False
  assert result['cold']['databaseExistedBefore'] is False and result['warm']['databaseExistedBefore'] is True
  assert result['authStatus']=={'cold':authcold,'warm':authwarm}
+ assert result['diversity']=={phase:{'databaseExistedBefore':phase=='warm','databaseAfterRoute':phase=='warm','databaseAfterSettings':True,'first':0,'populated':1,'unchanged':True} for phase in ('cold','warm')}
  assert result['ssoConfig']['cold']['onboardingBefore']=='absent' and result['ssoConfig']['warm']['onboardingBefore']=='persisted' and result['ssoConfig']['warm']['cached'] is True and result['ssoConfig']['warm']['refreshed'] is False
  assert result['identity']['migrationSqlCount']==222 and result['cold']['migrationCount']==1
  assert result['identity']['runnerArguments']==identity['runnerArguments'] and 'runnerOutputSha256' not in result['identity']

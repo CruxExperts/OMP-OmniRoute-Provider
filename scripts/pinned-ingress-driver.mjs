@@ -155,6 +155,12 @@ try {
   finally { db.exec('ALTER TABLE fixture_hidden_compression_analytics RENAME TO compression_analytics'); }
   const compressionHttp = { auth: compressionAuth, beforeColumns: compressionBefore.length, deniedColumns, afterColumns: compressionAfter.length, periods: compressionPeriods, failure: compressionFailure };
   assert(compressionFailure.status === 500 && JSON.stringify(compressionFailure.body) === JSON.stringify({ error: 'Internal server error' }), 'compression-failure');
+  const diversityAuth = {};
+  for (const [name, headers] of Object.entries({ anonymous: {}, invalid: { authorization: 'Bearer [REDACTED:auth_header]' }, session: { cookie }, inference: { authorization: `Bearer ${managementKeys.read}` }, manage: { authorization: `Bearer ${managementKeys.manage}` }, admin: { authorization: `Bearer ${managementKeys.admin}` }, oma: { authorization: `Bearer ${scopedTokens.read}` } })) {
+    const r = await request('/api/analytics/diversity', 'GET', headers);
+    diversityAuth[name] = { status: r.status, routeClass: r.routeClass, body: r.status === 200 ? r.body : null };
+  }
+  const diversityHttp = { auth: diversityAuth };
   await ready(historyChild, 43181);
   const historyPath = '/api/a2a/tasks/history';
   const historyCall = (query = '', headers = {}) => request(historyPath + query, 'GET', headers, 43181);
@@ -529,7 +535,7 @@ try {
   assert(!events.some(event => String(event.event).startsWith('unsupported:')), 'unsupported-boundary');
   assert(events.some(event => event.event === 'sqlite:read'), 'sqlite-not-observed');
   const identity = JSON.parse(await readFile(`${dir}/pinned-ingress-identity.json`, 'utf8'));
-  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(`${dir}/pinned-ingress-observations.json`, JSON.stringify({ identity, results, events, liveness, livenessHead, livenessMatcherMatched, reasoningHttp, deprecatedHttp, wellKnown, acpHttp, authStatusHttp, mfaStatusHttp, ssoConfigHttp, requireLoginHttp, a2aHttp, a2aHistoryHttp, proxyVisibilityHttp, analyticsHttp, compressionHttp, diversityHttp }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
 } finally {
   statusDb.close();
   visibilityDb.close();

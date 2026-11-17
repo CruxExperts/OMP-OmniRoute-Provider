@@ -19,8 +19,9 @@ const history = phase === 'history-cold' || phase === 'history-warm';
 const visibility = phase === 'visibility-cold' || phase === 'visibility-warm';
 const analytics = phase === 'analytics-cold' || phase === 'analytics-warm';
 const compression = phase === 'compression-cold' || phase === 'compression-warm';
-const expectedDataDir = compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
-if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
+const diversity = phase === 'diversity-cold' || phase === 'diversity-warm';
+const expectedDataDir = diversity ? '/work/diversity-data' : compression ? '/work/compression-data' : analytics ? '/work/analytics-data' : visibility ? '/work/visibility-data' : history ? '/work/history-data' : a2a ? '/work/a2a-data' : login ? '/work/login-data' : sso ? '/work/sso-data' : mfa ? '/work/mfa-data' : auth ? '/work/auth-data' : sweep ? `/work/${phase}-data` : '/work/data';
+if (!['cold', 'warm', 'auth-cold', 'auth-warm', 'mfa-cold', 'mfa-warm', 'sso-cold', 'sso-warm', 'login-cold', 'login-warm', 'a2a-cold', 'a2a-warm', 'history-cold', 'history-warm', 'visibility-cold', 'visibility-warm', 'analytics-cold', 'analytics-warm', 'compression-cold', 'compression-warm', 'diversity-cold', 'diversity-warm', 'sweep-success', 'sweep-failure'].includes(phase) || process.cwd() !== '/work/app' || process.env.INGRESS_APPROVED_SANDBOX !== '1' || DATA_DIR !== expectedDataDir || SQLITE_FILE !== `${expectedDataDir}/storage.sqlite`) throw new Error('lifecycle isolation or phase mismatch');
 const progress = stage => writeFileSync('/work/lifecycle-progress.json', JSON.stringify({ phase, stage }) + '\n', { mode: 0o600 });
 progress('before-files');
 const files = async () => {
@@ -267,6 +268,30 @@ if (compression) {
     const databaseExistsAfter = (await files()).some(x => x.name === 'storage.sqlite');
     if (first.status !== 200 || first.totalRequests !== (cold ? 0 : 1) || first.chartLength !== 24 || populated.status !== 200 || populated.totalRequests !== 1 || populated.chartLength !== 24 || rows !== 1 || afterColumns.length - beforeColumns.length !== (cold ? 18 : 0) || JSON.stringify(afterColumns) !== JSON.stringify(finalColumns)) throw new Error('compression lifecycle mismatch');
     await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseExistsAfter, beforeColumns: beforeColumns.length, afterColumns: afterColumns.length, finalColumns: finalColumns.length, first, populated, rows }) + '\n', { flag: 'wx', mode: 0o600 });
+  } finally { await closeDbInstance(); }
+  process.exit(0);
+}
+if (diversity) {
+  const cold = phase === 'diversity-cold';
+  const existed = (await files()).some(x => x.name === 'storage.sqlite');
+  if (existed === cold) throw new Error('diversity database phase mismatch');
+  const { GET } = await import('/work/app/src/app/api/analytics/diversity/route.ts');
+  const owner = await import('/work/app/open-sse/services/autoCombo/providerDiversity.ts');
+  const metrics = await import('/work/app/open-sse/services/comboMetrics.ts');
+  const first = await GET();
+  const firstBody = await first.json();
+  const databaseAfterRoute = (await files()).some(x => x.name === 'storage.sqlite');
+  metrics.recordComboRequest('fixture', null, { success: true, latencyMs: 1, target: { provider: 'alpha' } });
+  metrics.recordComboRequest('fixture', null, { success: false, latencyMs: 1, target: { provider: 'ignored' } });
+  const before = owner.getDiversityReport();
+  const response = await GET();
+  const body = await response.json();
+  const after = owner.getDiversityReport();
+  try {
+    await getSettings();
+    const databaseAfterSettings = (await files()).some(x => x.name === 'storage.sqlite');
+    if (first.status !== 200 || firstBody.totalRequests !== 0 || response.status !== 200 || body.totalRequests !== 1 || JSON.stringify(before) !== JSON.stringify(after) || !databaseAfterSettings) throw new Error('diversity native observation mismatch');
+    await writeFile(`/work/${phase}.json`, JSON.stringify({ databaseExistedBefore: existed, databaseAfterRoute, databaseAfterSettings, first: firstBody.totalRequests, populated: body.totalRequests, unchanged: JSON.stringify(before) === JSON.stringify(after) }) + '\n', { flag: 'wx', mode: 0o600 });
   } finally { await closeDbInstance(); }
   process.exit(0);
 }
