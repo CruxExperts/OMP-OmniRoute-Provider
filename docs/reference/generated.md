@@ -38,7 +38,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/acp | 1 | 2 | 0 |
 | api/admin | 1 | 2 | 0 |
 | api/agent-skills | 3 | 2 | 0 |
-| api/analytics | 2 | 1 | 0 |
+| api/analytics | 3 | 0 | 0 |
 | api/assess | 0 | 2 | 0 |
 | api/auth | 3 | 9 | 0 |
 | api/batches | 0 | 2 | 0 |
