@@ -13,6 +13,7 @@ import { buildModelComboMappingFixtureRegistry } from "./fixtures/model-combo-ma
 import { sourceUnpaginatedListProofMatches } from "../src/admin/source-normalization.ts";
 import { degradationDescriptor } from "./fixtures/pinned-degradation.fixture.ts";
 import { A2A_STATUS_ID, a2aStatusDescriptor } from "./fixtures/a2a-status.fixture.ts";
+import { AUTH_CSRF_ID, authCsrfDescriptor } from "./fixtures/auth-csrf.fixture.ts";
 
 const EMPTY: JsonSchema = { type: "object", properties: {}, additionalProperties: false };
 function fixtureOperation(body: JsonSchema | null = null): OperationDescriptor {
@@ -508,6 +509,53 @@ test("A2A eligibility joins only exact lifecycle evidence and rejects foreign ev
         expect(reader.isVerifiedEligibility(parsed, { ...expectedJoin, qualification: { ...receipt, a2aEvidenceSha256: "1".repeat(64) } })).toBe(false);
         expect(reader.isVerifiedEligibility({ ...parsed, operationId: "GET /api/health" }, expectedJoin)).toBe(false);
         expect(reader.isVerifiedEligibility(parsed, { ...expectedJoin, source: { ...operation.source, sha256: "1".repeat(64) } })).toBe(false);
+      }
+    }
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+});
+
+test("CSRF eligibility requires its own effect, lifecycle and ingress proofs", async () => {
+  const authority = fixtureRegistry([authCsrfDescriptor()]);
+  const operation = authority.getOperation(AUTH_CSRF_ID)!;
+  const receipt = operation.qualification!;
+  const { handlerSha256, handlerGitBlobSha, sideEffectSha256, ...binding } = receipt.binding;
+  const { ingressSha256, lifecycleSha256, effectSha256, ...proof } = authority.getEligibility(AUTH_CSRF_ID);
+  const digest = "0".repeat(64);
+  const ingress = { artifact: `provenance/qualification/ingress-${digest}.json`, sha256: digest };
+  const lifecycle = { artifact: `provenance/qualification/core-lifecycle-${digest}.json`, sha256: digest };
+  const effect = { artifact: `provenance/qualification/csrf-lifecycle-${digest}.json`, sha256: digest };
+  const entry = { ...proof, binding, contract: operationSourceContract(operation), ingressEvidence: ingress, lifecycleEvidence: lifecycle, effectEvidence: effect,
+    test: { ...receipt.test, observedOutcome: `provenance/qualification/${digest}.json` } };
+  const derivation = binding.sourceDerivation!;
+  const temporary = await mkdtemp(join(tmpdir(), "cruxomni-csrf-reader-"));
+  try {
+    for (const [name, candidate, expected] of [
+      ["matching", entry, "verified"],
+      ["missing-effect", { ...entry, effectEvidence: undefined }, "unavailable"],
+      ["foreign-effect", { ...entry, effectEvidence: { ...effect, artifact: `provenance/qualification/deprecated-provider-sweep-${digest}.json` } }, "unavailable"],
+      ["missing-lifecycle", { ...entry, lifecycleEvidence: undefined }, "unavailable"],
+      ["missing-ingress", { ...entry, ingressEvidence: undefined }, "unavailable"],
+      ["missing-requirement", { ...entry, binding: { ...binding, databaseInitializationRequired: undefined } }, "unavailable"],
+      ["foreign-operation", { ...entry, operationId: "GET /api/providers/deprecated" }, "unavailable"],
+    ] as const) {
+      const root = join(temporary, name);
+      await mkdir(join(root, "src/admin"), { recursive: true });
+      await mkdir(join(root, "contracts"));
+      await mkdir(join(root, "provenance"));
+      await writeFile(join(root, "provenance/upstreams.json"), JSON.stringify({ upstreams: [{ id: "omniroute", qualification_source: { kind: "signed-derivation", ...derivation } }] }));
+      const readerPath = join(root, "src/admin/eligibility.ts");
+      await copyFile(new URL("../src/admin/eligibility.ts", import.meta.url), readerPath);
+      await writeFile(join(root, "contracts/release-eligibility.json"), JSON.stringify({ schemaVersion: 3, recordKind: "omniroute-release-eligibility", release: { commit: receipt.releaseCommit }, default: { status: "unavailable", reason: "Synthetic unit document." }, sourceDerivation: derivation, effectiveTreeSha256: binding.effectiveTreeSha256, operations: [candidate] }));
+      // A distinct module instance reads each synthetic eligibility document.
+      const reader = await import(pathToFileURL(readerPath).href) as typeof EligibilityReader;
+      const parsed = reader.eligibilityFor(candidate.operationId, reader.createEligibilityIndex());
+      expect(parsed.status).toBe(expected);
+      if (name === "matching") {
+        const joinProof = { source: operation.source, qualification: receipt, binding: receipt.binding };
+        expect(reader.isVerifiedEligibility(parsed, joinProof)).toBe(true);
+        const { effectSha256: _missing, ...withoutEffect } = receipt;
+        expect(reader.isVerifiedEligibility(parsed, { ...joinProof, qualification: withoutEffect })).toBe(false);
+        expect(reader.isVerifiedEligibility(parsed, { ...joinProof, qualification: { ...receipt, effectSha256: "1".repeat(64) } })).toBe(false);
       }
     }
   } finally { await rm(temporary, { recursive: true, force: true }); }

@@ -8,6 +8,10 @@ All notable changes to OMP OmniRoute Provider are recorded here.
   HTTP and independent native cold/warm observations. Tokens, expiry and session
   credentials remain withheld, including private target views. Authentication
   initialization requires confirmation, unknown settlement and no replay.
+  Keep CSRF lifecycle and ingress proof requirements explicit in both contract
+  schemas, separate from deprecated-provider sweep evidence. The issuer test
+  executes authenticated pinned modules in a narrow child rather than rebuilding
+  the full fixture graph on hosted runners.
 
 - Construct synthetic private-path sanitizer test data at runtime so release
   exports retain the regression without embedding private-looking paths.

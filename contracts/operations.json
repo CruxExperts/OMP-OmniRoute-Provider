@@ -23,7 +23,7 @@
   "generatedFrom": {
     "authority": "pinned exported handler bytes/imports; framework policy context; OpenAPI as a separate specification source",
     "eligibility": "contracts/release-eligibility.json",
-    "eligibilitySha256": "4c92162b937960a5084a14443afb1d44341311a320deac43902d78fbbf2d807e",
+    "eligibilitySha256": "e0f9f9a727a1b5d7f3ac8563f9b5b4ca56cdd0ffdde9bde6267d51158b27d7a0",
     "manifest": "provenance/route-sources.json",
     "manifestSha256": "b5104175aa38022d133b0fadd71c1996c3164a8f8d6f05c18eea91887ade730b",
     "sourceCorpusFileCount": 4806
@@ -35062,7 +35062,7 @@
         "lifecycleSha256": "da913e6972b06d80c4b13c96fefe8da222fa28facfc5eb98cd30ede2affcfb3c",
         "releaseCommit": "191dce8d534ceb56c28a08e71381284a9a87838f",
         "test": {
-          "caseSha256": "a1c8def5d8ee6f026439efd7534b21c4ba14597639ac5e4a93ff574fcc22507c",
+          "caseSha256": "f17981d232a3407bee131cd35e40b032faf4cf39e1361fa008f8e36a0354db47",
           "id": "test/admin-auth-csrf.test.ts",
           "outcomeSha256": "8e47454cd4082ed355f6e4ed11e235fa3e9ecc5d653f58db746da2f124ee61f3"
         }

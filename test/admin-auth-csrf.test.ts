@@ -1,18 +1,22 @@
 import { afterAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import ts from "typescript";
 import { operationEvidenceBinding, outcomeArtifactPath, testCaseSourceHash, testOutcomeHash, validateAuthCsrfContract } from "../scripts/generate-contracts.ts";
 import { canonicalizeJson, projectResponse } from "../src/admin/registry.ts";
 import { fixtureRegistry } from "./fixtures/admin-qualification.fixture.ts";
 import { AUTH_CSRF_ID, AuthCsrfFixture, authCsrfContract, authCsrfDescriptor } from "./fixtures/auth-csrf.fixture.ts";
+import { readPinnedSource } from "./fixtures/pinned-handler.fixture.ts";
 
 const fixture = new AuthCsrfFixture();
 let observation: { before: unknown; after: unknown; result: { status: number; body: unknown } } | undefined;
 let issuerChecked = false;
 let contractChecked = false;
+let schemaChecked = false;
 afterAll(async () => {
-  if (!observation || !issuerChecked || !contractChecked) return;
+  if (!observation || !issuerChecked || !contractChecked || !schemaChecked) return;
   const testId = "test/admin-auth-csrf.test.ts";
   const contract = authCsrfContract();
   const binding = operationEvidenceBinding(AUTH_CSRF_ID, contract);
@@ -37,13 +41,65 @@ test("candidate contract preserves closed input and no replay", () => {
   contractChecked = true;
 });
 
+test("CSRF schema conditions bind ingress and distinct effect domains", () => {
+  type Clause = {
+    if: { properties: { operationId?: { const?: string; enum?: string[] } } };
+    then: { required?: string[]; properties?: { binding?: { required: string[] }; effectEvidence?: { properties: { artifact: { pattern: string } } }; qualification?: { required: string[]; properties?: { binding: { required: string[] } } } } };
+    else?: { not?: { required: string[] }; properties?: { qualification: { not: { required: string[] } } } };
+  };
+  const eligibility = JSON.parse(readFileSync(resolve(process.cwd(), "contracts/release-eligibility.schema.json"), "utf8")) as { $defs: { operation: { allOf: Clause[] }; effectEvidence: { properties: { artifact: { pattern: string } } } } };
+  const operations = JSON.parse(readFileSync(resolve(process.cwd(), "contracts/operations.schema.json"), "utf8")) as { $defs: { operation: { allOf: Clause[] } } };
+  const conditions = eligibility.$defs.operation.allOf;
+  const csrf = conditions.find(row => row.if.properties.operationId?.const === AUTH_CSRF_ID)!;
+  const deprecated = conditions.find(row => row.if.properties.operationId?.const === "GET /api/providers/deprecated")!;
+  const effect = conditions.find(row => row.then.required?.includes("effectEvidence") && row.else)!;
+  const ingress = conditions.find(row => row.then.required?.includes("ingressEvidence") && row.else)!;
+  const receiptConditions = operations.$defs.operation.allOf;
+  const receipt = receiptConditions.find(row => row.if.properties.operationId?.const === AUTH_CSRF_ID)!;
+  const receiptEffect = receiptConditions.find(row => row.then.properties?.qualification?.required?.includes("effectSha256") && row.else)!;
+  const receiptIngress = receiptConditions.find(row => row.then.properties?.qualification?.required?.includes("ingressSha256") && row.else)!;
+  expect(effect.if.properties.operationId?.enum).toContain(AUTH_CSRF_ID);
+  expect(effect.if.properties.operationId?.enum).toContain("GET /api/providers/deprecated");
+  expect(effect.if.properties.operationId?.enum).not.toContain("GET /api/health");
+  expect(effect.else?.not?.required).toContain("effectEvidence");
+  expect(ingress.if.properties.operationId?.enum).toContain(AUTH_CSRF_ID);
+  expect(ingress.else?.not?.required).toContain("ingressEvidence");
+  expect(csrf.then.required).toEqual(expect.arrayContaining(["effectEvidence", "lifecycleEvidence", "ingressEvidence"]));
+  expect(csrf.then.properties?.binding?.required).toContain("databaseInitializationRequired");
+  expect(receipt.then.required).toContain("databaseInitializationRequired");
+  expect(receipt.then.properties?.qualification?.required).toEqual(expect.arrayContaining(["effectSha256", "lifecycleSha256", "ingressSha256"]));
+  expect(receipt.then.properties?.qualification?.properties?.binding.required).toContain("databaseInitializationRequired");
+  for (const condition of [receiptEffect, receiptIngress]) expect(condition.if.properties.operationId?.enum).toContain(AUTH_CSRF_ID);
+  expect(receiptEffect.else?.properties?.qualification.not.required).toContain("effectSha256");
+  expect(receiptIngress.else?.properties?.qualification.not.required).toContain("ingressSha256");
+  const csrfPath = `provenance/qualification/csrf-lifecycle-${"0".repeat(64)}.json`;
+  const sweepPath = `provenance/qualification/deprecated-provider-sweep-${"0".repeat(64)}.json`;
+  const union = new RegExp(eligibility.$defs.effectEvidence.properties.artifact.pattern);
+  const csrfPattern = new RegExp(csrf.then.properties!.effectEvidence!.properties.artifact.pattern);
+  const sweepPattern = new RegExp(deprecated.then.properties!.effectEvidence!.properties.artifact.pattern);
+  expect([union.test(csrfPath), union.test(sweepPath)]).toEqual([true, true]);
+  expect([csrfPattern.test(csrfPath), csrfPattern.test(sweepPath), sweepPattern.test(sweepPath), sweepPattern.test(csrfPath)]).toEqual([true, false, true, false]);
+  schemaChecked = true;
+});
+
 
 test("actual issuer binds the session, secret and expiry without random input", () => {
+  // Authenticate source in this process, which has already loaded the pinned tree.
+  // The child receives only compiled issuer modules, not the management fixture graph.
+  const [constants, issuer] = ["src/shared/constants/dashboardCsrf.ts", "src/server/authz/csrf.ts"].map(path =>
+    ts.transpileModule(readPinnedSource(path), { fileName: path, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
+  );
   const program = `
 import { strict as assert } from 'node:assert';
-import { createHash, createHmac } from 'node:crypto';
-import { AuthCsrfFixture } from './test/fixtures/auth-csrf.fixture.ts';
-const fixture = new AuthCsrfFixture();
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+const load = (source, require) => { const module = { exports: {} }; new Function('require', 'module', 'exports', source)(require, module, module.exports); return module.exports; };
+const constants = load(${JSON.stringify(constants)}, specifier => { throw new Error('Unexpected constant dependency: ' + specifier); });
+const issuer = load(${JSON.stringify(issuer)}, specifier => {
+  if (specifier === 'node:crypto') return { createHash, createHmac, timingSafeEqual };
+  if (specifier === '@/shared/constants/dashboardCsrf') return constants;
+  throw new Error('Unexpected issuer dependency: ' + specifier);
+});
+const fixture = { issue: issuer.issueDashboardCsrfToken };
 const secret = 'fixture-only-secret';
 const request = session => new Request('http://fixture.invalid/api/auth/csrf', { headers: { cookie: 'auth_token=' + session } });
 process.env.JWT_SECRET = secret;
@@ -67,10 +123,10 @@ assert.equal(fixture.issue(request('first-session'), now), null);
 process.env.JWT_SECRET = secret;
 assert.equal(fixture.issue(new Request('http://fixture.invalid'), now), null);
 `;
-  const result = spawnSync(process.execPath, ["-e", program], { cwd: process.cwd(), encoding: "utf8" });
-  expect(result.status).toBe(0);
+  const result = spawnSync(process.execPath, ["-e", program], { cwd: process.cwd(), encoding: "utf8", timeout: 30_000 });
+  expect({ status: result.status, signal: result.signal, error: result.error?.message, stderr: result.stderr }).toEqual({ status: 0, signal: null, error: undefined, stderr: "" });
   issuerChecked = true;
-});
+}, 45_000);
 
 test("management pipeline and handler guard protect the actual issuer", async () => {
   for (const credential of [undefined, "invalid-fixture-secret"]) {
