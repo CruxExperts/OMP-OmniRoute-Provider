@@ -36,7 +36,7 @@ Qualified means the inventory marks an operation invokable. It does not establis
 | api/{omnirouteApiCatchAll} | 0 | 0 | 7 |
 | api/a2a | 2 | 4 | 0 |
 | api/acp | 1 | 2 | 0 |
-| api/admin | 1 | 2 | 0 |
+| api/admin | 2 | 1 | 0 |
 | api/agent-skills | 3 | 2 | 0 |
 | api/analytics | 3 | 0 | 0 |
 | api/assess | 0 | 2 | 0 |
