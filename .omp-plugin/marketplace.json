@@ -8,7 +8,7 @@
   "description": "OMP OmniRoute Provider connects Oh My Pi to OmniRoute with guided setup, live discovery, and guarded administration.",
   "entrypoint": "./src/index.ts",
   "compatibility": {
-    "host": ">=18.12.2 <19",
+    "host": ">=18.12.2 <19 || 19.2.0",
     "tested": [
       "18.12.2",
       "18.12.5",
