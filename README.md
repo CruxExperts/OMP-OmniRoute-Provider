@@ -63,7 +63,7 @@ Connect, choose a model, and get to work. Additional model information, pricing 
 
 Have **OMP installed**, **a working OmniRoute gateway**, and **the gateway's address and runtime API key** ready. The runtime key is the access key OMP will use for model requests. It is not automatically an administration credential.
 
-New to either tool? Start with [Oh My Pi](https://github.com/can1357/oh-my-pi) and [OmniRoute](https://github.com/cheaper-inference/OmniRoute), then return here to connect them. The declared OMP compatibility range for this plugin is `>=18.12.2 <19`; see [compatibility notes](#compatibility-and-release-notes) for the distinction between that range and tested releases.
+New to either tool? Start with [Oh My Pi](https://github.com/can1357/oh-my-pi) and [OmniRoute](https://github.com/cheaper-inference/OmniRoute), then return here to connect them. The tagged install below targets OMP `>=18.12.2 <19`; see the [compatibility notes](#compatibility-and-release-notes) for the source checkout's range.
 
 ### 1. Install the plugin
 
@@ -247,9 +247,11 @@ The relevant question is whether your gateway exposes the model through a suppor
 | Item | Reference for this README |
 | --- | --- |
 | Tagged plugin installation | `v1.0.5` |
-| Declared OMP range | `>=18.12.2 <19` |
+| Declared OMP range (source checkout) | `>=18.12.2 <19 \|\| 19.2.0` |
 | Distribution | GitHub release assets and tagged GitHub source |
 | Optional administration | Availability is defined by the current operation inventory |
+
+The source checkout adds exactly OMP `19.2.0`, not the rest of `19.x`. This does not change the OMP `18.12.5` development SDK pin, the host test matrix, or the release qualification requirements.
 
 A declared version range is not the same as a completed test matrix. The supplied startup screenshot displays OMP **18.12.6**; the [generated compatibility reference](docs/reference/generated.md#version-and-compatibility) owns the current requested host matrix, now including the separately verified Linux x64 OMP **18.20.2** host. That bounded compatibility check is not final-release or eight-platform qualification. The gateway screenshot displays **3.8.51** and a customized label; it illustrates that user's setup rather than the latest OmniRoute release.
 

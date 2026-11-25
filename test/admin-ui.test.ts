@@ -231,8 +231,9 @@ test("apply command remains human-only when the confirmation form is cancelled",
   const handler = createAdminCommandHandler({ executor: executor as never, endpoint: "http://127.0.0.1:20128" });
   const context = {
     hasUI: true,
+    mode: "tui",
     ui: {
-      custom: async () => undefined,
+      ...promptReplies(async () => undefined),
       confirm: async () => true,
       notify: () => undefined,
     },
@@ -295,8 +296,9 @@ test("apply confirmation renders the observed target and visibility limits with 
   const handler = createAdminCommandHandler({ executor: executor as never, registry, endpoint: "http://127.0.0.1:20128" });
   const context = {
     hasUI: true,
+    mode: "tui",
     ui: {
-      custom: async () => "APPLY",
+      ...promptReplies(async () => "APPLY"),
       confirm: async (_title: string, body: string) => { messages.push(body); return true; },
       notify: (message: string) => { messages.push(message); },
     },
@@ -330,7 +332,7 @@ test("confirmed lifecycle result displays only projected login booleans and reta
   const plan = await executor.plan(REQUIRE_LOGIN_ID, {});
   const messages: string[] = [];
   const handler = createAdminCommandHandler({ executor, registry, endpoint });
-  const context = { hasUI: true, ui: { custom: async () => "APPLY", confirm: async () => true, notify: (message: string) => { messages.push(message); } } };
+  const context = { hasUI: true, mode: "tui", ui: { ...promptReplies(async () => "APPLY"), confirm: async () => true, notify: (message: string) => { messages.push(message); } } };
   await handler(`apply ${plan.planId}`, context as never);
   const display = messages.join("\n");
   expect(display).toContain("administration outcome is unknown; reconcile before retrying");
@@ -364,8 +366,9 @@ test("browse executes only ordinary reads and displays the executor-projected re
 
   await handler(descriptor.operationId, {
     hasUI: true,
+    mode: "tui",
     ui: {
-      custom: async () => answers.shift(),
+      ...promptReplies(async () => answers.shift()),
       confirm: async () => { confirmations += 1; return true; },
       notify: (message: string) => notifications.push(message),
     },
@@ -391,12 +394,13 @@ test("search selects a matching category and operation through the native choose
 
   await handler("/api/combos", {
     hasUI: true,
+    mode: "tui",
     ui: {
       select: async (title: string, options: Array<string | { label: string; description?: string }>) => {
         chooserCalls.push({ title, options });
         return typeof options[0] === "string" ? options[0] : options[0]?.label;
       },
-      custom: async () => customAnswers.shift(),
+      ...promptReplies(async () => customAnswers.shift()),
       notify: () => undefined,
     },
   } as never);
@@ -422,6 +426,7 @@ test("native operation chooser exposes the complete matching category beyond 40 
 
   await handler("", {
     hasUI: true,
+    mode: "tui",
     ui: {
       select: async (title: string, options: Array<string | { label: string; description?: string }>) => {
         const labels = options.map(option => typeof option === "string" ? option : option.label);
@@ -431,7 +436,7 @@ test("native operation chooser exposes the complete matching category beyond 40 
         }
         return labels[0];
       },
-      custom: async () => "{}",
+      ...promptReplies(async () => "{}"),
       notify: () => undefined,
     },
   } as never);
@@ -451,9 +456,10 @@ test("search cancellation stops before input collection or dispatch", async () =
 
   await handler("/api/combos", {
     hasUI: true,
+    mode: "tui",
     ui: {
       select: async () => undefined,
-      custom: async () => { inputPrompts += 1; return "{}"; },
+      ...promptReplies(async () => { inputPrompts += 1; return "{}"; }),
       notify: () => undefined,
     },
   } as never);
@@ -473,9 +479,10 @@ test("exact unqualified operation IDs remain blocked without prompting", async (
 
   await handler(descriptor.operationId, {
     hasUI: true,
+    mode: "tui",
     ui: {
       select: async () => { throw new Error("exact operation ID must not open a chooser"); },
-      custom: async () => { inputPrompts += 1; return "{}"; },
+      ...promptReplies(async () => { inputPrompts += 1; return "{}"; }),
       notify: (message: string) => notifications.push(message),
     },
   } as never);
@@ -494,9 +501,10 @@ test("search rejects control characters before opening a chooser", async () => {
 
   await handler("/api/combos\u001b[31m", {
     hasUI: true,
+    mode: "tui",
     ui: {
       select: async () => { selectorCalls += 1; return undefined; },
-      custom: async () => "{}",
+      ...promptReplies(async () => "{}"),
       notify: (message: string) => notifications.push(message),
     },
   } as never);
@@ -514,6 +522,7 @@ test("chooser descriptions render descriptor control characters as visible escap
 
   await handler("/api/combos", {
     hasUI: true,
+    mode: "tui",
     ui: {
       select: async (title: string, options: Array<string | { label: string; description?: string }>) => {
         if (title !== "Administration category") {
@@ -521,7 +530,7 @@ test("chooser descriptions render descriptor control characters as visible escap
         }
         return title === "Administration category" ? "api/combos" : undefined;
       },
-      custom: async () => { throw new Error("cancelled chooser must not prompt for operation input"); },
+      ...promptReplies(async () => { throw new Error("cancelled chooser must not prompt for operation input"); }),
       notify: () => undefined,
     },
   } as never);
@@ -552,8 +561,9 @@ test("fresh enablement confirms the exact endpoint before persisting or binding"
   });
   const context = {
     hasUI: true,
+    mode: "tui",
     ui: {
-      custom: async () => "http://127.0.0.1:20128",
+      ...promptReplies(async () => "http://127.0.0.1:20128"),
       confirm: async (_title: string, detail: string) => {
         confirms += 1;
         expect(detail).toContain("http://127.0.0.1:20128");
@@ -660,3 +670,7 @@ test("stalled response bodies are cancelled by the combined deadline", async () 
     (ADMIN_ADAPTER_LIMITS as unknown as { timeoutMs: number }).timeoutMs = originalTimeout;
   }
 });
+
+function promptReplies(reply: () => Promise<string | undefined>) {
+  return { custom: reply, input: reply };
+}

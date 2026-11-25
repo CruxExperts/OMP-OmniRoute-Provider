@@ -1,7 +1,7 @@
-import { Input, col, text, wrapTextWithAnsi, type DescribeContext, type NativeNode } from "@oh-my-pi/pi-tui";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { DISPLAY_NAME } from "./identity.ts";
 import { AuthError } from "./auth.ts";
+import { promptText } from "./prompt.ts";
 import { ENDPOINT_EXAMPLE, ENDPOINT_INPUT_HELP, allowsEnvironmentOptionalCredentials, isEnvironmentRuntimeSelected, loadConfig, updateConfig, resolveEnvironmentBinding, resolveEnvironmentEndpointPrefill, normalizeEndpointInput, validateEndpoint, type CredentialDomain } from "./config.ts";
 import { OptionalCredentials, type CredentialBinding, type OptionalCredential } from "./credentials.ts";
 import { readSellerPricing } from "./pricing.ts";
@@ -14,33 +14,8 @@ export interface SetupServices {
   status(): string;
 }
 
-class GuidedInput extends Input {
-  helpLines: readonly string[] = [];
-
-  override render(width: number): readonly string[] {
-    return [...this.helpLines.flatMap(line => wrapTextWithAnsi(line, width)), ...super.render(width)];
-  }
-
-  override describe(context: DescribeContext): NativeNode {
-    return this.helpLines.length === 0
-      ? super.describe(context)
-      : col([...this.helpLines.map(line => text(line)), super.describe(context)], { gap: "sm" });
-  }
-}
-
-export function promptSetup(context: ExtensionContext, prompt: string, secret = false, initial = "", helpLines: readonly string[] = []): Promise<string | undefined> {
-  if (context.mode !== "tui") return Promise.resolve(undefined);
-  return context.ui.custom<string | undefined>((_tui, _theme, _keys, done) => {
-    const input = new GuidedInput();
-    input.prompt = `${prompt}: `;
-    input.helpLines = helpLines;
-    input.mask = secret;
-    if (initial && !secret) input.setValue(initial);
-    const finish = (value: string | undefined) => { input.setValue(""); done(value); };
-    input.onSubmit = value => finish(value.trim() || undefined);
-    input.onEscape = () => finish(undefined);
-    return input;
-  }, { overlay: true });
+export async function promptSetup(context: ExtensionContext, prompt: string, secret = false, initial = "", helpLines: readonly string[] = []): Promise<string | undefined> {
+  return (await promptText(context, prompt, secret, initial, helpLines))?.trim() || undefined;
 }
 
 function info(context: ExtensionContext, text: string, error = false): void {

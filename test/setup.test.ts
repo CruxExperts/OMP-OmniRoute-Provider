@@ -6,9 +6,11 @@ import { join } from "node:path";
 import { discoverAuthStorage } from "@oh-my-pi/pi-coding-agent";
 import { clearPendingCandidate, recoverPendingAfterPersistence, recoverPendingInteractively, registerNativeLogin, resolveRuntimeCredential, resolveStartupRuntimeCredential } from "../src/auth.ts";
 import type { StoredAuthCredential } from "@oh-my-pi/pi-ai";
+import * as tui from "@oh-my-pi/pi-tui";
 import { commitPendingConfig, getConfigPath, loadConfig, setAgentDirResolverForTests, updateConfig, validateEndpoint } from "../src/config.ts";
 import { OptionalCredentials } from "../src/credentials.ts";
 import { createSetupWizard, setupConnection, type SetupServices } from "../src/setup.ts";
+import { promptText } from "../src/prompt.ts";
 import { TransportError } from "../src/transport.ts";
 
 let root: string | undefined;
@@ -60,6 +62,18 @@ function context<TLogin>(
         component.setValue(value);
         component.onSubmit(value);
         return deferred.promise;
+      },
+      async input(title: string, placeholder: string | undefined, options: { secret?: boolean } | undefined) {
+        expect(placeholder).toBeUndefined();
+        promptObservations?.push({ initial: "", masked: options?.secret === true });
+        promptRenders?.push(title.split("\n"));
+        return values.shift();
+      },
+      async editor(title: string, prefill: string, _options: undefined, editorOptions: { promptStyle: boolean }) {
+        expect(editorOptions.promptStyle).toBe(true);
+        promptObservations?.push({ initial: prefill, masked: false });
+        promptRenders?.push(title.split("\n"));
+        return values.shift();
       },
       async confirm(title: string, detail: string) { confirmedMessages?.push(`${title}\n${detail}`); return confirmations.shift() ?? false; },
       async select() { return selections.shift(); },
@@ -218,7 +232,7 @@ test("connection cancellation is byte-preserving and never invokes native login"
   expect(await readFile(getConfigPath(), "utf8")).toBe(before);
 });
 
-test("gateway help wraps above a usable 80-column URL input", async () => {
+test("gateway input includes help for accepted endpoint formats", async () => {
   await isolated();
   const rendered: string[][] = [];
   const ctx = context(["gateway.example"], [], [], async () => { throw new Error("login should not run"); }, [], undefined, undefined, rendered);
@@ -227,8 +241,12 @@ test("gateway help wraps above a usable 80-column URL input", async () => {
   expect(lines.length).toBeGreaterThan(2);
   expect(lines.join(" ")).toContain("llm.example.com");
   expect(lines.join(" ")).toContain("localhost");
-  expect(lines.at(-1)).toContain("Gateway URL: ");
-  expect(lines.at(-1)).toContain("\x1b[7m");
+  if ("Input" in tui) {
+    expect(lines.at(-1)).toContain("Gateway URL: ");
+    expect(lines.at(-1)).toContain("\x1b[7m");
+  } else {
+    expect(lines[0]).toBe("Gateway URL");
+  }
 });
 
 test("completed connection never serializes or announces the runtime key", async () => {
@@ -550,7 +568,7 @@ test("non-TUI setup refuses without prompts, storage or mutation", async () => {
     ui: {
       notify(message: string) { notices.push(message); },
       async select() { interactions++; }, async confirm() { interactions++; return false; },
-      async custom() { interactions++; },
+      async custom() { interactions++; }, async input() { interactions++; }, async editor() { interactions++; },
     },
   } as never);
   expect(interactions).toBe(0);
@@ -607,4 +625,10 @@ test("startup cancellation closes a native storage handle that arrives after abo
   } finally {
     if (!closed) storage.close();
   }
+});
+
+test("terminal-only secret prompts do not send credential requests to RPC clients", async () => {
+  const unexpected = () => { throw new Error("RPC cannot guarantee secret masking"); };
+  const context = { mode: "rpc", hasUI: true, ui: { custom: unexpected, input: unexpected, editor: unexpected } };
+  expect(await promptText(context as never, "Management API key", true)).toBeUndefined();
 });

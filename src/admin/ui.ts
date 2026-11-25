@@ -1,10 +1,10 @@
-import { Input } from "@oh-my-pi/pi-tui";
 import type { ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { getOperationRegistry, redactSourceOutput, type OperationAdapter, type OperationRegistry } from "./registry.ts";
 import { escapeControls, type AdminCredentialInput, type AdminPlanHandle, type AdminPreview } from "./types.ts";
 import type { AdminExecutor } from "./executor.ts";
 import { isLoopbackHostname } from "./adapters.ts";
 import { diagnosticElapsed, windowsDiagnostic } from "../private-path.ts";
+import { promptText } from "../prompt.ts";
 
 const DEFAULT_PROFILE = "omniroute";
 type AdminContext = ExtensionContext;
@@ -67,16 +67,8 @@ async function credentialFromEnvironment(options: AdminUiOptions): Promise<{ api
   return { ...(apiKey ? { apiKey } : {}), ...(cookie ? { cookie } : {}) };
 }
 
-async function askText(context: AdminContext, prompt: string, secret = false): Promise<string | undefined> {
-  if (!hasInteractiveUi(context)) return undefined;
-  return context.ui.custom<string | undefined>((_tui, _theme, _keybindings, done) => {
-    const input = new Input();
-    input.prompt = `${prompt}: `;
-    input.mask = secret;
-    input.onSubmit = value => done(value.length > 0 ? value : undefined);
-    input.onEscape = () => done(undefined);
-    return input;
-  }, { overlay: true });
+function askText(context: AdminContext, prompt: string, secret = false): Promise<string | undefined> {
+  return hasInteractiveUi(context) ? promptText(context, prompt, secret) : Promise.resolve(undefined);
 }
 
 function redactPreview(preview: AdminPreview, registry: OperationRegistry): string {

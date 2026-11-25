@@ -2,9 +2,10 @@
 
 ## Requirements
 
-- Oh My Pi in the declared `>=18.12.2 <19` range. See the
-  [generated compatibility reference](reference/generated.md) for pinned source
-  versions; release qualification requires fresh evidence for the latest stable host.
+- Oh My Pi `>=18.12.2 <19` for the tagged release. The source checkout also
+  targets exactly OMP `19.2.0`. See the [generated compatibility
+  reference](reference/generated.md) for pinned versions and the host test matrix.
+  Release qualification still requires fresh evidence for the latest stable host.
 - Bun `>=1.4.2` when installing from source or running package checks.
 - An OmniRoute-compatible HTTPS endpoint and a runtime API key. Remote HTTP is
   available only through an explicit choice and warning.
