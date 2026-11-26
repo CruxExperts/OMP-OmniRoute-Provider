@@ -16,11 +16,11 @@
         "zod": "4.6.7",
       },
       "peerDependencies": {
-        "@oh-my-pi/pi-ai": ">=18.12.2 <19 || 19.2.0",
-        "@oh-my-pi/pi-catalog": ">=18.12.2 <19 || 19.2.0",
-        "@oh-my-pi/pi-coding-agent": ">=18.12.2 <19 || 19.2.0",
-        "@oh-my-pi/pi-tui": ">=18.12.2 <19 || 19.2.0",
-        "@oh-my-pi/pi-utils": ">=18.12.2 <19 || 19.2.0",
+        "@oh-my-pi/pi-ai": ">=18.12.2",
+        "@oh-my-pi/pi-catalog": ">=18.12.2",
+        "@oh-my-pi/pi-coding-agent": ">=18.12.2",
+        "@oh-my-pi/pi-tui": ">=18.12.2",
+        "@oh-my-pi/pi-utils": ">=18.12.2",
       },
       "optionalPeers": [
         "@oh-my-pi/pi-ai",

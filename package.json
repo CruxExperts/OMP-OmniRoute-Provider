@@ -78,14 +78,17 @@
       "./src/index.ts"
     ],
     "compatibility": {
-      "host": ">=18.12.2 <19 || 19.2.0",
+      "host": ">=18.12.2",
       "tested": [
         "18.12.2",
         "18.12.5",
         "18.12.6",
         "18.16.0",
         "18.20.2",
-        "18.21.0"
+        "18.21.0",
+        "19.0.0",
+        "19.1.0",
+        "19.2.1"
       ]
     }
   },
@@ -94,11 +97,11 @@
     "bun": ">=1.4.2"
   },
   "peerDependencies": {
-    "@oh-my-pi/pi-ai": ">=18.12.2 <19 || 19.2.0",
-    "@oh-my-pi/pi-catalog": ">=18.12.2 <19 || 19.2.0",
-    "@oh-my-pi/pi-coding-agent": ">=18.12.2 <19 || 19.2.0",
-    "@oh-my-pi/pi-tui": ">=18.12.2 <19 || 19.2.0",
-    "@oh-my-pi/pi-utils": ">=18.12.2 <19 || 19.2.0"
+    "@oh-my-pi/pi-ai": ">=18.12.2",
+    "@oh-my-pi/pi-catalog": ">=18.12.2",
+    "@oh-my-pi/pi-coding-agent": ">=18.12.2",
+    "@oh-my-pi/pi-tui": ">=18.12.2",
+    "@oh-my-pi/pi-utils": ">=18.12.2"
   },
   "peerDependenciesMeta": {
     "@oh-my-pi/pi-ai": {

@@ -23,8 +23,8 @@ const hostProvidedOmpPackages: Record<string, true> = {
 };
 function hostCompatibilityRange(manifest: PackageManifest): string {
   const value = manifest.omp?.compatibility?.host;
-  if (typeof value !== "string" || !/^>=\d+\.\d+\.\d+ <\d+(?: \|\| \d+\.\d+\.\d+)?$/.test(value)) {
-    throw new Error("manifest.omp.compatibility.host must be a semver floor and major-version ceiling, optionally followed by one exact version");
+  if (typeof value !== "string" || !/^>=\d+\.\d+\.\d+$/.test(value)) {
+    throw new Error("manifest.omp.compatibility.host must be an unbounded semver floor");
   }
   return value;
 }

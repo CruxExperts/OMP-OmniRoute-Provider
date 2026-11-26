@@ -142,6 +142,36 @@ source, artifacts, notes, checksums, and release receipt described in the
 [release guide](release.md), then obtain approval for that payload. A tag push alone
 does not publish. Reconcile any partial npm or GitHub publication before retrying.
 
+## OMP 19.2.1 compatibility review
+
+The Linux x64 glibc OMP 19.2.1 release asset and checksum file matched the
+GitHub release API digests and the checksum entry. The disposable native smoke
+passed against both 19.2.1 and the earliest declared host, 18.12.2, using the
+same intermediate package archive, SHA-256
+`869b34a011520882a850cf284349b486ffb44b275c2a03ae29e33d5100b2362f`.
+It exercised setup and cancellation, masked input, persistence, live discovery,
+streaming inference, tool continuation, the model-combo-mappings administration
+fixture, and plugin lifecycle. The two injected uncertain administration
+outcomes remain unverified. These checks do not qualify the final source or
+archive, other administration operations, or eight platforms.
+
+OMP 19.2.1 no longer exports the legacy TUI Input component. The wizard and
+administration prompts use its native secret-capable input dialog when that
+component is unavailable; existing non-secret values use the native editor.
+The 18.12.5 source and development SDK pins
+remain unchanged. The open-ended host range permits future versions but does
+not constitute evidence that they work; new releases still require review. The
+latest-release monitoring record remains at 18.21.0 until operation
+qualification evidence is refreshed for an updated provenance manifest.
+
+The Linux x64 glibc release assets for 19.0.0 and 19.1.0 also passed the
+disposable native smoke after their release API digests, checksum-file digests,
+and binary checksum entries matched. Both exercised the same intermediate
+archive, SHA-256
+`d9e4181b7a506715c772fce0e754676f776d87725a6030f129c583d4073ab385`.
+This verifies the earlier 19.x hosts on that platform only; it does not
+qualify the final archive or other platforms and operations.
+
 ## OMP 18.21.0 compatibility review
 
 The disposable native smoke reported `verified` for the Linux x64 glibc OMP

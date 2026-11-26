@@ -4,8 +4,8 @@ All notable changes to OMP OmniRoute Provider are recorded here.
 
 ## Unreleased
 
-- Add OMP `19.2.0` compatibility without widening support to other `19.x`
-  releases. The OMP `18.12.5` SDK pin and release qualification are unchanged.
+- Support OMP 19.x with no upper host-version bound, while retaining the
+  18.12.5 SDK pin. Release qualification still requires fresh evidence.
 
 ## 1.0.5 — 2026-11-10
 
