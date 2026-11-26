@@ -1359,6 +1359,7 @@ test("pre-enabled administration defers host action methods until session start 
         input.onSubmit("{}");
         return promise;
       },
+      async input() { return "{}"; },
     });
     const read = async () => host.commands.get("cruxomni-admin")!.handler("GET /api/fallback/chains", readContext);
     await read();
@@ -1423,6 +1424,7 @@ test("failed administration initialization and cleanup cannot poison the next co
         input.onSubmit("{}");
         return promise;
       },
+      async input() { return "{}"; },
     });
     const admin = host.commands.get("cruxomni-admin")!;
     await admin.handler("enable", context);
@@ -1493,6 +1495,7 @@ test("an in-flight administration creator cannot replace the runtime after resta
         input.onSubmit("{}");
         return promise;
       },
+      async input() { return "{}"; },
     });
     await host.commands.get("cruxomni-admin")!.handler("GET /api/fallback/chains", readContext);
     expect(fixture.requests.filter(request => request.path === "/api/fallback/chains")).toEqual([
@@ -1788,18 +1791,26 @@ test("session-only metadata saved through the registered wizard authorizes expli
     await register(host.api as never);
     shutdown = host.events.get("session_shutdown");
     const choices = ["Metadata (optional)", "Set credential", "This session only", "Finish"];
+    const notices: string[] = [];
     expect(fixture.requests).toContainEqual({ path: "/v1/models", authorization: `Bearer ${RUNTIME_KEY}` });
     const ui = {
+      notify(message: string) { notices.push(message); },
       async select() { return choices.shift(); },
       async confirm() { return true; },
-      async custom(factory: (...args: never[]) => { onSubmit(value: string): void }) {
+      async custom(factory: (...args: never[]) => { mask: boolean; onSubmit(value: string): void }) {
         const { promise, resolve } = Promise.withResolvers<string | undefined>();
         const input = factory(undefined as never, undefined as never, undefined as never, resolve as never);
+        expect(input.mask).toBe(true);
         input.onSubmit(METADATA_KEY);
         return promise;
       },
+      async input(_title: string, _placeholder: undefined, options: { secret?: boolean }) {
+        expect(options.secret).toBe(true);
+        return METADATA_KEY;
+      },
     };
     await host.commands.get("cruxomni")!.handler("setup", host.context(ui) as never);
+    expect(notices.join("\n")).toContain("metadata credential saved (this session only)");
 
     const metadata = await fixture.metadataRequest;
     expect(metadata).toEqual({ path: "/api/models/catalog", authorization: `Bearer ${METADATA_KEY}` });

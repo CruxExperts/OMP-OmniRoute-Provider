@@ -2,6 +2,11 @@
 
 All notable changes to OMP OmniRoute Provider are recorded here.
 
+## Unreleased
+
+- Support OMP 19.x with no upper host-version bound, while retaining the
+  18.12.5 SDK pin. Release qualification still requires fresh evidence.
+
 ## 1.0.5 — 2026-11-10
 
 - Retain the native qualification workspace unless a bounded process-group

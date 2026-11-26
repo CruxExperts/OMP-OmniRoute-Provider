@@ -201,10 +201,10 @@ test("inference dispatch pins the selected protocol, rejects redirects, and supp
 
 test("inference target guard rejects every non-exact route before network dispatch", async () => {
   let calls = 0;
-  const baseFetch: typeof fetch = Object.assign(async () => {
+  const baseFetch = async () => {
     calls += 1;
     return new Response(null, { status: 200 });
-  }, { preconnect: globalThis.fetch.preconnect });
+  };
   const invalidTargets = [
     ["openai-responses", "https://gateway.example/v1/responses/extra", "POST"],
     ["openai-responses", "https://gateway.example/v1/responses?query=1", "POST"],

@@ -2,6 +2,8 @@ import { createAssistantMessageEventStream, streamSimple, type Api, type Assista
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import type { EndpointApi } from "./catalog.ts";
 
+type FetchImpl = NonNullable<SimpleStreamOptions["fetch"]>;
+
 export const OMNIROUTE_GUARDED_API = "omniroute-native-guard" as Api;
 
 export interface InferenceBinding {
@@ -131,14 +133,14 @@ function materializeNativeModel(model: Model<Api>, api: EndpointApi, baseUrl: st
 export function createSingleDispatchFetch(
   endpoint: string,
   api: EndpointApi,
-  baseFetch: typeof fetch = globalThis.fetch,
+  baseFetch: FetchImpl = globalThis.fetch,
   canDispatch?: () => boolean,
   boundCredential?: string,
-): typeof fetch {
+): FetchImpl {
   const root = endpointApiRoot(endpoint);
   const targetPath = `${root.pathname}${api === "openai-responses" ? "responses" : "chat/completions"}`;
   let attempts = 0;
-  const guarded: typeof fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  const guarded: FetchImpl = async (input, init) => {
     attempts++;
     if (attempts > 1) throw inferenceError("inference replay suppressed", "inference-replay-suppressed");
     const rawUrl = input instanceof Request ? input.url : String(input);
@@ -175,7 +177,8 @@ export function createSingleDispatchFetch(
       throw inferenceError("inference redirect rejected", "inference-redirect");
     }
     return response;
-  }, { preconnect: baseFetch.preconnect });
+  };
+  if (baseFetch.preconnect) guarded.preconnect = baseFetch.preconnect;
   return guarded;
 }
 
@@ -213,7 +216,7 @@ export function createBoundInferenceStream(options: BoundInferenceOptions) {
           let status: number | undefined;
           let transportMessage: string | undefined;
           const baseFetch = streamOptions?.fetch ?? globalThis.fetch;
-          const observedFetch: typeof fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+          const observedFetch: FetchImpl = async (input, init) => {
             try {
               const response = await baseFetch(input, init);
               if (!response.ok) status = response.status;
@@ -228,7 +231,8 @@ export function createBoundInferenceStream(options: BoundInferenceOptions) {
               transportMessage = details.join(" ");
               throw error;
             }
-          }, { preconnect: baseFetch.preconnect });
+          };
+          if (baseFetch.preconnect) observedFetch.preconnect = baseFetch.preconnect;
           const nativeModel = materializeNativeModel(model, nativeApi, endpointApiRoot(binding.endpoint).toString().replace(/\/$/, ""), binding.generation);
           let terminal: Extract<AssistantMessageEvent, { type: "done" | "error" }> | undefined;
           try {

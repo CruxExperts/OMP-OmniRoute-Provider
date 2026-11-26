@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- Oh My Pi in the declared `>=18.12.2 <19` range. See the
+- Oh My Pi `>=18.12.2 <19` for the tagged release. The source checkout
+  declares `>=18.12.2` with no upper bound. See the
   [generated compatibility reference](reference/generated.md) for pinned source
   versions; release qualification requires fresh evidence for the latest stable host.
 - Bun `>=1.4.2` when installing from source or running package checks.

@@ -331,6 +331,42 @@
       "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v18.21.0/SHA256SUMS.txt",
       "checksums_sha256": "0ca1e64be186cefab58ccb0f42346bbd7c65ebd39092bd3f8dbe32dbd70c287a",
       "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omp-linux-x64-19.0.0",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v19.0.0",
+      "peeled_commit": "57771ae562b9345e0579bceb2d68d585e3e6927e",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v19.0.0/omp-linux-x64",
+      "sha256": "c7cc5c8d505053c8ffaf180417e5d5c781235b9d936f286810560151120109bf",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v19.0.0/SHA256SUMS.txt",
+      "checksums_sha256": "5961a88d79f2c4aa6c3779d63a6c275d9838b50896ae961414a0261ac19fe7f3",
+      "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omp-linux-x64-19.1.0",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v19.1.0",
+      "peeled_commit": "a7135b8f31826c878734388b648f52bed8da436e",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v19.1.0/omp-linux-x64",
+      "sha256": "be2b45c437b623e15c29b1f8c98aacb842f92118196454b5e9eed884359e9a01",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v19.1.0/SHA256SUMS.txt",
+      "checksums_sha256": "93c0681225930231e262f9cd72971b15c8fd1cb63c1ee1f87d08554b05cf77de",
+      "status": "verified_disposable_acquisition"
+    },
+    {
+      "id": "omp-linux-x64-19.2.1",
+      "upstream": "omp",
+      "kind": "release_asset",
+      "release_tag": "v19.2.1",
+      "peeled_commit": "b55cd1bb664d8ab46ddc77f2a34eb47555dbf1ac",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v19.2.1/omp-linux-x64",
+      "sha256": "e8b937f9bf023baa147bdd300ad5421af0a6ef8b1f350c47a9a93d5fca94feca",
+      "checksums_url": "https://github.com/can1357/oh-my-pi/releases/download/v19.2.1/SHA256SUMS.txt",
+      "checksums_sha256": "3fc6886c17c9bf4bb6acb2322dd9b9748bb9bfa3341bb7a43204b6ce1ad1c6ce",
+      "status": "verified_disposable_acquisition"
     }
   ]
 }

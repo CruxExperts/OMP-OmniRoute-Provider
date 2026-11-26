@@ -20,7 +20,7 @@ test("commit documentation uses staged source and preserves unstaged source and 
     symlinkSync(join(root, "node_modules"), join(temporary, "node_modules"), "dir");
     put(".gitignore", "node_modules\n");
     put("VERSION", "1.0.0\n");
-    put("package.json", { version: "1.0.0", omp: { compatibility: { host: ">=18.12.2 <19", tested: [] } } });
+    put("package.json", { version: "1.0.0", omp: { compatibility: { host: ">=18.12.2 <19 || 19.2.0", tested: [] } } });
     put(".omp-plugin/marketplace.json", { version: "1.0.0", commands: ["/cruxomni"] });
     put("src/index.ts", 'api.registerCommand("cruxomni", {});\n');
     put("contracts/operations.json", { operations: [] });
@@ -35,6 +35,7 @@ test("commit documentation uses staged source and preserves unstaged source and 
     put("docs/INDEX.md", "User's uncommitted index notes\n");
     execFileSync("python3", ["scripts/refresh-staged-docs.py"], { cwd: temporary, stdio: "pipe" });
     expect(git("show", ":docs/reference/generated.md")).toContain("`/cruxomni`");
+    expect(git("show", ":docs/reference/generated.md")).toContain(">=18.12.2 <19 \\|\\| 19.2.0");
     expect(git("show", ":docs/reference/generated.md")).not.toContain("unstaged-only");
     expect(readFileSync(join(temporary, "src/index.ts"), "utf8")).toContain("unstaged-only");
     expect(readFileSync(join(temporary, "docs/INDEX.md"), "utf8")).toBe("User's uncommitted index notes\n");
